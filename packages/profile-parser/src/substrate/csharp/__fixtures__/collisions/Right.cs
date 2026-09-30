@@ -1,0 +1,1 @@
+namespace Right.Shared; public class Service { public static int Ping() => 2; }

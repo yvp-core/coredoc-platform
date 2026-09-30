@@ -1,0 +1,21 @@
+-- SF-20260728-where-the-sdlc-is-sagging: the index the loop readings' cost join
+-- reads by.
+--
+-- The precedent added `run_id` to agent_sessions as the join between a run and
+-- its cost, and nothing read it until now. The readings join sessions by
+-- (workspace_id, run_id) on every request; without this index Postgres can only
+-- reach the rows through a workspace-scoped index and re-check run_id against
+-- every session that workspace has ever recorded.
+--
+-- ADDITIVE ONLY — one index, no column, no type, no data rewrite — so a plain
+-- revert drops what it added and restores nothing.
+--
+-- Rollback:
+--   DROP INDEX "agent_sessions_workspace_id_run_id_idx";
+--
+-- Written as a plain CREATE INDEX rather than CONCURRENTLY because Prisma runs a
+-- migration inside a transaction, which CONCURRENTLY cannot join. The brief write
+-- lock that costs is weighed against what the table holds today: `run_id` is null
+-- on every existing row, because no repository has yet run the successor flow to
+-- a commit.
+CREATE INDEX "agent_sessions_workspace_id_run_id_idx" ON "agent_sessions"("workspace_id", "run_id");

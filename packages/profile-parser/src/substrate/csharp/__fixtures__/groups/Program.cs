@@ -1,0 +1,12 @@
+using Microsoft.AspNetCore.Builder;
+var app = WebApplication.CreateBuilder(args).Build();
+var api = app.MapGroup("/api");
+var v1 = api.MapGroup("/v1");
+v1.MapGet("/items", () => "items");
+app.MapGroup("/direct").MapGroup("/nested").MapGet("/ok", () => "ok");
+app.MapGroup(GetPrefix()).MapGet("/unknown", () => "unknown");
+var moved = app.MapGroup("/old");
+moved = app.MapGroup("/new");
+moved.MapGet("/ambiguous", () => "no");
+app.Run();
+string GetPrefix() => Environment.GetEnvironmentVariable("PREFIX") ?? "/runtime";

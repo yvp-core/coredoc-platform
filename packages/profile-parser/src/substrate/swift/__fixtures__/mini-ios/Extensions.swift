@@ -1,0 +1,3 @@
+extension Coordinator {
+  func stop() {}
+}

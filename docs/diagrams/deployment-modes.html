@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deployment Modes</title>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #12a968;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1200px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-sans);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Deployment · trust boundaries</p>
+    <h1>Where Coredoc runs — and where your code never goes</h1>
+
+    <svg viewBox="0 0 1040 576" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="deploy-modes-title deploy-modes-desc">
+      <title id="deploy-modes-title">Deployment Modes</title>
+      <desc id="deploy-modes-desc">Coredoc runs in three modes: fully local on a developer machine, as a Coredoc-managed SaaS, or entirely inside client infrastructure on-prem with Neo4j — where no code, data or logs ever reach Coredoc and no network path to Coredoc exists.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#12a968"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- ═══ Zones (network boundaries, drawn first) ═══ -->
+      <!-- Zone: developer machine -->
+      <rect x="32" y="72" width="256" height="440" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,4"/>
+      <rect x="48" y="76" width="144" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="120" y="85" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">DEVELOPER MACHINE</text>
+
+      <!-- Zone: Coredoc cloud -->
+      <rect x="352" y="72" width="656" height="176" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,4"/>
+      <rect x="368" y="76" width="216" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="476" y="85" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">COREDOC CLOUD · MANAGED SAAS</text>
+
+      <!-- Zone: client infrastructure -->
+      <rect x="352" y="296" width="656" height="216" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,4"/>
+      <rect x="368" y="300" width="248" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="492" y="309" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">CLIENT INFRASTRUCTURE · ON-PREM</text>
+
+      <!-- ═══ Paths (before nodes) ═══ -->
+      <!-- Workstation -> SaaS (crosses boundary, link) -->
+      <path d="M264,260 H312 Q320,260 320,252 V168 Q320,160 328,160 H400"
+            fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <rect x="332" y="200" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="364" y="209" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">HTTPS:443</text>
+      <!-- Workstation -> on-prem server (crosses boundary inside client net, link) -->
+      <path d="M264,316 H336 Q344,316 344,324 V392 Q344,400 352,400 H384"
+            fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <rect x="292" y="296" width="44" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="314" y="305" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">HTTPS</text>
+      <!-- On-prem server -> graph node (in-network, muted) -->
+      <line x1="656" y1="400" x2="720" y2="400" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="670" y="380" width="36" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="688" y="389" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">BOLT</text>
+      <!-- Blocked path: cloud <-> client, never exists -->
+      <line x1="856" y1="248" x2="856" y2="276" stroke="#12a968" stroke-width="1.2" stroke-dasharray="5,4"/>
+      <line x1="850" y1="278" x2="862" y2="290" stroke="#12a968" stroke-width="1.6"/>
+      <line x1="862" y1="278" x2="850" y2="290" stroke="#12a968" stroke-width="1.6"/>
+      <rect x="868" y="258" width="80" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="908" y="267" fill="#0d7a4c" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">ZERO ACCESS</text>
+
+      <!-- ═══ Nodes ═══ -->
+      <!-- Workstation -->
+      <rect x="56" y="232" width="208" height="112" rx="6" fill="#f5f5f5"/>
+      <rect x="56" y="232" width="208" height="112" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="64" y="238" width="32" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="80" y="247" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">HOST</text>
+      <text x="160" y="260" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Workstation</text>
+      <rect x="68" y="268" width="184" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="76" y="283" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">coredoc CLI + MCP</text>
+      <text x="244" y="283" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">stdio</text>
+      <rect x="68" y="300" width="184" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="76" y="315" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">graph file</text>
+      <text x="244" y="315" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">sqlite·ladybug</text>
+
+      <!-- Coredoc SaaS -->
+      <rect x="400" y="88" width="288" height="136" rx="6" fill="#f5f5f5"/>
+      <rect x="400" y="88" width="288" height="136" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="408" y="94" width="56" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="436" y="103" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">MANAGED</text>
+      <text x="544" y="116" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Coredoc SaaS</text>
+      <rect x="412" y="124" width="264" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="420" y="139" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">@coredoc/server</text>
+      <text x="668" y="139" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">api·mcp</text>
+      <rect x="412" y="156" width="264" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="420" y="171" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">Postgres</text>
+      <text x="668" y="171" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">control plane</text>
+      <rect x="412" y="188" width="264" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="420" y="203" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">Ladybug on R2</text>
+      <text x="668" y="203" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">graph snapshots</text>
+
+      <!-- On-prem server (client-run) -->
+      <rect x="384" y="344" width="272" height="112" rx="6" fill="#f5f5f5"/>
+      <rect x="384" y="344" width="272" height="112" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="392" y="350" width="32" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="408" y="359" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">HOST</text>
+      <text x="520" y="372" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Coredoc server, client-run</text>
+      <rect x="396" y="380" width="248" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="404" y="395" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">@coredoc/server</text>
+      <text x="636" y="395" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">docker image</text>
+      <rect x="396" y="412" width="248" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="404" y="427" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">Postgres</text>
+      <text x="636" y="427" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">control plane</text>
+
+      <!-- Graph + object store (focal, client-owned) -->
+      <rect x="720" y="344" width="256" height="112" rx="6" fill="#f5f5f5"/>
+      <rect x="720" y="344" width="256" height="112" rx="6" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <rect x="728" y="350" width="32" height="12" rx="2" fill="transparent" stroke="rgba(18,169,104,0.5)" stroke-width="0.8"/>
+      <text x="744" y="359" fill="#0d7a4c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">HOST</text>
+      <text x="848" y="372" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Graph + object store</text>
+      <rect x="732" y="380" width="232" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="740" y="395" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">Neo4j</text>
+      <text x="956" y="395" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">shared graph</text>
+      <rect x="732" y="412" width="232" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="740" y="427" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">S3-compatible store</text>
+      <text x="956" y="427" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">objects</text>
+
+      <!-- Annotation -->
+      <text x="680" y="484" fill="#4f5d75" font-size="12" font-family="'Geist', sans-serif" text-anchor="middle">Everything runs inside the client's network — Coredoc never stores, processes or even sees code, data or logs.</text>
+
+      <!-- ═══ Legend ═══ -->
+      <line x1="32" y1="536" x2="1008" y2="536" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <rect x="112" y="546" width="16" height="12" rx="2" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <text x="136" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">CLIENT-OWNED GRAPH · NEO4J</text>
+
+      <line x1="336" y1="552" x2="376" y2="552" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <text x="384" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">CROSSES A NETWORK BOUNDARY</text>
+
+      <line x1="592" y1="552" x2="632" y2="552" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="640" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">IN-NETWORK</text>
+
+      <line x1="744" y1="552" x2="772" y2="552" stroke="#12a968" stroke-width="1.2" stroke-dasharray="5,4"/>
+      <line x1="774" y1="546" x2="784" y2="558" stroke="#12a968" stroke-width="1.6"/>
+      <line x1="784" y1="546" x2="774" y2="558" stroke="#12a968" stroke-width="1.6"/>
+      <text x="792" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">BLOCKED · PATH NEVER EXISTS</text>
+    </svg>
+  </div>
+</body>
+</html>

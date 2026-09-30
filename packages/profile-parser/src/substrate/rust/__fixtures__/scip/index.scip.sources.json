@@ -1,0 +1,7 @@
+{
+  "indexSha256": "a40ac31aa06acf92792be8dc1c03f45723154301e01fb57957b942a3abc45b26",
+  "sources": {
+    "build.rs": "cace3c3ddd26fef7c20054a6e4842d3e17f2e84dadcef76075be049d3e19d8ca",
+    "src/lib.rs": "038acca4016b205edc5190c8b6e3fc85f75b8f92b66d40af1767e2decf22972a"
+  }
+}

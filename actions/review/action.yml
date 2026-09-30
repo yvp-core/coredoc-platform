@@ -1,0 +1,71 @@
+name: Coredoc PR review
+description: Review a captured PR and publish validated inline findings
+inputs:
+  settings:
+    description: Review settings JSON (policy, named model, limits and optional graph); no credentials
+    required: true
+  github-token:
+    description: Repository token with contents read, pull-requests write and actions read permissions
+    required: true
+  model-api-key:
+    description: Provider API key held by the runner; omit when claude-code-oauth-token is set
+    required: false
+  claude-code-oauth-token:
+    description: >-
+      Claude subscription token from `claude setup-token`; passed only into the spawned
+      Claude Code runtime's environment, never read by Coredoc code. Configure exactly
+      one of model-api-key and claude-code-oauth-token.
+    required: false
+  graph-token:
+    description: Optional read credential for the configured Coredoc MCP
+    required: false
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: '22'
+    - name: Prepare the review runner
+      shell: bash
+      env:
+        REVIEW_SETTINGS: ${{ inputs.settings }}
+      run: |
+        set -euo pipefail
+        runner_root="$(cd "$GITHUB_ACTION_PATH/../.." && pwd)"
+        # Corepack selects packageManager from its cwd before pnpm sees any arguments.
+        cd "$runner_root"
+        corepack enable
+        corepack pnpm install --frozen-lockfile --ignore-scripts
+        corepack pnpm exec esbuild "$runner_root/packages/cli/src/review/entry.ts" --bundle --platform=node --format=esm --target=node22 --external:@anthropic-ai/claude-agent-sdk --outfile="$runner_root/packages/cli/.coredoc-review-runner.mjs" --banner:js='import { createRequire } from "node:module"; const require = createRequire(import.meta.url);'
+        # The SDK stays external so Node resolves it, and its cli.js, from the installed tree.
+        (cd "$runner_root/packages/cli" && node --input-type=module -e "
+          const m = await import('@anthropic-ai/claude-agent-sdk');
+          const { createRequire } = await import('node:module');
+          const { existsSync } = await import('node:fs');
+          const cli = createRequire(import.meta.url).resolve('@anthropic-ai/claude-agent-sdk/cli.js');
+          if (!existsSync(cli)) { console.error('Claude Code CLI not found at ' + cli); process.exit(1); }
+          console.log('Claude Code runtime resolved: ' + cli);
+        ")
+        umask 077
+        printf '%s' "$REVIEW_SETTINGS" > "$RUNNER_TEMP/coredoc-review-settings.json"
+        echo "runner_root=$runner_root" >> "$GITHUB_ENV"
+    - name: Review the PR
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        COREDOC_REVIEW_LLM_API_KEY: ${{ inputs.model-api-key }}
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude-code-oauth-token }}
+        COREDOC_REVIEW_GRAPH_TOKEN: ${{ inputs.graph-token }}
+      run: |
+        set -euo pipefail
+        node "$runner_root/packages/cli/.coredoc-review-runner.mjs" review event --settings "$RUNNER_TEMP/coredoc-review-settings.json" --output "$RUNNER_TEMP/coredoc-review-result.json" --markdown "$RUNNER_TEMP/coredoc-review-result.md"
+    - name: Show the review report
+      if: always()
+      shell: bash
+      run: |
+        if [ -f "$RUNNER_TEMP/coredoc-review-result.md" ]; then
+          cat "$RUNNER_TEMP/coredoc-review-result.md" >> "$GITHUB_STEP_SUMMARY"
+        else
+          printf '%s\n' '# Coredoc review — incomplete' '' 'The runner did not produce a validated report. See the failed step.' >> "$GITHUB_STEP_SUMMARY"
+        fi
+        rm -f "$RUNNER_TEMP/coredoc-review-settings.json" "$RUNNER_TEMP/coredoc-review-result.json" "$RUNNER_TEMP/coredoc-review-result.md" "$runner_root/packages/cli/.coredoc-review-runner.mjs"

@@ -1,0 +1,28 @@
+{
+  "version": "2.0",
+  "projects": [
+    {
+      "id": "intent-eval",
+      "name": "Intent eval fixture",
+      "repos": [
+        {
+          "name": "fixture-repo",
+          "path": "./workspace/fixture-repo",
+          "key": "fixture-repo"
+        }
+      ]
+    }
+  ],
+  "output": {
+    "dir": "./coredoc-output",
+    "format": "json",
+    "prettyPrint": true
+  },
+  "parserStorage": "./coredoc-parsers",
+  "agentMode": "interactive",
+  "exclude": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/*.test.ts"
+  ]
+}

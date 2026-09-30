@@ -1,0 +1,19 @@
+-- The optimistic-lock counter the log ingest swaps on.
+--
+-- The ingest reads a session row, filters replayed records against its watermark,
+-- and writes back with `increment`. That read-modify-write needs a swap key that
+-- moves on every write, and `last_event_nanos` is not one: a direct workflow event
+-- carries no source time, so the watermark deliberately does NOT advance for it
+-- (advancing would discard Claude Code's still-buffered native records). Two
+-- concurrent writers would therefore both match the same watermark, and the second
+-- would overwrite the first's whole `skills_used` map — losing the routing and
+-- usage keys the workflow event just wrote.
+--
+-- Defaulted to 0, so every existing row is immediately swappable and no backfill
+-- is needed. ADDITIVE ONLY — one nullable-free column with a default, no type
+-- change, no data rewrite — so a plain revert drops what it added and restores
+-- nothing.
+--
+-- Rollback:
+--   ALTER TABLE "agent_sessions" DROP COLUMN "revision";
+ALTER TABLE "agent_sessions" ADD COLUMN "revision" INTEGER NOT NULL DEFAULT 0;

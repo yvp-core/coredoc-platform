@@ -1,0 +1,306 @@
+{
+  "projectRoot": "file:///fixture",
+  "documents": [
+    {
+      "relativePath": "App/Program.cs",
+      "symbols": [
+        {
+          "symbol": "scip-dotnet nuget . . ``/MessagesController#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Mvc.Core 10.0.0.0 Mvc/ControllerBase#",
+              "isImplementation": true
+            }
+          ]
+        }
+      ],
+      "occurrences": [
+        {
+          "symbol": "scip-dotnet nuget . . Example/",
+          "symbolRoles": 0,
+          "range": [0, 6, 13]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/",
+          "symbolRoles": 0,
+          "range": [0, 14, 20]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Microsoft/",
+          "symbolRoles": 0,
+          "range": [1, 6, 15]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . AspNetCore/",
+          "symbolRoles": 0,
+          "range": [1, 16, 26]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Mvc/",
+          "symbolRoles": 0,
+          "range": [1, 27, 30]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 1,
+          "range": [2, 4, 11]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore 10.0.0.0 Builder/WebApplication#",
+          "symbolRoles": 0,
+          "range": [2, 14, 28]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore 10.0.0.0 Builder/WebApplication#CreateBuilder(+1).",
+          "symbolRoles": 0,
+          "range": [2, 29, 42]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/Program#`<Main>$`().(args)",
+          "symbolRoles": 0,
+          "range": [2, 43, 47]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [3, 0, 7]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore 10.0.0.0 Builder/WebApplicationBuilder#Services.",
+          "symbolRoles": 0,
+          "range": [3, 8, 16]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.DependencyInjection.Abstractions 10.0.0.0 DependencyInjection/ServiceCollectionServiceExtensions#AddSingleton(+7).",
+          "symbolRoles": 0,
+          "range": [3, 17, 29]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/IService#",
+          "symbolRoles": 0,
+          "range": [3, 30, 38]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/Service#",
+          "symbolRoles": 0,
+          "range": [3, 40, 47]
+        },
+        {
+          "symbol": "local 1",
+          "symbolRoles": 1,
+          "range": [4, 4, 7]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [4, 10, 17]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore 10.0.0.0 Builder/WebApplicationBuilder#Build().",
+          "symbolRoles": 0,
+          "range": [4, 18, 23]
+        },
+        {
+          "symbol": "local 1",
+          "symbolRoles": 0,
+          "range": [5, 0, 3]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Routing 10.0.0.0 Builder/EndpointRouteBuilderExtensions#MapGet(+1).",
+          "symbolRoles": 0,
+          "range": [5, 4, 10]
+        },
+        {
+          "symbol": "local 1",
+          "symbolRoles": 0,
+          "range": [6, 0, 3]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Mvc.Core 10.0.0.0 Builder/ControllerEndpointRouteBuilderExtensions#MapControllers().",
+          "symbolRoles": 0,
+          "range": [6, 4, 18]
+        },
+        {
+          "symbol": "local 1",
+          "symbolRoles": 0,
+          "range": [7, 0, 3]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore 10.0.0.0 Builder/WebApplication#Run().",
+          "symbolRoles": 0,
+          "range": [7, 4, 7]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/MessagesController#",
+          "symbolRoles": 1,
+          "range": [10, 13, 31]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Mvc.Core 10.0.0.0 Mvc/RouteAttribute#`.ctor`().",
+          "symbolRoles": 0,
+          "range": [9, 1, 6]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/MessagesController#`.ctor`().(service)",
+          "symbolRoles": 1,
+          "range": [10, 41, 48]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/IService#",
+          "symbolRoles": 0,
+          "range": [10, 32, 40]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Mvc.Core 10.0.0.0 Mvc/ControllerBase#",
+          "symbolRoles": 0,
+          "range": [10, 52, 66]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/MessagesController#Get().",
+          "symbolRoles": 1,
+          "range": [13, 18, 21]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Mvc.Core 10.0.0.0 Mvc/HttpGetAttribute#`.ctor`(+1).",
+          "symbolRoles": 0,
+          "range": [12, 5, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/MessagesController#Get().(id)",
+          "symbolRoles": 1,
+          "range": [13, 29, 31]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/MessagesController#`.ctor`().(service)",
+          "symbolRoles": 0,
+          "range": [13, 36, 43]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/IService#Send().",
+          "symbolRoles": 0,
+          "range": [13, 44, 48]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/MessagesController#Get().(id)",
+          "symbolRoles": 0,
+          "range": [13, 49, 51]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/MessagesController#Local().",
+          "symbolRoles": 1,
+          "range": [14, 16, 21]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/MessagesController#Local().(exact)",
+          "symbolRoles": 1,
+          "range": [14, 30, 35]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/Service#",
+          "symbolRoles": 0,
+          "range": [14, 22, 29]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/MessagesController#Local().(exact)",
+          "symbolRoles": 0,
+          "range": [14, 40, 45]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/Service#Send(+1).",
+          "symbolRoles": 0,
+          "range": [14, 46, 50]
+        }
+      ]
+    },
+    {
+      "relativePath": "Domain/Service.cs",
+      "symbols": [
+        {
+          "symbol": "scip-dotnet nuget . . Domain/Service#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget . . Domain/IService#",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/Service#Send().",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget . . Domain/IService#Send().",
+              "isImplementation": true
+            }
+          ]
+        }
+      ],
+      "occurrences": [
+        {
+          "symbol": "scip-dotnet nuget . . Example/",
+          "symbolRoles": 0,
+          "range": [0, 10, 17]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/",
+          "symbolRoles": 0,
+          "range": [0, 18, 24]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/IService#",
+          "symbolRoles": 1,
+          "range": [1, 17, 25]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/IService#Send().",
+          "symbolRoles": 1,
+          "range": [1, 35, 39]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/IService#Send().(value)",
+          "symbolRoles": 1,
+          "range": [1, 47, 52]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/Service#",
+          "symbolRoles": 1,
+          "range": [2, 13, 20]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/IService#",
+          "symbolRoles": 0,
+          "range": [2, 23, 31]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/Service#Send().",
+          "symbolRoles": 1,
+          "range": [4, 18, 22]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/Service#Send().(value)",
+          "symbolRoles": 1,
+          "range": [4, 30, 35]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/Service#Send().(value)",
+          "symbolRoles": 0,
+          "range": [4, 40, 45]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/Service#Send(+1).",
+          "symbolRoles": 1,
+          "range": [5, 15, 19]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/Service#Send(+1).(value)",
+          "symbolRoles": 1,
+          "range": [5, 24, 29]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Domain/Service#Send(+1).(value)",
+          "symbolRoles": 0,
+          "range": [5, 34, 39]
+        }
+      ]
+    }
+  ]
+}

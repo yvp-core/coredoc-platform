@@ -1,0 +1,1285 @@
+<title>Coredoc System Atlas</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Single-theme by design: the embedded diagrams are fixed light-editorial,
+     so the page commits to the same world and paints every color explicitly. */
+  :root {
+    --paper: #f5f5f5;
+    --paper-2: #ececec;
+    --ink: #2d3142;
+    --muted: #4f5d75;
+    --soft: #7a8399;
+    --rule: rgba(45,49,66,0.12);
+    --accent: #12a968;
+    --sans: 'Geist', system-ui, sans-serif;
+    --serif: 'Instrument Serif', Georgia, serif;
+    --mono: 'Geist Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--sans);
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.55;
+  }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 4rem 2rem 3rem; }
+  header.masthead { margin-bottom: 1rem; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.5rem;
+  }
+  h1 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: clamp(2.2rem, 4.5vw, 3.4rem);
+    letter-spacing: -0.02em;
+    line-height: 1.08;
+    text-wrap: balance;
+    max-width: 22ch;
+  }
+  .lede {
+    margin-top: 1.25rem;
+    max-width: 62ch;
+    font-size: 1.02rem;
+    color: var(--muted);
+  }
+  nav.toc {
+    margin: 2.5rem 0 0;
+    padding: 1rem 0 0;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.6rem;
+  }
+  nav.toc a {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    padding: 0.2rem 0;
+  }
+  nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); border-bottom-color: var(--accent); outline: none; }
+  section.fig {
+    margin-top: 4.5rem;
+    padding-top: 2.5rem;
+    border-top: 1px solid var(--rule);
+  }
+  section.fig .eyebrow { color: var(--accent); }
+  h2 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: clamp(1.5rem, 2.6vw, 2rem);
+    letter-spacing: -0.015em;
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+  .blurb {
+    margin-top: 0.9rem;
+    max-width: 68ch;
+    color: var(--muted);
+    font-size: 0.96rem;
+  }
+  .blurb strong { color: var(--ink); font-weight: 600; }
+  .canvas { margin-top: 1.75rem; overflow-x: auto; }
+  .canvas svg { width: 100%; min-width: 840px; display: block; }
+  footer.colophon {
+    margin-top: 4.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    color: var(--soft);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 2rem;
+  }
+</style>
+<div class="wrap">
+<header class="masthead">
+  <p class="eyebrow">Coredoc · for business &amp; engineering</p>
+  <h1>Coredoc System Atlas</h1>
+  <p class="lede">Seven views of how Coredoc works today and where it is heading: the platform at a glance, the three deployment modes — including fully client-hosted on-prem — the profile-driven code graph, spec-driven agent workflows, the upcoming intent layer, delivery analytics, and the target software-delivery loop they add up to.</p>
+</header>
+<nav class="toc" aria-label="Sections">
+<a href="#fig-1">01 · The big picture</a>
+<a href="#fig-2">02 · Where it runs</a>
+<a href="#fig-3">03 · Code graph</a>
+<a href="#fig-4">04 · Engineering workflows</a>
+<a href="#fig-5">05 · Intent layer — to be</a>
+<a href="#fig-6">06 · Delivery analytics</a>
+<a href="#fig-7">07 · Target SDLC</a>
+</nav>
+<section class="fig" id="fig-1">
+  <p class="eyebrow">01 · The big picture</p>
+  <h2>Three data planes, one grounded agent</h2>
+  <p class="blurb">Coredoc maintains three connected views of your engineering organization: the <strong>code graph</strong> (what the system is), the <strong>intent overlay</strong> (what it should do), and the <strong>delivery spine</strong> (how work actually flows). Agents get all three as grounded context through MCP; the team gets delivery dashboards. Everything else on this page is a zoom into one of these planes.</p>
+  <div class="canvas"><svg viewBox="0 0 1000 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="glance-title glance-desc">
+      <title id="glance-title">Coredoc at a Glance</title>
+      <desc id="glance-desc">Repos, specs, trackers and agent sessions feed three connected Coredoc data planes — the code graph, the reviewed intent overlay and the delivery spine — which ground AI agents through MCP and give teams delivery dashboards.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#12a968"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- ═══ Zone: Coredoc ═══ -->
+      <rect x="56" y="200" width="888" height="168" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="84" y="204" width="256" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="212" y="213" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">COREDOC · THREE CONNECTED DATA PLANES</text>
+
+      <!-- ═══ Arrows ═══ -->
+      <!-- repos -> code graph -->
+      <line x1="176" y1="160" x2="176" y2="240" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="188" y="216" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="208" y="225" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">PARSE</text>
+      <!-- specs -> intent overlay -->
+      <line x1="488" y1="160" x2="488" y2="240" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="424" y="216" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="452" y="225" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">CAPTURE</text>
+      <!-- specs -> delivery spine (elbow) -->
+      <path d="M552,160 V184 Q552,192 560,192 H792 Q800,192 800,200 V240"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="656" y="172" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="676" y="181" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">SYNC</text>
+      <!-- sessions -> delivery spine -->
+      <line x1="848" y1="160" x2="848" y2="240" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="860" y="216" width="76" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="898" y="225" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">OTLP·EVENTS</text>
+      <!-- intent -> code graph (anchors, dashed) -->
+      <line x1="424" y1="280" x2="264" y2="280" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <rect x="316" y="260" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="344" y="269" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">ANCHORS</text>
+      <!-- code graph -> agents -->
+      <path d="M176,320 V384 Q176,392 184,392 H304 Q312,392 312,400 V416"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="188" y="338" width="32" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="204" y="347" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">MCP</text>
+      <!-- intent overlay -> agents -->
+      <path d="M520,320 V384 Q520,392 512,392 H400 Q392,392 392,400 V416"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="532" y="338" width="32" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="548" y="347" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">MCP</text>
+      <!-- delivery spine -> dashboards -->
+      <path d="M824,320 V384 Q824,392 816,392 H696 Q688,392 688,400 V416"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="836" y="338" width="36" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="854" y="347" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">REST</text>
+
+      <!-- ═══ Nodes ═══ -->
+      <!-- Your repos -->
+      <rect x="88" y="96" width="176" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="88" y="96" width="176" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="96" y="102" width="28" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="110" y="111" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+      <text x="176" y="134" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Your repos</text>
+      <text x="176" y="150" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">code · monorepos</text>
+
+      <!-- Specs · Jira · GitHub -->
+      <rect x="424" y="96" width="192" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="424" y="96" width="192" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="432" y="102" width="28" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="446" y="111" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+      <text x="520" y="134" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Specs · Jira · GitHub</text>
+      <text x="520" y="150" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">decisions · issues · PRs</text>
+
+      <!-- Agent sessions -->
+      <rect x="736" y="96" width="176" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="736" y="96" width="176" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="744" y="102" width="28" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="758" y="111" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+      <text x="824" y="134" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Agent sessions</text>
+      <text x="824" y="150" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Claude Code · Codex · skills</text>
+
+      <!-- Code graph -->
+      <rect x="88" y="240" width="176" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="88" y="240" width="176" height="80" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="96" y="246" width="40" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.5)" stroke-width="0.8"/>
+      <text x="116" y="255" fill="rgba(79,93,117,0.9)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PLANE</text>
+      <text x="176" y="276" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Code graph</text>
+      <text x="176" y="292" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">what the system is</text>
+      <text x="176" y="306" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">entrypoints · calls · entities</text>
+
+      <!-- Intent overlay -->
+      <rect x="424" y="240" width="192" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="424" y="240" width="192" height="80" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="432" y="246" width="40" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.5)" stroke-width="0.8"/>
+      <text x="452" y="255" fill="rgba(79,93,117,0.9)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PLANE</text>
+      <text x="520" y="276" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Intent overlay</text>
+      <text x="520" y="292" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">what it should do</text>
+      <text x="520" y="306" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">rules · flows · decisions</text>
+
+      <!-- Delivery spine -->
+      <rect x="736" y="240" width="176" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="736" y="240" width="176" height="80" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="744" y="246" width="40" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.5)" stroke-width="0.8"/>
+      <text x="764" y="255" fill="rgba(79,93,117,0.9)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PLANE</text>
+      <text x="824" y="276" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Delivery spine</text>
+      <text x="824" y="292" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">how work flows</text>
+      <text x="824" y="306" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">tasks · runs · cost · rework</text>
+
+      <!-- AI agents (focal) -->
+      <rect x="256" y="416" width="192" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="256" y="416" width="192" height="72" rx="6" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <rect x="264" y="422" width="24" height="12" rx="2" fill="transparent" stroke="rgba(18,169,104,0.5)" stroke-width="0.8"/>
+      <text x="276" y="431" fill="#0d7a4c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">AI</text>
+      <text x="352" y="450" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">AI agents</text>
+      <text x="352" y="466" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">grounded context via MCP</text>
+
+      <!-- Team dashboards -->
+      <rect x="568" y="416" width="192" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="568" y="416" width="192" height="72" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="576" y="422" width="32" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="592" y="431" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VIEW</text>
+      <text x="664" y="450" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Team dashboards</text>
+      <text x="664" y="466" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">observability · delivery ROI</text>
+
+      <!-- ═══ Legend ═══ -->
+      <line x1="32" y1="520" x2="968" y2="520" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="540" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <rect x="112" y="530" width="16" height="12" rx="2" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <text x="136" y="540" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">THE PAYOFF · GROUNDED AGENTS</text>
+
+      <rect x="336" y="530" width="16" height="12" rx="2" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <text x="360" y="540" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">COREDOC DATA PLANE</text>
+
+      <line x1="528" y1="536" x2="568" y2="536" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="576" y="540" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">DATA FLOW</text>
+
+      <line x1="680" y1="536" x2="720" y2="536" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <text x="728" y="540" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">CODE ANCHORS</text>
+    </svg></div>
+</section>
+<section class="fig" id="fig-2">
+  <p class="eyebrow">02 · Where it runs</p>
+  <h2>Local, cloud — or entirely inside your infrastructure</h2>
+  <p class="blurb">Three deployment modes, three trust postures. <strong>Local</strong>: the CLI, MCP server and graph file live on the developer's machine — code never leaves it. <strong>Coredoc cloud</strong>: a managed workspace for teams (Postgres control plane, Ladybug graph snapshots on R2). <strong>On-prem</strong>: the same server image runs inside the client's own network against a client-owned <strong>Neo4j</strong> graph and S3-compatible storage — Coredoc has no access whatsoever: no code, no data, no logs ever cross the boundary, because the network path simply does not exist.</p>
+  <div class="canvas"><svg viewBox="0 0 1040 576" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="deploy-modes-title deploy-modes-desc">
+      <title id="deploy-modes-title">Deployment Modes</title>
+      <desc id="deploy-modes-desc">Coredoc runs in three modes: fully local on a developer machine, as a Coredoc-managed SaaS, or entirely inside client infrastructure on-prem with Neo4j — where no code, data or logs ever reach Coredoc and no network path to Coredoc exists.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#12a968"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- ═══ Zones (network boundaries, drawn first) ═══ -->
+      <!-- Zone: developer machine -->
+      <rect x="32" y="72" width="256" height="440" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,4"/>
+      <rect x="48" y="76" width="144" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="120" y="85" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">DEVELOPER MACHINE</text>
+
+      <!-- Zone: Coredoc cloud -->
+      <rect x="352" y="72" width="656" height="176" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,4"/>
+      <rect x="368" y="76" width="216" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="476" y="85" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">COREDOC CLOUD · MANAGED SAAS</text>
+
+      <!-- Zone: client infrastructure -->
+      <rect x="352" y="296" width="656" height="216" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,4"/>
+      <rect x="368" y="300" width="248" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="492" y="309" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">CLIENT INFRASTRUCTURE · ON-PREM</text>
+
+      <!-- ═══ Paths (before nodes) ═══ -->
+      <!-- Workstation -> SaaS (crosses boundary, link) -->
+      <path d="M264,260 H312 Q320,260 320,252 V168 Q320,160 328,160 H400"
+            fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <rect x="332" y="200" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="364" y="209" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">HTTPS:443</text>
+      <!-- Workstation -> on-prem server (crosses boundary inside client net, link) -->
+      <path d="M264,316 H336 Q344,316 344,324 V392 Q344,400 352,400 H384"
+            fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <rect x="292" y="296" width="44" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="314" y="305" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">HTTPS</text>
+      <!-- On-prem server -> graph node (in-network, muted) -->
+      <line x1="656" y1="400" x2="720" y2="400" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="670" y="380" width="36" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="688" y="389" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">BOLT</text>
+      <!-- Blocked path: cloud <-> client, never exists -->
+      <line x1="856" y1="248" x2="856" y2="276" stroke="#12a968" stroke-width="1.2" stroke-dasharray="5,4"/>
+      <line x1="850" y1="278" x2="862" y2="290" stroke="#12a968" stroke-width="1.6"/>
+      <line x1="862" y1="278" x2="850" y2="290" stroke="#12a968" stroke-width="1.6"/>
+      <rect x="868" y="258" width="80" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="908" y="267" fill="#0d7a4c" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">ZERO ACCESS</text>
+
+      <!-- ═══ Nodes ═══ -->
+      <!-- Workstation -->
+      <rect x="56" y="232" width="208" height="112" rx="6" fill="#f5f5f5"/>
+      <rect x="56" y="232" width="208" height="112" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="64" y="238" width="32" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="80" y="247" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">HOST</text>
+      <text x="160" y="260" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Workstation</text>
+      <rect x="68" y="268" width="184" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="76" y="283" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">coredoc CLI + MCP</text>
+      <text x="244" y="283" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">stdio</text>
+      <rect x="68" y="300" width="184" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="76" y="315" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">graph file</text>
+      <text x="244" y="315" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">sqlite·ladybug</text>
+
+      <!-- Coredoc SaaS -->
+      <rect x="400" y="88" width="288" height="136" rx="6" fill="#f5f5f5"/>
+      <rect x="400" y="88" width="288" height="136" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="408" y="94" width="56" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="436" y="103" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">MANAGED</text>
+      <text x="544" y="116" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Coredoc SaaS</text>
+      <rect x="412" y="124" width="264" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="420" y="139" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">@coredoc/server</text>
+      <text x="668" y="139" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">api·mcp</text>
+      <rect x="412" y="156" width="264" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="420" y="171" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">Postgres</text>
+      <text x="668" y="171" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">control plane</text>
+      <rect x="412" y="188" width="264" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="420" y="203" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">Ladybug on R2</text>
+      <text x="668" y="203" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">graph snapshots</text>
+
+      <!-- On-prem server (client-run) -->
+      <rect x="384" y="344" width="272" height="112" rx="6" fill="#f5f5f5"/>
+      <rect x="384" y="344" width="272" height="112" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="392" y="350" width="32" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="408" y="359" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">HOST</text>
+      <text x="520" y="372" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Coredoc server, client-run</text>
+      <rect x="396" y="380" width="248" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="404" y="395" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">@coredoc/server</text>
+      <text x="636" y="395" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">docker image</text>
+      <rect x="396" y="412" width="248" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="404" y="427" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">Postgres</text>
+      <text x="636" y="427" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">control plane</text>
+
+      <!-- Graph + object store (focal, client-owned) -->
+      <rect x="720" y="344" width="256" height="112" rx="6" fill="#f5f5f5"/>
+      <rect x="720" y="344" width="256" height="112" rx="6" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <rect x="728" y="350" width="32" height="12" rx="2" fill="transparent" stroke="rgba(18,169,104,0.5)" stroke-width="0.8"/>
+      <text x="744" y="359" fill="#0d7a4c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">HOST</text>
+      <text x="848" y="372" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Graph + object store</text>
+      <rect x="732" y="380" width="232" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="740" y="395" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">Neo4j</text>
+      <text x="956" y="395" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">shared graph</text>
+      <rect x="732" y="412" width="232" height="24" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="740" y="427" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">S3-compatible store</text>
+      <text x="956" y="427" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">objects</text>
+
+      <!-- Annotation -->
+      <text x="680" y="484" fill="#4f5d75" font-size="12" font-family="'Geist', sans-serif" text-anchor="middle">Everything runs inside the client's network — Coredoc never stores, processes or even sees code, data or logs.</text>
+
+      <!-- ═══ Legend ═══ -->
+      <line x1="32" y1="536" x2="1008" y2="536" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <rect x="112" y="546" width="16" height="12" rx="2" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <text x="136" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">CLIENT-OWNED GRAPH · NEO4J</text>
+
+      <line x1="336" y1="552" x2="376" y2="552" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <text x="384" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">CROSSES A NETWORK BOUNDARY</text>
+
+      <line x1="592" y1="552" x2="632" y2="552" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="640" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">IN-NETWORK</text>
+
+      <line x1="744" y1="552" x2="772" y2="552" stroke="#12a968" stroke-width="1.2" stroke-dasharray="5,4"/>
+      <line x1="774" y1="546" x2="784" y2="558" stroke="#12a968" stroke-width="1.6"/>
+      <line x1="784" y1="546" x2="774" y2="558" stroke="#12a968" stroke-width="1.6"/>
+      <text x="792" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">BLOCKED · PATH NEVER EXISTS</text>
+    </svg></div>
+</section>
+<section class="fig" id="fig-3">
+  <p class="eyebrow">03 · Code graph</p>
+  <h2>Extraction: author once, parse forever</h2>
+  <p class="blurb">Instead of a bespoke parser per repo, Claude authors a ~50-line declarative <strong>profile</strong> describing the repo's conventions. A deterministic engine (tree-sitter + SCIP) applies it to every matching site — exhaustive recall, precision by construction, with a scorecard loop gating coverage at ≥80%. The result is local-first: code never leaves the machine unless a team opts into a shared workspace — Coredoc-hosted SaaS or the client's own on-prem deployment — and a GitHub Action keeps the shared graph fresh on every merge.</p>
+  <div class="canvas"><svg viewBox="0 0 1040 576" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="parser-pipe-title parser-pipe-desc">
+      <title id="parser-pipe-title">Parser Extraction Pipeline</title>
+      <desc id="parser-pipe-desc">Claude authors a small declarative extraction profile, a generic tree-sitter and SCIP engine applies it to the repo, and the resulting graph is served to AI agents through MCP locally, with optional cloud sharing and CI auto-sync for teams.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#12a968"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- ═══ Zones ═══ -->
+      <!-- Zone: local -->
+      <rect x="32" y="72" width="976" height="288" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="60" y="76" width="248" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="184" y="85" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">LOCAL · CODE NEVER LEAVES THE MACHINE</text>
+
+      <!-- Zone: cloud -->
+      <rect x="32" y="392" width="976" height="128" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="60" y="396" width="272" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="196" y="405" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">TEAM SHARING · CLOUD SAAS OR ON-PREM</text>
+
+      <!-- ═══ Arrows ═══ -->
+      <!-- skill -> profile.ts -->
+      <line x1="216" y1="136" x2="280" y2="136" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <!-- profile.ts -> engine -->
+      <line x1="440" y1="136" x2="488" y2="136" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <!-- engine -> ParsedRepo -->
+      <line x1="664" y1="136" x2="776" y2="136" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="678" y="116" width="84" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="720" y="125" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">COREDOC PARSE</text>
+      <!-- engine -> skill (coverage loop, dashed) -->
+      <path d="M552,168 V192 Q552,200 544,200 H144 Q136,200 136,192 V168"
+            fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <rect x="294" y="208" width="92" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="340" y="217" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">SCORECARD ≥80%</text>
+      <!-- ParsedRepo -> local graph -->
+      <line x1="876" y1="168" x2="876" y2="256" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="888" y="204" width="80" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="928" y="213" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">PUSH · LINK</text>
+      <!-- local graph -> MCP -->
+      <line x1="776" y1="292" x2="672" y2="292" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="702" y="272" width="44" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="724" y="281" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">READS</text>
+      <!-- MCP -> agents -->
+      <line x1="488" y1="292" x2="376" y2="292" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="404" y="272" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="432" y="281" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">14 TOOLS</text>
+      <!-- ParsedRepo -> cloud workspace (push --remote) -->
+      <path d="M976,136 H992 Q1000,136 1000,144 V444 Q1000,452 992,452 H688"
+            fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <rect x="798" y="432" width="84" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="840" y="441" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">PUSH --REMOTE</text>
+      <!-- CI action -> workspace -->
+      <line x1="232" y1="452" x2="488" y2="452" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <rect x="334" y="432" width="52" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="360" y="441" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">CI PUSH</text>
+      <!-- workspace -> agents (cloud MCP, dashed link) -->
+      <path d="M488,436 H296 Q288,436 288,428 V328"
+            fill="none" stroke="#2e5aa8" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-link)"/>
+      <rect x="358" y="416" width="68" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="392" y="425" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">CLOUD MCP</text>
+
+      <!-- ═══ Nodes ═══ -->
+      <!-- author-profile skill -->
+      <rect x="56" y="104" width="160" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="56" y="104" width="160" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="64" y="110" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="82" y="119" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SKILL</text>
+      <text x="136" y="142" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">author-profile</text>
+      <text x="136" y="158" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">AI scouts conventions</text>
+
+      <!-- profile.ts (focal) -->
+      <rect x="280" y="104" width="160" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="280" y="104" width="160" height="64" rx="6" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <rect x="288" y="110" width="32" height="12" rx="2" fill="transparent" stroke="rgba(18,169,104,0.5)" stroke-width="0.8"/>
+      <text x="304" y="119" fill="#0d7a4c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FILE</text>
+      <text x="360" y="142" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">profile.ts</text>
+      <text x="360" y="158" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">~50 reviewable lines</text>
+
+      <!-- Engine -->
+      <rect x="488" y="104" width="176" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="488" y="104" width="176" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="496" y="110" width="44" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="518" y="119" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENGINE</text>
+      <text x="576" y="142" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Profile engine</text>
+      <text x="576" y="158" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">tree-sitter + SCIP</text>
+
+      <!-- ParsedRepo -->
+      <rect x="776" y="104" width="200" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="776" y="104" width="200" height="64" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="784" y="110" width="36" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.5)" stroke-width="0.8"/>
+      <text x="802" y="119" fill="rgba(79,93,117,0.9)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">JSON</text>
+      <text x="876" y="134" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ParsedRepo</text>
+      <text x="876" y="148" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">entrypoints · entities · calls</text>
+      <text x="876" y="160" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">summarize · embed</text>
+
+      <!-- Local graph -->
+      <rect x="776" y="256" width="200" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="776" y="256" width="200" height="72" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="784" y="262" width="24" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.5)" stroke-width="0.8"/>
+      <text x="796" y="271" fill="rgba(79,93,117,0.9)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">DB</text>
+      <text x="876" y="294" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Local graph</text>
+      <text x="876" y="310" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">SQLite · Ladybug · cross-repo</text>
+
+      <!-- MCP server (focal) -->
+      <rect x="488" y="256" width="184" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="488" y="256" width="184" height="72" rx="6" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <rect x="496" y="262" width="28" height="12" rx="2" fill="transparent" stroke="rgba(18,169,104,0.5)" stroke-width="0.8"/>
+      <text x="510" y="271" fill="#0d7a4c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">MCP</text>
+      <text x="580" y="288" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">MCP server</text>
+      <text x="580" y="304" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">discovery · explain</text>
+      <text x="580" y="318" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">impact · cross-repo</text>
+
+      <!-- Agents -->
+      <rect x="200" y="256" width="176" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="200" y="256" width="176" height="72" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="208" y="262" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="220" y="271" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">AI</text>
+      <text x="288" y="294" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">AI agents · IDE</text>
+      <text x="288" y="310" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Claude Code · Codex · CLI</text>
+
+      <!-- CI action -->
+      <rect x="56" y="416" width="176" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="56" y="416" width="176" height="72" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="64" y="422" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="76" y="431" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CI</text>
+      <text x="144" y="450" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">GitHub Action</text>
+      <text x="144" y="466" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">coredoc ci run</text>
+      <text x="144" y="478" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">parse · summarize · push</text>
+
+      <!-- Cloud workspace -->
+      <rect x="488" y="416" width="200" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="488" y="416" width="200" height="72" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="496" y="422" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="514" y="431" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CLOUD</text>
+      <text x="588" y="450" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Team workspace</text>
+      <text x="588" y="466" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">members · remote MCP</text>
+      <text x="588" y="478" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">SaaS Ladybug·R2 / on-prem Neo4j</text>
+
+      <!-- ═══ Legend ═══ -->
+      <line x1="32" y1="536" x2="1008" y2="536" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <rect x="112" y="546" width="16" height="12" rx="2" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <text x="136" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">PROFILE + MCP · THE PRODUCT EDGE</text>
+
+      <line x1="360" y1="552" x2="400" y2="552" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="408" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">LOCAL FLOW</text>
+
+      <line x1="512" y1="552" x2="552" y2="552" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <text x="560" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">COVERAGE LOOP</text>
+
+      <line x1="688" y1="552" x2="728" y2="552" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <text x="736" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">CLOUD SYNC</text>
+
+      <line x1="840" y1="552" x2="880" y2="552" stroke="#2e5aa8" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-link)"/>
+      <text x="888" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">CLOUD MCP</text>
+    </svg></div>
+</section>
+<section class="fig" id="fig-4">
+  <p class="eyebrow">04 · Engineering workflows</p>
+  <h2>Spec-driven development with built-in telemetry</h2>
+  <p class="blurb">The <strong>coredoc-workflows</strong> plugin routes every task by intent, risk and scale. Large changes flow through spec → plan review (a human gate) → implement → review, all anchored to a single <strong>spec.md</strong> artifact with use cases, business rules and acceptance criteria. In parallel, session hooks and native OTel logs stream through a local sanitizing relay — structural events only, never code or prompts — to a workspace endpoint that can itself be self-hosted on-prem.</p>
+  <div class="canvas"><svg viewBox="0 0 1040 576" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="sdd-capture-title sdd-capture-desc">
+      <title id="sdd-capture-title">SDD Workflows + Capture</title>
+      <desc id="sdd-capture-desc">A task router classifies work and drives spec, plan-review, implement and review skills around a central spec.md artifact, while session hooks and native OTel logs flow through a local sanitizing relay to the Coredoc workspace without any code or prompt content.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#12a968"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- ═══ Zones ═══ -->
+      <!-- Zone A: SDD workflow -->
+      <rect x="32" y="72" width="976" height="256" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="60" y="76" width="216" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="168" y="85" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">SDD WORKFLOW · AGENT SESSION</text>
+
+      <!-- Zone B: capture plane -->
+      <rect x="128" y="384" width="848" height="128" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="156" y="388" width="256" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="284" y="397" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">CAPTURE PLANE · FAIL-OPEN · CONTENT-FREE</text>
+
+      <!-- ═══ Arrows ═══ -->
+      <!-- router -> spec -->
+      <line x1="208" y1="136" x2="256" y2="136" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="212" y="116" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="232" y="125" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">ROUTE</text>
+      <!-- spec -> plan-review -->
+      <line x1="400" y1="136" x2="448" y2="136" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <!-- plan-review -> implement (user gate, accent) -->
+      <line x1="592" y1="136" x2="640" y2="136" stroke="#12a968" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <rect x="600" y="116" width="32" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="616" y="125" fill="#0d7a4c" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">GATE</text>
+      <!-- implement -> review -->
+      <line x1="784" y1="136" x2="832" y2="136" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <!-- spec skill -> spec.md -->
+      <path d="M328,168 V216 Q328,224 336,224 H424 Q432,224 432,232 V240"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="344" y="204" width="76" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="382" y="213" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">REDACT-SCAN</text>
+      <!-- spec.md -> implement (dashed) -->
+      <path d="M544,264 H664 Q672,264 672,256 V168"
+            fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <rect x="566" y="244" width="60" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="596" y="253" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">AC · SCOPE</text>
+      <!-- spec.md -> review (dashed) -->
+      <path d="M544,288 H892 Q900,288 900,280 V168"
+            fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <rect x="728" y="268" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="760" y="277" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">SPEC BASIS</text>
+      <!-- zone A -> observer (hooks) -->
+      <line x1="264" y1="328" x2="264" y2="416" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <rect x="276" y="364" width="44" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="298" y="373" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">HOOKS</text>
+      <!-- zone A -> relay (native OTLP) -->
+      <line x1="552" y1="328" x2="552" y2="416" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <rect x="564" y="364" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="596" y="373" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">OTLP LOGS</text>
+      <!-- observer -> relay -->
+      <line x1="368" y1="448" x2="464" y2="448" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="392" y="428" width="44" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="414" y="437" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">FLUSH</text>
+      <!-- relay -> workspace -->
+      <line x1="640" y1="448" x2="736" y2="448" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <rect x="664" y="428" width="44" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="686" y="437" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">HTTPS</text>
+
+      <!-- ═══ Nodes ═══ -->
+      <!-- Router -->
+      <rect x="64" y="104" width="144" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="64" y="104" width="144" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="72" y="110" width="44" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="94" y="119" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ROUTER</text>
+      <text x="136" y="142" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Task router</text>
+      <text x="136" y="158" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">intent · risk · scale</text>
+
+      <!-- coredoc-spec -->
+      <rect x="256" y="104" width="144" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="256" y="104" width="144" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="264" y="110" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="282" y="119" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SKILL</text>
+      <text x="328" y="142" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">coredoc-spec</text>
+      <text x="328" y="158" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">intent → spec</text>
+
+      <!-- coredoc-plan-review -->
+      <rect x="448" y="104" width="144" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="448" y="104" width="144" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="456" y="110" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="474" y="119" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SKILL</text>
+      <text x="520" y="142" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Plan review</text>
+      <text x="520" y="158" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">user approval gate</text>
+
+      <!-- coredoc-implement -->
+      <rect x="640" y="104" width="144" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="640" y="104" width="144" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="648" y="110" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="666" y="119" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SKILL</text>
+      <text x="712" y="142" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Implement</text>
+      <text x="712" y="158" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">subagents · verify</text>
+
+      <!-- coredoc-review -->
+      <rect x="832" y="104" width="144" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="832" y="104" width="144" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="840" y="110" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="858" y="119" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SKILL</text>
+      <text x="904" y="142" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Review</text>
+      <text x="904" y="158" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">findings · read-only</text>
+
+      <!-- spec.md (focal) -->
+      <rect x="352" y="240" width="192" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="352" y="240" width="192" height="72" rx="6" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <rect x="360" y="246" width="32" height="12" rx="2" fill="transparent" stroke="rgba(18,169,104,0.5)" stroke-width="0.8"/>
+      <text x="376" y="255" fill="#0d7a4c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FILE</text>
+      <text x="448" y="274" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">spec.md</text>
+      <text x="448" y="290" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">UC · BR · AC · ADR · LIM</text>
+      <text x="448" y="304" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">status: draft → accepted</text>
+
+      <!-- Annotation between zones -->
+      <text x="832" y="348" fill="#4f5d75" font-size="12" font-family="'Geist', sans-serif" text-anchor="middle">Bugs prepend an investigate stage;</text>
+      <text x="832" y="364" fill="#4f5d75" font-size="12" font-family="'Geist', sans-serif" text-anchor="middle">small changes go straight to implement.</text>
+
+      <!-- Capture hooks -->
+      <rect x="160" y="416" width="208" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="160" y="416" width="208" height="64" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="168" y="422" width="36" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.5)" stroke-width="0.8"/>
+      <text x="186" y="431" fill="rgba(79,93,117,0.9)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">HOOKS</text>
+      <text x="264" y="450" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Capture hooks</text>
+      <text x="264" y="466" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">workflow-observer · outbox</text>
+
+      <!-- Managed relay -->
+      <rect x="464" y="416" width="176" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="464" y="416" width="176" height="64" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="472" y="422" width="36" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.5)" stroke-width="0.8"/>
+      <text x="490" y="431" fill="rgba(79,93,117,0.9)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">RELAY</text>
+      <text x="552" y="450" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Managed relay</text>
+      <text x="552" y="466" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">127.0.0.1:43181 · sanitizer</text>
+
+      <!-- Coredoc workspace -->
+      <rect x="736" y="416" width="208" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="736" y="416" width="208" height="64" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="744" y="422" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="762" y="431" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CLOUD</text>
+      <text x="840" y="450" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Coredoc workspace</text>
+      <text x="840" y="466" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">otel/v1 · capture/v1 · self-hostable</text>
+
+      <!-- ═══ Legend ═══ -->
+      <line x1="32" y1="528" x2="1008" y2="528" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="548" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <rect x="112" y="538" width="16" height="12" rx="2" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <text x="136" y="548" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">SPEC ARTIFACT</text>
+
+      <line x1="256" y1="544" x2="296" y2="544" stroke="#12a968" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <text x="304" y="548" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">USER APPROVAL GATE</text>
+
+      <line x1="480" y1="544" x2="520" y2="544" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="528" y="548" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">STAGE FLOW</text>
+
+      <line x1="640" y1="544" x2="680" y2="544" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <text x="688" y="548" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">TELEMETRY · OPTIONAL</text>
+
+      <line x1="856" y1="544" x2="896" y2="544" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <text x="904" y="548" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">HTTPS EGRESS</text>
+    </svg></div>
+</section>
+<section class="fig" id="fig-5">
+  <p class="eyebrow">05 · Intent layer — to be</p>
+  <h2>Reviewed product truth beside the code graph</h2>
+  <p class="blurb">Today agents reconstruct product behavior from tickets, specs and code on every task. The intent layer makes it durable: an agent skill captures <strong>candidates</strong> from finalized specs (later: bootstrap mining of Jira, ADRs and the code graph itself), a maintainer explicitly accepts or rejects them in a git-tracked file, and code anchors track freshness against the graph. Agents consume it through one bounded read-only MCP tool — routed IDs are reused between workflow stages, so context stays cheap.</p>
+  <div class="canvas"><svg viewBox="0 0 1000 584" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="intent-tobe-title intent-tobe-desc">
+      <title id="intent-tobe-title">Intent Layer — To Be</title>
+      <desc id="intent-tobe-desc">Product intent is captured from finalized specs (later also mined from Jira, code and the code graph) into a git-tracked overlay file, reviewed by maintainers, anchored to code-graph nodes, and served to planning, implementation, review and investigation agents through one read-only MCP tool.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#12a968"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- ═══ Zones (before arrows and nodes) ═══ -->
+      <!-- Zone 1: repo-local, git-tracked -->
+      <rect x="264" y="112" width="200" height="392" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="284" y="116" width="160" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="364" y="125" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">REPO-LOCAL · GIT-TRACKED</text>
+
+      <!-- Zone 2: coredoc local read surfaces -->
+      <rect x="544" y="256" width="208" height="264" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="576" y="260" width="144" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="648" y="269" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">COREDOC LOCAL · READ-ONLY</text>
+
+      <!-- ═══ Arrows (before nodes) ═══ -->
+      <!-- S1 Finalized spec -> Capture skill -->
+      <path d="M200,128 H232 Q240,128 240,136 V160 Q240,168 248,168 H280"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <!-- S2 Jira/ADR -> Capture skill (planned bootstrap) -->
+      <path d="M200,224 H224 Q232,224 232,216 V200 Q232,192 240,192 H280"
+            fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <!-- S3 Code + code graph -> Capture skill (planned bootstrap) -->
+      <path d="M200,320 H248 Q256,320 256,312 V224 Q256,216 264,216 H280"
+            fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <!-- Capture -> intent.json -->
+      <line x1="364" y1="240" x2="364" y2="288" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="372" y="258" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="408" y="267" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">CANDIDATES</text>
+      <!-- intent.json -> Maintainer review -->
+      <line x1="332" y1="368" x2="332" y2="424" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="268" y="390" width="52" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="294" y="399" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">GIT DIFF</text>
+      <!-- Maintainer review -> intent.json -->
+      <line x1="396" y1="424" x2="396" y2="368" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="408" y="390" width="48" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="432" y="399" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">DECIDE</text>
+      <!-- intent.json -> get_intent_context -->
+      <line x1="448" y1="328" x2="560" y2="328" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="484" y="308" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="504" y="317" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">READ</text>
+      <!-- Code graph -> get_intent_context -->
+      <line x1="648" y1="440" x2="648" y2="368" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="660" y="398" width="84" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="702" y="407" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">ANCHOR STATE</text>
+      <!-- get_intent_context -> Workflow agents (focal handoff) -->
+      <line x1="736" y1="328" x2="800" y2="328" stroke="#12a968" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <rect x="740" y="308" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="768" y="317" fill="#0d7a4c" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">CONTEXT</text>
+
+      <!-- ═══ Nodes ═══ -->
+      <!-- S1: Finalized spec -->
+      <rect x="48" y="96" width="152" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="48" y="96" width="152" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="56" y="102" width="28" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="70" y="111" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+      <text x="124" y="134" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Finalized spec</text>
+      <text x="124" y="150" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">coredoc-spec · decisions</text>
+
+      <!-- S2: Jira / ADRs (planned) -->
+      <rect x="48" y="192" width="152" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="48" y="192" width="152" height="64" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <rect x="56" y="198" width="28" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="70" y="207" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+      <text x="124" y="230" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Jira · ADRs</text>
+      <text x="124" y="246" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">bootstrap mining · later</text>
+
+      <!-- S3: Code + code graph (planned) -->
+      <rect x="48" y="288" width="152" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="48" y="288" width="152" height="64" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <rect x="56" y="294" width="28" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="70" y="303" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+      <text x="124" y="326" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Code + code graph</text>
+      <text x="124" y="342" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">bootstrap mining · later</text>
+
+      <!-- C1: Intent-capture skill -->
+      <rect x="280" y="144" width="168" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="280" y="144" width="168" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="288" y="150" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="306" y="159" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SKILL</text>
+      <text x="364" y="186" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Intent-capture skill</text>
+      <text x="364" y="204" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">coredoc intent capture</text>
+      <text x="364" y="220" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">validate · no auto-accept</text>
+
+      <!-- F: intent.json (focal) -->
+      <rect x="280" y="288" width="168" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="280" y="288" width="168" height="80" rx="6" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <rect x="288" y="294" width="32" height="12" rx="2" fill="transparent" stroke="rgba(18,169,104,0.5)" stroke-width="0.8"/>
+      <text x="304" y="303" fill="#0d7a4c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FILE</text>
+      <text x="364" y="324" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">.coredoc/intent.json</text>
+      <text x="364" y="340" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">6 kinds · relations · anchors</text>
+      <text x="364" y="354" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">candidate → accepted</text>
+
+      <!-- R: Maintainer review -->
+      <rect x="280" y="424" width="168" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="280" y="424" width="168" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="288" y="430" width="40" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="308" y="439" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">HUMAN</text>
+      <text x="364" y="462" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Maintainer review</text>
+      <text x="364" y="478" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">accept · reject · supersede</text>
+
+      <!-- M: get_intent_context -->
+      <rect x="560" y="288" width="176" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="560" y="288" width="176" height="80" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="568" y="294" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="582" y="303" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">MCP</text>
+      <text x="648" y="324" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">get_intent_context</text>
+      <text x="648" y="340" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">one bounded read tool</text>
+      <text x="648" y="354" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">+ coredoc intent CLI</text>
+
+      <!-- G: Code graph -->
+      <rect x="560" y="440" width="176" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="560" y="440" width="176" height="64" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="568" y="446" width="24" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.5)" stroke-width="0.8"/>
+      <text x="580" y="455" fill="rgba(79,93,117,0.9)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">DB</text>
+      <text x="648" y="478" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Code graph</text>
+      <text x="648" y="494" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">stableId · versionedId</text>
+
+      <!-- A: Workflow agents -->
+      <rect x="800" y="280" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="800" y="280" width="160" height="96" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="808" y="286" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="820" y="295" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">AI</text>
+      <text x="880" y="322" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Workflow agents</text>
+      <text x="880" y="340" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">plan · implement</text>
+      <text x="880" y="356" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">review · investigate</text>
+
+      <!-- Annotation -->
+      <text x="880" y="408" fill="#4f5d75" font-size="12" font-family="'Geist', sans-serif" text-anchor="middle">Routed intent IDs are reused between</text>
+      <text x="880" y="424" fill="#4f5d75" font-size="12" font-family="'Geist', sans-serif" text-anchor="middle">stages — at most one broad lookup.</text>
+
+      <!-- ═══ Legend ═══ -->
+      <line x1="32" y1="536" x2="968" y2="536" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <rect x="112" y="546" width="16" height="12" rx="2" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <text x="136" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">INTENT OVERLAY · MVP CORE</text>
+
+      <rect x="312" y="546" width="16" height="12" rx="2" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.30)" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="336" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">PLANNED · POST-MVP</text>
+
+      <line x1="472" y1="552" x2="512" y2="552" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="520" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">DATA FLOW</text>
+
+      <line x1="608" y1="552" x2="648" y2="552" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <text x="656" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">PLANNED FLOW</text>
+
+      <line x1="760" y1="552" x2="800" y2="552" stroke="#12a968" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <text x="808" y="556" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">AGENT CONTEXT</text>
+    </svg></div>
+</section>
+<section class="fig" id="fig-6">
+  <p class="eyebrow">06 · Delivery analytics</p>
+  <h2>Jira, Git and agent sessions on one spine</h2>
+  <p class="blurb">Hourly connectors poll Jira and GitHub; agent sessions report tokens, cost and tool usage over OTLP; workflow skills emit run and stage events. Everything is normalized and fused — by task identity and actor identity — into one <strong>canonical delivery spine</strong>. That's what powers the answers a lead actually asks: what happened on this task end to end, what did it cost, what shipped, and where rework is coming from. The server runs in Coredoc cloud or on-prem — in the latter case all telemetry stays inside the client's network.</p>
+  <div class="canvas"><svg viewBox="0 0 1000 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="delivery-spine-title delivery-spine-desc">
+      <title id="delivery-spine-title">Delivery Analytics Spine</title>
+      <desc id="delivery-spine-desc">Jira issues, GitHub pull requests, OTel agent-session telemetry and workflow capture events are normalized and fused into one canonical delivery spine, which powers the task timeline, KPI, activity and capture-health views in the desktop Observability tab.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#12a968"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- ═══ Zones ═══ -->
+      <!-- Zone: coredoc server -->
+      <rect x="288" y="64" width="424" height="352" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="304" y="68" width="288" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="448" y="77" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">COREDOC SERVER · CLOUD SAAS OR ON-PREM</text>
+
+      <!-- Zone: desktop views -->
+      <rect x="744" y="112" width="232" height="288" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="764" y="116" width="192" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="860" y="125" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">DESKTOP · OBSERVABILITY TAB</text>
+
+      <!-- ═══ Arrows ═══ -->
+      <!-- Jira -> importers (straight) -->
+      <line x1="200" y1="128" x2="304" y2="128" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="224" y="108" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="252" y="117" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">JQL POLL</text>
+      <!-- GitHub -> importers (elbow up) -->
+      <path d="M200,216 H244 Q252,216 252,208 V160 Q252,152 260,152 H304"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <!-- Agent sessions -> ingest (straight) -->
+      <line x1="200" y1="304" x2="304" y2="304" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="234" y="284" width="36" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="252" y="293" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">OTLP</text>
+      <!-- Workflow skills -> ingest (elbow up) -->
+      <path d="M200,392 H244 Q252,392 252,384 V352 Q252,344 260,344 H304"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <!-- Importers -> spine -->
+      <path d="M480,136 H500 Q508,136 508,144 V216 Q508,224 516,224 H536"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="520" y="172" width="52" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="546" y="181" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">PROJECT</text>
+      <!-- Ingest -> spine -->
+      <path d="M480,344 H500 Q508,344 508,336 V280 Q508,272 516,272 H536"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="520" y="304" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="552" y="313" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">TASK LINKS</text>
+      <!-- Spine -> timeline view (accent serve) -->
+      <line x1="696" y1="224" x2="760" y2="224" stroke="#12a968" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <rect x="708" y="204" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="728" y="213" fill="#0d7a4c" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">REST</text>
+      <!-- Ingest -> activity view -->
+      <line x1="480" y1="348" x2="760" y2="348" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="600" y="328" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="620" y="337" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">REST</text>
+
+      <!-- ═══ Nodes ═══ -->
+      <!-- Jira -->
+      <rect x="40" y="96" width="160" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="40" y="96" width="160" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="48" y="102" width="28" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="62" y="111" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+      <text x="120" y="134" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Jira Cloud</text>
+      <text x="120" y="150" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">issues · hourly poll</text>
+
+      <!-- GitHub -->
+      <rect x="40" y="184" width="160" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="40" y="184" width="160" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="48" y="190" width="28" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="62" y="199" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+      <text x="120" y="222" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">GitHub</text>
+      <text x="120" y="238" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">PRs · diffs · hourly poll</text>
+
+      <!-- Agent sessions -->
+      <rect x="40" y="272" width="160" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="40" y="272" width="160" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="48" y="278" width="28" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="62" y="287" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+      <text x="120" y="310" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Agent sessions</text>
+      <text x="120" y="326" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Claude Code · Codex</text>
+
+      <!-- Workflow skills -->
+      <rect x="40" y="360" width="160" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="40" y="360" width="160" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="48" y="366" width="28" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="62" y="375" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+      <text x="120" y="398" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Workflow skills</text>
+      <text x="120" y="414" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">runs · stages · capabilities</text>
+
+      <!-- Importers -->
+      <rect x="304" y="96" width="176" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="304" y="96" width="176" height="80" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="312" y="102" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="330" y="111" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SYNC</text>
+      <text x="392" y="132" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Importers</text>
+      <text x="392" y="148" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">normalize · project</text>
+      <text x="392" y="162" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">raw payloads 30d · cron</text>
+
+      <!-- OTLP + capture ingest -->
+      <rect x="304" y="288" width="176" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="304" y="288" width="176" height="80" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="312" y="294" width="44" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="334" y="303" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">INGEST</text>
+      <text x="392" y="324" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">OTel + capture ingest</text>
+      <text x="392" y="340" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">otel-ingest · capture.service</text>
+      <text x="392" y="354" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">content-free · idempotent</text>
+
+      <!-- Canonical spine (focal) -->
+      <rect x="536" y="200" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="536" y="200" width="160" height="96" rx="6" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <rect x="544" y="206" width="32" height="12" rx="2" fill="transparent" stroke="rgba(18,169,104,0.5)" stroke-width="0.8"/>
+      <text x="560" y="215" fill="#0d7a4c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CORE</text>
+      <text x="616" y="236" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Canonical spine</text>
+      <text x="616" y="252" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">tasks · refs · runs</text>
+      <text x="616" y="266" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">ship · rework · artifacts</text>
+      <text x="616" y="280" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">actor fusion · status map</text>
+
+      <!-- Task timeline view -->
+      <rect x="760" y="188" width="200" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="760" y="188" width="200" height="72" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="768" y="194" width="32" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="784" y="203" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VIEW</text>
+      <text x="860" y="226" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Task timeline · KPIs</text>
+      <text x="860" y="242" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">journey · ship · rework</text>
+
+      <!-- Activity view -->
+      <rect x="760" y="312" width="200" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="760" y="312" width="200" height="72" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="768" y="318" width="32" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="784" y="327" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VIEW</text>
+      <text x="860" y="350" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Activity · health</text>
+      <text x="860" y="366" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">tokens · cost · tools · outbox</text>
+
+      <!-- Annotation -->
+      <text x="392" y="444" fill="#4f5d75" font-size="12" font-family="'Geist', sans-serif" text-anchor="middle">Content-free by construction — only structural IDs travel,</text>
+      <text x="392" y="460" fill="#4f5d75" font-size="12" font-family="'Geist', sans-serif" text-anchor="middle">never code, prompts or diffs.</text>
+
+      <!-- ═══ Legend ═══ -->
+      <line x1="32" y1="480" x2="968" y2="480" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="500" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <rect x="112" y="490" width="16" height="12" rx="2" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <text x="136" y="500" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">CANONICAL SPINE · ONE SOURCE OF TRUTH</text>
+
+      <line x1="400" y1="496" x2="440" y2="496" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="448" y="500" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">INGEST · FUSE</text>
+
+      <line x1="576" y1="496" x2="616" y2="496" stroke="#12a968" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <text x="624" y="500" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">SERVED TO TEAM VIEWS</text>
+    </svg></div>
+</section>
+<section class="fig" id="fig-7">
+  <p class="eyebrow">07 · Target SDLC</p>
+  <h2>One spec from PRD to merge — and back into context</h2>
+  <p class="blurb">The planned end state: product writes a PRD with Coredoc MCP context, dev turns it into a spec and implementation with the workflow skills, QA validates acceptance criteria with a browser-use agent, and CI reviews the PR against the spec. On merge, CI re-extracts the code graph and intent overlay — so the next PRD starts from fresh, grounded context. The loop closes.</p>
+  <div class="canvas"><svg viewBox="0 0 840 436" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="sdlc-loop-title sdlc-loop-desc">
+      <title id="sdlc-loop-title">Target SDLC Loop</title>
+      <desc id="sdlc-loop-desc">Product writes a PRD with Coredoc MCP context, dev turns it into a spec and implementation, QA validates acceptance criteria with a browser-use agent, CI reviews the pull request against the spec, and merge re-extracts the code graph and intent overlay.</desc>
+      <defs>
+        <pattern id="sdlc-dots" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="11" cy="11" r="0.8" fill="rgba(45,49,66,0.10)"/>
+        </pattern>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#12a968"/></marker>
+        <marker id="arrow-sm" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto"><polygon points="0 0, 6 2.5, 0 5" fill="#4f5d75"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+      <rect width="100%" height="100%" fill="url(#sdlc-dots)" opacity="0.55"/>
+
+      <!-- Lane tints (lanes 0 and 2) -->
+      <rect x="140" y="36" width="700" height="80" fill="rgba(45,49,66,0.018)"/>
+      <rect x="140" y="196" width="700" height="80" fill="rgba(45,49,66,0.018)"/>
+
+      <!-- Lane dividers -->
+      <line x1="0" y1="36" x2="840" y2="36" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="116" x2="840" y2="116" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="196" x2="840" y2="196" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="276" x2="840" y2="276" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="356" x2="840" y2="356" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <!-- Label column border -->
+      <line x1="140" y1="36" x2="140" y2="356" stroke="rgba(45,49,66,0.20)" stroke-width="1"/>
+
+      <!-- Step header chips -->
+      <rect x="190" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="198" y="19" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">1</text>
+      <text x="198" y="32" fill="#4f5d75" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em" font-weight="500">PRD</text>
+
+      <rect x="302" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="310" y="19" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">2</text>
+      <text x="310" y="32" fill="#4f5d75" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em" font-weight="500">SPEC</text>
+
+      <rect x="414" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="422" y="19" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">3</text>
+      <text x="422" y="32" fill="#4f5d75" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em" font-weight="500">BUILD</text>
+
+      <rect x="526" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="534" y="19" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">4</text>
+      <text x="534" y="32" fill="#4f5d75" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em" font-weight="500">VALIDATE</text>
+
+      <rect x="638" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="646" y="19" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">5</text>
+      <text x="646" y="32" fill="#4f5d75" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em" font-weight="500">REVIEW</text>
+
+      <rect x="750" y="8" width="16" height="16" rx="8" fill="rgba(18,169,104,0.20)"/>
+      <text x="758" y="19" fill="#0d7a4c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">6</text>
+      <text x="758" y="32" fill="#0d7a4c" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em" font-weight="500">MERGE</text>
+
+      <!-- Lane labels -->
+      <text x="70" y="80" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PRODUCT</text>
+      <text x="70" y="160" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">DEV</text>
+      <text x="70" y="240" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">QA</text>
+      <text x="70" y="320" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CI/CD</text>
+
+      <!-- ═══ Connectors (before nodes) ═══ -->
+      <!-- PRD -> Spec+plan (down) -->
+      <path d="M248,76 H302 Q310,76 310,84 V124" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- Spec+plan -> Implement (same lane) -->
+      <line x1="360" y1="156" x2="372" y2="156" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- Implement -> QA (down) -->
+      <path d="M472,156 H526 Q534,156 534,164 V204" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- QA -> PR review (down) -->
+      <path d="M584,236 H638 Q646,236 646,244 V284" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- PR review -> Merge (same lane, focal-in) -->
+      <line x1="696" y1="316" x2="708" y2="316" stroke="#12a968" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+
+      <!-- ═══ Nodes ═══ -->
+      <!-- PRODUCT / step 1: PRD authoring -->
+      <rect x="148" y="44" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="152" y="48" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="159" y="56" fill="#2d3142" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">PRD</text>
+      <text x="198" y="70" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">PRD authoring</text>
+      <text x="198" y="84" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">idea → PRD</text>
+      <text x="198" y="96" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">Coredoc MCP · intent ctx</text>
+      <rect x="232" y="98" width="16" height="8" rx="2" fill="#9c6b50"/>
+      <text x="240" y="104" fill="#ffffff" font-size="5" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="700">FL</text>
+
+      <!-- DEV / step 2: Spec + plan -->
+      <rect x="260" y="124" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="264" y="128" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="271" y="136" fill="#2d3142" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">DEV</text>
+      <text x="310" y="150" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Spec + plan</text>
+      <text x="310" y="164" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">PRD → spec.md</text>
+      <text x="310" y="176" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">coredoc-workflows</text>
+      <rect x="264" y="178" width="16" height="8" rx="2" fill="#9c6b50"/>
+      <text x="272" y="184" fill="#ffffff" font-size="5" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="700">FL</text>
+      <rect x="340" y="178" width="16" height="8" rx="2" fill="#9c6b50"/>
+      <text x="348" y="184" fill="#ffffff" font-size="5" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="700">FL</text>
+
+      <!-- DEV / step 3: Implement -->
+      <rect x="372" y="124" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="376" y="128" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="383" y="136" fill="#2d3142" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">DEV</text>
+      <text x="422" y="150" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Implement</text>
+      <text x="422" y="164" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">spec → code + tests</text>
+      <text x="422" y="176" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">coredoc-implement · MCP</text>
+      <rect x="376" y="178" width="16" height="8" rx="2" fill="#9c6b50"/>
+      <text x="384" y="184" fill="#ffffff" font-size="5" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="700">FL</text>
+
+      <!-- QA / step 4: QA validation -->
+      <rect x="484" y="204" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="488" y="208" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="495" y="216" fill="#2d3142" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">QA</text>
+      <text x="534" y="230" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">QA validation</text>
+      <text x="534" y="244" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">ACs → verdict</text>
+      <text x="534" y="256" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">browser agent · spec</text>
+      <rect x="488" y="258" width="16" height="8" rx="2" fill="#9c6b50"/>
+      <text x="496" y="264" fill="#ffffff" font-size="5" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="700">FL</text>
+      <rect x="564" y="258" width="16" height="8" rx="2" fill="#9c6b50"/>
+      <text x="572" y="264" fill="#ffffff" font-size="5" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="700">FL</text>
+
+      <!-- CI / step 5: PR review -->
+      <rect x="596" y="284" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="600" y="288" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="607" y="296" fill="#2d3142" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">CI</text>
+      <text x="646" y="310" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">PR review</text>
+      <text x="646" y="324" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">diff vs spec</text>
+      <text x="646" y="336" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">coredoc-review · CI</text>
+
+      <!-- CI / step 6: Merge + extract (focal) -->
+      <rect x="708" y="284" width="100" height="64" rx="4" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <rect x="712" y="288" width="14" height="10" rx="2" fill="rgba(18,169,104,0.20)"/>
+      <text x="719" y="296" fill="#0d7a4c" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">CI</text>
+      <text x="758" y="310" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Merge + extract</text>
+      <text x="758" y="324" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">graph + intent sync</text>
+      <text x="758" y="336" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">coredoc ci run · capture</text>
+
+      <!-- ═══ Legend ═══ -->
+      <text x="144" y="376" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">STEPS</text>
+      <rect x="204" y="364" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="212" y="375" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">1</text>
+      <text x="228" y="376" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">PRD</text>
+      <rect x="284" y="364" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="292" y="375" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">2</text>
+      <text x="308" y="376" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">SPEC</text>
+      <rect x="368" y="364" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="376" y="375" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">3</text>
+      <text x="392" y="376" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">BUILD</text>
+      <rect x="456" y="364" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="464" y="375" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">4</text>
+      <text x="480" y="376" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">VALIDATE</text>
+      <rect x="560" y="364" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="568" y="375" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">5</text>
+      <text x="584" y="376" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">REVIEW</text>
+      <rect x="656" y="364" width="16" height="16" rx="8" fill="rgba(18,169,104,0.20)"/>
+      <text x="664" y="375" fill="#0d7a4c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">6</text>
+      <text x="680" y="376" fill="#0d7a4c" font-size="7" font-family="'Geist Mono', monospace">MERGE</text>
+
+      <text x="144" y="397" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">DATA TYPE</text>
+      <rect x="224" y="389" width="16" height="8" rx="2" fill="#9c6b50"/>
+      <text x="232" y="395" fill="#ffffff" font-size="5" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="700">FL</text>
+      <text x="248" y="397" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">PRD · SPEC · REPORT</text>
+      <text x="404" y="397" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace">left chip = input · right chip = output</text>
+
+      <text x="144" y="419" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">FLOW</text>
+      <line x1="224" y1="416" x2="264" y2="416" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <text x="272" y="419" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">HANDOFF</text>
+      <line x1="344" y1="416" x2="384" y2="416" stroke="#12a968" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <text x="392" y="419" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">INTO MERGE · FOCAL</text>
+    </svg></div>
+</section>
+<footer class="colophon">
+  <span>COREDOC SYSTEM ATLAS</span>
+  <span>FACTS AS OF 2026-08-27 · SOURCED FROM coredoc-parser + coredoc-workflows</span>
+  <span>SECTIONS 05 &amp; 07 SHOW PLANNED ("TO BE") STATE</span>
+</footer>
+</div>

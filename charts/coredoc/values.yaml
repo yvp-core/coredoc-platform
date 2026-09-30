@@ -1,0 +1,213 @@
+# Default values for the coredoc chart.
+#
+# Minimal required input to install:
+#   - server.publicUrl          (public https:// base URL)
+#   - auth.existingSecret       (OAuth credentials secret)
+#   - auth.allowedEmailDomains  (required for the default github upstream)
+#   - postgres.existingSecret   (DATABASE_URL secret)
+#   - neo4j.neo4j.passwordFromSecret (Neo4j auth secret; see the neo4j block)
+# See values-example.yaml for a realistic filled-in example.
+
+image:
+  repository: ghcr.io/yvp-core/coredoc-server
+  # Defaults to the chart appVersion when empty.
+  tag: ""
+  # Pin an immutable digest, e.g. "sha256:<64 hex>". When set it WINS over tag
+  # and the image renders as repository@digest — the shape mirrored/air-gapped
+  # installs usually require. Leave empty to deploy by tag.
+  digest: ""
+  pullPolicy: IfNotPresent
+  # Names of pre-created imagePullSecrets, e.g. [ghcr-pull].
+  pullSecrets: []
+
+server:
+  # REQUIRED. Public base URL of this deployment, e.g. https://coredoc.example.com.
+  # Drives MCP_SERVER_URL (OAuth issuer / MCP discovery) and CORS_ORIGINS.
+  # The OAuth callback registered with your identity provider must be
+  # <publicUrl>/callback.
+  publicUrl: ""
+  # Additional public base URLs the UI is served on, e.g.
+  # [https://ai-dashboard.example.com]. Drives WEB_ORIGINS: each one gets a
+  # registered web-login callback, so a browser that starts the login on that
+  # host also finishes it there. publicUrl stays the OAuth issuer / MCP
+  # resource identifier and must NOT be changed to move the UI — that would
+  # invalidate every MCP token already issued to connected clients. The
+  # upstream IdP callback also stays <publicUrl>/callback, so no identity
+  # provider change is needed. Add each host to ingress.extraHosts too.
+  webOrigins: []
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 400m
+      memory: 512Mi
+  # Escape hatch: extra plain env vars set on the server container
+  # (map of NAME: value). Rendered last, so they override chart-computed
+  # env (e.g. NEO4J_URI for an external Neo4j when neo4j.enabled=false).
+  #   DESKTOP_RELEASES_URL — mirror for the desktop builds served by
+  #   /api/v1/auth/web/desktop-download (see docs/onprem/INSTALL.md §11);
+  #   defaults to the hosted bucket when unset.
+  env: {}
+  # Extra envFrom sources (secretRef/configMapRef entries) appended verbatim.
+  extraEnvFrom: []
+
+auth:
+  # Upstream identity provider for the self-hosted OAuth 2.1 server:
+  # "github" (GitHub OAuth App) or "workos" (WorkOS AuthKit OIDC).
+  upstream: github
+  # Login gate — verified-email domains allowed to sign in, e.g. [example.com].
+  # REQUIRED for the github upstream (the server refuses to boot with an empty
+  # gate). Optional defense-in-depth for workos (AuthKit tenant config is the
+  # primary gate there).
+  allowedEmailDomains: []
+  # REQUIRED. Name of a pre-created Secret loaded via envFrom. Expected keys:
+  #   OAUTH_JWT_SECRET                        (>= 32 chars; openssl rand -hex 32)
+  #   GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET (github upstream)
+  #   WORKOS_CLIENT_ID / WORKOS_CLIENT_SECRET (workos upstream)
+  #   WORKOS_AUTHKIT_CLIENT_ID / WORKOS_API_KEY (workos invitation completion + workspace orgs)
+  # Optional extra keys (loaded too, since envFrom loads every key):
+  #   SERVER_ENCRYPTION_KEY                   (encrypts CI/service tokens)
+  existingSecret: ""
+  workos:
+    # AuthKit domain, e.g. https://yourco.authkit.app. Required when
+    # upstream=workos.
+    authkitDomain: ""
+
+# Feature flags — rendered as literal 'true'/'false' env strings.
+config:
+  # ALLOW_SOURCES_IN_GRAPH — permit pushes that include source code bodies.
+  allowSourcesInGraph: false
+  # ENABLE_SOURCE_MODULE — GET /workspaces/:id/source/... git-provider fetch.
+  enableSourceModule: false
+  # ENABLE_CLI_BUNDLE — GET /cli/bundle presigned CLI bundle downloads.
+  enableCliBundle: false
+  # ENABLE_SEMANTIC_SEARCH — semantic_search MCP tool.
+  enableSemanticSearch: false
+
+# S3-compatible artifact storage (Cloudflare R2, GCS interop endpoint, MinIO,
+# AWS S3). If endpoint is empty the server falls back to container-local disk
+# (ephemeral — single-node evaluation only).
+storage:
+  # e.g. https://storage.googleapis.com or https://<account>.r2.cloudflarestorage.com
+  endpoint: ""
+  bucket: coredoc-artifacts
+  # The bucket's REAL region (e.g. us-east1) — not "auto"; presigned-URL
+  # signing fails with a wrong region.
+  region: ""
+  # Name of a pre-created Secret loaded via envFrom. Expected keys:
+  #   R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY
+  existingSecret: ""
+
+# Control plane — external Postgres only in v1. The chart deliberately does
+# not run Postgres in-cluster: the control plane holds workspaces, members,
+# and tokens, and belongs on managed/production-grade Postgres (backups,
+# HA, PITR) rather than a chart-managed single pod.
+postgres:
+  # REQUIRED. Name of a pre-created Secret with key:
+  #   DATABASE_URL  (postgresql://user:pass@host:5432/coredoc)
+  existingSecret: ""
+
+# In-cluster Neo4j data plane (upstream neo4j chart passthrough — every key
+# under `neo4j:` except `enabled` follows the upstream chart's values schema).
+# Set enabled=false to bring your own Neo4j; then provide NEO4J_URI /
+# NEO4J_USER via server.env and NEO4J_PASSWORD via server.extraEnvFrom.
+neo4j:
+  enabled: true
+
+  # Required for ArgoCD (and any `helm template` pipeline) — the upstream
+  # chart's `lookup` calls fail outside a live cluster without this.
+  disableLookups: true
+
+  # Pin the service name so NEO4J_URI=bolt://neo4j:7687 is always valid.
+  fullnameOverride: "neo4j"
+
+  neo4j:
+    name: neo4j
+    edition: community
+    # Name of a pre-created Secret holding the Neo4j password. Contract
+    # (one secret, two keys — the upstream chart and the app read it
+    # differently):
+    #   NEO4J_AUTH:     "neo4j/<password>"  (upstream chart requirement)
+    #   NEO4J_PASSWORD: "<password>"        (read by the coredoc server)
+    passwordFromSecret: ""
+    resources:
+      cpu: "2000m"
+      memory: "6Gi"
+
+  # APOC + GDS mirror the plugin set the server is developed against.
+  # Heap sizing: incremental pushes apply a bounded changeset in one
+  # transaction — size max heap to your largest repo (4G is a sane start).
+  env:
+    NEO4J_PLUGINS: '["apoc", "graph-data-science"]'
+    NEO4J_apoc_export_file_enabled: "true"
+    NEO4J_apoc_import_file_enabled: "true"
+    NEO4J_apoc_import_file_use__neo4j__config: "true"
+    NEO4J_server_memory_heap_initial__size: "2G"
+    NEO4J_server_memory_heap_max__size: "4G"
+
+  volumes:
+    data:
+      mode: defaultStorageClass
+
+  services:
+    neo4j:
+      spec:
+        type: ClusterIP
+
+ingress:
+  enabled: true
+  # e.g. nginx
+  className: ""
+  # Public hostname (should match server.publicUrl's host).
+  host: ""
+  # Additional hostnames routed to the same service, e.g.
+  # [ai-dashboard.example.com]. Each also needs to be in server.webOrigins,
+  # or the web login started there will finish on server.publicUrl.
+  extraHosts: []
+  tls:
+    enabled: false
+    # Existing TLS secret name; leave empty when cert-manager sets it via
+    # annotations.
+    secretName: ""
+  # Defaults below are LOAD-BEARING for nginx-ingress — merged with (not
+  # replaced by) any annotations you add.
+  annotations:
+    # The OAuth /callback 302 sets a JWT session cookie (auth_token) plus
+    # oauth_session/oauth_state; combined with the Location header the
+    # response headers exceed nginx's default 4k/8k proxy buffer, so the
+    # controller drops the valid 302 with "upstream sent too big header"
+    # and returns 502. Enlarge the buffer that holds upstream response
+    # headers.
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+    # Parser-result/summary/embeddings uploads can reach LARGE_UPLOAD_LIMIT
+    # (100 MB) — the app enforces per-route ceilings itself
+    # (apps/server/src/libs/body-limits.ts). nginx's default
+    # client_max_body_size is 1 MB, which 413s these uploads before they
+    # reach the pod. Match the app's max so the app stays the gate.
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+
+# Prisma migrations (prisma migrate deploy) — a separate step by design;
+# the container does NOT run them on boot (avoids races with >1 replica).
+migrations:
+  # helm   — pre-install/pre-upgrade Helm hook Job (default).
+  # argocd — render the Job with ArgoCD PreSync hook annotations instead.
+  # manual — don't render the Job; run migrations yourself (see README).
+  hook: helm
+
+# Offline license file (on-prem entitlement). Leave existingSecret empty
+# (default) and the server runs with no licensing at all — that is the hosted
+# deployment and every install that predates this block.
+license:
+  # Name of a pre-created Secret with a single key `license.json`, holding the
+  # signed license file we issue you. It is mounted read-only at
+  # /etc/coredoc/license.json and COREDOC_LICENSE_FILE is set to that path.
+  # A present-but-invalid file fails the pod's boot on purpose; an expired one
+  # only rejects writes (reads, MCP, and the health probes keep working).
+  existingSecret: ""
+
+telemetry:
+  # COREDOC_POSTHOG_KEY — leave empty (default) for an on-prem privacy
+  # posture; telemetry is off when unset.
+  posthogKey: ""

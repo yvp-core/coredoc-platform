@@ -1,0 +1,334 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://coredoc.ai/schema/coredoc.schema.json",
+  "title": "Coredoc Configuration",
+  "description": "Configuration schema for coredoc-parser",
+  "type": "object",
+  "required": ["version", "projects", "output", "parserStorage", "agentMode"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference"
+    },
+    "version": {
+      "type": "string",
+      "enum": ["2.0"],
+      "description": "Configuration schema version"
+    },
+    "projects": {
+      "type": "array",
+      "description": "Projects containing grouped repositories",
+      "items": {
+        "$ref": "#/definitions/ProjectConfig"
+      }
+    },
+    "sharedPackages": {
+      "type": "array",
+      "description": "Global shared packages for cross-service resolution (fallback)",
+      "items": {
+        "$ref": "#/definitions/SharedPackageConfig"
+      }
+    },
+    "output": {
+      "$ref": "#/definitions/OutputConfig"
+    },
+    "parserStorage": {
+      "type": "string",
+      "description": "Directory to store generated parsers"
+    },
+    "agentMode": {
+      "type": "string",
+      "enum": ["interactive", "auto"],
+      "description": "Agent interaction mode"
+    },
+    "exclude": {
+      "type": "array",
+      "description": "Global exclude patterns (glob)",
+      "items": {
+        "type": "string"
+      }
+    },
+    "advanced": {
+      "$ref": "#/definitions/AdvancedConfig"
+    }
+  },
+  "definitions": {
+    "ProjectConfig": {
+      "type": "object",
+      "required": ["id", "name", "repos"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Stable folder-name identifier for this project. Slugified from name; survives renames."
+        },
+        "name": {
+          "type": "string",
+          "description": "Project display name (free-form, may contain spaces and casing)",
+          "minLength": 1
+        },
+        "wizardCompleted": {
+          "type": "boolean",
+          "description": "Whether the setup wizard has been completed"
+        },
+        "repos": {
+          "type": "array",
+          "description": "Repositories belonging to this project",
+          "items": {
+            "$ref": "#/definitions/RepoConfig"
+          }
+        },
+        "sharedPackages": {
+          "type": "array",
+          "description": "Project-scoped shared packages for cross-service resolution",
+          "items": {
+            "$ref": "#/definitions/SharedPackageConfig"
+          }
+        }
+      }
+    },
+    "RepoConfig": {
+      "type": "object",
+      "required": ["name", "path"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique identifier for this repo",
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "path": {
+          "type": "string",
+          "description": "Path to repository root"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["backend", "frontend", "mobile", "library"],
+          "description": "Repository type"
+        },
+        "similarTo": {
+          "type": "string",
+          "description": "Name of repo with similar architecture (parser reuse)"
+        },
+        "exclude": {
+          "type": "array",
+          "description": "Repo-specific exclude patterns",
+          "items": {
+            "type": "string"
+          }
+        },
+        "outputDir": {
+          "type": "string",
+          "description": "Override output directory for this repo"
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Custom metadata"
+        },
+        "frameworkHints": {
+          "$ref": "#/definitions/FrameworkHints"
+        },
+        "workspaceOverrides": {
+          "type": "array",
+          "description": "Per-package overrides for monorepo workspace detection",
+          "items": {
+            "$ref": "#/definitions/WorkspaceOverride"
+          }
+        }
+      }
+    },
+    "WorkspaceOverride": {
+      "type": "object",
+      "required": ["path"],
+      "description": "Override auto-detected workspace package settings",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Glob or exact path relative to repo root (e.g. 'packages/web', 'services/*')"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["backend", "frontend", "mobile", "library"],
+          "description": "Override auto-detected package type"
+        },
+        "language": {
+          "type": "string",
+          "description": "Override detected primary language"
+        },
+        "frameworkHints": {
+          "type": "object",
+          "description": "Framework hints for matched packages",
+          "properties": {
+            "frameworks": {
+              "type": "array",
+              "description": "Additional framework signals to inject",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "description": "Package path patterns to exclude from workspace detection",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "FrameworkHints": {
+      "type": "object",
+      "description": "Hints to help agent generate better parser",
+      "properties": {
+        "language": {
+          "type": "string",
+          "description": "Primary language"
+        },
+        "frameworks": {
+          "type": "array",
+          "description": "Frameworks/libraries used",
+          "items": {
+            "type": "string"
+          }
+        },
+        "orm": {
+          "type": "string",
+          "description": "ORM if any"
+        },
+        "apiStyle": {
+          "type": "string",
+          "enum": ["rest", "graphql", "grpc", "mixed"],
+          "description": "API style"
+        },
+        "stateManagement": {
+          "type": "string",
+          "description": "State management (frontend)"
+        },
+        "testFramework": {
+          "type": "string",
+          "description": "Testing framework"
+        }
+      }
+    },
+    "SharedPackageConfig": {
+      "type": "object",
+      "required": ["name", "path"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Package name"
+        },
+        "path": {
+          "type": "string",
+          "description": "Path to package"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["schemas", "types", "utils", "sdk", "other"],
+          "description": "Package type"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description for agent context"
+        },
+        "clientMappings": {
+          "type": "object",
+          "description": "For SDK packages: maps client class names to target repo names. Used by the cross-repo resolver.",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "examples": [
+            {
+              "Users": "users",
+              "Companies": "companies"
+            }
+          ]
+        }
+      }
+    },
+    "OutputConfig": {
+      "type": "object",
+      "required": ["dir", "format"],
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Output directory"
+        },
+        "format": {
+          "type": "string",
+          "enum": ["json"],
+          "description": "Output format"
+        },
+        "prettyPrint": {
+          "type": "boolean",
+          "description": "Pretty print JSON",
+          "default": true
+        },
+        "splitByPackage": {
+          "type": "boolean",
+          "description": "Generate separate files per package",
+          "default": false
+        },
+        "generateIncrementalState": {
+          "type": "boolean",
+          "description": "Generate incremental state file",
+          "default": true
+        }
+      }
+    },
+    "AdvancedConfig": {
+      "type": "object",
+      "properties": {
+        "maxFilesForAnalysis": {
+          "type": "integer",
+          "description": "Max files to analyze during parser generation",
+          "default": 100
+        },
+        "priorityPatterns": {
+          "type": "array",
+          "description": "File patterns to prioritize for analysis",
+          "items": {
+            "type": "string"
+          }
+        },
+        "parserGenerationTimeout": {
+          "type": "integer",
+          "description": "Timeout for parser generation (seconds)",
+          "default": 300
+        },
+        "validationTestCount": {
+          "type": "integer",
+          "description": "Number of test cases for validation",
+          "default": 10
+        },
+        "minCoveragePercent": {
+          "type": "number",
+          "description": "Minimum coverage percentage for parser validation",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 90
+        },
+        "verbose": {
+          "type": "boolean",
+          "description": "Enable verbose logging",
+          "default": false
+        },
+        "parallelWorkers": {
+          "type": "integer",
+          "description": "Parallel parsing workers",
+          "minimum": 1,
+          "default": 4
+        },
+        "enableAstCache": {
+          "type": "boolean",
+          "description": "Cache parsed ASTs",
+          "default": true
+        },
+        "customTemplatesDir": {
+          "type": "string",
+          "description": "Custom parser templates directory"
+        }
+      }
+    }
+  }
+}

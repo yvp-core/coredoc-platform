@@ -1,0 +1,81 @@
+# Realistic example values for the coredoc chart — copy, replace the
+# example.com placeholders and secret names, and install with:
+#
+#   helm install coredoc oci://ghcr.io/yvp-core/charts/coredoc -f my-values.yaml
+#
+# Pre-create these Secrets in the release namespace first:
+#
+#   kubectl create secret generic coredoc-auth \
+#     --from-literal=OAUTH_JWT_SECRET="$(openssl rand -hex 32)" \
+#     --from-literal=GITHUB_CLIENT_ID="Ov23li..." \
+#     --from-literal=GITHUB_CLIENT_SECRET="..." \
+#     --from-literal=SERVER_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+#   For WorkOS, replace the GitHub keys with WORKOS_CLIENT_ID,
+#   WORKOS_CLIENT_SECRET, WORKOS_AUTHKIT_CLIENT_ID, and WORKOS_API_KEY
+#   (required for workspace orgs and invitation completion/email).
+#
+#   kubectl create secret generic coredoc-postgres \
+#     --from-literal=DATABASE_URL="postgresql://coredoc:CHANGE_ME@postgres-host:5432/coredoc"
+#
+#   NEO4J_PW="$(openssl rand -hex 16)"
+#   kubectl create secret generic coredoc-neo4j-auth \
+#     --from-literal=NEO4J_AUTH="neo4j/${NEO4J_PW}" \
+#     --from-literal=NEO4J_PASSWORD="${NEO4J_PW}"
+#
+#   kubectl create secret generic coredoc-storage \
+#     --from-literal=R2_ACCESS_KEY_ID="GOOG1E..." \
+#     --from-literal=R2_SECRET_ACCESS_KEY="..."
+
+server:
+  # Must match the ingress host and the OAuth App callback
+  # (https://coredoc.example.com/callback).
+  publicUrl: https://coredoc.example.com
+
+auth:
+  upstream: github
+  allowedEmailDomains:
+    - example.com
+  existingSecret: coredoc-auth
+
+config:
+  allowSourcesInGraph: false
+  enableSourceModule: false
+  enableCliBundle: false
+  enableSemanticSearch: false
+
+storage:
+  # Any S3-compatible endpoint: GCS interop, Cloudflare R2, MinIO, AWS S3.
+  endpoint: https://storage.googleapis.com
+  bucket: coredoc-artifacts
+  # The bucket's real region — never "auto" (presigned URLs break).
+  region: us-east1
+  existingSecret: coredoc-storage
+
+postgres:
+  existingSecret: coredoc-postgres
+
+neo4j:
+  enabled: true
+  neo4j:
+    # Secret with NEO4J_AUTH ("neo4j/<password>") and NEO4J_PASSWORD keys —
+    # see the kubectl commands at the top of this file.
+    passwordFromSecret: coredoc-neo4j-auth
+
+ingress:
+  enabled: true
+  className: nginx
+  host: coredoc.example.com
+  tls:
+    enabled: true
+    secretName: coredoc-tls
+  # The load-bearing nginx annotations (proxy-buffer-size 16k,
+  # proxy-body-size 100m) are chart defaults — add extra annotations here
+  # and they merge with the defaults, e.g. for cert-manager:
+  # annotations:
+  #   cert-manager.io/cluster-issuer: letsencrypt
+
+migrations:
+  hook: helm
+
+telemetry:
+  posthogKey: ""

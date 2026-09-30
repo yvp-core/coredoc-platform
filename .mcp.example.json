@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "coredoc": {
+      "command": "node",
+      "args": ["/abs/path/to/coredoc-parser/packages/mcp/dist/index.js"],
+      "env": {
+        "COREDOC_DB_BACKEND": "sqlite",
+        "MCP_CONFIG_PATH": "/abs/path/to/coredoc-parser/coredoc.config.json",
+        "COREDOC_SCOPE": "project:my-project",
+        "COREDOC_CURRENT_REPO": "repo from which started claude eg api-server"
+      }
+    }
+  }
+}

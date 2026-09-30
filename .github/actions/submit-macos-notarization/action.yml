@@ -1,0 +1,58 @@
+name: Submit macOS Notarization
+description: Submit a DMG to Apple notarization service (async, does not wait)
+
+inputs:
+  apple-id:
+    description: Apple ID email for notarytool
+    required: true
+  apple-app-specific-password:
+    description: App-specific password for notarytool
+    required: true
+  apple-team-id:
+    description: Apple Developer Team ID
+    required: true
+  dmg-path:
+    description: Directory containing the DMG file
+    required: false
+    default: apps/desktop/dist-electron
+
+outputs:
+  notarization-id:
+    description: The notarization submission ID
+    value: ${{ steps.submit.outputs.notarization-id }}
+  dmg-file:
+    description: The DMG filename (basename only)
+    value: ${{ steps.submit.outputs.dmg-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Find DMG and submit for notarization
+      id: submit
+      shell: bash
+      run: |
+        DMG=$(find "${{ inputs.dmg-path }}" -maxdepth 1 -name "*.dmg" | head -1)
+        if [[ -z "$DMG" ]]; then
+          echo "::error::No DMG found in ${{ inputs.dmg-path }}"
+          exit 1
+        fi
+        echo "dmg-file=$(basename "$DMG")" >> "$GITHUB_OUTPUT"
+        echo "Submitting $(basename "$DMG") for notarization..."
+
+        RESULT=$(xcrun notarytool submit "$DMG" \
+          --apple-id "${{ inputs.apple-id }}" \
+          --password "${{ inputs.apple-app-specific-password }}" \
+          --team-id "${{ inputs.apple-team-id }}" \
+          --no-wait \
+          --output-format json)
+
+        echo "$RESULT"
+        NOTARIZATION_ID=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+
+        if [[ -z "$NOTARIZATION_ID" ]]; then
+          echo "::error::Failed to extract notarization ID from response"
+          exit 1
+        fi
+
+        echo "notarization-id=$NOTARIZATION_ID" >> "$GITHUB_OUTPUT"
+        echo "Notarization submitted: $NOTARIZATION_ID"

@@ -1,0 +1,1 @@
+public class Caller { public int Run() => Right.Shared.Service.Ping(); }

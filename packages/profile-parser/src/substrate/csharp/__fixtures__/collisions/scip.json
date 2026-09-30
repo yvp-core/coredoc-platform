@@ -1,0 +1,90 @@
+{
+  "projectRoot": "file:///fixture",
+  "documents": [
+    {
+      "relativePath": "Caller.cs",
+      "occurrences": [
+        {
+          "symbol": "scip-dotnet nuget . . ``/Caller#",
+          "symbolRoles": 1,
+          "range": [0, 13, 19]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/Caller#Run().",
+          "symbolRoles": 1,
+          "range": [0, 33, 36]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Right/",
+          "symbolRoles": 0,
+          "range": [0, 42, 47]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Shared/",
+          "symbolRoles": 0,
+          "range": [0, 48, 54]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Shared/Service#",
+          "symbolRoles": 0,
+          "range": [0, 55, 62]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Shared/Service#Ping().",
+          "symbolRoles": 0,
+          "range": [0, 63, 67]
+        }
+      ]
+    },
+    {
+      "relativePath": "Left.cs",
+      "occurrences": [
+        {
+          "symbol": "scip-dotnet nuget . . Left/",
+          "symbolRoles": 0,
+          "range": [0, 10, 14]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Shared/",
+          "symbolRoles": 0,
+          "range": [0, 15, 21]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Shared/Service#",
+          "symbolRoles": 1,
+          "range": [0, 36, 43]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Shared/Service#Ping().",
+          "symbolRoles": 1,
+          "range": [0, 64, 68]
+        }
+      ]
+    },
+    {
+      "relativePath": "Right.cs",
+      "occurrences": [
+        {
+          "symbol": "scip-dotnet nuget . . Right/",
+          "symbolRoles": 0,
+          "range": [0, 10, 15]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Shared/",
+          "symbolRoles": 0,
+          "range": [0, 16, 22]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Shared/Service#",
+          "symbolRoles": 1,
+          "range": [0, 37, 44]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Shared/Service#Ping().",
+          "symbolRoles": 1,
+          "range": [0, 65, 69]
+        }
+      ]
+    }
+  ]
+}

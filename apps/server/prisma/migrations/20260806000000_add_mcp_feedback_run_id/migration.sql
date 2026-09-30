@@ -1,0 +1,26 @@
+-- The join key between a session's qualitative feedback and the run that earned it.
+--
+-- `submit_session_feedback` already carried an optional `session_id`, but a
+-- session is not a unit of work: it can hold several routed workflow runs, and
+-- the run is what the workflow event reports its measured summary against. With
+-- only `session_id`, a "search_symbols was incomplete" report cannot be attached
+-- to the run whose `coredoc_gap_codes` recorded that same gap in closed form.
+-- `run_id` carries the coredoc-workflows run identifier (cdr-YYYYMMDD-xxxxxx),
+-- validated at the tool boundary, so the free-form judgment and the bounded
+-- counters describe the same run.
+--
+-- Nullable with no backfill and no default. Existing rows are not missing a
+-- value — they were submitted before a run id could be passed, and the manual
+-- `/coredoc:feedback` path still has none when no workflow ran. Null means "no
+-- run", which is the truth for every existing row.
+--
+-- No index yet, following the precedent set by run_id on agent_sessions: the
+-- column landed first and its index followed once a query actually read it.
+-- Nothing joins on this column today.
+--
+-- ADDITIVE ONLY — one nullable column, no type change, no data rewrite — so a
+-- plain revert drops what it added and restores nothing.
+--
+-- Rollback:
+--   ALTER TABLE "mcp_feedback" DROP COLUMN "run_id";
+ALTER TABLE "mcp_feedback" ADD COLUMN "run_id" TEXT;

@@ -1,0 +1,7 @@
+# Commit-message validation is opt-in (disabled by default, like pre-commit).
+# Uncomment the line below to enforce the team commit convention: Conventional
+# Commits shape, the 72-char ceiling, no vague subjects, and a mandatory Jira
+# reference (ABC-<number>) in the subject. The validator ships with the coredoc
+# plugin; it only inspects the message — never your tree — and prints the exact
+# reason on failure.
+# node plugins/coredoc/scripts/validate-commit-message.mjs --file "$1" || exit 1

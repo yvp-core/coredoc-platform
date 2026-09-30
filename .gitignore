@@ -1,0 +1,103 @@
+.vscode
+node_modules
+dist
+dist-electron
+.env
+.env.local
+# Generated at build/install time by each package's scripts/gen-build-env.mjs —
+# bakes COREDOC_POSTHOG_KEY/HOST from the root .env, so must never be committed
+# (would leak the real key + dirty the tree on every build). Regenerated empty
+# on a fresh checkout via each package's postinstall.
+packages/cli/src/build-env.ts
+packages/mcp/src/build-env.ts
+coredoc.config.json
+tsconfig.tsbuildinfo
+coredoc.db*
+# Local generated DB seed (gen-seed-sql.mjs output) — workspace-specific IDs, never commit
+connect-*-repos.sql
+.claude-sdk/
+.DS_Store
+.mcp.json
+
+# Test coverage reports (generated files)
+coverage/
+
+# Neo4j data directory (created by docker-compose)
+neo4j-data/
+.cursor/
+.idea/
+.turbo
+coredoc-output/
+coredoc-parsers/
+coredoc-sessions/
+# `coredoc resolve` output — derived from coredoc-output, regenerable
+resolved-graph.json
+services-schema.sql
+# Stray substrate ParsedRepo dumps (e.g. from substrate/run.ts smoke runs)
+/*.substrate.json
+# SCIP indexes written by scip-typescript / scip-ruby into the analyzed repo root
+index.scip
+# scip-ruby cache sidecar (source-content hash for skip-reindex)
+.coredoc-scip-ruby.hash
+# ...but DO commit the small checked-in test fixture index
+!packages/profile-parser/src/substrate/ruby/__fixtures__/sample-app/index.scip
+# Private eval apparatus — gates, scripts, and target configs
+evals/private/
+# Eval run artifacts (transient output; may contain analyses of private codebases)
+evals/runs/
+evals/cases-planning/results
+evals/runs-planning
+!evals/runs/.gitkeep
+evals/targets/ignored
+
+# Throwaway measurement/probe harnesses (underscore-prefixed) — never ship
+packages/profile-parser/scripts/_*.ts
+
+# Prisma v7 generated client
+apps/server/src/generated/
+
+.claude_settings.json
+# Hidden directories at any depth inside .claude/
+.claude/.*/
+.claude/**/.*/
+# Machine-local files (.local.) at any depth inside .claude/
+.claude/*.local.*
+.claude/**/*.local.*
+
+
+# Helm dependency tarballs (rebuilt from Chart.lock via `helm dependency build`)
+charts/*/charts/
+
+graphify-out
+
+# Desktop invited-user onboarding state (written to getProjectRoot() in dev)
+onboarded-workspaces.json
+
+# Playwright e2e run artifacts. A default run resolves `outputDir` relative to
+# the config, so they land at apps/desktop/e2e/test-results/ (ignored by
+# apps/desktop/e2e/.gitignore); they land at apps/desktop/test-results/ only when
+# `--output` is passed from the package dir. Both locations are ignored.
+apps/desktop/test-results/
+apps/desktop/playwright-report/
+
+# design-sync (claude.ai/design import) — an experiment, kept out of git.
+# Everything is machine-local except the project pin: config.json carries the
+# claude.ai/design projectId, so a re-sync updates that project instead of
+# silently creating a duplicate and orphaning the old one.
+# NB: the contents form (`.design-sync/*`), not `.design-sync/` — git never
+# descends into an excluded directory, so a negation under one is unreachable.
+.ds-sync/
+ds-bundle/
+.design-sync/*
+!.design-sync/config.json
+apps/desktop/ds-pkg/
+
+# eval harness agent worktrees (self-target)
+.worktrees/
+.gitnexus
+
+# Local intent A/B run outputs; keep fixtures, harness and accepted specification reviewable.
+
+# Local PR-review evidence and deferred runtime experiment; keep eval templates tracked.
+/evals/pr-review/pilots/
+/experiments/pr-review-eve/

@@ -1,0 +1,45 @@
+
+*
+	scip-ruby0.4.7FIXMEfile:///app å
+app/models/widget.rb)
+ scip-ruby gem app latest Sample#0
+'scip-ruby gem app latest Sample#Widget#8
+/scip-ruby gem app latest Sample#Widget#build().<
+5scip-ruby gem app latest Sample#Widget#`validate!`().>
+5scip-ruby gem app latest Sample#Widget#`validate!`().:
+3scip-ruby gem app latest Sample#Widget#normalize().5
+.scip-ruby gem app latest Sample#Widget#name().<
+3scip-ruby gem app latest Sample#Widget#normalize().
+local 1$3464046956
+local 1$3464046956.
+'scip-ruby gem app latest Kernel#to_s().7
+.scip-ruby gem app latest Sample#Widget#name().8
+/scip-ruby gem app latest Sample#Widget#`@name`.3
+local 1$3464046956```ruby
+value (T.untyped)
+```¯
+ scip-ruby gem app latest Sample#```ruby
+module Sample
+```ïGeneric fixture for the scip-ruby Tier-A tests. Every internal edge below is a BARE
+self-send (no explicit receiver) â€” exactly the case the tree-sitter Tier-B heuristic
+cannot resolve but Sorbet (scip-ruby) can. No client-specific names.K
+'scip-ruby gem app latest Sample#Widget# ```ruby
+class Sample::Widget
+```1
+/scip-ruby gem app latest Sample#Widget#`@name`.m
+5scip-ruby gem app latest Sample#Widget#`validate!`().4```ruby
+sig { returns(T.untyped) }
+def validate!
+```c
+/scip-ruby gem app latest Sample#Widget#build().0```ruby
+sig { returns(T.untyped) }
+def build
+```a
+.scip-ruby gem app latest Sample#Widget#name()./```ruby
+sig { returns(T.untyped) }
+def name
+```‹
+3scip-ruby gem app latest Sample#Widget#normalize().T```ruby
+sig { params(value: T.untyped).returns(T.untyped) }
+def normalize(value)
+```

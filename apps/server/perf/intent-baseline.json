@@ -1,0 +1,128 @@
+{
+  "generatedAt": "2026-09-12T19:56:38.531Z",
+  "environment": {
+    "node": "v22.22.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpus": 18,
+    "postgres": "docker compose postgres:16-alpine (tmpfs data volume)",
+    "graph": "local .ladybug file, read-only handle, same process"
+  },
+  "shape": {
+    "repos": 12,
+    "featuresPerRepo": 20,
+    "filesPerFeature": 5,
+    "functionsPerFile": 12,
+    "items": 3000,
+    "anchors": 1500,
+    "reviewCandidates": 400
+  },
+  "fixture": {
+    "graphNodes": 16596,
+    "graphEdges": 30012,
+    "graphBuildMs": 61119,
+    "repos": 12,
+    "domains": 12,
+    "features": 240,
+    "featureSeeds": 280,
+    "items": 3400,
+    "anchors": 1500,
+    "reviewCandidates": 400,
+    "insertMs": 775
+  },
+  "iterations": {
+    "warmup": 3,
+    "measured": 25
+  },
+  "workloads": [
+    {
+      "name": "context: feature scope",
+      "request": "GET intent/context?feature=feature-00-00&limit=20",
+      "p50Ms": 133.79,
+      "p95Ms": 146.11,
+      "minMs": 122.4,
+      "maxMs": 152.78,
+      "sqlQueries": 10,
+      "graphQueries": 24,
+      "resultSize": 20,
+      "derivationTruncated": false,
+      "derivationLimits": []
+    },
+    {
+      "name": "context: nodeIds (guard case, unscoped)",
+      "request": "GET intent/context?nodeIds=<feature handler>&limit=20",
+      "p50Ms": 1737.06,
+      "p95Ms": 2282.95,
+      "minMs": 1638.02,
+      "maxMs": 2429.6,
+      "sqlQueries": 16,
+      "graphQueries": 329,
+      "resultSize": 20,
+      "derivationTruncated": false,
+      "derivationLimits": []
+    },
+    {
+      "name": "context: nodeIds (guard case, feature-scoped)",
+      "request": "GET intent/context?feature=<f>&nodeIds=<feature handler>&limit=20",
+      "p50Ms": 630.41,
+      "p95Ms": 785.51,
+      "minMs": 601.76,
+      "maxMs": 831.15,
+      "sqlQueries": 17,
+      "graphQueries": 138,
+      "resultSize": 20,
+      "derivationTruncated": false,
+      "derivationLimits": []
+    },
+    {
+      "name": "context: task fusion",
+      "request": "GET intent/context?task=<task>&nodeIds=<handler>&limit=20",
+      "p50Ms": 1692.04,
+      "p95Ms": 1787.48,
+      "minMs": 1634.3,
+      "maxMs": 2083.1,
+      "sqlQueries": 19,
+      "graphQueries": 340,
+      "resultSize": 20,
+      "derivationTruncated": false,
+      "derivationLimits": []
+    },
+    {
+      "name": "context: lexical search",
+      "request": "GET intent/context?query=\"refund window\"&limit=20",
+      "p50Ms": 165.16,
+      "p95Ms": 175.93,
+      "minMs": 153.6,
+      "maxMs": 176.29,
+      "sqlQueries": 9,
+      "graphQueries": 32,
+      "resultSize": 20,
+      "derivationTruncated": false,
+      "derivationLimits": []
+    },
+    {
+      "name": "context: exact ids (50 selected, 20 returned)",
+      "request": "GET intent/context?intentIds=<50 ids>&limit=20",
+      "p50Ms": 102.02,
+      "p95Ms": 115.14,
+      "minMs": 94.93,
+      "maxMs": 116.08,
+      "sqlQueries": 9,
+      "graphQueries": 21,
+      "resultSize": 20,
+      "derivationTruncated": false,
+      "derivationLimits": []
+    },
+    {
+      "name": "review: batch of 10",
+      "request": "POST intent/items/review with 10 accept decisions",
+      "p50Ms": 20.56,
+      "p95Ms": 24.81,
+      "minMs": 17.48,
+      "maxMs": 27.07,
+      "sqlQueries": 26,
+      "graphQueries": 0,
+      "resultSize": 10
+    }
+  ]
+}

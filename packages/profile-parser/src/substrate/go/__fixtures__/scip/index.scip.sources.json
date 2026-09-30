@@ -1,0 +1,7 @@
+{
+  "indexSha256": "1a3eab9ff9175251fe2864a2cd356e3e95b991aede23b29a282cf909fab4e45f",
+  "sources": {
+    "cgo.go": "92210772a91ec27e09e9dbc0e381e548e28fef7885a77df7116b443e75074af3",
+    "main.go": "1302b367d1c5932a0b55cdd0d8973cc05058a10eab42dafebf9d49d8c007a2d0"
+  }
+}

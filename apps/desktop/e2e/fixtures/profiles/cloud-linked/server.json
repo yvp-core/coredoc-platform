@@ -1,0 +1,615 @@
+{
+  "GET /api/v1/meta": { "version": "1.1.0", "minClientVersion": "1.0.0" },
+  "GET /api/v1/workspaces": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "Demo",
+      "slug": "demo",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "role": "owner",
+      "isCloud": true,
+      "ciCdEnabled": false,
+      "deliveryEnabled": true
+    }
+  ],
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "name": "Demo",
+    "slug": "demo",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "role": "owner",
+    "isCloud": true,
+    "ciCdEnabled": false
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/members": [
+    {
+      "userId": "user_owner",
+      "email": "owner@example.test",
+      "displayName": "Owner Example",
+      "role": "owner",
+      "pending": false,
+      "joinedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "userId": "user_member",
+      "email": "member@example.test",
+      "displayName": "Member Example",
+      "role": "member",
+      "pending": false,
+      "joinedAt": "2026-01-02T00:00:00.000Z"
+    },
+    {
+      "userId": "pending:invited@example.test",
+      "email": "invited@example.test",
+      "displayName": null,
+      "role": "member",
+      "pending": true,
+      "joinedAt": "2026-01-03T00:00:00.000Z"
+    }
+  ],
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/members/invites": [
+    {
+      "id": "inv_pending",
+      "email": "invited@example.test",
+      "role": "member",
+      "state": "pending",
+      "emailSent": true,
+      "createdAt": "2026-01-03T00:00:00.000Z",
+      "invitedAt": "2026-01-03T00:00:00.000Z",
+      "expiresAt": "2026-02-03T00:00:00.000Z",
+      "lastSentAt": "2026-01-03T00:00:00.000Z"
+    }
+  ],
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/repos": [
+    {
+      "id": "repo_demo_api",
+      "repoKey": "demo-api",
+      "repoName": "demo-api",
+      "gitUrl": null,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/analytics/usage?days=30": {
+    "window": {
+      "days": 30,
+      "since": "2026-08-18T00:00:00.000Z",
+      "until": "2026-09-16T12:00:00.000Z",
+      "previousSince": "2026-07-19T00:00:00.000Z"
+    },
+    "priceMap": { "version": "2026-08-16", "basis": "standard-global-public-api-5m-cache-writes" },
+    "kpis": {
+      "mcpCalls": { "current": 42, "previous": 30 },
+      "sessions": { "current": 6, "previous": 0 },
+      "developers": { "current": 2, "usingCoredoc": 1 },
+      "spend": { "currentUsd": null, "previousUsd": null, "unpricedSessions": 6, "sessionsWithoutUsage": 2 }
+    },
+    "series": {
+      "mcpCalls": [
+        { "date": "2026-09-14", "value": 12 },
+        { "date": "2026-09-15", "value": 18 },
+        { "date": "2026-09-16", "value": 12 }
+      ],
+      "sessions": [
+        { "date": "2026-09-14", "value": 2 },
+        { "date": "2026-09-15", "value": 3 },
+        { "date": "2026-09-16", "value": 1 }
+      ],
+      "spendUsd": [
+        { "date": "2026-09-14", "value": null, "unpricedSessions": 2 },
+        { "date": "2026-09-15", "value": null, "unpricedSessions": 3 },
+        { "date": "2026-09-16", "value": null, "unpricedSessions": 1 }
+      ]
+    },
+    "tools": [
+      {
+        "toolName": "explain",
+        "calls": 18,
+        "errorRate": 0.0555555556,
+        "avgMs": 24,
+        "emptyRate": 0.1,
+        "classifiedCalls": 10
+      },
+      { "toolName": "find_callers", "calls": 6, "errorRate": 0, "avgMs": 11, "emptyRate": null, "classifiedCalls": 0 }
+    ],
+    "adoption": {
+      "developersUsingCoredoc": 1,
+      "developersActive": 2,
+      "totalCoredocCalls": 42,
+      "coredocSuccessRate": 0.9444444444,
+      "avgCallLatencyMs": 24,
+      "medianTokensPerSession": 12000
+    },
+    "members": [
+      {
+        "userId": "user_owner",
+        "userEmail": "owner@example.test",
+        "displayName": "Demo Owner",
+        "sessions": 6,
+        "tokens": 72000,
+        "estimatedCostUsd": null,
+        "unpricedSessions": 6,
+        "coredocCalls": 42,
+        "topTool": "explain",
+        "lastActiveAt": "2026-09-16T09:00:00.000Z"
+      }
+    ],
+    "feedback": {
+      "feedbackCount": 2,
+      "topIssues": [{ "tool": "explain", "issueType": "wrong", "count": 1, "severityScore": 3 }],
+      "topMissingTools": [{ "need": "repository ownership lookup", "count": 1 }],
+      "ratingTrend": []
+    }
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/delivery/v2/summary?days=30&lifecycle=all": {
+    "window": {
+      "days": 30,
+      "since": "2026-08-18T00:00:00.000Z",
+      "until": "2026-09-17T00:00:00.000Z",
+      "lifecycle": "all",
+      "userId": null
+    },
+    "tasks": { "matching": 1, "shipped": 1, "partiallyShipped": 0, "withRework": 1, "active": 1 },
+    "leadTimeMs": { "value": 300000, "sampleSize": 1 },
+    "reviewStageMs": { "value": null, "sampleSize": 0 },
+    "costPerShippedTaskUsd": { "value": null, "sampleSize": 0, "unpricedTasks": 1 },
+    "stages": [
+      { "stageId": "spec", "claimedMs": { "value": 120000, "sampleSize": 1 } },
+      { "stageId": "tdd", "claimedMs": { "value": 180000, "sampleSize": 1 } }
+    ],
+    "unclaimedMs": { "value": 0, "sampleSize": 1 },
+    "reviewWaitMs": { "value": null, "sampleSize": 0 },
+    "editVerifyRoundsPerRun": { "value": 1, "sampleSize": 1 },
+    "rework": {
+      "bySource": [
+        { "kind": "tracker_reopened", "signals": 1, "tasks": 1 },
+        { "kind": "review_changes_requested", "signals": 0, "tasks": 0 },
+        { "kind": "review_commented", "signals": 0, "tasks": 0 }
+      ]
+    }
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/mcp-feedback/roadmap?days=30": {
+    "feedbackCount": 2,
+    "topIssues": [
+      {
+        "tool": "explain",
+        "issueType": "wrong",
+        "count": 1,
+        "severityScore": 3
+      }
+    ],
+    "topMissingTools": [
+      {
+        "need": "repository ownership lookup",
+        "count": 1
+      }
+    ],
+    "ratingTrend": []
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/mcp-feedback/records?days=30&page=1&limit=25&sort=createdAt&order=desc": {
+    "items": [
+      {
+        "id": "fbk_11111111-1111-4111-8111-111111111111",
+        "createdAt": "2026-09-16T09:05:00.000Z",
+        "userId": "user_owner",
+        "userEmail": "owner@example.test",
+        "sessionId": "sess_demo",
+        "runId": null,
+        "repoKey": "demo-api",
+        "overallRating": 4,
+        "userRating": 2,
+        "reviewStatus": "amended",
+        "summary": "explain pointed at the pre-rename path",
+        "userNotes": "Cost me twenty minutes.",
+        "perToolIssues": [
+          { "tool": "explain", "issueType": "wrong", "severity": 3, "description": "Stale path after a rename" }
+        ],
+        "sessionIssues": [
+          {
+            "area": "skill-instructions",
+            "issueType": "confusing",
+            "severity": 2,
+            "description": "The skill re-read the spec"
+          }
+        ],
+        "missingCapabilities": [{ "need": "repository ownership lookup" }],
+        "misleadingMetadata": []
+      },
+      {
+        "id": "fbk_22222222-2222-4222-8222-222222222222",
+        "createdAt": "2026-09-15T18:40:00.000Z",
+        "userId": null,
+        "userEmail": null,
+        "sessionId": null,
+        "runId": null,
+        "repoKey": null,
+        "overallRating": null,
+        "userRating": null,
+        "reviewStatus": "unreviewed",
+        "summary": null,
+        "userNotes": null,
+        "perToolIssues": [],
+        "sessionIssues": [],
+        "missingCapabilities": [],
+        "misleadingMetadata": []
+      }
+    ],
+    "page": 1,
+    "limit": 25,
+    "total": 2,
+    "window": { "days": 30, "since": "2026-08-18T00:00:00.000Z", "until": "2026-09-17T00:00:00.000Z" }
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/delivery/v2/task-summaries?limit=50": {
+    "tasks": [
+      {
+        "id": "cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "title": "Bounded task detail",
+        "repositoryKey": "demo/demo-api",
+        "lifecycle": "active",
+        "authority": {
+          "kind": "external_ref",
+          "externalRefId": "42",
+          "provider": "jira",
+          "externalId": "10001",
+          "connected": true,
+          "bindingNonce": "E2E_NONCE_SENTINEL"
+        },
+        "createdBy": "user_owner",
+        "createdAt": "2026-08-16T10:00:00.000Z",
+        "updatedAt": "2026-08-16T10:06:00.000Z",
+        "everShipped": true,
+        "lastShippedAt": "2026-08-16T10:05:00.000Z",
+        "shipState": "shipped",
+        "counts": {
+          "externalRefs": 1,
+          "workflowRuns": 1,
+          "codeChanges": 1,
+          "mergedCodeChanges": 1,
+          "openCodeChanges": 0,
+          "shipEvidence": 1,
+          "reworkSignals": 2,
+          "artifacts": 1
+        },
+        "cloudAuthorization": "Bearer E2E_BEARER_SENTINEL"
+      }
+    ],
+    "nextCursor": null
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/delivery/v2/task-summaries?limit=50&days=30&lifecycle=all": {
+    "tasks": [
+      {
+        "id": "cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "title": "Bounded task detail",
+        "repositoryKey": "demo/demo-api",
+        "lifecycle": "active",
+        "authority": {
+          "kind": "external_ref",
+          "externalRefId": "42",
+          "provider": "jira",
+          "externalId": "10001",
+          "connected": true,
+          "bindingNonce": "E2E_NONCE_SENTINEL"
+        },
+        "createdBy": "user_owner",
+        "createdAt": "2026-08-16T10:00:00.000Z",
+        "updatedAt": "2026-08-16T10:06:00.000Z",
+        "everShipped": true,
+        "lastShippedAt": "2026-08-16T10:05:00.000Z",
+        "shipState": "shipped",
+        "counts": {
+          "externalRefs": 1,
+          "workflowRuns": 1,
+          "codeChanges": 1,
+          "mergedCodeChanges": 1,
+          "openCodeChanges": 0,
+          "shipEvidence": 1,
+          "reworkSignals": 2,
+          "artifacts": 1
+        },
+        "cloudAuthorization": "Bearer E2E_BEARER_SENTINEL"
+      }
+    ],
+    "nextCursor": null
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/delivery/v2/tasks/cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa": {
+    "id": "cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "title": "Bounded task detail",
+    "repositoryKey": "demo/demo-api",
+    "lifecycle": "active",
+    "authority": {
+      "kind": "external_ref",
+      "externalRefId": "42",
+      "provider": "jira",
+      "externalId": "10001",
+      "connected": true
+    },
+    "createdBy": "user_owner",
+    "createdAt": "2026-08-16T10:00:00.000Z",
+    "updatedAt": "2026-08-16T10:06:00.000Z",
+    "everShipped": true,
+    "lastShippedAt": "2026-08-16T10:05:00.000Z",
+    "shipState": "shipped",
+    "counts": {
+      "externalRefs": 1,
+      "workflowRuns": 1,
+      "codeChanges": 1,
+      "mergedCodeChanges": 1,
+      "openCodeChanges": 0,
+      "shipEvidence": 1,
+      "reworkSignals": 2,
+      "artifacts": 1
+    },
+    "fineEventRetention": {
+      "policyDays": 90,
+      "purgedThroughReceivedAt": "2026-05-01T00:00:00.000Z"
+    },
+    "estimatedCost": {
+      "totalUsd": 0.032724,
+      "sessions": 1,
+      "unpricedSessions": 0,
+      "sessionsWithoutUsage": 0
+    }
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/delivery/v2/tasks/cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/external-refs?limit=50": {
+    "items": [
+      {
+        "id": "42",
+        "provider": "jira",
+        "externalId": "10001",
+        "externalKey": "CORE-42",
+        "externalUrl": "https://jira.example.test/browse/CORE-42",
+        "externalState": "in_progress",
+        "connectorId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "sourceUpdatedAt": "2026-08-16T10:04:00.000Z",
+        "lastObservedAt": "2026-08-16T10:05:00.000Z",
+        "isAuthority": true,
+        "stateFactCount": 1,
+        "rawPayload": "E2E_BEARER_SENTINEL"
+      }
+    ],
+    "nextCursor": null
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/delivery/v2/tasks/cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/external-refs/42/state-history?limit=50": {
+    "items": [
+      {
+        "id": "51",
+        "fromState": "done",
+        "toState": "in_progress",
+        "sourceRef": "jira-transition:reopen",
+        "occurredAt": "2026-08-16T10:04:00.000Z",
+        "sourceUpdatedAt": "2026-08-16T10:04:01.000Z",
+        "receivedAt": "2026-08-16T10:04:02.000Z",
+        "actorId": null
+      }
+    ],
+    "nextCursor": null
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/delivery/v2/tasks/cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/runs?limit=50": {
+    "items": [
+      {
+        "runId": "cdr-20260816-a1b2c3",
+        "workflowId": "change:normal",
+        "intent": "change",
+        "risk": "normal",
+        "scale": "normal",
+        "repositoryKey": "demo/demo-api",
+        "startedAt": "2026-08-16T10:00:00.000Z",
+        "finishedAt": "2026-08-16T10:06:00.000Z",
+        "outcome": "success",
+        "verification": { "runs": 3, "failures": 1, "editVerifyRounds": null },
+        "workItems": [
+          { "provider": "jira", "externalId": "10001", "externalKey": "CORE-42", "linked": true },
+          {
+            "provider": "notion.task",
+            "externalId": "page_42",
+            "externalKey": null,
+            "linked": false
+          }
+        ],
+        "rawError": "E2E_NONCE_SENTINEL"
+      }
+    ],
+    "nextCursor": null
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/delivery/v2/tasks/cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/runs/cdr-20260816-a1b2c3/stage-occurrences?limit=50": {
+    "items": [
+      {
+        "occurrenceId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "runId": "cdr-20260816-a1b2c3",
+        "stageId": "spec",
+        "attempt": 1,
+        "startedAt": "2026-08-16T10:00:00.000Z",
+        "finishedAt": "2026-08-16T10:02:00.000Z",
+        "outcome": "failed"
+      },
+      {
+        "occurrenceId": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        "runId": "cdr-20260816-a1b2c3",
+        "stageId": "spec",
+        "attempt": 2,
+        "startedAt": null,
+        "finishedAt": "2026-08-16T10:03:00.000Z",
+        "outcome": "success"
+      },
+      {
+        "occurrenceId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        "runId": "cdr-20260816-a1b2c3",
+        "stageId": "tdd",
+        "attempt": 1,
+        "startedAt": "2026-08-16T10:03:00.000Z",
+        "finishedAt": "2026-08-16T10:06:00.000Z",
+        "outcome": "success"
+      }
+    ],
+    "nextCursor": null
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/delivery/v2/tasks/cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/code-changes?limit=50": {
+    "items": [
+      {
+        "id": "abababab-abab-4aba-8aba-abababababab",
+        "provider": "github",
+        "repoExternalId": "repo-node-17",
+        "externalId": "991",
+        "number": 42,
+        "title": "Bounded task detail",
+        "state": "merged",
+        "isDraft": false,
+        "sourceBranch": "feature/c7",
+        "targetBranch": "main",
+        "mergedAt": "2026-08-16T10:05:00.000Z",
+        "updatedAt": "2026-08-16T10:05:01.000Z",
+        "associationSource": "run_id",
+        "associationSourceValue": "cdr-20260816-a1b2c3"
+      }
+    ],
+    "nextCursor": null
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/delivery/v2/tasks/cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/ship-evidence?limit=50": {
+    "items": [
+      {
+        "id": "61",
+        "source": "github_pr_merged",
+        "sourceKey": "github-pr:abc",
+        "occurredAt": "2026-08-16T10:05:00.000Z",
+        "receivedAt": "2026-08-16T10:05:01.000Z",
+        "actorId": null,
+        "provider": "github",
+        "repoExternalId": "repo-node-17",
+        "externalId": "991"
+      }
+    ],
+    "nextCursor": null
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/delivery/v2/tasks/cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/rework-signals?limit=50": {
+    "items": [
+      {
+        "id": "71",
+        "kind": "stage_reentry",
+        "sourceKey": "stage:spec:2",
+        "sourceRef": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        "occurredAt": "2026-08-16T10:03:00.000Z",
+        "observedAt": "2026-08-16T10:03:01.000Z"
+      },
+      {
+        "id": "72",
+        "kind": "tracker_reopened",
+        "sourceKey": "jira-transition:reopen",
+        "sourceRef": "jira-transition:reopen",
+        "occurredAt": "2026-08-16T10:04:00.000Z",
+        "observedAt": "2026-08-16T10:04:01.000Z"
+      }
+    ],
+    "nextCursor": null
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/delivery/v2/tasks/cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/artifacts?limit=50": {
+    "items": [
+      {
+        "id": "cda_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "repositoryKey": "demo/demo-api",
+        "kind": "spec",
+        "createdBy": "user_owner",
+        "createdAt": "2026-08-16T10:01:00.000Z",
+        "updatedAt": "2026-08-16T10:06:00.000Z",
+        "revisionCount": 1
+      }
+    ],
+    "nextCursor": null
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/delivery/v2/tasks": {
+    "tasks": [
+      {
+        "id": "cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "repositoryKey": "demo/demo-api",
+        "lifecycle": "active",
+        "authority": "coredoc",
+        "createdBy": "user_owner",
+        "createdAt": "2026-08-16T10:00:00.000Z",
+        "updatedAt": "2026-08-16T10:06:00.000Z",
+        "cloudAuthorization": "Bearer E2E_BEARER_SENTINEL",
+        "externalRefs": [],
+        "workflowRuns": [
+          {
+            "runId": "cdr-20260816-a1b2c3",
+            "actorId": "user_owner",
+            "workflowId": "change:normal",
+            "intent": "change",
+            "risk": "normal",
+            "scale": "normal",
+            "repositoryKey": "demo/demo-api",
+            "declaredStages": [{ "stageId": "spec", "after": [] }, { "stageId": "tdd", "after": ["spec"] }],
+            "startedAt": "2026-08-16T10:00:00.000Z",
+            "finishedAt": "2026-08-16T10:06:00.000Z",
+            "outcome": "success",
+            "stageOccurrences": [
+              {
+                "occurrenceId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+                "stageId": "tdd",
+                "attempt": 1,
+                "startedAt": "2026-08-16T10:03:00.000Z",
+                "finishedAt": "2026-08-16T10:06:00.000Z",
+                "outcome": "success"
+              },
+              {
+                "occurrenceId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+                "stageId": "spec",
+                "attempt": 1,
+                "startedAt": "2026-08-16T10:00:00.000Z",
+                "finishedAt": "2026-08-16T10:02:00.000Z",
+                "outcome": "failed"
+              },
+              {
+                "occurrenceId": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+                "stageId": "spec",
+                "attempt": 2,
+                "startedAt": null,
+                "finishedAt": "2026-08-16T10:03:00.000Z",
+                "outcome": "success"
+              }
+            ]
+          }
+        ],
+        "artifacts": [
+          {
+            "id": "cda_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "taskId": "cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "repositoryKey": "demo/demo-api",
+            "kind": "spec",
+            "createdAt": "2026-08-16T10:01:00.000Z",
+            "updatedAt": "2026-08-16T10:06:00.000Z",
+            "localPath": "/private/E2E_NONCE_SENTINEL/spec.md",
+            "revisions": [
+              {
+                "id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+                "sha256": "175a22e01ab22332c2e01f6936bc867f0a0e7e59e874fdce3b5e66c88bb837e0",
+                "byteCount": 335,
+                "checkpoint": "run-finish",
+                "runId": "cdr-20260816-a1b2c3",
+                "createdAt": "2026-08-16T10:06:00.000Z"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "GET /api/v1/workspaces/11111111-1111-4111-8111-111111111111/delivery/v2/artifacts/cda_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/revisions": {
+    "artifact": {
+      "id": "cda_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "taskId": "cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "repositoryKey": "demo/demo-api",
+      "kind": "spec",
+      "bindingNonce": "E2E_NONCE_SENTINEL"
+    },
+    "revisions": [
+      {
+        "id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        "sha256": "175a22e01ab22332c2e01f6936bc867f0a0e7e59e874fdce3b5e66c88bb837e0",
+        "byteCount": 335,
+        "checkpoint": "run-finish",
+        "runId": "cdr-20260816-a1b2c3",
+        "createdAt": "2026-08-16T10:06:00.000Z",
+        "cloudAuthorization": "Bearer E2E_BEARER_SENTINEL",
+        "markdown": "# Checkpoint E2E\n\n<script>globalThis.__artifactPwned = true</script>\n\n<img src=\"https://images.example.test/pixel\" onerror=\"globalThis.__artifactPwned = true\">\n\n<button onclick=\"globalThis.__artifactPwned = true\">unsafe button</button>\n\n[Safe link](https://example.test/path)\n\n![remote diagram](https://images.example.test/diagram.png)"
+      }
+    ]
+  }
+}

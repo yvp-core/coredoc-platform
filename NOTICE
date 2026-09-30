@@ -1,0 +1,13 @@
+Coredoc Platform
+Copyright 2026 The Coredoc Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party dependencies are not vendored in this source tree; they are
+installed from their registries under their own licenses. Binary
+distributions (for example the desktop application) bundle some of them.
+Notable non-permissive terms:
+
+- @anthropic-ai/claude-agent-sdk — proprietary, subject to Anthropic's legal
+  agreements (https://code.claude.com/docs/en/legal-and-compliance).
+- @img/sharp-libvips-* — LGPL-3.0-or-later, dynamically linked via sharp.

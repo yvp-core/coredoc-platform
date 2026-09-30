@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "reportId": "OPAQUE_REPORT_ID",
+  "reviewer": "PILOT_REVIEWER",
+  "labels": [],
+  "missedSeedDisposition": null,
+  "notes": "Each label records findingId, rootCauseId, verdict, rationale and independent evidence. Empty labels here are a template, not an evaluated result."
+}

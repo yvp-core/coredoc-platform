@@ -1,0 +1,13 @@
+{
+  "name": "coredoc-plugins",
+  "owner": { "name": "Yevhen Popenko", "email": "yevhen_popenko@coredoc.ai", "url": "https://github.com/yvp-core/coredoc-platform" },
+  "metadata": { "description": "Claude Code plugin marketplace for Coredoc. Ships coredoc: code-graph MCP and skills for getting code structure and connection data." },
+  "plugins": [
+    {
+      "name": "coredoc",
+      "source": "./plugins/coredoc",
+      "description": "coredoc-mcp navigation skill + session tooling for the Coredoc code graph. Add the MCP server separately — its URL is workspace-specific.",
+      "category": "development-tools"
+    }
+  ]
+}

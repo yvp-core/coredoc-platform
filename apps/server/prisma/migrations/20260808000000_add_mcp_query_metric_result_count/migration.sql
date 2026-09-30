@@ -1,0 +1,44 @@
+-- Cloud MCP metrics retrieval-quality parity with the local SQLite `mcp_queries`
+-- table (C3, run cdr-20260807-f6d09a): `mcp_query_metrics` gains `result_count`
+-- and `scope` so `getMcpEmptyResultBreakdown` can compute a per-tool
+-- empty-result rate for cloud workspaces, matching the signal the local server
+-- already has via `getEmptyResultBreakdown()`.
+--
+-- `result_count` — number of items a list-shaped tool call produced (0 for a
+-- single-entity miss), written by `BaseCoredocTool.executeWithMetrics` via the
+-- new `resultCountOf` classifier. Existing rows and unclassified tool/response
+-- shapes stay NULL — NULL is excluded from both the numerator and denominator
+-- of the empty-result rate (never silently counted as "not empty").
+--
+-- `scope` — the workspace repo the tool resolved for the call (vantage repo or
+-- explicit `scope` arg), when the tool resolved one. NULL for unscoped
+-- (whole-workspace) calls or calls where scope resolution failed.
+--
+-- NO `session_id` column: the cloud MCP request path
+-- (mcp-rewrite.middleware.ts) attaches only user/workspace, no session
+-- attribution mechanism exists yet — a column here would be permanently null.
+-- Deferred until that mechanism exists (see spec.md C3 decision log).
+--
+-- New standalone index on `queried_at`: the existing composite
+-- `(workspace_id, queried_at)` is workspace-first and cannot serve the
+-- retention cron's global `WHERE queried_at < cutoff` sweep without a full
+-- table scan across every workspace.
+--
+-- Additive-nullable only — no type change, no data rewrite, no backfill — so
+-- old code runs unmodified against the new schema and a plain revert +
+-- redeploy of the previous image is a safe rollback (no down-migration
+-- needed).
+--
+-- Rollback:
+--   DROP INDEX "mcp_query_metrics_queried_at_idx";
+--   ALTER TABLE "mcp_query_metrics" DROP COLUMN "result_count";
+--   ALTER TABLE "mcp_query_metrics" DROP COLUMN "scope";
+ALTER TABLE "mcp_query_metrics" ADD COLUMN "result_count" INTEGER;
+ALTER TABLE "mcp_query_metrics" ADD COLUMN "scope" TEXT;
+
+-- Deliberately NOT `CONCURRENTLY`: Prisma migrations run in a transaction,
+-- and at current table volumes the plain build's write-lock window is
+-- acceptable. If this table has grown large by the time this deploys, build
+-- the index out-of-band (`CREATE INDEX CONCURRENTLY`) and mark this
+-- migration applied instead.
+CREATE INDEX "mcp_query_metrics_queried_at_idx" ON "mcp_query_metrics"("queried_at");

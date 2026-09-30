@@ -1,0 +1,726 @@
+# =============================================================================
+# Product release pipeline (D2).
+#
+# Trigger: push a tag `v<semver>` (e.g. v0.0.39). The tag is the single source
+# of truth for the release version: artifact-producing jobs stamp it into the
+# workspace package.json files before building (same model as
+# desktop-release.yml), so no pre-tag version-bump commit is required.
+#
+# Publishes, in dependency order:
+#   1. test          — proven-commit gate: asserts a green ci.yml run for the
+#                      tagged commit (the suite itself runs on PRs + main pushes)
+#   2. server image  — ghcr.io/yvp-core/coredoc-server:{version}, :latest,
+#                      and :{version}-debug (see note in the job)
+#   3. cli image     — ghcr.io/yvp-core/coredoc-cli:{version} + :latest
+#   4. cli bundle    — R2 cli-bundles/{tag}/ + /latest/ behind GET /api/v1/cli/bundle
+#   5. chart         — helm chart to oci://ghcr.io/yvp-core/charts/coredoc
+#   6. airgap kit    — coredoc-onprem-{version}.tar.gz attached to a GitHub
+#                      Release (images + chart + values example + docs)
+#
+# Assumptions (deliberate — no secrets beyond the ambient GITHUB_TOKEN):
+#   - GITHUB_TOKEN can push packages to the ghcr.io/yvp-core namespace
+#     (`permissions: packages: write` below; the repo lives in that org/user).
+#   - Chart dependencies are pinned by charts/coredoc/Chart.lock; the chart job
+#     runs `helm dependency build` (digest-verified from the lock) before
+#     packaging, since charts/*/charts/ tarballs are gitignored, not vendored.
+#   - docs/onprem/*.md exist in the tagged commit (they ship in the kit).
+# =============================================================================
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # create the GitHub Release + upload the air-gap kit
+  packages: write # push images + chart to ghcr.io
+  actions: read # the proven-commit gate lists ci.yml runs for the tagged commit
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Derive {version} from the tag once. Drift against package.json is only a
+  # notice, not a failure: artifact jobs stamp the tag version into every
+  # manifest before building, so the tag always wins.
+  # ---------------------------------------------------------------------------
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Derive version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$VERSION" != "$PKG_VERSION" ]; then
+            echo "::notice::Tag version ${VERSION} differs from root package.json (${PKG_VERSION}); artifacts are stamped from the tag."
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # Proven-commit gate — the release does not re-run the test suite. The full
+  # suite runs on every PR and every push to main (.github/workflows/ci.yml);
+  # this job asserts the tagged commit already has a green run of that
+  # workflow (waiting out an in-flight one), so artifacts still only ship
+  # from tested commits and the ":latest means tested" promise holds.
+  #
+  # If the lookup finds no run (commit predates ci.yml, or the run aged out
+  # of retention), trigger one and re-run the release:
+  #   gh workflow run ci.yml --ref <tag>
+  # ---------------------------------------------------------------------------
+  test:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert the tagged commit passed CI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Dereference the tag to its COMMIT sha: for an annotated tag,
+          # GITHUB_SHA is the tag object, and CI runs are keyed by commit.
+          COMMIT_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_REF_NAME}" --jq .sha)"
+          # Poll for up to 30 min: the tag is often pushed right after the
+          # merge, while the main-push CI run is still in flight.
+          for i in $(seq 1 60); do
+            RUNS_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${COMMIT_SHA}&per_page=20")"
+            TOTAL="$(echo "$RUNS_JSON" | jq '.workflow_runs | length')"
+            if echo "$RUNS_JSON" | jq -e '.workflow_runs[] | select(.conclusion == "success")' > /dev/null; then
+              echo "CI is green for ${COMMIT_SHA}"
+              exit 0
+            fi
+            if echo "$RUNS_JSON" | jq -e '.workflow_runs[] | select(.status == "queued" or .status == "in_progress")' > /dev/null; then
+              echo "CI run for ${COMMIT_SHA} still in flight — waiting (${i}/60)"
+              sleep 30
+              continue
+            fi
+            if [ "$TOTAL" -eq 0 ]; then
+              echo "::error::No CI run found for ${COMMIT_SHA}. Run: gh workflow run ci.yml --ref ${GITHUB_REF_NAME} — then re-run this release."
+            else
+              echo "::error::CI concluded without success for ${COMMIT_SHA} — fix main (or re-run CI) before releasing."
+            fi
+            exit 1
+          done
+          echo "::error::Timed out waiting for CI on ${COMMIT_SHA}."
+          exit 1
+
+  # ---------------------------------------------------------------------------
+  # Server image — apps/server/Dockerfile, target `production`.
+  # Two builds (D3): the main tags are built with STRIP_ARTIFACTS=true (source
+  # maps + own typings removed from dist); :{version}-debug is built with
+  # STRIP_ARTIFACTS=false for support symbolication. Both share the same
+  # buildx cache scope, so the debug build reuses the base/build layers and
+  # only re-runs the cheap dist-selection + final stage.
+  # ---------------------------------------------------------------------------
+  server-image:
+    needs: [prepare, test]
+    runs-on: ubuntu-latest
+    # The pushed digest travels to airgap-kit, which pulls BY DIGEST: a tag can
+    # be moved by a re-run or a retag between the two jobs, which would put
+    # different bytes in the kit than the signature and SBOM describe.
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    # Job-level permissions REPLACE the workflow-level block, so contents/packages
+    # are restated here. id-token: write mints the OIDC token cosign exchanges for
+    # a short-lived Fulcio certificate (keyless signing — no key secret to rotate).
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # The offline-license verifier is only as good as the key it trusts. The
+      # repo ships an obvious placeholder so no fabricated "production" key is
+      # committed; shipping THAT — or a truncated / mis-pasted / non-Ed25519
+      # PEM, which a sentinel-string check happily accepts — means every license
+      # file is rejected on a customer's cluster and every licensed server
+      # crash-loops at boot. Fail the release instead.
+      #
+      # The gate imports the module and evaluates the EXPORTED constant through
+      # assertValidLicensePublicKey(), the same function the runtime verifier
+      # uses, rather than grepping the file: the sentinel string also lives
+      # inside isPlaceholderPublicKey(), so a file-wide grep would keep matching
+      # after release ops swap in the real PEM and fail every release forever.
+      - name: Refuse to release with an unusable license public key
+        env:
+          KEY_SOURCE: apps/server/src/modules/license/license-format.mjs
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'JS'
+          import { pathToFileURL } from "node:url";
+          const source = process.env.KEY_SOURCE;
+          const { LICENSE_PUBLIC_KEY_PEM, assertValidLicensePublicKey } = await import(pathToFileURL(source).href);
+          try {
+            assertValidLicensePublicKey(LICENSE_PUBLIC_KEY_PEM);
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            console.log(`::error file=${source}::${reason} — set LICENSE_PUBLIC_KEY_PEM to the release Ed25519 public key before tagging.`);
+            process.exit(1);
+          }
+          console.log(`${source}: release license public key is in place`);
+          JS
+
+      - name: Stamp workspace versions from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" node -e '
+            const fs = require("fs");
+            const version = process.env.VERSION;
+            const manifests = [
+              "package.json",
+              ...["apps", "packages"].flatMap((dir) =>
+                fs.readdirSync(dir).map((name) => `${dir}/${name}/package.json`),
+              ).filter((p) => fs.existsSync(p)),
+            ];
+            for (const file of manifests) {
+              const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+              pkg.version = version;
+              fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+            }
+            console.log(`stamped ${manifests.length} manifests to ${version}`);
+          '
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push server image (stripped)
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          target: production
+          push: true
+          # Explicit, verifiable supply-chain metadata: a full (mode=max) SLSA
+          # provenance attestation and an in-toto SBOM attestation attached to
+          # the pushed manifest, instead of whatever buildx defaults to.
+          provenance: mode=max
+          sbom: true
+          build-args: |
+            STRIP_ARTIFACTS=true
+          tags: |
+            ghcr.io/yvp-core/coredoc-server:${{ needs.prepare.outputs.version }}
+            ghcr.io/yvp-core/coredoc-server:latest
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,scope=server,mode=max
+
+      - name: Build and push server debug image (unstripped)
+        id: build_debug
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          target: production
+          push: true
+          provenance: mode=max
+          sbom: true
+          build-args: |
+            STRIP_ARTIFACTS=false
+          tags: |
+            ghcr.io/yvp-core/coredoc-server:${{ needs.prepare.outputs.version }}-debug
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,scope=server,mode=max
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      # Signing BY DIGEST is load-bearing: a tag is mutable, so a tag signature
+      # says nothing about which bytes a customer pulled. The digest outputs come
+      # straight from the two build steps above.
+      - name: Sign server images (keyless, by digest)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          DEBUG_DIGEST: ${{ steps.build_debug.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "ghcr.io/yvp-core/coredoc-server@${DIGEST}"
+          cosign sign --yes "ghcr.io/yvp-core/coredoc-server@${DEBUG_DIGEST}"
+
+      # Standalone SPDX document (a file a customer can feed to their scanner
+      # without knowing about OCI referrers). Ships as a release asset and inside
+      # the air-gap kit; the attestation above stays the machine-verifiable copy.
+      # syft writes to output-file without creating parent directories.
+      - name: Prepare SBOM directory
+        run: mkdir -p sboms
+
+      - name: Generate server SBOM (SPDX JSON)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ghcr.io/yvp-core/coredoc-server@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sboms/coredoc-server-${{ needs.prepare.outputs.version }}.spdx.json
+          upload-artifact: false
+
+      - name: Upload server SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom-server
+          path: sboms/
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # CLI image — packages/cli/Dockerfile (repo-root build context; the image
+  # runs `coredoc ci run` in customer CI).
+  # ---------------------------------------------------------------------------
+  cli-image:
+    needs: [prepare, test]
+    runs-on: ubuntu-latest
+    # See the note on server-image: airgap-kit pulls this image by digest.
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    # See the note on server-image: job-level permissions replace the
+    # workflow-level block; id-token: write enables cosign keyless signing.
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Stamp workspace versions from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" node -e '
+            const fs = require("fs");
+            const version = process.env.VERSION;
+            const manifests = [
+              "package.json",
+              ...["apps", "packages"].flatMap((dir) =>
+                fs.readdirSync(dir).map((name) => `${dir}/${name}/package.json`),
+              ).filter((p) => fs.existsSync(p)),
+            ];
+            for (const file of manifests) {
+              const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+              pkg.version = version;
+              fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+            }
+            console.log(`stamped ${manifests.length} manifests to ${version}`);
+          '
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push CLI image
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: packages/cli/Dockerfile
+          target: production
+          push: true
+          provenance: mode=max
+          sbom: true
+          build-args: |
+            STRIP_ARTIFACTS=true
+          tags: |
+            ghcr.io/yvp-core/coredoc-cli:${{ needs.prepare.outputs.version }}
+            ghcr.io/yvp-core/coredoc-cli:latest
+          cache-from: type=gha,scope=cli
+          cache-to: type=gha,scope=cli,mode=max
+
+      # The image is functional only if the profile-typecheck gate can resolve its
+      # schema (profile-parser + core dist/*.d.ts survive the STRIP_ARTIFACTS stage).
+      # A zero-diagnostic result on an invalid profile means the schema degraded to
+      # `any` (unresolved imports are tolerated by design) — treat that as broken too.
+      # This shipped broken once: the strip stage deleted all .d.ts and every client
+      # `ci run` failed with "Cannot typecheck profiles". Runs before signing so a
+      # broken image never becomes a signed release.
+      - name: Smoke-test CLI image (profile typecheck gate)
+        env:
+          IMAGE: ghcr.io/yvp-core/coredoc-cli@${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker run --rm "$IMAGE" --version
+          docker run --rm --entrypoint sh "$IMAGE" -c '
+            printf "import type { ExtractionProfile } from \"@coredoc/profile-parser\";\nconst p: ExtractionProfile = { definitelyNotAField: 1 };\nexport default p;\n" > /tmp/bad.ts
+            node --input-type=module -e "
+            const m = await import(\"/app/packages/profile-parser/dist/index.js\");
+            const d = m.typecheckProfile(\"/tmp/bad.ts\");
+            if (d.length === 0) { console.error(\"FAIL: invalid profile produced 0 diagnostics — typecheck schema missing or degraded to any\"); process.exit(1); }
+            console.log(\"typecheck gate OK:\", d.length, \"diagnostic(s)\");
+            "'
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Sign CLI image (keyless, by digest)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "ghcr.io/yvp-core/coredoc-cli@${DIGEST}"
+
+      # syft writes to output-file without creating parent directories.
+      - name: Prepare SBOM directory
+        run: mkdir -p sboms
+
+      - name: Generate CLI SBOM (SPDX JSON)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ghcr.io/yvp-core/coredoc-cli@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sboms/coredoc-cli-${{ needs.prepare.outputs.version }}.spdx.json
+          upload-artifact: false
+
+      - name: Upload CLI SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom-cli
+          path: sboms/
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # CLI bundle — the R2 download channel behind `GET /api/v1/cli/bundle`, which
+  # is how cloud customers' CI gets the CLI (gated by their own `cdt_` token).
+  # On-prem uses the image above instead; both channels ship every release.
+  #
+  # The version key MUST stay v-prefixed: the server accepts only
+  # `latest | main-<sha> | v<semver>` (cli-bundle.controller.ts) and the manifest
+  # is keyed by that same string — so GITHUB_REF_NAME (v1.2.3), NOT
+  # needs.prepare.outputs.version (1.2.3), which would 404 on every lookup.
+  #
+  # `environment: production` is load-bearing — the R2_* secrets live on that
+  # environment, not on the repo.
+  #
+  # This is the ONLY publisher of CLI bundles, deliberately: it sits behind the
+  # proven-commit gate (the `test` job asserts a green ci.yml run for this
+  # commit), so `latest` always means "latest tested release" — the same
+  # promise as the :latest image tag. A trunk-driven publisher would quietly
+  # repoint `latest` at untested code for every customer defaulting to it.
+  # ---------------------------------------------------------------------------
+  cli-bundle:
+    needs: [prepare, test]
+    runs-on: ubuntu-latest
+    environment: production
+    # The manifest update is a read-modify-write on one R2 object; two tags
+    # pushed back-to-back would otherwise clobber one of the two entries.
+    concurrency:
+      group: cli-bundle-manifest
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Stamped AFTER install on purpose: --frozen-lockfile compares against the
+      # committed manifests, so stamping first risks a spurious lockfile failure.
+      - name: Stamp workspace versions from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" node -e '
+            const fs = require("fs");
+            const version = process.env.VERSION;
+            const manifests = [
+              "package.json",
+              ...["apps", "packages"].flatMap((dir) =>
+                fs.readdirSync(dir).map((name) => `${dir}/${name}/package.json`),
+              ).filter((p) => fs.existsSync(p)),
+            ];
+            for (const file of manifests) {
+              const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+              pkg.version = version;
+              fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+            }
+            console.log(`stamped ${manifests.length} manifests to ${version}`);
+          '
+
+      - name: Build CLI and dependencies
+        run: pnpm turbo run build --filter=@coredoc/cli
+
+      - name: Build CLI bundle
+        run: pnpm build:cli-bundle
+
+      # A bundle that runs the WRONG module's main() still builds and hashes
+      # cleanly — single-file bundling makes every module look like the
+      # entrypoint, so a stray `if (import.meta.url === argv[1])` hijacks every
+      # command. Only executing the artifact catches it, so do that before it
+      # can reach a customer. The value is the tag version baked in by the bundle
+      # script from the stamped packages/cli/package.json.
+      - name: Smoke-test the bundle
+        run: |
+          set -euo pipefail
+          OUT="$(node dist/cli-bundle/coredoc-cli.mjs --version)"
+          echo "$OUT" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+' || {
+            echo "::error::bundle --version printed '${OUT}' — expected a version. Some other module's main() is running."
+            exit 1
+          }
+          node dist/cli-bundle/coredoc-cli.mjs ci run --help > /dev/null
+          echo "bundle smoke-test OK (${OUT})"
+
+      - name: Upload bundle to R2 and update the manifest
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          BUNDLE="dist/cli-bundle/coredoc-cli.mjs"
+          RUNTIME="dist/cli-bundle/runtime-modules.tar.gz"
+          SHA256="$(cat dist/cli-bundle/sha256.txt)"
+          RUNTIME_SHA256="$(cat dist/cli-bundle/runtime-modules-sha256.txt)"
+          NOW="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          MANIFEST_KEY="cli-bundles/manifest.json"
+
+          for TARGET in "$VERSION" latest; do
+            aws s3 cp "$BUNDLE" "s3://$R2_BUCKET/cli-bundles/$TARGET/coredoc-cli.mjs" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --content-type "application/javascript"
+            aws s3 cp "$RUNTIME" "s3://$R2_BUCKET/cli-bundles/$TARGET/runtime-modules.tar.gz" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --content-type "application/gzip"
+          done
+
+          aws s3 cp "s3://$R2_BUCKET/$MANIFEST_KEY" /tmp/manifest.json \
+            --endpoint-url "$R2_ENDPOINT" 2>/dev/null || echo '{"latest":"","versions":[]}' > /tmp/manifest.json
+
+          jq --arg v "$VERSION" --arg sha "$SHA256" --arg rtsha "$RUNTIME_SHA256" --arg now "$NOW" '
+            .latest = $v |
+            .versions = [{ version: $v, sha256: $sha, runtimeSha256: $rtsha, uploadedAt: $now }] + [.versions[] | select(.version != $v)] |
+            .versions = .versions[:20]
+          ' /tmp/manifest.json > /tmp/manifest-updated.json
+
+          aws s3 cp /tmp/manifest-updated.json "s3://$R2_BUCKET/$MANIFEST_KEY" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --content-type "application/json"
+
+  # ---------------------------------------------------------------------------
+  # Helm chart — package with the release version and push as an OCI artifact.
+  # The neo4j subchart tarball is NOT in git (charts/*/charts/ is ignored);
+  # `helm dependency build` restores it digest-verified from Chart.lock.
+  # ---------------------------------------------------------------------------
+  chart:
+    needs: [prepare, test]
+    runs-on: ubuntu-latest
+    # See the note on server-image: job-level permissions replace the
+    # workflow-level block; id-token: write enables cosign keyless signing.
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+
+      - name: Helm registry login
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Restore chart dependencies from Chart.lock
+        run: |
+          helm repo add neo4j https://helm.neo4j.com/neo4j
+          helm dependency build charts/coredoc
+
+      - name: Package chart
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          helm package charts/coredoc --version "$VERSION" --app-version "$VERSION" --destination dist/
+          ls -l dist/
+
+      # `helm push` reports the pushed manifest digest on stderr; capture it so
+      # the signature covers the exact bytes, not the mutable version tag.
+      - name: Push chart
+        id: push
+        run: |
+          set -euo pipefail
+          helm push "dist/coredoc-${{ needs.prepare.outputs.version }}.tgz" oci://ghcr.io/yvp-core/charts 2>&1 | tee push.log
+          DIGEST="$(sed -n 's/^Digest: \(sha256:[0-9a-f]*\).*/\1/p' push.log | tail -n 1)"
+          if [ -z "$DIGEST" ]; then
+            echo "::error::helm push did not report a digest — refusing to sign a tag."
+            exit 1
+          fi
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      # cosign reads Docker registry credentials, not helm's registry config —
+      # the `helm registry login` above is invisible to it (the first live run
+      # failed UNAUTHORIZED on this step). Log in the same way the image jobs do.
+      - name: Log in to ghcr.io (for cosign)
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sign chart (keyless, by digest)
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "ghcr.io/yvp-core/charts/coredoc@${DIGEST}"
+
+      - name: Upload chart artifact (for the air-gap kit)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chart
+          path: dist/coredoc-${{ needs.prepare.outputs.version }}.tgz
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Air-gap kit — everything an offline install needs, in one tarball:
+  #   images/  coredoc-server, coredoc-cli, and the Neo4j image the chart pins
+  #   chart/   the packaged chart .tgz + values-example.yaml
+  #   docs/    docs/onprem/*.md
+  #   sboms/   SPDX JSON for the server + CLI images
+  #   mirror.sh    pushes images/*.tar into the customer's own registry
+  #   digests.txt  upstream digest each images/*.tar was pulled by — the join
+  #                key to the cosign signatures and SBOMs on ghcr.io
+  #   SHA-256SUMS  checksum manifest over every file in the kit
+  #                (mirror.sh, digests.txt and sboms/ included — the find below
+  #                is exhaustive)
+  # Attached to a GitHub Release for the tag with generated notes.
+  # ---------------------------------------------------------------------------
+  airgap-kit:
+    needs: [prepare, server-image, cli-image, chart]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Download chart artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: chart
+          path: dist/
+
+      - name: Download SBOM artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: sbom-*
+          merge-multiple: true
+          path: sboms/
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assemble kit
+        env:
+          # The digests the image jobs actually pushed, signed, and generated
+          # SBOMs for. The kit pulls THESE bytes, not whatever the mutable
+          # `:${VERSION}` tag points at by the time this job runs.
+          SERVER_DIGEST: ${{ needs.server-image.outputs.digest }}
+          CLI_DIGEST: ${{ needs.cli-image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.prepare.outputs.version }}"
+
+          if [ -z "${SERVER_DIGEST}" ] || [ -z "${CLI_DIGEST}" ]; then
+            echo "::error::server-image/cli-image did not report a pushed digest — refusing to build a kit from mutable tags."
+            exit 1
+          fi
+
+          # The Neo4j image the chart deploys: the vendored neo4j subchart
+          # (charts/coredoc/Chart.lock, version 2026.5.0) defaults to
+          # neo4j:<subchart appVersion> for the community edition the chart
+          # configures — i.e. neo4j:2026.05.0. Keep this in sync with the
+          # neo4j dependency version in charts/coredoc/Chart.yaml.
+          NEO4J_IMAGE="neo4j:2026.05.0"
+
+          KIT="coredoc-onprem-${VERSION}"
+          mkdir -p "${KIT}/images" "${KIT}/chart" "${KIT}/docs" "${KIT}/sboms"
+
+          SERVER_REF="ghcr.io/yvp-core/coredoc-server:${VERSION}"
+          CLI_REF="ghcr.io/yvp-core/coredoc-cli:${VERSION}"
+
+          # Pull by digest, then apply the friendly tag locally before saving:
+          # `docker save <tag>` writes that tag into the archive's manifest.json
+          # RepoTags, which is what mirror.sh reads to derive each target ref.
+          # (A digest-pulled image carries no RepoTags of its own, so saving the
+          # digest ref directly would produce an untagged archive.)
+          docker pull "ghcr.io/yvp-core/coredoc-server@${SERVER_DIGEST}"
+          docker pull "ghcr.io/yvp-core/coredoc-cli@${CLI_DIGEST}"
+          docker pull "${NEO4J_IMAGE}"
+          docker tag "ghcr.io/yvp-core/coredoc-server@${SERVER_DIGEST}" "${SERVER_REF}"
+          docker tag "ghcr.io/yvp-core/coredoc-cli@${CLI_DIGEST}" "${CLI_REF}"
+
+          docker save "${SERVER_REF}"  -o "${KIT}/images/coredoc-server-${VERSION}.tar"
+          docker save "${CLI_REF}"     -o "${KIT}/images/coredoc-cli-${VERSION}.tar"
+          docker save "${NEO4J_IMAGE}" -o "${KIT}/images/neo4j-2026.05.0.tar"
+
+          # Which upstream bytes each tarball came from — the join key between a
+          # kit image, its cosign signature, and its SBOM on ghcr.io. The Neo4j
+          # digest is read back from the pull (it is tagged upstream, not built
+          # here), matched on repository so a same-image mirror entry cannot win.
+          NEO4J_DIGEST="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${NEO4J_IMAGE}" |
+            { grep -m 1 "^${NEO4J_IMAGE%%:*}@" || true; } | cut -d@ -f2)"
+          if [ -z "${NEO4J_DIGEST}" ]; then
+            echo "::error::could not read a pulled digest for ${NEO4J_IMAGE} — refusing to ship a kit whose digest manifest is incomplete."
+            exit 1
+          fi
+          {
+            echo "# image reference -> digest of the bytes in images/*.tar"
+            echo "${SERVER_REF} ${SERVER_DIGEST}"
+            echo "${CLI_REF} ${CLI_DIGEST}"
+            echo "${NEO4J_IMAGE} ${NEO4J_DIGEST}"
+          } > "${KIT}/digests.txt"
+
+          cp "dist/coredoc-${VERSION}.tgz" "${KIT}/chart/"
+          cp charts/coredoc/values-example.yaml "${KIT}/chart/"
+          cp docs/onprem/*.md "${KIT}/docs/"
+          cp sboms/*.spdx.json "${KIT}/sboms/"
+
+          # Ships versioned with the images it mirrors, at the kit root: the
+          # script resolves the kit from its own location.
+          cp scripts/onprem/mirror.sh "${KIT}/mirror.sh"
+          chmod +x "${KIT}/mirror.sh"
+
+          # Checksum manifest over every file in the kit (paths relative to kit root).
+          (cd "${KIT}" && find . -type f ! -name SHA-256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA-256SUMS)
+
+          tar -czf "${KIT}.tar.gz" "${KIT}"
+          sha256sum "${KIT}.tar.gz" > "${KIT}.tar.gz.sha256"
+
+      # Idempotent by design: the release often already exists — cut by hand in
+      # the UI (which also creates the tag), or left over from a re-run/retag of
+      # the same version. `gh release create` hard-errors on that, so attach to
+      # whatever is there and leave its notes alone.
+      - name: Publish the kit to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.prepare.outputs.version }}"
+          ASSETS=("coredoc-onprem-${VERSION}.tar.gz" "coredoc-onprem-${VERSION}.tar.gz.sha256" sboms/*.spdx.json)
+          if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} already exists — attaching the kit"
+            gh release upload "${GITHUB_REF_NAME}" "${ASSETS[@]}" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "coredoc v${VERSION}" \
+              --generate-notes \
+              "${ASSETS[@]}"
+          fi

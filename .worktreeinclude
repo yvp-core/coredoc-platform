@@ -1,0 +1,7 @@
+.env
+apps/server/.env
+apps/desktop/.env
+coredoc.config.json
+coredoc-output
+coredoc-parsers
+coredoc.db.d

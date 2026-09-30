@@ -1,0 +1,300 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import '@fontsource-variable/inter';
+
+/* Design tokens — source of truth for the whole app. Light on :root, dark
+   under the system preference (unless explicitly forced light) and again
+   under an explicit [data-theme="dark"]. */
+:root {
+  color-scheme: light;
+
+  --ground: #ecedf4;
+  --surface: #ffffff;
+  --surface-2: #f7f7fb;
+
+  --ink-1: #27272a;
+  --ink-2: #52525b;
+  --ink-3: #71717a;
+  --ink-4: #a1a1aa;
+
+  --border: #e6e6e8;
+  --border-soft: #efeff4;
+
+  --brand: #12b981;
+  --brand-text: #079467;
+  --brand-wash: rgba(18, 185, 129, 0.1);
+
+  --track: #ebebf5;
+
+  --danger: #dc2626;
+  --danger-text: #b91c1c;
+  --danger-wash: rgba(220, 38, 38, 0.08);
+
+  --warn-text: #b45309;
+  --warn-wash: rgba(245, 158, 11, 0.12);
+
+  --blue: #2e7cd6;
+  --blue-wash: rgba(67, 156, 251, 0.13);
+
+  --violet-text: #6d28d9;
+  --violet-wash: rgba(139, 92, 246, 0.12);
+
+  --rework: #e07b39;
+  --rework-text: #b45309;
+  --rework-wash: rgba(224, 123, 57, 0.12);
+
+  --grid: #f0f0f4;
+  --axis: #dcdce2;
+
+  --stage-1: #3dc492;
+  --stage-2: #12a876;
+  --stage-3: #0d8c5f;
+  --stage-4: #0a7049;
+  --stage-5: #075535;
+
+  --tooltip-bg: #27272a;
+  --tooltip-ink: #fafafa;
+
+  --accent-a: #439cfb;
+  --accent-b: #f187fb;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05), 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --ground: #101013;
+    --surface: #1b1b1f;
+    --surface-2: #232328;
+
+    --ink-1: #f4f4f5;
+    --ink-2: #c7c7ce;
+    --ink-3: #9b9ba6;
+    --ink-4: #6e6e78;
+
+    --border: #2c2c33;
+    --border-soft: #26262c;
+
+    --brand: #17ad7d;
+    --brand-text: #3bc996;
+    --brand-wash: rgba(23, 173, 125, 0.14);
+
+    --track: #2a2a31;
+
+    --danger: #f87171;
+    --danger-text: #f87171;
+    --danger-wash: rgba(248, 113, 113, 0.1);
+
+    --warn-text: #e8a33d;
+    --warn-wash: rgba(232, 163, 61, 0.13);
+
+    --blue: #5ca8f5;
+    --blue-wash: rgba(92, 168, 245, 0.15);
+
+    --violet-text: #b8a6f5;
+    --violet-wash: rgba(167, 139, 250, 0.14);
+
+    --rework: #e8935a;
+    --rework-text: #e8a33d;
+    --rework-wash: rgba(232, 147, 90, 0.14);
+
+    --grid: #232329;
+    --axis: #3a3a42;
+
+    --stage-1: #7adbb8;
+    --stage-2: #45c697;
+    --stage-3: #17ad7d;
+    --stage-4: #128f66;
+    --stage-5: #0e7150;
+
+    --tooltip-bg: #f4f4f5;
+    --tooltip-ink: #1b1b1f;
+
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --ground: #101013;
+  --surface: #1b1b1f;
+  --surface-2: #232328;
+
+  --ink-1: #f4f4f5;
+  --ink-2: #c7c7ce;
+  --ink-3: #9b9ba6;
+  --ink-4: #6e6e78;
+
+  --border: #2c2c33;
+  --border-soft: #26262c;
+
+  --brand: #17ad7d;
+  --brand-text: #3bc996;
+  --brand-wash: rgba(23, 173, 125, 0.14);
+
+  --track: #2a2a31;
+
+  --danger: #f87171;
+  --danger-text: #f87171;
+  --danger-wash: rgba(248, 113, 113, 0.1);
+
+  --warn-text: #e8a33d;
+  --warn-wash: rgba(232, 163, 61, 0.13);
+
+  --blue: #5ca8f5;
+  --blue-wash: rgba(92, 168, 245, 0.15);
+
+  --violet-text: #b8a6f5;
+  --violet-wash: rgba(167, 139, 250, 0.14);
+
+  --rework: #e8935a;
+  --rework-text: #e8a33d;
+  --rework-wash: rgba(232, 147, 90, 0.14);
+
+  --grid: #232329;
+  --axis: #3a3a42;
+
+  --stage-1: #7adbb8;
+  --stage-2: #45c697;
+  --stage-3: #17ad7d;
+  --stage-4: #128f66;
+  --stage-5: #0e7150;
+
+  --tooltip-bg: #f4f4f5;
+  --tooltip-ink: #1b1b1f;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+@theme inline {
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+
+  --color-ink-1: var(--ink-1);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+
+  --color-border: var(--border);
+  --color-border-soft: var(--border-soft);
+
+  --color-brand: var(--brand);
+  --color-brand-text: var(--brand-text);
+  --color-brand-wash: var(--brand-wash);
+
+  --color-track: var(--track);
+
+  --color-danger: var(--danger);
+  --color-danger-text: var(--danger-text);
+  --color-danger-wash: var(--danger-wash);
+
+  --color-warn-text: var(--warn-text);
+  --color-warn-wash: var(--warn-wash);
+
+  --color-blue: var(--blue);
+  --color-blue-wash: var(--blue-wash);
+
+  --color-violet-text: var(--violet-text);
+  --color-violet-wash: var(--violet-wash);
+
+  --color-rework: var(--rework);
+  --color-rework-text: var(--rework-text);
+  --color-rework-wash: var(--rework-wash);
+
+  --color-grid: var(--grid);
+  --color-axis: var(--axis);
+
+  --color-stage-1: var(--stage-1);
+  --color-stage-2: var(--stage-2);
+  --color-stage-3: var(--stage-3);
+  --color-stage-4: var(--stage-4);
+  --color-stage-5: var(--stage-5);
+
+  --color-tooltip-bg: var(--tooltip-bg);
+  --color-tooltip-ink: var(--tooltip-ink);
+
+  --color-accent-a: var(--accent-a);
+  --color-accent-b: var(--accent-b);
+
+  /* shadcn slot aliases so ported primitives keep working */
+  --color-background: var(--ground);
+  --color-foreground: var(--ink-1);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--ink-1);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--ink-1);
+  --color-muted: var(--surface-2);
+  --color-muted-foreground: var(--ink-3);
+  --color-accent: var(--surface-2);
+  --color-accent-foreground: var(--ink-1);
+  --color-input: var(--border-soft);
+  --color-ring: var(--brand);
+  --color-primary: var(--brand);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--surface-2);
+  --color-secondary-foreground: var(--ink-1);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: #ffffff;
+
+  --shadow-card: var(--shadow-card);
+
+  --font-sans: 'Inter Variable', system-ui, sans-serif;
+  --font-mono: 'SF Mono', Monaco, Inconsolata, 'Roboto Mono', monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    @apply bg-ground text-ink-1 font-sans text-[13px] leading-normal font-light antialiased;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 1px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-axis) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-axis);
+    border-radius: 999px;
+  }
+}
+
+@utility num {
+  font-variant-numeric: tabular-nums;
+}

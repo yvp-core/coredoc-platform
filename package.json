@@ -1,0 +1,94 @@
+{
+  "name": "ai-plugin",
+  "version": "1.1.0",
+  "private": true,
+  "description": "AI-powered local codebase parser that generates structured JSON representations",
+  "type": "module",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test && node scripts/check-plugin-test-enrolment.mjs && node --test plugins/coredoc/scripts/*.test.mjs plugins/coredoc/scripts/lib/*.test.mjs",
+    "test:watch": "vitest",
+    "test:coverage": "vitest --coverage",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "typecheck": "turbo run typecheck",
+    "e2e": "turbo run e2e --filter=@coredoc/desktop",
+    "cli": "node packages/cli/dist/index.js",
+    "mcp": "node packages/mcp/dist/index.js",
+    "mcp:debug": "MCP_DEBUG=1 npx @modelcontextprotocol/inspector node packages/mcp/dist/index.js",
+    "eval": "pnpm --filter @coredoc/evals eval",
+    "server:dev": "pnpm --filter @coredoc/server dev",
+    "server:build": "pnpm --filter @coredoc/server build",
+    "desktop": "pnpm --filter @coredoc/desktop dev:electron",
+    "desktop:dev": "pnpm --filter @coredoc/desktop dev:electron",
+    "build:mac": "pnpm --filter @coredoc/desktop build && pnpm --filter @coredoc/desktop build:mac",
+    "build:win": "pnpm --filter @coredoc/desktop build && pnpm --filter @coredoc/desktop build:win",
+    "build:linux": "pnpm --filter @coredoc/desktop build && pnpm --filter @coredoc/desktop build:linux",
+    "build:cli-bundle": "node scripts/build-cli-bundle.mjs",
+    "sync:plugin-skills": "node scripts/sync-plugin-skills.mjs",
+    "gen:tool-classes": "node scripts/gen-coredoc-tool-classes.mjs --write",
+    "clean": "turbo run clean && rm -rf dist node_modules/.cache",
+    "prepare": "husky"
+  },
+  "keywords": [
+    "codebase",
+    "parser",
+    "ast",
+    "code-analysis",
+    "documentation",
+    "ai",
+    "claude",
+    "anthropic"
+  ],
+  "author": "coredoc team",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.12",
+    "@anthropic-ai/sdk": "^0.71.2",
+    "@coredoc/core": "workspace:*",
+    "@langchain/core": "^1.1.16",
+    "@langchain/ollama": "^1.2.1",
+    "@langchain/openai": "^1.2.3",
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "commander": "^12.0.0",
+    "dotenv": "^16.6.1",
+    "glob": "^13.0.0",
+    "handlebars": "^4.7.8",
+    "neo4j-driver": "^5.27.0",
+    "stream-chain": "^3.4.0",
+    "stream-json": "^1.9.1",
+    "typescript": ">=5.0.0",
+    "yaml": "^2.8.2",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.4",
+    "@types/node": "^22.0.0",
+    "@types/stream-chain": "^2.1.0",
+    "@types/stream-json": "^1.7.8",
+    "@vitest/coverage-v8": "^1.3.0",
+    "esbuild": "^0.27.4",
+    "husky": "^9.1.7",
+    "prebuild-install": "^7.1.3",
+    "tsx": "^4.21.0",
+    "turbo": "^2.0.0",
+    "vitest": "^1.3.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "pnpm": {
+    "neverBuiltDependencies": [
+      "tree-sitter-c-sharp"
+    ]
+  }
+}

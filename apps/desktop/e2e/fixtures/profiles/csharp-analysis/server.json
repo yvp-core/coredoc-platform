@@ -1,0 +1,1 @@
+{ "GET /api/v1/meta": { "version": "1.1.0", "minClientVersion": "1.0.0" } }

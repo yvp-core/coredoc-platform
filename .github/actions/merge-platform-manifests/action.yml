@@ -1,0 +1,62 @@
+name: Merge Platform Update Manifests
+description: Merge update manifests from x64 and arm64 builds for Windows or Linux
+
+inputs:
+  artifacts-path:
+    description: Directory containing platform artifact subdirectories (e.g., desktop-Windows-x64/, desktop-Windows-arm64/)
+    required: true
+  platform:
+    description: Platform name prefix in artifact directory names (e.g., "Windows" or "Linux")
+    required: true
+  manifest-name:
+    description: Name of the manifest file (e.g., "latest.yml" or "latest-linux.yml")
+    required: true
+  output-path:
+    description: Directory to write the merged manifest
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Merge manifests
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        ARTIFACTS="${{ inputs.artifacts-path }}"
+        PLATFORM="${{ inputs.platform }}"
+        MANIFEST="${{ inputs.manifest-name }}"
+        OUTPUT="${{ inputs.output-path }}"
+        mkdir -p "$OUTPUT"
+
+        # Find manifests from x64 and arm64 builds
+        X64_MANIFEST=""
+        ARM64_MANIFEST=""
+        for dir in "$ARTIFACTS"/desktop-${PLATFORM}-*/; do
+          [ -d "$dir" ] || continue
+          if [[ "$dir" == *"-x64"* ]] && [ -f "$dir/$MANIFEST" ]; then
+            X64_MANIFEST="$dir/$MANIFEST"
+          elif [[ "$dir" == *"-arm64"* ]] && [ -f "$dir/$MANIFEST" ]; then
+            ARM64_MANIFEST="$dir/$MANIFEST"
+          fi
+        done
+
+        if [[ -z "$X64_MANIFEST" ]]; then
+          echo "::error::x64 manifest not found for $PLATFORM"
+          exit 1
+        fi
+
+        if [[ -z "$ARM64_MANIFEST" ]]; then
+          echo "::warning::arm64 manifest not found for $PLATFORM, using x64 only"
+          cp "$X64_MANIFEST" "$OUTPUT/$MANIFEST"
+        else
+          echo "Merging $PLATFORM manifests:"
+          echo "  x64: $X64_MANIFEST"
+          echo "  arm64: $ARM64_MANIFEST"
+
+          export X64_MANIFEST ARM64_MANIFEST OUTPUT MANIFEST
+          python3 "${{ github.action_path }}/merge.py"
+        fi
+
+        echo "=== $MANIFEST ==="
+        cat "$OUTPUT/$MANIFEST"

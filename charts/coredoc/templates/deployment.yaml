@@ -1,0 +1,158 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "coredoc.fullname" . }}
+  labels:
+    {{- include "coredoc.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.server.replicas }}
+  selector:
+    matchLabels:
+      {{- include "coredoc.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "coredoc.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: server
+          image: {{ include "coredoc.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "3000"
+            {{- if .Values.neo4j.enabled }}
+            # Must be exactly lowercase "neo4j" — any other value (or unset)
+            # silently selects the cloud (Turso) data-plane path, so this is
+            # only rendered when the neo4j subchart is deployed.
+            - name: COREDOC_DB_BACKEND
+              value: neo4j
+            {{- end }}
+            # Public base URL: OAuth issuer/resource + MCP discovery.
+            - name: MCP_SERVER_URL
+              value: {{ required "server.publicUrl is required" .Values.server.publicUrl | quote }}
+            - name: CORS_ORIGINS
+              value: {{ .Values.server.publicUrl | quote }}
+            {{- with .Values.server.webOrigins }}
+            # Extra hostnames the UI is served on; the web login completes on
+            # whichever of them the browser used. Issuer/resource stay publicUrl.
+            - name: WEB_ORIGINS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- if .Values.auth.allowedEmailDomains }}
+            - name: ALLOWED_EMAIL_DOMAINS
+              value: {{ join "," .Values.auth.allowedEmailDomains | quote }}
+            {{- end }}
+            {{- if eq .Values.auth.upstream "workos" }}
+            - name: OAUTH_UPSTREAM
+              value: workos
+            - name: WORKOS_AUTHKIT_DOMAIN
+              value: {{ required "auth.workos.authkitDomain is required when auth.upstream=workos" .Values.auth.workos.authkitDomain | quote }}
+            {{- end }}
+            - name: ALLOW_SOURCES_IN_GRAPH
+              value: {{ .Values.config.allowSourcesInGraph | toString | quote }}
+            - name: ENABLE_SOURCE_MODULE
+              value: {{ .Values.config.enableSourceModule | toString | quote }}
+            - name: ENABLE_CLI_BUNDLE
+              value: {{ .Values.config.enableCliBundle | toString | quote }}
+            - name: ENABLE_SEMANTIC_SEARCH
+              value: {{ .Values.config.enableSemanticSearch | toString | quote }}
+            {{- if .Values.storage.endpoint }}
+            - name: R2_ENDPOINT
+              value: {{ .Values.storage.endpoint | quote }}
+            - name: R2_BUCKET
+              value: {{ .Values.storage.bucket | quote }}
+            {{- if .Values.storage.region }}
+            - name: R2_REGION
+              value: {{ .Values.storage.region | quote }}
+            {{- end }}
+            {{- end }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "postgres.existingSecret is required" .Values.postgres.existingSecret }}
+                  key: DATABASE_URL
+            {{- if .Values.neo4j.enabled }}
+            - name: NEO4J_URI
+              value: {{ include "coredoc.neo4jUri" . | quote }}
+            - name: NEO4J_USER
+              value: neo4j
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "neo4j.neo4j.passwordFromSecret is required when neo4j.enabled (secret with NEO4J_AUTH + NEO4J_PASSWORD keys)" .Values.neo4j.neo4j.passwordFromSecret }}
+                  key: NEO4J_PASSWORD
+            {{- end }}
+            {{- if .Values.license.existingSecret }}
+            # Offline license: set ONLY when license.existingSecret is
+            # configured — with the var unset the server does no enforcement.
+            - name: COREDOC_LICENSE_FILE
+              value: /etc/coredoc/license.json
+            {{- end }}
+            {{- if .Values.telemetry.posthogKey }}
+            - name: COREDOC_POSTHOG_KEY
+              value: {{ .Values.telemetry.posthogKey | quote }}
+            {{- end }}
+            {{- range $name, $value := .Values.server.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ required "auth.existingSecret is required" .Values.auth.existingSecret }}
+            {{- if .Values.storage.existingSecret }}
+            - secretRef:
+                name: {{ .Values.storage.existingSecret }}
+            {{- end }}
+            {{- with .Values.server.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # Readiness probes Postgres and (in neo4j mode) Neo4j: a 503 takes
+          # the pod out of rotation without restarting it.
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Liveness is dependency-free — a transient DB outage must not
+          # restart-loop the pod.
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health/live
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- if .Values.license.existingSecret }}
+          volumeMounts:
+            - name: license
+              mountPath: /etc/coredoc
+              readOnly: true
+          {{- end }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+      {{- if .Values.license.existingSecret }}
+      volumes:
+        - name: license
+          secret:
+            secretName: {{ .Values.license.existingSecret }}
+            items:
+              - key: license.json
+                path: license.json
+      {{- end }}

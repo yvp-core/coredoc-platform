@@ -1,0 +1,762 @@
+{
+  "projectRoot": "file:///fixture",
+  "documents": [
+    {
+      "relativePath": "Frameworks.cs",
+      "symbols": [
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Microsoft.Extensions.Hosting.Abstractions 10.0.0.0 Hosting/IHostedService#",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#StartAsync().",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Microsoft.Extensions.Hosting.Abstractions 10.0.0.0 Hosting/IHostedService#StartAsync().",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#StopAsync().",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Microsoft.Extensions.Hosting.Abstractions 10.0.0.0 Hosting/IHostedService#StopAsync().",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredWorker#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Microsoft.Extensions.Hosting.Abstractions 10.0.0.0 Hosting/IHostedService#",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredWorker#StartAsync().",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Microsoft.Extensions.Hosting.Abstractions 10.0.0.0 Hosting/IHostedService#StartAsync().",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredWorker#StopAsync().",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Microsoft.Extensions.Hosting.Abstractions 10.0.0.0 Hosting/IHostedService#StopAsync().",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ReportJob#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Quartz 3.13.1.0 Quartz/IJob#",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ReportJob#Execute().",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Quartz 3.13.1.0 Quartz/IJob#Execute().",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredJob#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Quartz 3.13.1.0 Quartz/IJob#",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredJob#Execute().",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Quartz 3.13.1.0 Quartz/IJob#Execute().",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ChatHub#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Microsoft.AspNetCore.SignalR.Core 10.0.0.0 SignalR/Hub#",
+              "isImplementation": true
+            },
+            {
+              "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 System/IDisposable#",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ChatHub#OnConnectedAsync().",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Microsoft.AspNetCore.SignalR.Core 10.0.0.0 SignalR/Hub#OnConnectedAsync().",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredHub#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Microsoft.AspNetCore.SignalR.Core 10.0.0.0 SignalR/Hub#",
+              "isImplementation": true
+            },
+            {
+              "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 System/IDisposable#",
+              "isImplementation": true
+            }
+          ]
+        }
+      ],
+      "occurrences": [
+        {
+          "symbol": "scip-dotnet nuget AutoMapper 15.0.0.0 AutoMapper/",
+          "symbolRoles": 0,
+          "range": [0, 6, 16]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Microsoft/",
+          "symbolRoles": 0,
+          "range": [1, 6, 15]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . AspNetCore/",
+          "symbolRoles": 0,
+          "range": [1, 16, 26]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Builder/",
+          "symbolRoles": 0,
+          "range": [1, 27, 34]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Microsoft/",
+          "symbolRoles": 0,
+          "range": [2, 6, 15]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . AspNetCore/",
+          "symbolRoles": 0,
+          "range": [2, 16, 26]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Routing/",
+          "symbolRoles": 0,
+          "range": [2, 27, 34]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Microsoft/",
+          "symbolRoles": 0,
+          "range": [3, 6, 15]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . AspNetCore/",
+          "symbolRoles": 0,
+          "range": [3, 16, 26]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . SignalR/",
+          "symbolRoles": 0,
+          "range": [3, 27, 34]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Microsoft/",
+          "symbolRoles": 0,
+          "range": [4, 6, 15]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Extensions/",
+          "symbolRoles": 0,
+          "range": [4, 16, 26]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . DependencyInjection/",
+          "symbolRoles": 0,
+          "range": [4, 27, 46]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Microsoft/",
+          "symbolRoles": 0,
+          "range": [5, 6, 15]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Extensions/",
+          "symbolRoles": 0,
+          "range": [5, 16, 26]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Hosting/",
+          "symbolRoles": 0,
+          "range": [5, 27, 34]
+        },
+        {
+          "symbol": "scip-dotnet nuget Polly.Core 8.0.0.0 Polly/",
+          "symbolRoles": 0,
+          "range": [6, 6, 11]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Quartz/",
+          "symbolRoles": 0,
+          "range": [7, 6, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/",
+          "symbolRoles": 0,
+          "range": [8, 10, 17]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#",
+          "symbolRoles": 1,
+          "range": [9, 13, 19]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.Hosting.Abstractions 10.0.0.0 Hosting/IHostedService#",
+          "symbolRoles": 0,
+          "range": [9, 22, 36]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#StartAsync().",
+          "symbolRoles": 1,
+          "range": [10, 14, 24]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [10, 9, 13]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#StartAsync().(ct)",
+          "symbolRoles": 1,
+          "range": [10, 43, 45]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Threading/CancellationToken#",
+          "symbolRoles": 0,
+          "range": [10, 25, 42]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [10, 50, 54]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#CompletedTask.",
+          "symbolRoles": 0,
+          "range": [10, 55, 68]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#StopAsync().",
+          "symbolRoles": 1,
+          "range": [11, 14, 23]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [11, 9, 13]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#StopAsync().(ct)",
+          "symbolRoles": 1,
+          "range": [11, 42, 44]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Threading/CancellationToken#",
+          "symbolRoles": 0,
+          "range": [11, 24, 41]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [11, 49, 53]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#CompletedTask.",
+          "symbolRoles": 0,
+          "range": [11, 54, 67]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredWorker#",
+          "symbolRoles": 1,
+          "range": [13, 13, 31]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.Hosting.Abstractions 10.0.0.0 Hosting/IHostedService#",
+          "symbolRoles": 0,
+          "range": [13, 34, 48]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredWorker#StartAsync().",
+          "symbolRoles": 1,
+          "range": [14, 14, 24]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [14, 9, 13]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredWorker#StartAsync().(ct)",
+          "symbolRoles": 1,
+          "range": [14, 43, 45]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Threading/CancellationToken#",
+          "symbolRoles": 0,
+          "range": [14, 25, 42]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [14, 50, 54]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#CompletedTask.",
+          "symbolRoles": 0,
+          "range": [14, 55, 68]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredWorker#StopAsync().",
+          "symbolRoles": 1,
+          "range": [15, 14, 23]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [15, 9, 13]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredWorker#StopAsync().(ct)",
+          "symbolRoles": 1,
+          "range": [15, 42, 44]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Threading/CancellationToken#",
+          "symbolRoles": 0,
+          "range": [15, 24, 41]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [15, 49, 53]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#CompletedTask.",
+          "symbolRoles": 0,
+          "range": [15, 54, 67]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ReportJob#",
+          "symbolRoles": 1,
+          "range": [17, 13, 22]
+        },
+        {
+          "symbol": "scip-dotnet nuget Quartz 3.13.1.0 Quartz/IJob#",
+          "symbolRoles": 0,
+          "range": [17, 25, 29]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ReportJob#Execute().",
+          "symbolRoles": 1,
+          "range": [17, 44, 51]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [17, 39, 43]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ReportJob#Execute().(context)",
+          "symbolRoles": 1,
+          "range": [17, 73, 80]
+        },
+        {
+          "symbol": "scip-dotnet nuget Quartz 3.13.1.0 Quartz/IJobExecutionContext#",
+          "symbolRoles": 0,
+          "range": [17, 52, 72]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [17, 85, 89]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#CompletedTask.",
+          "symbolRoles": 0,
+          "range": [17, 90, 103]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredJob#",
+          "symbolRoles": 1,
+          "range": [18, 13, 28]
+        },
+        {
+          "symbol": "scip-dotnet nuget Quartz 3.13.1.0 Quartz/IJob#",
+          "symbolRoles": 0,
+          "range": [18, 31, 35]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredJob#Execute().",
+          "symbolRoles": 1,
+          "range": [18, 50, 57]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [18, 45, 49]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredJob#Execute().(context)",
+          "symbolRoles": 1,
+          "range": [18, 79, 86]
+        },
+        {
+          "symbol": "scip-dotnet nuget Quartz 3.13.1.0 Quartz/IJobExecutionContext#",
+          "symbolRoles": 0,
+          "range": [18, 58, 78]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [18, 91, 95]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#CompletedTask.",
+          "symbolRoles": 0,
+          "range": [18, 96, 109]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ChatHub#",
+          "symbolRoles": 1,
+          "range": [19, 13, 20]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.SignalR.Core 10.0.0.0 SignalR/Hub#",
+          "symbolRoles": 0,
+          "range": [19, 23, 26]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ChatHub#Send().",
+          "symbolRoles": 1,
+          "range": [20, 16, 20]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ChatHub#Send().(message)",
+          "symbolRoles": 1,
+          "range": [20, 28, 35]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ChatHub#Send().(message)",
+          "symbolRoles": 0,
+          "range": [20, 40, 47]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ChatHub#Internal().",
+          "symbolRoles": 1,
+          "range": [21, 15, 23]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ChatHub#OnConnectedAsync().",
+          "symbolRoles": 1,
+          "range": [22, 23, 39]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [22, 18, 22]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [22, 45, 49]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#CompletedTask.",
+          "symbolRoles": 0,
+          "range": [22, 50, 63]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredHub#",
+          "symbolRoles": 1,
+          "range": [24, 13, 28]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.SignalR.Core 10.0.0.0 SignalR/Hub#",
+          "symbolRoles": 0,
+          "range": [24, 31, 34]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredHub#Send().",
+          "symbolRoles": 1,
+          "range": [24, 51, 55]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredHub#Send().(message)",
+          "symbolRoles": 1,
+          "range": [24, 63, 70]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/UnregisteredHub#Send().(message)",
+          "symbolRoles": 0,
+          "range": [24, 75, 82]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Input#",
+          "symbolRoles": 1,
+          "range": [25, 13, 18]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Input#Name.",
+          "symbolRoles": 1,
+          "range": [25, 35, 39]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Output#",
+          "symbolRoles": 1,
+          "range": [26, 13, 19]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Output#Name.",
+          "symbolRoles": 1,
+          "range": [26, 36, 40]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Transformation#",
+          "symbolRoles": 1,
+          "range": [27, 13, 27]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Transformation#`.ctor`().(mapper)",
+          "symbolRoles": 1,
+          "range": [27, 36, 42]
+        },
+        {
+          "symbol": "scip-dotnet nuget AutoMapper 15.0.0.0 AutoMapper/IMapper#",
+          "symbolRoles": 0,
+          "range": [27, 28, 35]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Transformation#`.ctor`().(pipeline)",
+          "symbolRoles": 1,
+          "range": [27, 63, 71]
+        },
+        {
+          "symbol": "scip-dotnet nuget Polly.Core 8.0.0.0 Polly/ResiliencePipeline#",
+          "symbolRoles": 0,
+          "range": [27, 44, 62]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Transformation#Map().",
+          "symbolRoles": 1,
+          "range": [28, 16, 19]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Output#",
+          "symbolRoles": 0,
+          "range": [28, 9, 15]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Transformation#Map().(input)",
+          "symbolRoles": 1,
+          "range": [28, 26, 31]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Input#",
+          "symbolRoles": 0,
+          "range": [28, 20, 25]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Transformation#`.ctor`().(mapper)",
+          "symbolRoles": 0,
+          "range": [28, 36, 42]
+        },
+        {
+          "symbol": "scip-dotnet nuget AutoMapper 15.0.0.0 AutoMapper/IMapperBase#Map(+1).",
+          "symbolRoles": 0,
+          "range": [28, 43, 46]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Input#",
+          "symbolRoles": 0,
+          "range": [28, 47, 52]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Output#",
+          "symbolRoles": 0,
+          "range": [28, 54, 60]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Transformation#Map().(input)",
+          "symbolRoles": 0,
+          "range": [28, 62, 67]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Transformation#Run().",
+          "symbolRoles": 1,
+          "range": [29, 14, 17]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Transformation#`.ctor`().(pipeline)",
+          "symbolRoles": 0,
+          "range": [29, 23, 31]
+        },
+        {
+          "symbol": "scip-dotnet nuget Polly.Core 8.0.0.0 Polly/ResiliencePipeline#Execute(+5).",
+          "symbolRoles": 0,
+          "range": [29, 32, 39]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Transformation#Work().",
+          "symbolRoles": 0,
+          "range": [29, 46, 50]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Transformation#Work().",
+          "symbolRoles": 1,
+          "range": [30, 15, 19]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#",
+          "symbolRoles": 1,
+          "range": [32, 20, 32]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#Register().",
+          "symbolRoles": 1,
+          "range": [33, 21, 29]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#Register().(services)",
+          "symbolRoles": 1,
+          "range": [33, 49, 57]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.DependencyInjection.Abstractions 10.0.0.0 DependencyInjection/IServiceCollection#",
+          "symbolRoles": 0,
+          "range": [33, 30, 48]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#Register().(endpoints)",
+          "symbolRoles": 1,
+          "range": [33, 81, 90]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Routing 10.0.0.0 Routing/IEndpointRouteBuilder#",
+          "symbolRoles": 0,
+          "range": [33, 59, 80]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#Register().(services)",
+          "symbolRoles": 0,
+          "range": [34, 4, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.Hosting.Abstractions 10.0.0.0 DependencyInjection/ServiceCollectionHostedServiceExtensions#AddHostedService().",
+          "symbolRoles": 0,
+          "range": [34, 13, 29]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#",
+          "symbolRoles": 0,
+          "range": [34, 30, 36]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#Register().(services)",
+          "symbolRoles": 0,
+          "range": [35, 4, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget Quartz.Extensions.DependencyInjection 3.13.1.0 Quartz/ServiceCollectionExtensions#AddQuartz().",
+          "symbolRoles": 0,
+          "range": [35, 13, 22]
+        },
+        {
+          "symbol": "local 1",
+          "symbolRoles": 1,
+          "range": [35, 61, 62]
+        },
+        {
+          "symbol": "scip-dotnet nuget Quartz.Extensions.DependencyInjection 3.13.1.0 Quartz/IServiceCollectionQuartzConfigurator#",
+          "symbolRoles": 0,
+          "range": [35, 24, 60]
+        },
+        {
+          "symbol": "local 1",
+          "symbolRoles": 0,
+          "range": [36, 6, 7]
+        },
+        {
+          "symbol": "scip-dotnet nuget Quartz.Extensions.DependencyInjection 3.13.1.0 Quartz/ServiceCollectionExtensions#AddJob().",
+          "symbolRoles": 0,
+          "range": [36, 8, 14]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ReportJob#",
+          "symbolRoles": 0,
+          "range": [36, 15, 24]
+        },
+        {
+          "symbol": "local 3",
+          "symbolRoles": 1,
+          "range": [36, 26, 27]
+        },
+        {
+          "symbol": "local 3",
+          "symbolRoles": 0,
+          "range": [36, 31, 32]
+        },
+        {
+          "symbol": "scip-dotnet nuget Quartz 3.13.1.0 Quartz/IJobConfigurator#StoreDurably().",
+          "symbolRoles": 0,
+          "range": [36, 33, 45]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#Register().(services)",
+          "symbolRoles": 0,
+          "range": [38, 4, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.SignalR 10.0.0.0 DependencyInjection/SignalRDependencyInjectionExtensions#AddSignalR().",
+          "symbolRoles": 0,
+          "range": [38, 13, 23]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#Register().(endpoints)",
+          "symbolRoles": 0,
+          "range": [39, 4, 13]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.SignalR 10.0.0.0 Builder/HubEndpointRouteBuilderExtensions#MapHub().",
+          "symbolRoles": 0,
+          "range": [39, 14, 20]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ChatHub#",
+          "symbolRoles": 0,
+          "range": [39, 21, 28]
+        }
+      ]
+    }
+  ]
+}

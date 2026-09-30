@@ -1,0 +1,99 @@
+/**
+ * Content contract and public error surface of the cloud intent service.
+ *
+ * The rest of the module (controllers, services, MCP tools) validates every
+ * inbound operation through {@link parseContract} with a schema from
+ * `intent-operations.ts`, and reports every caller-caused refusal as an
+ * {@link IntentPublicException}. No other validation or error path is intended.
+ */
+export {
+  INTENT_CONTENT_LIMITS,
+  assertSafeCloudContent,
+  intentContractPipe,
+  parseContract,
+  type AssertSafeCloudContentOptions,
+  type ParseContractOptions,
+} from './intent-content.js';
+
+export {
+  INTENT_PUBLIC_ERROR_LIMITS,
+  IntentErrorCode,
+  IntentPublicException,
+  boundIntentPublicError,
+  formatIntentErrorPath,
+  intentContractViolation,
+  renderIntentPublicError,
+  type IntentErrorDetail,
+  type IntentPublicError,
+} from './intent-errors.js';
+
+export { IntentExceptionFilter, type IntentErrorResponseBody } from './intent-error.filter.js';
+
+export {
+  INTENT_CONTRACT_LIMITS,
+  INTENT_SLUG_PATTERN,
+  IntentAuthorizingSourceKind,
+  IntentAuthorizingSourceSchema,
+  IntentSourceSchema,
+  IntentWorkItemSchema,
+  canonicalRevision,
+  externalUrl,
+  graphNodeId,
+  idempotencyKey,
+  itemVersion,
+  repoKey,
+  slugId,
+  text,
+  type IntentAuthorizingSourceInput,
+  type IntentSourceInput,
+  type IntentWorkItemInput,
+} from './intent-primitives.js';
+
+export {
+  AddIntentAnchorSchema,
+  ArchiveIntentDimensionSchema,
+  ArchiveIntentDomainSchema,
+  ArchiveIntentFeatureSchema,
+  CreateIntentDimensionSchema,
+  DeleteIntentDimensionSchema,
+  ListIntentDimensionsQuerySchema,
+  UpdateIntentDimensionSchema,
+  CreateIntentDomainSchema,
+  CreateIntentFeatureSchema,
+  DeleteIntentFeatureSeedSchema,
+  ImportIntentOverlaySchema,
+  IntentAnchorSuggestionSchema,
+  IntentReviewAction,
+  IntentReviewDecisionSchema,
+  ProposeIntentItemsSchema,
+  ProposedIntentItemSchema,
+  PutIntentFeatureSeedSchema,
+  RefreshIntentAnchorSchema,
+  RemoveIntentAnchorSchema,
+  UpdateIntentSourceSchema,
+  ReviewIntentItemsSchema,
+  UpdateIntentDomainSchema,
+  UpdateIntentFeatureSchema,
+  type AddIntentAnchorInput,
+  type ArchiveIntentDimensionInput,
+  type CreateIntentDimensionInput,
+  type DeleteIntentDimensionInput,
+  type ListIntentDimensionsQuery,
+  type UpdateIntentDimensionInput,
+  type ArchiveIntentDomainInput,
+  type ArchiveIntentFeatureInput,
+  type CreateIntentDomainInput,
+  type CreateIntentFeatureInput,
+  type DeleteIntentFeatureSeedInput,
+  type ImportIntentOverlayInput,
+  type IntentReviewDecisionInput,
+  type ProposeIntentItemsInput,
+  type ProposedIntentItemInput,
+  type PutIntentFeatureSeedInput,
+  type RefreshIntentAnchorInput,
+  type RemoveIntentAnchorInput,
+  type UpdateIntentSourceInput,
+  type ReviewIntentItemsInput,
+  type UpdateIntentDomainInput,
+  type UpdateIntentFeatureInput,
+} from './intent-operations.js';

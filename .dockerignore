@@ -1,0 +1,20 @@
+# Build context excludes — the Dockerfiles run a fresh `pnpm install` + build,
+# so host artifacts are never needed and only slow the context upload.
+node_modules
+**/node_modules
+.git
+**/dist
+**/*.tsbuildinfo
+.turbo
+**/.turbo
+coverage
+.coredoc-ci
+.r2-local
+
+# Local coredoc runtime data — never COPYied by any Dockerfile. Excluding it
+# keeps the build context small (coredoc.db alone is ~400MB, coredoc-output ~200MB),
+# so every server/CLI image build/deploy uploads a lean context.
+coredoc.db*
+coredoc-output
+coredoc-parsers
+coredoc-sessions

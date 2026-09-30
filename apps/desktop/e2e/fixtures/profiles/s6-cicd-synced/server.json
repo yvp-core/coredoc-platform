@@ -1,0 +1,43 @@
+{
+  "GET /api/v1/workspaces": [
+    {
+      "id": "ws_e2e_demo",
+      "name": "Demo",
+      "slug": "demo",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "role": "owner",
+      "isCloud": true,
+      "ciCdEnabled": true
+    }
+  ],
+  "GET /api/v1/workspaces/ws_e2e_demo": {
+    "id": "ws_e2e_demo",
+    "name": "Demo",
+    "slug": "demo",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "role": "owner",
+    "isCloud": true,
+    "ciCdEnabled": true
+  },
+  "GET /api/v1/workspaces/ws_e2e_demo/members": [
+    {
+      "userId": "user_owner",
+      "email": "owner@example.test",
+      "displayName": "Owner Example",
+      "role": "owner",
+      "pending": false,
+      "joinedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "GET /api/v1/workspaces/ws_e2e_demo/members/invites": [],
+  "GET /api/v1/workspaces/ws_e2e_demo/repos": [
+    {
+      "id": "repo_demo_api",
+      "repoKey": "demo-api",
+      "repoName": "demo-api",
+      "gitUrl": null,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "GET /api/v1/workspaces/ws_e2e_demo/repos/demo-api/state": null
+}

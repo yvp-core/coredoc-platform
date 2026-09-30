@@ -1,0 +1,33 @@
+{
+  "name": "@coredoc/evals",
+  "version": "0.0.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "description": "Eval harness comparing agents with and without coredoc MCP",
+  "scripts": {
+    "eval": "tsx harness/run.ts",
+    "eval:planning": "tsx harness/run-planning.ts",
+    "eval:intent": "tsx harness/run-intent.ts",
+    "eval:intent:setup": "tsx cases-intent/setup.ts",
+    "analyze": "tsx harness/analyze.ts",
+    "measure:resolution": "tsx scripts/measure-resolution.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.12",
+    "@coredoc/core": "workspace:*",
+    "@coredoc/db": "workspace:*",
+    "@coredoc/mcp": "workspace:*",
+    "@coredoc/profile-parser": "workspace:*",
+    "@libsql/client": "^0.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.7.0",
+    "typescript": ">=5.0.0",
+    "vitest": "^1.2.0"
+  }
+}

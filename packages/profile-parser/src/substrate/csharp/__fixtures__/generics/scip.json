@@ -1,0 +1,80 @@
+{
+  "projectRoot": "file:///fixture",
+  "documents": [
+    {
+      "relativePath": "Methods.cs",
+      "occurrences": [
+        {
+          "symbol": "scip-dotnet nuget . . ``/Methods#",
+          "symbolRoles": 1,
+          "range": [0, 13, 20]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/Methods#Choose().",
+          "symbolRoles": 1,
+          "range": [1, 16, 22]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/Methods#Choose().(value)",
+          "symbolRoles": 1,
+          "range": [1, 30, 35]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/Methods#Choose().(value)",
+          "symbolRoles": 0,
+          "range": [1, 40, 45]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/Methods#Choose(+1).",
+          "symbolRoles": 1,
+          "range": [2, 11, 17]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [2, 9, 10]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 1,
+          "range": [2, 18, 19]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/Methods#Choose(+1).(value)",
+          "symbolRoles": 1,
+          "range": [2, 23, 28]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [2, 21, 22]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/Methods#Choose(+1).(value)",
+          "symbolRoles": 0,
+          "range": [2, 33, 38]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/Methods#Inferred().",
+          "symbolRoles": 1,
+          "range": [3, 13, 21]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/Methods#Choose(+1).",
+          "symbolRoles": 0,
+          "range": [3, 27, 33]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/Methods#Explicit().",
+          "symbolRoles": 1,
+          "range": [4, 13, 21]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/Methods#Choose(+1).",
+          "symbolRoles": 0,
+          "range": [4, 27, 33]
+        }
+      ]
+    }
+  ]
+}

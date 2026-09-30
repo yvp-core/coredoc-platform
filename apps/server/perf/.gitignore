@@ -1,0 +1,3 @@
+# Written by every comparison run of scripts/perf-intent-smoke.sh. Only the
+# baseline is committed; a report is one machine's measurement of one moment.
+intent-report.json

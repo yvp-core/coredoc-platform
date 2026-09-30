@@ -1,0 +1,35 @@
+Coredoc {{ .Chart.AppVersion }} deployed as release "{{ .Release.Name }}".
+
+1. Your server:
+
+     {{ .Values.server.publicUrl }}
+
+   Verify it is up (readiness checks Postgres{{ if .Values.neo4j.enabled }} and Neo4j{{ end }}):
+
+     curl -fsS {{ .Values.server.publicUrl }}/api/v1/health
+     curl -fsS {{ .Values.server.publicUrl }}/.well-known/oauth-authorization-server
+
+{{- if eq .Values.migrations.hook "manual" }}
+
+   NOTE: migrations.hook=manual — run the Prisma migrations yourself before
+   using the server (see the chart README, "Migrations").
+{{- end }}
+
+2. First workspace / admin bootstrap:
+
+   A user who passes the login gate can sign in but has NO workspace access
+   until they are a member. Seed the very first owner directly in Postgres
+   (one time), keyed by the email matching their verified identity:
+
+     INSERT INTO workspaces (name, slug) VALUES ('Acme', 'acme') RETURNING id;
+     INSERT INTO workspace_members (workspace_id, user_id, email, role, pending)
+     VALUES ('<workspace-id>', 'pending:admin@example.com', 'admin@example.com', 'owner', true);
+
+   On that admin's first login the pending row is linked to their real user;
+   they then invite everyone else via the members API.
+
+3. Connect an MCP client to {{ .Values.server.publicUrl }} — OAuth endpoints
+   are discovered automatically from /.well-known/oauth-authorization-server.
+
+Docs: apps/server/ONPREM.md in the Coredoc repository covers the full
+deployment narrative, verification steps, and troubleshooting table.

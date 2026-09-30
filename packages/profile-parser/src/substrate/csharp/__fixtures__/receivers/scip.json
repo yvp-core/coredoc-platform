@@ -1,0 +1,368 @@
+{
+  "projectRoot": "file:///fixture",
+  "documents": [
+    {
+      "relativePath": "Data.cs",
+      "symbols": [
+        {
+          "symbol": "scip-dotnet nuget . . Example/Store#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 EntityFrameworkCore/DbContext#",
+              "isImplementation": true
+            },
+            {
+              "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 Infrastructure/IInfrastructure#",
+              "isImplementation": true
+            },
+            {
+              "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 Internal/IDbContextDependencies#",
+              "isImplementation": true
+            },
+            {
+              "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 Internal/IDbSetCache#",
+              "isImplementation": true
+            },
+            {
+              "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 Internal/IDbContextPoolable#",
+              "isImplementation": true
+            },
+            {
+              "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 Infrastructure/IResettableService#",
+              "isImplementation": true
+            },
+            {
+              "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 System/IDisposable#",
+              "isImplementation": true
+            },
+            {
+              "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 System/IAsyncDisposable#",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Store#OnModelCreating().",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 EntityFrameworkCore/DbContext#OnModelCreating().",
+              "isImplementation": true
+            }
+          ]
+        }
+      ],
+      "occurrences": [
+        {
+          "symbol": "scip-dotnet nuget . . System/",
+          "symbolRoles": 0,
+          "range": [0, 6, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Threading/",
+          "symbolRoles": 0,
+          "range": [0, 13, 22]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Tasks/",
+          "symbolRoles": 0,
+          "range": [0, 23, 28]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . System/",
+          "symbolRoles": 0,
+          "range": [1, 6, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Linq/",
+          "symbolRoles": 0,
+          "range": [1, 13, 17]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Microsoft/",
+          "symbolRoles": 0,
+          "range": [2, 6, 15]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . EntityFrameworkCore/",
+          "symbolRoles": 0,
+          "range": [2, 16, 35]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/",
+          "symbolRoles": 0,
+          "range": [3, 10, 17]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Item#",
+          "symbolRoles": 1,
+          "range": [4, 13, 17]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Item#Id.",
+          "symbolRoles": 1,
+          "range": [4, 31, 33]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Store#",
+          "symbolRoles": 1,
+          "range": [5, 13, 18]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 EntityFrameworkCore/DbContext#",
+          "symbolRoles": 0,
+          "range": [5, 19, 28]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Store#OnModelCreating().",
+          "symbolRoles": 1,
+          "range": [5, 55, 70]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Store#OnModelCreating().(b)",
+          "symbolRoles": 1,
+          "range": [5, 84, 85]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 EntityFrameworkCore/ModelBuilder#",
+          "symbolRoles": 0,
+          "range": [5, 71, 83]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Store#OnModelCreating().(b)",
+          "symbolRoles": 0,
+          "range": [5, 89, 90]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 EntityFrameworkCore/ModelBuilder#Entity().",
+          "symbolRoles": 0,
+          "range": [5, 91, 97]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Item#",
+          "symbolRoles": 0,
+          "range": [5, 98, 102]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore.Relational 10.0.6.0 EntityFrameworkCore/RelationalEntityTypeBuilderExtensions#ToTable(+3).",
+          "symbolRoles": 0,
+          "range": [5, 106, 113]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Repository#",
+          "symbolRoles": 1,
+          "range": [6, 13, 23]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 1,
+          "range": [6, 24, 32]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Repository#`.ctor`().(factory)",
+          "symbolRoles": 1,
+          "range": [6, 62, 69]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 EntityFrameworkCore/IDbContextFactory#",
+          "symbolRoles": 0,
+          "range": [6, 34, 51]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [6, 52, 60]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [6, 77, 85]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 EntityFrameworkCore/DbContext#",
+          "symbolRoles": 0,
+          "range": [6, 86, 95]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Repository#Read().",
+          "symbolRoles": 1,
+          "range": [7, 19, 23]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [7, 14, 18]
+        },
+        {
+          "symbol": "local 1",
+          "symbolRoles": 1,
+          "range": [7, 44, 51]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Repository#`.ctor`().(factory)",
+          "symbolRoles": 0,
+          "range": [7, 60, 67]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 EntityFrameworkCore/IDbContextFactory#CreateDbContextAsync().",
+          "symbolRoles": 0,
+          "range": [7, 68, 88]
+        },
+        {
+          "symbol": "local 1",
+          "symbolRoles": 0,
+          "range": [7, 98, 105]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 EntityFrameworkCore/DbContext#Set().",
+          "symbolRoles": 0,
+          "range": [7, 106, 109]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Item#",
+          "symbolRoles": 0,
+          "range": [7, 110, 114]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 EntityFrameworkCore/EntityFrameworkQueryableExtensions#ToListAsync().",
+          "symbolRoles": 0,
+          "range": [7, 118, 129]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Repository#Add().",
+          "symbolRoles": 1,
+          "range": [8, 19, 22]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [8, 14, 18]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Repository#Add().(item)",
+          "symbolRoles": 1,
+          "range": [8, 28, 32]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Item#",
+          "symbolRoles": 0,
+          "range": [8, 23, 27]
+        },
+        {
+          "symbol": "local 2",
+          "symbolRoles": 1,
+          "range": [8, 52, 59]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Repository#`.ctor`().(factory)",
+          "symbolRoles": 0,
+          "range": [8, 68, 75]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 EntityFrameworkCore/IDbContextFactory#CreateDbContextAsync().",
+          "symbolRoles": 0,
+          "range": [8, 76, 96]
+        },
+        {
+          "symbol": "local 2",
+          "symbolRoles": 0,
+          "range": [8, 100, 107]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 EntityFrameworkCore/DbContext#Set().",
+          "symbolRoles": 0,
+          "range": [8, 108, 111]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Item#",
+          "symbolRoles": 0,
+          "range": [8, 112, 116]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.EntityFrameworkCore 10.0.6.0 EntityFrameworkCore/DbSet#Add().",
+          "symbolRoles": 0,
+          "range": [8, 120, 123]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Repository#Add().(item)",
+          "symbolRoles": 0,
+          "range": [8, 124, 128]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Repository#Wrong().",
+          "symbolRoles": 1,
+          "range": [9, 13, 18]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Repository#Wrong().(context)",
+          "symbolRoles": 1,
+          "range": [9, 24, 31]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Fake#",
+          "symbolRoles": 0,
+          "range": [9, 19, 23]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Repository#Wrong().(context)",
+          "symbolRoles": 0,
+          "range": [9, 35, 42]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Fake#Set().",
+          "symbolRoles": 0,
+          "range": [9, 43, 46]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Item#",
+          "symbolRoles": 0,
+          "range": [9, 47, 51]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/FakeSet#ToListAsync().",
+          "symbolRoles": 0,
+          "range": [9, 55, 66]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Fake#",
+          "symbolRoles": 1,
+          "range": [11, 13, 17]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Fake#Set().",
+          "symbolRoles": 1,
+          "range": [11, 38, 41]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/FakeSet#",
+          "symbolRoles": 0,
+          "range": [11, 27, 34]
+        },
+        {
+          "symbol": "local 3",
+          "symbolRoles": 0,
+          "range": [11, 35, 36]
+        },
+        {
+          "symbol": "local 3",
+          "symbolRoles": 1,
+          "range": [11, 42, 43]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/FakeSet#",
+          "symbolRoles": 1,
+          "range": [12, 13, 20]
+        },
+        {
+          "symbol": "local 4",
+          "symbolRoles": 1,
+          "range": [12, 21, 22]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/FakeSet#ToListAsync().",
+          "symbolRoles": 1,
+          "range": [12, 38, 49]
+        }
+      ]
+    }
+  ]
+}

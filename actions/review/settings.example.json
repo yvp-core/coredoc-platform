@@ -1,0 +1,5 @@
+{
+  "arm": "A",
+  "policy": { "version": "pilot-v1", "text": "Report actionable defects with a reachable trigger and concrete impact. Exclude style-only advice." },
+  "model": { "provider": "openrouter", "id": "openai/gpt-6-luna", "inputUsdPerMillion": 0.1, "outputUsdPerMillion": 0.5, "maxUsd": 2 }
+}

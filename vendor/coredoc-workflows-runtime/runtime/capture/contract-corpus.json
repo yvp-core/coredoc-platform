@@ -1,0 +1,1030 @@
+{
+  "valid": [
+    {
+      "name": "workflow start with opaque taskId",
+      "event": {
+        "schemaVersion": 1,
+        "eventId": "11111111-1111-4111-8111-111111111111",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "repositoryKey": "coredoc/coredoc-parser",
+        "taskId": "cdt_pilot_42",
+        "type": "workflow.run.started",
+        "data": {
+          "workflowId": "change:large:normal",
+          "intent": "change",
+          "risk": "normal",
+          "scale": "large"
+        }
+      }
+    },
+    {
+      "name": "workflow finish with bounded counters",
+      "event": {
+        "schemaVersion": 1,
+        "eventId": "22222222-2222-4222-8222-222222222222",
+        "occurredAt": "2026-08-15T10:05:00+00:00",
+        "host": "codex",
+        "sessionId": "conversation-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "workflow.run.finished",
+        "data": {
+          "outcome": "success",
+          "counters": {
+            "editCalls": 3,
+            "editVerifyRounds": 1,
+            "verificationRuns": 2,
+            "verificationFailures": 1,
+            "verificationPasses": 1,
+            "coredocCalls": 4,
+            "coredocFailures": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "direct capability without a workflow run",
+      "event": {
+        "schemaVersion": 1,
+        "eventId": "33333333-3333-4333-8333-333333333333",
+        "occurredAt": "2026-08-15T10:01:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "type": "capability.used",
+        "data": {
+          "kind": "skill",
+          "capabilityId": "coredoc-spec",
+          "outcome": "success"
+        }
+      }
+    },
+    {
+      "name": "v2 workflow start with an ordered declared DAG and canonical task",
+      "event": {
+        "schemaVersion": 2,
+        "eventId": "34444444-4444-4444-8444-444444444444",
+        "occurredAt": "2026-08-15T10:02:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "repositoryKey": "coredoc/coredoc-parser",
+        "taskId": "cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "type": "workflow.run.started",
+        "data": {
+          "workflowId": "change:large:normal",
+          "intent": "change",
+          "risk": "normal",
+          "scale": "large",
+          "stages": [
+            {
+              "stageId": "spec",
+              "after": []
+            },
+            {
+              "stageId": "design",
+              "after": [
+                "spec"
+              ]
+            },
+            {
+              "stageId": "tdd",
+              "after": [
+                "design"
+              ]
+            },
+            {
+              "stageId": "review",
+              "after": [
+                "tdd"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "v2 workflow stage start",
+      "event": {
+        "schemaVersion": 2,
+        "eventId": "35555555-5555-4555-8555-555555555555",
+        "occurredAt": "2026-08-15T10:03:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "workflow.stage.started",
+        "data": {
+          "occurrenceId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          "stageId": "tdd",
+          "attempt": 1
+        }
+      }
+    },
+    {
+      "name": "v2 workflow stage finish",
+      "event": {
+        "schemaVersion": 2,
+        "eventId": "36666666-6666-4666-8666-666666666666",
+        "occurredAt": "2026-08-15T10:04:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "workflow.stage.finished",
+        "data": {
+          "occurrenceId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          "stageId": "tdd",
+          "attempt": 1,
+          "outcome": "success"
+        }
+      }
+    },
+    {
+      "name": "v2 workflow finish retains v1 finish data",
+      "event": {
+        "schemaVersion": 2,
+        "eventId": "37777777-7777-4777-8777-777777777777",
+        "occurredAt": "2026-08-15T10:05:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "workflow.run.finished",
+        "data": {
+          "outcome": "blocked",
+          "counters": {
+            "editCalls": 3,
+            "verificationRuns": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "v3 workflow start with canonical work-item relations",
+      "event": {
+        "schemaVersion": 3,
+        "eventId": "38888888-8888-4888-8888-888888888888",
+        "occurredAt": "2026-08-15T10:02:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "repositoryKey": "coredoc/coredoc-parser",
+        "type": "workflow.run.started",
+        "data": {
+          "workflowId": "change:large:normal",
+          "intent": "change",
+          "risk": "normal",
+          "scale": "large",
+          "stages": [
+            {
+              "stageId": "spec",
+              "after": []
+            },
+            {
+              "stageId": "tdd",
+              "after": [
+                "spec"
+              ]
+            }
+          ],
+          "workItems": [
+            {
+              "provider": "jira",
+              "externalId": "10042",
+              "externalKey": "CORE-123"
+            },
+            {
+              "provider": "linear",
+              "externalId": "lin-42"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "v4 question answered from an option during a run",
+      "event": {
+        "schemaVersion": 4,
+        "eventId": "61111111-1111-4111-8111-111111111111",
+        "occurredAt": "2026-09-08T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260908-a1b2c3",
+        "repositoryKey": "coredoc/coredoc-parser",
+        "type": "workflow.question.answered",
+        "data": {
+          "askId": "71111111-1111-4111-8111-111111111111",
+          "questionIndex": 1,
+          "questionCount": 2,
+          "header": "Migration",
+          "question": "Should the migration backfill existing rows?",
+          "options": [
+            {
+              "label": "Backfill",
+              "description": "Rewrite existing rows in the same migration"
+            },
+            {
+              "label": "Leave null",
+              "description": "Existing rows keep null"
+            }
+          ],
+          "multiSelect": false,
+          "answer": "Leave null",
+          "answerKind": "option",
+          "stageId": "spec"
+        }
+      }
+    },
+    {
+      "name": "v4 typed answer outside a run",
+      "event": {
+        "schemaVersion": 4,
+        "eventId": "62111111-1111-4111-8111-111111111111",
+        "occurredAt": "2026-09-08T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "type": "workflow.question.answered",
+        "data": {
+          "askId": "72111111-1111-4111-8111-111111111111",
+          "questionIndex": 1,
+          "questionCount": 1,
+          "question": "Which base branch should the release cut from?",
+          "options": [],
+          "multiSelect": false,
+          "answer": "release/2026-09",
+          "answerKind": "typed"
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unknown host",
+      "event": {
+        "schemaVersion": 1,
+        "eventId": "41111111-1111-4111-8111-111111111111",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "workflow.run.started",
+        "data": {
+          "workflowId": "change:normal",
+          "intent": "change",
+          "risk": "normal",
+          "scale": "normal"
+        }
+      }
+    },
+    {
+      "name": "workflow event without runId",
+      "event": {
+        "schemaVersion": 1,
+        "eventId": "42222222-2222-4222-8222-222222222222",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "type": "workflow.run.finished",
+        "data": {
+          "outcome": "success"
+        }
+      }
+    },
+    {
+      "name": "non-canonical workflow runId",
+      "event": {
+        "schemaVersion": 1,
+        "eventId": "43333333-3333-4333-8333-333333333333",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "run-42",
+        "type": "workflow.run.finished",
+        "data": {
+          "outcome": "success"
+        }
+      }
+    },
+    {
+      "name": "unknown envelope field",
+      "event": {
+        "schemaVersion": 1,
+        "eventId": "44444444-4444-4444-8444-444444444444",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "type": "capability.used",
+        "actorId": "client-supplied-actor",
+        "data": {
+          "kind": "skill",
+          "capabilityId": "coredoc-spec",
+          "outcome": "success"
+        }
+      }
+    },
+    {
+      "name": "prompt-shaped field",
+      "event": {
+        "schemaVersion": 1,
+        "eventId": "45555555-5555-4555-8555-555555555555",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "type": "capability.used",
+        "prompt": "do not transmit this",
+        "data": {
+          "kind": "skill",
+          "capabilityId": "coredoc-spec",
+          "outcome": "success"
+        }
+      }
+    },
+    {
+      "name": "nested tool-output-shaped field",
+      "event": {
+        "schemaVersion": 1,
+        "eventId": "46666666-6666-4666-8666-666666666666",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "type": "capability.used",
+        "data": {
+          "kind": "skill",
+          "capabilityId": "coredoc-spec",
+          "outcome": "success",
+          "metadata": {
+            "toolOutput": "do not transmit this"
+          }
+        }
+      }
+    },
+    {
+      "name": "removed stage data",
+      "event": {
+        "schemaVersion": 1,
+        "eventId": "47777777-7777-4777-8777-777777777777",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "workflow.run.started",
+        "data": {
+          "workflowId": "change:normal",
+          "intent": "change",
+          "risk": "normal",
+          "scale": "normal",
+          "stages": []
+        }
+      }
+    },
+    {
+      "name": "parseable but non-contract timestamp",
+      "event": {
+        "schemaVersion": 1,
+        "eventId": "48888888-8888-4888-8888-888888888888",
+        "occurredAt": "Sun, 06 Nov 1994 08:49:37 GMT",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "type": "capability.used",
+        "data": {
+          "kind": "skill",
+          "capabilityId": "coredoc-spec",
+          "outcome": "success"
+        }
+      }
+    },
+    {
+      "name": "capability remains v1",
+      "event": {
+        "schemaVersion": 2,
+        "eventId": "49999999-9999-4999-8999-999999999999",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "capability.used",
+        "data": {
+          "kind": "skill",
+          "capabilityId": "coredoc-spec",
+          "outcome": "success"
+        }
+      }
+    },
+    {
+      "name": "v2 task id must be canonical",
+      "event": {
+        "schemaVersion": 2,
+        "eventId": "4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "taskId": "cdt_pilot_42",
+        "type": "workflow.run.started",
+        "data": {
+          "workflowId": "change:normal",
+          "intent": "change",
+          "risk": "normal",
+          "scale": "normal",
+          "stages": []
+        }
+      }
+    },
+    {
+      "name": "v2 duplicate declared stage id",
+      "event": {
+        "schemaVersion": 2,
+        "eventId": "4bbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "workflow.run.started",
+        "data": {
+          "workflowId": "change:normal",
+          "intent": "change",
+          "risk": "normal",
+          "scale": "normal",
+          "stages": [
+            {
+              "stageId": "tdd",
+              "after": []
+            },
+            {
+              "stageId": "tdd",
+              "after": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "v2 dependency must refer to an earlier stage",
+      "event": {
+        "schemaVersion": 2,
+        "eventId": "4ccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "workflow.run.started",
+        "data": {
+          "workflowId": "change:normal",
+          "intent": "change",
+          "risk": "normal",
+          "scale": "normal",
+          "stages": [
+            {
+              "stageId": "tdd",
+              "after": [
+                "review"
+              ]
+            },
+            {
+              "stageId": "review",
+              "after": [
+                "tdd"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "v2 dependency list must not contain duplicates",
+      "event": {
+        "schemaVersion": 2,
+        "eventId": "4ddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "workflow.run.started",
+        "data": {
+          "workflowId": "change:normal",
+          "intent": "change",
+          "risk": "normal",
+          "scale": "normal",
+          "stages": [
+            {
+              "stageId": "tdd",
+              "after": []
+            },
+            {
+              "stageId": "review",
+              "after": [
+                "tdd",
+                "tdd"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "v2 stage attempt must be bounded",
+      "event": {
+        "schemaVersion": 2,
+        "eventId": "4eeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "workflow.stage.started",
+        "data": {
+          "occurrenceId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          "stageId": "tdd",
+          "attempt": 0
+        }
+      }
+    },
+    {
+      "name": "v2 stage outcome is closed",
+      "event": {
+        "schemaVersion": 2,
+        "eventId": "4fffffff-ffff-4fff-8fff-ffffffffffff",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "workflow.stage.finished",
+        "data": {
+          "occurrenceId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          "stageId": "tdd",
+          "attempt": 1,
+          "outcome": "unknown"
+        }
+      }
+    },
+    {
+      "name": "every v2 event requires a run id",
+      "event": {
+        "schemaVersion": 2,
+        "eventId": "50000000-0000-4000-8000-000000000000",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "type": "workflow.stage.started",
+        "data": {
+          "occurrenceId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          "stageId": "tdd",
+          "attempt": 1
+        }
+      }
+    },
+    {
+      "name": "v2 stage event rejects a redundant task id",
+      "event": {
+        "schemaVersion": 2,
+        "eventId": "51111111-1111-4111-8111-111111111111",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "taskId": "cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "type": "workflow.stage.started",
+        "data": {
+          "occurrenceId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          "stageId": "tdd",
+          "attempt": 1
+        }
+      }
+    },
+    {
+      "name": "v2 workflow finish rejects a redundant task id",
+      "event": {
+        "schemaVersion": 2,
+        "eventId": "52222222-2222-4222-8222-222222222222",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "taskId": "cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "type": "workflow.run.finished",
+        "data": {
+          "outcome": "success"
+        }
+      }
+    },
+    {
+      "name": "v3 supports only workflow start",
+      "event": {
+        "schemaVersion": 3,
+        "eventId": "53333333-3333-4333-8333-333333333333",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "workflow.run.finished",
+        "data": {
+          "outcome": "success"
+        }
+      }
+    },
+    {
+      "name": "v3 rejects canonical task attribution",
+      "event": {
+        "schemaVersion": 3,
+        "eventId": "54444444-4444-4444-8444-444444444444",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "taskId": "cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "type": "workflow.run.started",
+        "data": {
+          "workflowId": "change:normal",
+          "intent": "change",
+          "risk": "normal",
+          "scale": "normal",
+          "stages": [],
+          "workItems": [
+            {
+              "provider": "jira",
+              "externalId": "10042"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "v3 rejects unsafe work-item tokens",
+      "event": {
+        "schemaVersion": 3,
+        "eventId": "55555555-5555-4555-8555-555555555555",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "workflow.run.started",
+        "data": {
+          "workflowId": "change:normal",
+          "intent": "change",
+          "risk": "normal",
+          "scale": "normal",
+          "stages": [],
+          "workItems": [
+            {
+              "provider": "jira",
+              "externalId": "$(private-command)"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "v3 rejects unknown work-item fields",
+      "event": {
+        "schemaVersion": 3,
+        "eventId": "56666666-6666-4666-8666-666666666666",
+        "occurredAt": "2026-08-15T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260815-a1b2c3",
+        "type": "workflow.run.started",
+        "data": {
+          "workflowId": "change:normal",
+          "intent": "change",
+          "risk": "normal",
+          "scale": "normal",
+          "stages": [],
+          "workItems": [
+            {
+              "provider": "jira",
+              "externalId": "10042",
+              "url": "https://private.invalid/CORE-123"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "v4 supports only question answered",
+      "event": {
+        "schemaVersion": 4,
+        "eventId": "80111111-1111-4111-8111-111111111111",
+        "occurredAt": "2026-09-08T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260908-a1b2c3",
+        "repositoryKey": "coredoc/coredoc-parser",
+        "type": "workflow.run.started",
+        "data": {
+          "askId": "71111111-1111-4111-8111-111111111111",
+          "questionIndex": 1,
+          "questionCount": 2,
+          "header": "Migration",
+          "question": "Should the migration backfill existing rows?",
+          "options": [
+            {
+              "label": "Backfill",
+              "description": "Rewrite existing rows in the same migration"
+            },
+            {
+              "label": "Leave null",
+              "description": "Existing rows keep null"
+            }
+          ],
+          "multiSelect": false,
+          "answer": "Leave null",
+          "answerKind": "option",
+          "stageId": "spec"
+        }
+      }
+    },
+    {
+      "name": "v4 rejects task attribution",
+      "event": {
+        "schemaVersion": 4,
+        "eventId": "81111111-1111-4111-8111-111111111111",
+        "occurredAt": "2026-09-08T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260908-a1b2c3",
+        "repositoryKey": "coredoc/coredoc-parser",
+        "type": "workflow.question.answered",
+        "data": {
+          "askId": "71111111-1111-4111-8111-111111111111",
+          "questionIndex": 1,
+          "questionCount": 2,
+          "header": "Migration",
+          "question": "Should the migration backfill existing rows?",
+          "options": [
+            {
+              "label": "Backfill",
+              "description": "Rewrite existing rows in the same migration"
+            },
+            {
+              "label": "Leave null",
+              "description": "Existing rows keep null"
+            }
+          ],
+          "multiSelect": false,
+          "answer": "Leave null",
+          "answerKind": "option",
+          "stageId": "spec"
+        },
+        "taskId": "cdt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "v4 rejects an oversized question",
+      "event": {
+        "schemaVersion": 4,
+        "eventId": "82111111-1111-4111-8111-111111111111",
+        "occurredAt": "2026-09-08T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260908-a1b2c3",
+        "repositoryKey": "coredoc/coredoc-parser",
+        "type": "workflow.question.answered",
+        "data": {
+          "askId": "71111111-1111-4111-8111-111111111111",
+          "questionIndex": 1,
+          "questionCount": 2,
+          "header": "Migration",
+          "question": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "options": [
+            {
+              "label": "Backfill",
+              "description": "Rewrite existing rows in the same migration"
+            },
+            {
+              "label": "Leave null",
+              "description": "Existing rows keep null"
+            }
+          ],
+          "multiSelect": false,
+          "answer": "Leave null",
+          "answerKind": "option",
+          "stageId": "spec"
+        }
+      }
+    },
+    {
+      "name": "v4 rejects a control character in the answer",
+      "event": {
+        "schemaVersion": 4,
+        "eventId": "83111111-1111-4111-8111-111111111111",
+        "occurredAt": "2026-09-08T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260908-a1b2c3",
+        "repositoryKey": "coredoc/coredoc-parser",
+        "type": "workflow.question.answered",
+        "data": {
+          "askId": "71111111-1111-4111-8111-111111111111",
+          "questionIndex": 1,
+          "questionCount": 2,
+          "header": "Migration",
+          "question": "Should the migration backfill existing rows?",
+          "options": [
+            {
+              "label": "Backfill",
+              "description": "Rewrite existing rows in the same migration"
+            },
+            {
+              "label": "Leave null",
+              "description": "Existing rows keep null"
+            }
+          ],
+          "multiSelect": false,
+          "answer": "yes\r\nrm -rf",
+          "answerKind": "option",
+          "stageId": "spec"
+        }
+      }
+    },
+    {
+      "name": "v4 rejects more than ten options",
+      "event": {
+        "schemaVersion": 4,
+        "eventId": "84111111-1111-4111-8111-111111111111",
+        "occurredAt": "2026-09-08T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260908-a1b2c3",
+        "repositoryKey": "coredoc/coredoc-parser",
+        "type": "workflow.question.answered",
+        "data": {
+          "askId": "71111111-1111-4111-8111-111111111111",
+          "questionIndex": 1,
+          "questionCount": 2,
+          "header": "Migration",
+          "question": "Should the migration backfill existing rows?",
+          "options": [
+            {
+              "label": "option 0"
+            },
+            {
+              "label": "option 1"
+            },
+            {
+              "label": "option 2"
+            },
+            {
+              "label": "option 3"
+            },
+            {
+              "label": "option 4"
+            },
+            {
+              "label": "option 5"
+            },
+            {
+              "label": "option 6"
+            },
+            {
+              "label": "option 7"
+            },
+            {
+              "label": "option 8"
+            },
+            {
+              "label": "option 9"
+            },
+            {
+              "label": "option 10"
+            }
+          ],
+          "multiSelect": false,
+          "answer": "Leave null",
+          "answerKind": "option",
+          "stageId": "spec"
+        }
+      }
+    },
+    {
+      "name": "v4 rejects an unknown option field",
+      "event": {
+        "schemaVersion": 4,
+        "eventId": "85111111-1111-4111-8111-111111111111",
+        "occurredAt": "2026-09-08T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260908-a1b2c3",
+        "repositoryKey": "coredoc/coredoc-parser",
+        "type": "workflow.question.answered",
+        "data": {
+          "askId": "71111111-1111-4111-8111-111111111111",
+          "questionIndex": 1,
+          "questionCount": 2,
+          "header": "Migration",
+          "question": "Should the migration backfill existing rows?",
+          "options": [
+            {
+              "label": "Backfill",
+              "value": "backfill"
+            }
+          ],
+          "multiSelect": false,
+          "answer": "Leave null",
+          "answerKind": "option",
+          "stageId": "spec"
+        }
+      }
+    },
+    {
+      "name": "v4 rejects a question index outside its ask",
+      "event": {
+        "schemaVersion": 4,
+        "eventId": "86111111-1111-4111-8111-111111111111",
+        "occurredAt": "2026-09-08T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260908-a1b2c3",
+        "repositoryKey": "coredoc/coredoc-parser",
+        "type": "workflow.question.answered",
+        "data": {
+          "askId": "71111111-1111-4111-8111-111111111111",
+          "questionIndex": 3,
+          "questionCount": 2,
+          "header": "Migration",
+          "question": "Should the migration backfill existing rows?",
+          "options": [
+            {
+              "label": "Backfill",
+              "description": "Rewrite existing rows in the same migration"
+            },
+            {
+              "label": "Leave null",
+              "description": "Existing rows keep null"
+            }
+          ],
+          "multiSelect": false,
+          "answer": "Leave null",
+          "answerKind": "option",
+          "stageId": "spec"
+        }
+      }
+    },
+    {
+      "name": "v4 rejects an open answer kind",
+      "event": {
+        "schemaVersion": 4,
+        "eventId": "87111111-1111-4111-8111-111111111111",
+        "occurredAt": "2026-09-08T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260908-a1b2c3",
+        "repositoryKey": "coredoc/coredoc-parser",
+        "type": "workflow.question.answered",
+        "data": {
+          "askId": "71111111-1111-4111-8111-111111111111",
+          "questionIndex": 1,
+          "questionCount": 2,
+          "header": "Migration",
+          "question": "Should the migration backfill existing rows?",
+          "options": [
+            {
+              "label": "Backfill",
+              "description": "Rewrite existing rows in the same migration"
+            },
+            {
+              "label": "Leave null",
+              "description": "Existing rows keep null"
+            }
+          ],
+          "multiSelect": false,
+          "answer": "Leave null",
+          "answerKind": "free-form",
+          "stageId": "spec"
+        }
+      }
+    },
+    {
+      "name": "v4 rejects response-shaped fields",
+      "event": {
+        "schemaVersion": 4,
+        "eventId": "88111111-1111-4111-8111-111111111111",
+        "occurredAt": "2026-09-08T10:00:00.000Z",
+        "host": "claude-code",
+        "sessionId": "session-42",
+        "runId": "cdr-20260908-a1b2c3",
+        "repositoryKey": "coredoc/coredoc-parser",
+        "type": "workflow.question.answered",
+        "data": {
+          "askId": "71111111-1111-4111-8111-111111111111",
+          "questionIndex": 1,
+          "questionCount": 2,
+          "header": "Migration",
+          "question": "Should the migration backfill existing rows?",
+          "options": [
+            {
+              "label": "Backfill",
+              "description": "Rewrite existing rows in the same migration"
+            },
+            {
+              "label": "Leave null",
+              "description": "Existing rows keep null"
+            }
+          ],
+          "multiSelect": false,
+          "answer": "Leave null",
+          "answerKind": "option",
+          "stageId": "spec",
+          "toolResponse": "raw"
+        }
+      }
+    }
+  ]
+}

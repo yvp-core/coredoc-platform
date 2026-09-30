@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "status": "setup-required",
+  "runtime": "ai-sdk-6",
+  "model": "REPLACE_WITH_VERSIONED_MODEL",
+  "policyVersion": "pilot-v1",
+  "totalBudgetUsd": null,
+  "productTolerances": {
+    "minimumUsefulGraphImprovement": null,
+    "maximumFalsePositiveBurden": null,
+    "maximumLatencySeconds": null
+  },
+  "cases": [],
+  "decisions": { "H-1": "insufficient_evidence", "H-2": "insufficient_evidence", "H-3": "not_evaluated" },
+  "greptile": "unavailable"
+}

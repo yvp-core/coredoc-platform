@@ -1,0 +1,48 @@
+name: scip-ruby e2e
+
+# Runs the REAL standalone scip-ruby path + parseRubyRepo on an
+# x86_64-Linux runner — scip-ruby's supported platform. This is the only check that
+# exercises the live indexer invocation; the deterministic dispatch test runs in the
+# normal unit suite with no toolchain. Scoped to the Ruby/SCIP surface to stay cheap.
+on:
+  pull_request:
+    paths:
+      - 'packages/profile-parser/src/substrate/ruby/**'
+      - 'packages/profile-parser/src/facts/scip/**'
+      - '.github/workflows/scip-ruby-e2e.yml'
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    # The pinned scip-ruby 0.4.8 Linux binary requires GLIBC_2.38; Ubuntu 22.04 has 2.35.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - name: Allow bubblewrap user namespaces
+        # Ubuntu 24.04 restricts unprivileged user namespaces. Grant only bwrap;
+        # keep the host-wide AppArmor restrictions and the parser sandbox enabled.
+        run: |
+          sudo tee /etc/apparmor.d/coredoc-ci-bwrap >/dev/null <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile coredoc-ci-bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+          sudo apparmor_parser --replace /etc/apparmor.d/coredoc-ci-bwrap
+          bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev /usr/bin/true
+          sudo install -d -o "$(id -u)" /usr/src/coredoc-sandbox-tests /usr/lib/coredoc-sandbox-tests
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Build the workspace deps the Ruby parser imports at runtime (@coredoc/core, etc.).
+      - run: pnpm build --filter "@coredoc/profile-parser..."
+      - name: Live scip-ruby e2e
+        env:
+          COREDOC_SCIP_RUBY_E2E: '1'
+          COREDOC_SANDBOX_E2E: '1'
+        run: pnpm --filter @coredoc/profile-parser exec vitest run src/substrate/ruby/ruby-scip.e2e.test.ts src/facts/scip/isolated-process.test.ts

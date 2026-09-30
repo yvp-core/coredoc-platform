@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 2,
+  "name": "coredoc-parser",
+  "path": "coredoc-parser",
+  "baseBranch": "main",
+  "repoKey": "coredoc-parser",
+  "gitSha": "643dcc4ff04104379a4e61031c9cf9384449e99d",
+  "cells": {
+    "explain-repo": {
+      "lifecycle": "smoke",
+      "provenance": {
+        "kind": "source-audit",
+        "snapshotCommit": "643dcc4ff04104379a4e61031c9cf9384449e99d",
+        "evidence": [
+          "evals/targets/coredoc-parser.notes.md#coredoc-parser-eval-target--citation-log"
+        ]
+      },
+      "params": {}
+    },
+    "explain-function": {
+      "lifecycle": "quarantine",
+      "reasonCode": "self-truth-leakage",
+      "reason": "Exact caller truth is readable from the same checkout; explain-function is non-primary."
+    },
+    "blast-radius": {
+      "lifecycle": "quarantine",
+      "reasonCode": "self-truth-leakage",
+      "reason": "Exact rename truth is readable from the same checkout; blast-radius is non-primary."
+    },
+    "entrypoint-deep-dive": {
+      "lifecycle": "quarantine",
+      "reasonCode": "self-truth-leakage",
+      "reason": "Exact reachable-function and file truth is readable from the same checkout."
+    },
+    "entity-impact": {
+      "lifecycle": "quarantine",
+      "reasonCode": "false-premise-and-leakage",
+      "reason": "Truth is readable and the prompt treats an existing field as new."
+    },
+    "data-flow-trace": {
+      "lifecycle": "quarantine",
+      "reasonCode": "self-truth-leakage",
+      "reason": "Exact sink truth is readable and flat sinks do not prove the flow."
+    },
+    "type-impact": {
+      "lifecycle": "quarantine",
+      "reasonCode": "self-truth-leakage",
+      "reason": "Exact type-consumer truth is readable from the same checkout."
+    },
+    "route-deep-dive": {
+      "lifecycle": "quarantine",
+      "reasonCode": "self-truth-leakage",
+      "reason": "Exact route subtree truth is readable from the same checkout."
+    },
+    "route-api-surface": {
+      "lifecycle": "quarantine",
+      "reasonCode": "self-truth-leakage",
+      "reason": "Exact endpoint and call-site truth is readable from the same checkout."
+    },
+    "component-decision": {
+      "lifecycle": "quarantine",
+      "reasonCode": "subjective-and-leaky",
+      "reason": "The visible reuse list is subjective and not held out."
+    },
+    "cross-repo-trace": {
+      "lifecycle": "quarantine",
+      "reasonCode": "missing-curated-truth",
+      "reason": "No curated cross-repository call or repository oracle."
+    },
+    "feature-implementation-plan": {
+      "lifecycle": "diagnostic",
+      "provenance": {
+        "kind": "source-audit",
+        "snapshotCommit": "643dcc4ff04104379a4e61031c9cf9384449e99d",
+        "evidence": [
+          "private Rails monolith source/graph audit (pilot workspace, not published)",
+          "evals/targets/coredoc-parser.notes.md#featureimplementationplan--rails-sidekiqactivejob-graph-substrate"
+        ]
+      },
+      "params": {
+        "feature": "Bug entrypoint: in an indexed Rails application, `PayrollRecalculationJob.perform_async(company_id)` is visible in source, but Coredoc's Explain and change-impact traversal stops at the enqueue call and never reaches the concrete job handler. Plan the smallest repository-agnostic fix so jobs implemented through Rails ApplicationJob or direct Sidekiq workers are traversable from `perform_async`, `perform_in`, and `perform_at` to the correct `perform` handler. Preserve the handler's real identity and source location, do not classify unrelated methods named `perform` as jobs, and keep existing Ruby messaging extraction and non-Ruby parsing unchanged. Include focused regression coverage and explain how the extracted relationship becomes visible through the existing graph and MCP surfaces.",
+        "planSections": [
+          "Root cause and implementation",
+          "Graph behavior and compatibility",
+          "Regression coverage"
+        ],
+        "expectedFiles": [
+          "packages/profile-parser/src/substrate/ruby/ruby-parser.ts",
+          "packages/profile-parser/src/substrate/ruby/ruby-queue.ts",
+          "packages/profile-parser/src/substrate/ruby/ruby-queue.test.ts",
+          "packages/profile-parser/src/substrate/ruby/ruby-callgraph.ts",
+          "packages/profile-parser/src/substrate/ruby/ruby-callgraph.test.ts",
+          "packages/profile-parser/src/substrate/ruby/ruby-parser.test.ts"
+        ]
+      }
+    },
+    "backend-frontend-pair": {
+      "lifecycle": "quarantine",
+      "reasonCode": "self-truth-leakage",
+      "reason": "Exact frontend-consumer truth is readable from the same checkout."
+    },
+    "flag-impact-audit": {
+      "lifecycle": "quarantine",
+      "reasonCode": "self-truth-leakage",
+      "reason": "Exact hook-callsite truth is readable from the same checkout."
+    },
+    "transitive-callers-closure": {
+      "lifecycle": "quarantine",
+      "reasonCode": "self-truth-leakage",
+      "reason": "The visible flat closure lacks expected file and depth per caller."
+    },
+    "service-dependency-map": {
+      "lifecycle": "quarantine",
+      "reasonCode": "self-truth-leakage",
+      "reason": "The visible flat service list lacks dependency classification."
+    },
+    "caller-intersection": {
+      "lifecycle": "quarantine",
+      "reasonCode": "self-truth-leakage",
+      "reason": "Exact intersection truth is readable and bare names can collide."
+    },
+    "entrypoint-permission-audit": {
+      "lifecycle": "quarantine",
+      "reasonCode": "unbounded-truth-and-leakage",
+      "reason": "Visible bounded truth conflicts with the prompt's unbounded endpoint claim."
+    },
+    "deep-chain-side-effects": {
+      "lifecycle": "quarantine",
+      "reasonCode": "invalid-tree-truth-and-leakage",
+      "reason": "The visible flat sequence cannot represent the branching effect tree."
+    },
+    "impact-diff": {
+      "lifecycle": "quarantine",
+      "reasonCode": "missing-curated-truth",
+      "reason": "No curated diff, source commit, or impact oracle."
+    }
+  }
+}

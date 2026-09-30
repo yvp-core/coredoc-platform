@@ -1,0 +1,386 @@
+{
+  "domains": [
+    {
+      "id": "ordering",
+      "statement": "Placing, accepting and refusing widget orders.",
+      "title": "Ordering"
+    },
+    {
+      "id": "pricing",
+      "statement": "Totals, fees, discounts and money rounding.",
+      "title": "Pricing and money"
+    },
+    {
+      "id": "stock",
+      "statement": "Availability, reservation and warehouse boundaries.",
+      "title": "Stock and warehouses"
+    }
+  ],
+  "items": [
+    {
+      "authority": "accepted",
+      "codeAnchors": [
+        {
+          "capturedVersionedId": "40080b8c38fc:method:src/orders/order-service.ts:OrderService.placeOrder@571405f9",
+          "nodeId": "40080b8c38fc:method:src/orders/order-service.ts:OrderService.placeOrder",
+          "nodeType": "function",
+          "rationale": "The ordering outcome is produced here end to end",
+          "repo": "fixture-repo"
+        }
+      ],
+      "domain": "ordering",
+      "id": "cap-widget-ordering",
+      "kind": "capability",
+      "payload": {
+        "beneficiary": "Store operator",
+        "boundary": "One order is fulfilled from exactly one warehouse; no transfers or splits",
+        "outcome": "An operator places a widget order and receives its identifier, state and charged total"
+      },
+      "sources": [
+        {
+          "kind": "spec",
+          "localId": "CAP-1",
+          "ref": "spec/widget-ordering"
+        }
+      ],
+      "statement": "A store operator can order widgets from a single warehouse and receive the accepted order with its charged total.",
+      "title": "Widget ordering for one warehouse"
+    },
+    {
+      "authority": "accepted",
+      "codeAnchors": [
+        {
+          "capturedVersionedId": "40080b8c38fc:method:src/api/order-controller.ts:OrderController.submit@c3d28b0f",
+          "nodeId": "40080b8c38fc:method:src/api/order-controller.ts:OrderController.submit",
+          "nodeType": "function",
+          "rationale": "The operator-facing submission entry point",
+          "repo": "fixture-repo"
+        }
+      ],
+      "domain": "ordering",
+      "id": "uc-place-a-widget-order",
+      "kind": "use_case",
+      "payload": {
+        "failureOutcomes": [
+          "The widget sku is unknown and the submission is refused",
+          "Stock is insufficient and the submission is refused with no reservation"
+        ],
+        "preconditions": [
+          "The widget exists in the catalogue",
+          "The order names one warehouse"
+        ],
+        "primaryActor": "Store operator",
+        "successOutcome": "The order is stored in state accepted and its identifier, warehouse and total are returned",
+        "trigger": "The operator submits an order for a widget sku and quantity"
+      },
+      "sources": [
+        {
+          "kind": "spec",
+          "localId": "UC-1",
+          "ref": "spec/widget-ordering"
+        }
+      ],
+      "statement": "A store operator submits an order for a widget and quantity and receives the stored order or a refusal.",
+      "title": "Place a widget order"
+    },
+    {
+      "authority": "accepted",
+      "domain": "ordering",
+      "id": "flow-order-submission",
+      "kind": "flow",
+      "payload": {
+        "steps": [
+          {
+            "action": "Submits a widget sku and quantity",
+            "actor": "Store operator",
+            "id": "s1",
+            "outcome": "The request reaches the ordering service"
+          },
+          {
+            "action": "Looks the widget up in the catalogue",
+            "actor": "Ordering service",
+            "branches": [
+              {
+                "condition": "The sku is unknown",
+                "toStepId": "s6"
+              }
+            ],
+            "id": "s2",
+            "outcome": "The widget and its warehouse are known"
+          },
+          {
+            "action": "Checks available stock for the requested quantity",
+            "actor": "Ordering service",
+            "branches": [
+              {
+                "condition": "Stock is insufficient",
+                "toStepId": "s6"
+              }
+            ],
+            "id": "s3",
+            "outcome": "Stock is sufficient"
+          },
+          {
+            "action": "Prices the order line and the order total",
+            "actor": "Ordering service",
+            "id": "s4",
+            "outcome": "A charged total in whole cents exists"
+          },
+          {
+            "action": "Reserves the stock and stores the order",
+            "actor": "Ordering service",
+            "id": "s5",
+            "outcome": "The order exists in state accepted"
+          },
+          {
+            "action": "Refuses the submission",
+            "actor": "Ordering service",
+            "id": "s6",
+            "outcome": "No order is stored and no stock is reserved"
+          }
+        ],
+        "terminationCondition": "The order is stored as accepted or the submission is refused",
+        "trigger": "The operator submits an order request"
+      },
+      "sources": [
+        {
+          "kind": "spec",
+          "localId": "FLOW-1",
+          "ref": "spec/widget-ordering"
+        }
+      ],
+      "statement": "Submission runs from the operator request through catalogue lookup, stock check and pricing to a stored or refused order.",
+      "title": "Order submission flow"
+    },
+    {
+      "authority": "accepted",
+      "codeAnchors": [
+        {
+          "capturedVersionedId": "40080b8c38fc:class:src/stock/stock-guard.ts:StockGuard@429586d7",
+          "nodeId": "40080b8c38fc:class:src/stock/stock-guard.ts:StockGuard",
+          "nodeType": "class",
+          "rationale": "Holds the availability check the refusal depends on",
+          "repo": "fixture-repo"
+        }
+      ],
+      "domain": "stock",
+      "id": "br-orders-never-exceed-stock",
+      "kind": "business_rule",
+      "payload": {
+        "condition": "A submitted order requests more units of a widget than the warehouse currently holds",
+        "exceptions": [],
+        "observer": "Store operator",
+        "requiredOutcome": "The submission is refused and no stock is reserved"
+      },
+      "sources": [
+        {
+          "kind": "spec",
+          "localId": "BR-1",
+          "ref": "spec/widget-ordering"
+        }
+      ],
+      "statement": "An order for more units than the warehouse holds is refused and reserves nothing.",
+      "title": "An order never exceeds available stock"
+    },
+    {
+      "authority": "accepted",
+      "codeAnchors": [
+        {
+          "capturedVersionedId": "40080b8c38fc:function:src/formatting/money.ts:roundCurrency@7b650de7",
+          "nodeId": "40080b8c38fc:function:src/formatting/money.ts:roundCurrency",
+          "nodeType": "function",
+          "rationale": "The single rounding boundary every charged amount passes through",
+          "repo": "fixture-repo"
+        },
+        {
+          "capturedVersionedId": "40080b8c38fc:class:src/pricing/price-calculator.ts:PriceCalculator@9ab6a063",
+          "nodeId": "40080b8c38fc:class:src/pricing/price-calculator.ts:PriceCalculator",
+          "nodeType": "class",
+          "rationale": "The place the rule forbids rounding in — a prohibition is anchored where it applies, not only where the behavior lives.",
+          "repo": "fixture-repo"
+        }
+      ],
+      "domain": "pricing",
+      "id": "br-charged-money-rounded-half-up",
+      "kind": "business_rule",
+      "payload": {
+        "condition": "A computed amount that an operator will be charged contains a fractional cent",
+        "exceptions": [],
+        "observer": "Store operator",
+        "requiredOutcome": "The amount is rounded to whole cents with halves going up, at the single money-helper boundary, so receipts and API responses agree to the cent"
+      },
+      "sources": [
+        {
+          "kind": "issue",
+          "localId": "BR-2",
+          "ref": "tracker/WID-42"
+        }
+      ],
+      "statement": "Every amount an operator is charged is rounded to whole cents, half away from zero, in the shared money helper rather than in the pricing calculator.",
+      "title": "Charged money is rounded half-up in the shared money helper"
+    },
+    {
+      "authority": "accepted",
+      "domain": "ordering",
+      "id": "lim-one-warehouse-per-order",
+      "kind": "limitation",
+      "payload": {
+        "affects": "Widget ordering for one warehouse",
+        "constraint": "An order is fulfilled from exactly one warehouse; splitting an order or transferring stock between warehouses is out of scope",
+        "reason": "Cross-warehouse fulfilment has no reviewed product decision, no ownership rules and no reconciliation path"
+      },
+      "sources": [
+        {
+          "kind": "spec",
+          "localId": "LIM-1",
+          "ref": "spec/widget-ordering"
+        }
+      ],
+      "statement": "An order is never split across warehouses and stock is never transferred between them.",
+      "title": "One order is fulfilled from one warehouse"
+    },
+    {
+      "authority": "accepted",
+      "domain": "stock",
+      "id": "dec-refuse-over-stock-at-submission",
+      "kind": "decision",
+      "payload": {
+        "alternatives": [
+          "Accept optimistically and reconcile stock nightly",
+          "Queue the order until restock"
+        ],
+        "choice": "Refuse the submission at the moment it is made",
+        "choiceStatus": "accepted",
+        "consequences": [
+          "Operators retry after restock",
+          "No compensating reversal path exists",
+          "Stock reservation happens only after the check passes"
+        ],
+        "question": "How should a submission that exceeds available stock be handled?",
+        "rationale": "Refusing early keeps stock and order state consistent and removes the need for a compensating reversal path"
+      },
+      "sources": [
+        {
+          "kind": "adr",
+          "localId": "ADR-2",
+          "ref": "docs/adr/0002-stock-refusal"
+        }
+      ],
+      "statement": "Orders beyond available stock are refused when submitted rather than accepted and reconciled later.",
+      "title": "Refuse over-stock orders at submission time"
+    },
+    {
+      "authority": "candidate",
+      "domain": "pricing",
+      "id": "br-bulk-order-discount",
+      "kind": "business_rule",
+      "payload": {
+        "condition": "A single order line requests one hundred or more units of one widget",
+        "exceptions": [],
+        "observer": "Store operator",
+        "requiredOutcome": "The line total is reduced by ten percent before the handling fee is added"
+      },
+      "sources": [
+        {
+          "kind": "issue",
+          "localId": "BR-bulk",
+          "ref": "tracker/WID-58"
+        }
+      ],
+      "statement": "An order of one hundred units or more of a single widget is discounted by ten percent.",
+      "title": "Bulk orders receive a ten percent discount"
+    },
+    {
+      "authority": "candidate",
+      "domain": "stock",
+      "id": "cap-backorder-shortfall",
+      "kind": "capability",
+      "payload": {
+        "beneficiary": "Store operator",
+        "boundary": "Backorders would stay inside the ordering warehouse",
+        "outcome": "An operator can accept a partial reservation and have the shortfall backordered"
+      },
+      "sources": [
+        {
+          "kind": "issue",
+          "localId": "CAP-backorder",
+          "ref": "tracker/WID-61"
+        }
+      ],
+      "statement": "An order whose quantity exceeds stock could be partially reserved and the shortfall backordered.",
+      "title": "Backorder a shortfall instead of refusing"
+    },
+    {
+      "authority": "rejected",
+      "domain": "stock",
+      "id": "dec-optimistic-stock-reservation",
+      "kind": "decision",
+      "payload": {
+        "alternatives": [
+          "Refuse at submission time"
+        ],
+        "choice": "Reserve optimistically and reconcile nightly",
+        "choiceStatus": "proposed",
+        "consequences": [
+          "A reversal path would be required",
+          "Operators could be charged for stock that does not exist"
+        ],
+        "question": "Should stock be reserved optimistically and reconciled later?",
+        "rationale": "It would keep submissions fast when the stock service is slow"
+      },
+      "sources": [
+        {
+          "kind": "adr",
+          "localId": "ADR-3",
+          "ref": "docs/adr/0003-optimistic-reservation"
+        }
+      ],
+      "statement": "Stock would be reserved optimistically at submission and reconciled by a nightly job.",
+      "title": "Reserve stock optimistically and reconcile nightly"
+    }
+  ],
+  "projectId": "intent-eval",
+  "relations": [
+    {
+      "from": "cap-widget-ordering",
+      "to": "uc-place-a-widget-order",
+      "type": "contains"
+    },
+    {
+      "from": "uc-place-a-widget-order",
+      "to": "flow-order-submission",
+      "type": "contains"
+    },
+    {
+      "from": "br-orders-never-exceed-stock",
+      "to": "flow-order-submission",
+      "type": "governs"
+    },
+    {
+      "from": "br-charged-money-rounded-half-up",
+      "to": "cap-widget-ordering",
+      "type": "governs"
+    },
+    {
+      "from": "lim-one-warehouse-per-order",
+      "to": "cap-widget-ordering",
+      "type": "constrains"
+    },
+    {
+      "from": "dec-refuse-over-stock-at-submission",
+      "to": "br-orders-never-exceed-stock",
+      "type": "decides"
+    },
+    {
+      "from": "br-bulk-order-discount",
+      "to": "cap-widget-ordering",
+      "type": "governs"
+    },
+    {
+      "from": "lim-one-warehouse-per-order",
+      "to": "cap-backorder-shortfall",
+      "type": "constrains"
+    }
+  ],
+  "schemaVersion": 2
+}

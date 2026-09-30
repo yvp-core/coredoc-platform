@@ -1,0 +1,411 @@
+{
+  "projectRoot": "file:///fixture",
+  "documents": [
+    {
+      "relativePath": "App/Outgoing.cs",
+      "occurrences": [
+        {
+          "symbol": "scip-dotnet nuget . . System/",
+          "symbolRoles": 0,
+          "range": [0, 6, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Net/",
+          "symbolRoles": 0,
+          "range": [0, 13, 16]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Http/",
+          "symbolRoles": 0,
+          "range": [0, 17, 21]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/",
+          "symbolRoles": 0,
+          "range": [1, 10, 17]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Outgoing#",
+          "symbolRoles": 1,
+          "range": [2, 13, 21]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Outgoing#`.ctor`().(factory)",
+          "symbolRoles": 1,
+          "range": [2, 41, 48]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.Http 10.0.0.0 Http/IHttpClientFactory#",
+          "symbolRoles": 0,
+          "range": [2, 22, 40]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Outgoing#`.ctor`().(sdk)",
+          "symbolRoles": 1,
+          "range": [2, 63, 66]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Demo/",
+          "symbolRoles": 0,
+          "range": [2, 50, 54]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Demo/Gateway#",
+          "symbolRoles": 0,
+          "range": [2, 55, 62]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Outgoing#Run().",
+          "symbolRoles": 1,
+          "range": [3, 19, 22]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [3, 14, 18]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Outgoing#Run().(unknown)",
+          "symbolRoles": 1,
+          "range": [3, 30, 37]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 1,
+          "range": [4, 6, 11]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Outgoing#`.ctor`().(factory)",
+          "symbolRoles": 0,
+          "range": [4, 14, 21]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.Http 10.0.0.0 Http/IHttpClientFactory#CreateClient().",
+          "symbolRoles": 0,
+          "range": [4, 22, 34]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [5, 8, 13]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Net.Http 10.0.0.0 Http/HttpClient#GetStringAsync().",
+          "symbolRoles": 0,
+          "range": [5, 14, 28]
+        },
+        {
+          "symbol": "local 1",
+          "symbolRoles": 1,
+          "range": [6, 6, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Outgoing#`.ctor`().(factory)",
+          "symbolRoles": 0,
+          "range": [6, 15, 22]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.Http 10.0.0.0 Http/IHttpClientFactory#CreateClient().",
+          "symbolRoles": 0,
+          "range": [6, 23, 35]
+        },
+        {
+          "symbol": "local 1",
+          "symbolRoles": 0,
+          "range": [7, 8, 14]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Net.Http 10.0.0.0 Http/HttpClient#GetAsync().",
+          "symbolRoles": 0,
+          "range": [7, 15, 23]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [8, 8, 13]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Net.Http 10.0.0.0 Http/HttpClient#GetStringAsync().",
+          "symbolRoles": 0,
+          "range": [8, 14, 28]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Outgoing#Run().(unknown)",
+          "symbolRoles": 0,
+          "range": [8, 29, 36]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Outgoing#`.ctor`().(sdk)",
+          "symbolRoles": 0,
+          "range": [9, 2, 5]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Demo/Gateway#Publish().",
+          "symbolRoles": 0,
+          "range": [9, 6, 13]
+        },
+        {
+          "symbol": "local 2",
+          "symbolRoles": 1,
+          "range": [10, 6, 11]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Outgoing#`.ctor`().(factory)",
+          "symbolRoles": 0,
+          "range": [10, 14, 21]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.Http 10.0.0.0 Http/IHttpClientFactory#CreateClient().",
+          "symbolRoles": 0,
+          "range": [10, 22, 34]
+        },
+        {
+          "symbol": "local 2",
+          "symbolRoles": 0,
+          "range": [11, 2, 7]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Outgoing#`.ctor`().(factory)",
+          "symbolRoles": 0,
+          "range": [11, 10, 17]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.Http 10.0.0.0 Http/IHttpClientFactory#CreateClient().",
+          "symbolRoles": 0,
+          "range": [11, 18, 30]
+        },
+        {
+          "symbol": "local 2",
+          "symbolRoles": 0,
+          "range": [12, 8, 13]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Net.Http 10.0.0.0 Http/HttpClient#GetAsync().",
+          "symbolRoles": 0,
+          "range": [12, 14, 22]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Outgoing#Local().",
+          "symbolRoles": 1,
+          "range": [14, 13, 18]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Outgoing#Local().(client)",
+          "symbolRoles": 1,
+          "range": [14, 31, 37]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/LocalClient#",
+          "symbolRoles": 0,
+          "range": [14, 19, 30]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Outgoing#Local().(client)",
+          "symbolRoles": 0,
+          "range": [14, 41, 47]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/LocalClient#GetStringAsync().",
+          "symbolRoles": 0,
+          "range": [14, 48, 62]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/LocalClient#",
+          "symbolRoles": 1,
+          "range": [16, 13, 24]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/LocalClient#GetStringAsync().",
+          "symbolRoles": 1,
+          "range": [16, 41, 55]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/LocalClient#GetStringAsync().(path)",
+          "symbolRoles": 1,
+          "range": [16, 63, 67]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/LocalClient#GetStringAsync().(path)",
+          "symbolRoles": 0,
+          "range": [16, 72, 76]
+        }
+      ]
+    },
+    {
+      "relativePath": "App/Remote.cs",
+      "symbols": [
+        {
+          "symbol": "scip-dotnet nuget . . Example/GetAttribute#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 System/Attribute#",
+              "isImplementation": true
+            }
+          ]
+        }
+      ],
+      "occurrences": [
+        {
+          "symbol": "scip-dotnet nuget . . Refit/",
+          "symbolRoles": 0,
+          "range": [0, 6, 11]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/",
+          "symbolRoles": 0,
+          "range": [1, 10, 17]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IRemoteApi#",
+          "symbolRoles": 1,
+          "range": [2, 17, 27]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IRemoteApi#GetMessage().",
+          "symbolRoles": 1,
+          "range": [2, 73, 83]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Refit/",
+          "symbolRoles": 0,
+          "range": [2, 31, 36]
+        },
+        {
+          "symbol": "scip-dotnet nuget Refit 8.0.0.0 Refit/GetAttribute#`.ctor`().",
+          "symbolRoles": 0,
+          "range": [2, 37, 40]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [2, 60, 64]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IRemoteApi#GetMessage().(id)",
+          "symbolRoles": 1,
+          "range": [2, 91, 93]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Remote#",
+          "symbolRoles": 1,
+          "range": [3, 13, 19]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Remote#`.ctor`().(api)",
+          "symbolRoles": 1,
+          "range": [3, 31, 34]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IRemoteApi#",
+          "symbolRoles": 0,
+          "range": [3, 20, 30]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Remote#`.ctor`().(local)",
+          "symbolRoles": 1,
+          "range": [3, 46, 51]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ILocalApi#",
+          "symbolRoles": 0,
+          "range": [3, 36, 45]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Remote#Load().",
+          "symbolRoles": 1,
+          "range": [4, 21, 25]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 Tasks/Task#",
+          "symbolRoles": 0,
+          "range": [4, 8, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Remote#`.ctor`().(api)",
+          "symbolRoles": 0,
+          "range": [4, 31, 34]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IRemoteApi#GetMessage().",
+          "symbolRoles": 0,
+          "range": [4, 35, 45]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Remote#Local().",
+          "symbolRoles": 1,
+          "range": [5, 15, 20]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Remote#`.ctor`().(local)",
+          "symbolRoles": 0,
+          "range": [5, 26, 31]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ILocalApi#GetMessage().",
+          "symbolRoles": 0,
+          "range": [5, 32, 42]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ILocalApi#",
+          "symbolRoles": 1,
+          "range": [7, 17, 26]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ILocalApi#GetMessage().",
+          "symbolRoles": 1,
+          "range": [7, 56, 66]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/GetAttribute#`.ctor`().",
+          "symbolRoles": 0,
+          "range": [7, 30, 33]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/ILocalApi#GetMessage().(id)",
+          "symbolRoles": 1,
+          "range": [7, 74, 76]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/GetAttribute#",
+          "symbolRoles": 1,
+          "range": [8, 13, 25]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/GetAttribute#`.ctor`().(path)",
+          "symbolRoles": 1,
+          "range": [8, 33, 37]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 System/Attribute#",
+          "symbolRoles": 0,
+          "range": [8, 41, 50]
+        }
+      ]
+    },
+    {
+      "relativePath": "Sdk/Gateway.cs",
+      "occurrences": [
+        {
+          "symbol": "scip-dotnet nuget . . Demo/",
+          "symbolRoles": 0,
+          "range": [0, 10, 14]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Demo/Gateway#",
+          "symbolRoles": 1,
+          "range": [0, 29, 36]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Demo/Gateway#Publish().",
+          "symbolRoles": 1,
+          "range": [0, 51, 58]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Demo/Gateway#Publish().(message)",
+          "symbolRoles": 1,
+          "range": [0, 66, 73]
+        }
+      ]
+    }
+  ]
+}

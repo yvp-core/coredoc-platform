@@ -1,0 +1,30 @@
+{
+  "version": "2.0",
+  "output": {
+    "dir": "coredoc-output"
+  },
+  "parserStorage": "coredoc-parsers",
+  "projects": [
+    {
+      "id": "acme",
+      "name": "Acme",
+      "repos": [
+        {
+          "name": "api-server",
+          "key": "api-server",
+          "path": "./api-server"
+        },
+        {
+          "name": "web-app",
+          "key": "web-app",
+          "path": "./web-app"
+        },
+        {
+          "name": "billing-service",
+          "key": "billing-service",
+          "path": "./billing-service"
+        }
+      ]
+    }
+  ]
+}

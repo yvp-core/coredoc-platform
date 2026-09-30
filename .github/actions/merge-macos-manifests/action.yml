@@ -1,0 +1,132 @@
+name: Merge macOS Update Manifests
+description: Merge latest-mac.yml from arm64 and x64 builds, falling back to ZIP metadata generation
+
+inputs:
+  dist-path:
+    description: Directory containing arm64/ and x64/ subdirectories with release artifacts
+    required: true
+  output-path:
+    description: Directory to write the merged manifest
+    required: true
+  version:
+    description: App version (without v prefix); used if manifests must be regenerated
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Merge macOS manifests
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        DIST="${{ inputs.dist-path }}"
+        OUTPUT="${{ inputs.output-path }}"
+        VERSION="${{ inputs.version }}"
+        mkdir -p "$OUTPUT"
+
+        find_artifact() {
+          local arch="$1"
+          local pattern="$2"
+          find "$DIST" -path "*${arch}*" -name "$pattern" | head -1
+        }
+
+        ARM64_MANIFEST=$(find_artifact "arm64" "latest-mac.yml" || true)
+        X64_MANIFEST=$(find_artifact "x64" "latest-mac.yml" || true)
+
+        if [[ -n "$ARM64_MANIFEST" && -n "$X64_MANIFEST" ]]; then
+          echo "Merging existing manifests:"
+          echo "  arm64: $ARM64_MANIFEST"
+          echo "  x64: $X64_MANIFEST"
+
+          export ARM64_MANIFEST X64_MANIFEST OUTPUT
+          ruby -e '
+        require "yaml"
+
+        arm64 = YAML.load_file(ENV.fetch("ARM64_MANIFEST"))
+        x64 = YAML.load_file(ENV.fetch("X64_MANIFEST"))
+
+        merged = arm64.dup
+        merged.delete("path")
+        merged.delete("sha512")
+        merged.delete("sha2")
+
+        files = Array(arm64["files"]) + Array(x64["files"])
+        seen = {}
+        merged["files"] = files.each_with_object([]) do |entry, result|
+          next unless entry.is_a?(Hash)
+          url = entry["url"] || entry[:url]
+          key = if url.nil? || url.empty?
+            entry.to_a.sort_by { |item| item[0].to_s }.flatten.join("\0")
+          else
+            url
+          end
+          next if seen[key]
+          seen[key] = true
+          result << entry
+        end
+
+        out_file = File.join(ENV.fetch("OUTPUT"), "latest-mac.yml")
+        yaml = YAML.dump(merged).sub(/\A---\s*\n/, "")
+        File.write(out_file, yaml)
+        puts "Merged manifest written to #{out_file}"
+        puts "  Total file entries: #{merged["files"].length}"
+          '
+        else
+          echo "One or both manifests are missing; rebuilding latest-mac.yml from ZIP artifacts."
+          echo "  arm64 manifest: ${ARM64_MANIFEST:-NOT FOUND}"
+          echo "  x64 manifest: ${X64_MANIFEST:-NOT FOUND}"
+
+          ARM64_ZIP=$(find_artifact "arm64" "*.zip" || true)
+          X64_ZIP=$(find_artifact "x64" "*.zip" || true)
+
+          if [[ -z "$ARM64_ZIP" || -z "$X64_ZIP" ]]; then
+            echo "::error::Could not find both latest-mac.yml manifests or both ZIP artifacts"
+            echo "  arm64 zip: ${ARM64_ZIP:-NOT FOUND}"
+            echo "  x64 zip: ${X64_ZIP:-NOT FOUND}"
+            exit 1
+          fi
+
+          echo "Generating manifest from ZIPs:"
+          echo "  arm64: $ARM64_ZIP"
+          echo "  x64: $X64_ZIP"
+
+          ARM64_SIZE=$(stat -f%z "$ARM64_ZIP" 2>/dev/null || stat -c%s "$ARM64_ZIP")
+          X64_SIZE=$(stat -f%z "$X64_ZIP" 2>/dev/null || stat -c%s "$X64_ZIP")
+          ARM64_SHA512=$(shasum -a 512 "$ARM64_ZIP" | awk '{print $1}' | xxd -r -p | base64 | tr -d '\n')
+          X64_SHA512=$(shasum -a 512 "$X64_ZIP" | awk '{print $1}' | xxd -r -p | base64 | tr -d '\n')
+          ARM64_NAME=$(basename "$ARM64_ZIP")
+          X64_NAME=$(basename "$X64_ZIP")
+          RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+
+          export OUTPUT VERSION RELEASE_DATE ARM64_NAME ARM64_SHA512 ARM64_SIZE X64_NAME X64_SHA512 X64_SIZE
+          ruby -e '
+        require "yaml"
+
+        manifest = {
+          "version" => ENV.fetch("VERSION"),
+          "files" => [
+            {
+              "url" => ENV.fetch("ARM64_NAME"),
+              "sha512" => ENV.fetch("ARM64_SHA512"),
+              "size" => Integer(ENV.fetch("ARM64_SIZE")),
+            },
+            {
+              "url" => ENV.fetch("X64_NAME"),
+              "sha512" => ENV.fetch("X64_SHA512"),
+              "size" => Integer(ENV.fetch("X64_SIZE")),
+            },
+          ],
+          "releaseDate" => ENV.fetch("RELEASE_DATE"),
+        }
+
+        out_file = File.join(ENV.fetch("OUTPUT"), "latest-mac.yml")
+        yaml = YAML.dump(manifest).sub(/\A---\s*\n/, "")
+        File.write(out_file, yaml)
+        puts "Manifest written to #{out_file}"
+        puts "  Total file entries: #{manifest["files"].length}"
+          '
+        fi
+
+        echo "=== latest-mac.yml ==="
+        cat "$OUTPUT/latest-mac.yml"

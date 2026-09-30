@@ -1,0 +1,72 @@
+{{- /*
+Prisma migration Job. Migrations are a deliberate SEPARATE step — the server
+container never runs them on boot, which avoids migration races when running
+more than one replica. Three modes via migrations.hook:
+
+  helm   — Helm lifecycle hook: runs before install/upgrade rollout.
+  argocd — ArgoCD PreSync hook: migrations finish before new pods roll out.
+  manual — not rendered; run `prisma migrate deploy` yourself (README).
+
+The command matches the deploy guide (apps/server/ONPREM.md §6):
+  cd apps/server && npx prisma migrate deploy
+It applies apps/server/prisma/migrations via prisma.config.ts, which reads
+DATABASE_URL. (An equivalent form that avoids sh word-splitting when the
+command is injected through a templated variable is calling the binary
+directly: apps/server/node_modules/.bin/prisma migrate deploy
+--schema apps/server/prisma/schema.prisma — kept here for reference.)
+*/}}
+{{- if ne .Values.migrations.hook "manual" }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "coredoc.fullname" . }}-migrate
+  labels:
+    {{- include "coredoc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrations
+  annotations:
+    {{- if eq .Values.migrations.hook "helm" }}
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    {{- else if eq .Values.migrations.hook "argocd" }}
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    {{- end }}
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      # Deliberately NOT the deployment's selector labels — the Service
+      # selects on name+instance, and migration pods must never receive
+      # traffic.
+      labels:
+        app.kubernetes.io/name: {{ include "coredoc.name" . }}-migrate
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: migrations
+    spec:
+      restartPolicy: Never
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ include "coredoc.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c", "cd apps/server && npx prisma migrate deploy"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "postgres.existingSecret is required" .Values.postgres.existingSecret }}
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+{{- end }}

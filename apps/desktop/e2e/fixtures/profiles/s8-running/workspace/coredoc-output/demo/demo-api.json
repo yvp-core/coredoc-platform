@@ -1,0 +1,9 @@
+{
+  "repository": { "name": "demo-api", "type": "backend", "path": "./repos/demo-api" },
+  "gitRevision": "0000000000000000000000000000000000000000",
+  "entrypoints": [],
+  "entities": [],
+  "files": [],
+  "calls": [],
+  "externalCalls": []
+}

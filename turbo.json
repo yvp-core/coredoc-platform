@@ -1,0 +1,56 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalEnv": ["WORKOS_CLIENT_ID", "COREDOC_SERVER_URL", "COREDOC_POSTHOG_KEY", "COREDOC_POSTHOG_HOST"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "tsconfig.tsbuildinfo", "*.tsbuildinfo"]
+    },
+    "clean": {
+      "cache": false
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {},
+    "test": {
+      "dependsOn": ["^build"]
+    },
+    "@coredoc/mcp#test": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/skills/coredoc-mcp/**"]
+    },
+    "@coredoc/cli#test": {
+      "dependsOn": ["build", "^build"]
+    },
+    "@coredoc/cli#build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "tsconfig.tsbuildinfo", "*.tsbuildinfo"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/load-root-env.mjs"]
+    },
+    "@coredoc/desktop#build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "tsconfig.tsbuildinfo", "*.tsbuildinfo"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/load-root-env.mjs",
+        "$TURBO_ROOT$/skills/author-profile/**"
+      ]
+    },
+    "@coredoc/server#test": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/license-tool.mjs",
+        "$TURBO_ROOT$/vendor/coredoc-workflows-runtime/**"
+      ]
+    },
+    "e2e": {
+      "cache": false
+    },
+    "typecheck": {
+      "dependsOn": ["^build"]
+    }
+  }
+}

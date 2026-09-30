@@ -1,0 +1,22 @@
+# Playwright run artifacts (traces, failure screenshots, kept profiles).
+test-results/
+playwright-report/
+
+# Seed fixtures live under `fixtures/profiles/` and are checked in — but their
+# filenames are exactly the ones the ROOT .gitignore excludes repo-wide
+# (`coredoc.config.json`, `coredoc-output/`, `coredoc-parsers/`, `coredoc.db*`,
+# `.env`, `onboarded-workspaces.json`), because in a real workspace those are
+# generated. Here they ARE the source of truth, so re-include them.
+#
+# Directory patterns need BOTH the dir and its contents un-ignored: git never
+# descends into an excluded directory, so a bare `!dir/**` would never be
+# consulted. Parent first, then contents.
+!coredoc.config.json
+!.env
+!onboarded-workspaces.json
+!coredoc-output/
+!coredoc-output/**
+!coredoc-parsers/
+!coredoc-parsers/**
+!coredoc.db.d/
+!coredoc.db.d/**

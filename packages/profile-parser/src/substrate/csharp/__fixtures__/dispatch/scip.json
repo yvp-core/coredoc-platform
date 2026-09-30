@@ -1,0 +1,527 @@
+{
+  "projectRoot": "file:///fixture",
+  "documents": [
+    {
+      "relativePath": "Services.cs",
+      "symbols": [
+        {
+          "symbol": "scip-dotnet nuget . . Example/Service#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget . . Example/IService#",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Service#Send().",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget . . Example/IService#Send().",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Other#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget . . Example/IService#",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Other#Send().",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget . . Example/IService#Send().",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/First#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget . . Example/IAmbiguous#",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/First#Run().",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget . . Example/IAmbiguous#Run().",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Second#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget . . Example/IAmbiguous#",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Second#Run().",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget . . Example/IAmbiguous#Run().",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/FactoryProduct#",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget . . Example/IFactory#",
+              "isImplementation": true
+            }
+          ]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/FactoryProduct#Run().",
+          "relationships": [
+            {
+              "symbol": "scip-dotnet nuget . . Example/IFactory#Run().",
+              "isImplementation": true
+            }
+          ]
+        }
+      ],
+      "occurrences": [
+        {
+          "symbol": "scip-dotnet nuget . . Microsoft/",
+          "symbolRoles": 0,
+          "range": [0, 6, 15]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Extensions/",
+          "symbolRoles": 0,
+          "range": [0, 16, 26]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . DependencyInjection/",
+          "symbolRoles": 0,
+          "range": [0, 27, 46]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/",
+          "symbolRoles": 0,
+          "range": [1, 10, 17]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IService#",
+          "symbolRoles": 1,
+          "range": [2, 17, 25]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IService#Send().",
+          "symbolRoles": 1,
+          "range": [2, 35, 39]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IService#Send().(value)",
+          "symbolRoles": 1,
+          "range": [2, 47, 52]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Service#",
+          "symbolRoles": 1,
+          "range": [3, 13, 20]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IService#",
+          "symbolRoles": 0,
+          "range": [3, 23, 31]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Service#Send().",
+          "symbolRoles": 1,
+          "range": [3, 48, 52]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Service#Send().(value)",
+          "symbolRoles": 1,
+          "range": [3, 60, 65]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Service#Send().(value)",
+          "symbolRoles": 0,
+          "range": [3, 70, 75]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Service#Send(+1).",
+          "symbolRoles": 1,
+          "range": [3, 88, 92]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Service#Send(+1).(value)",
+          "symbolRoles": 1,
+          "range": [3, 97, 102]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Service#Send(+1).(value)",
+          "symbolRoles": 0,
+          "range": [3, 107, 112]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Other#",
+          "symbolRoles": 1,
+          "range": [4, 13, 18]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IService#",
+          "symbolRoles": 0,
+          "range": [4, 21, 29]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Other#Send().",
+          "symbolRoles": 1,
+          "range": [4, 46, 50]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Other#Send().(value)",
+          "symbolRoles": 1,
+          "range": [4, 58, 63]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Other#Send().(value)",
+          "symbolRoles": 0,
+          "range": [4, 68, 73]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IAmbiguous#",
+          "symbolRoles": 1,
+          "range": [5, 17, 27]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IAmbiguous#Run().",
+          "symbolRoles": 1,
+          "range": [5, 35, 38]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/First#",
+          "symbolRoles": 1,
+          "range": [6, 13, 18]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IAmbiguous#",
+          "symbolRoles": 0,
+          "range": [6, 21, 31]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/First#Run().",
+          "symbolRoles": 1,
+          "range": [6, 46, 49]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Second#",
+          "symbolRoles": 1,
+          "range": [7, 13, 19]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IAmbiguous#",
+          "symbolRoles": 0,
+          "range": [7, 22, 32]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Second#Run().",
+          "symbolRoles": 1,
+          "range": [7, 47, 50]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IFactory#",
+          "symbolRoles": 1,
+          "range": [8, 17, 25]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IFactory#Run().",
+          "symbolRoles": 1,
+          "range": [8, 33, 36]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/FactoryProduct#",
+          "symbolRoles": 1,
+          "range": [9, 13, 27]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IFactory#",
+          "symbolRoles": 0,
+          "range": [9, 30, 38]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/FactoryProduct#Run().",
+          "symbolRoles": 1,
+          "range": [9, 53, 56]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#",
+          "symbolRoles": 1,
+          "range": [10, 13, 19]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#`.ctor`().(service)",
+          "symbolRoles": 1,
+          "range": [10, 29, 36]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IService#",
+          "symbolRoles": 0,
+          "range": [10, 20, 28]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#`.ctor`().(ambiguous)",
+          "symbolRoles": 1,
+          "range": [10, 49, 58]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IAmbiguous#",
+          "symbolRoles": 0,
+          "range": [10, 38, 48]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#`.ctor`().(factory)",
+          "symbolRoles": 1,
+          "range": [10, 69, 76]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IFactory#",
+          "symbolRoles": 0,
+          "range": [10, 60, 68]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#Send().",
+          "symbolRoles": 1,
+          "range": [11, 16, 20]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#`.ctor`().(service)",
+          "symbolRoles": 0,
+          "range": [11, 26, 33]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IService#Send().",
+          "symbolRoles": 0,
+          "range": [11, 34, 38]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#Parameter().",
+          "symbolRoles": 1,
+          "range": [12, 16, 25]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#Parameter().(service)",
+          "symbolRoles": 1,
+          "range": [12, 35, 42]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IService#",
+          "symbolRoles": 0,
+          "range": [12, 26, 34]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#Parameter().(service)",
+          "symbolRoles": 0,
+          "range": [12, 47, 54]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IService#Send().",
+          "symbolRoles": 0,
+          "range": [12, 55, 59]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#Explicit().",
+          "symbolRoles": 1,
+          "range": [13, 16, 24]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IService#",
+          "symbolRoles": 0,
+          "range": [13, 29, 37]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 1,
+          "range": [13, 38, 43]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Other#",
+          "symbolRoles": 0,
+          "range": [13, 50, 55]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [13, 66, 71]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IService#Send().",
+          "symbolRoles": 0,
+          "range": [13, 72, 76]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#Ambiguous().",
+          "symbolRoles": 1,
+          "range": [14, 14, 23]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#`.ctor`().(ambiguous)",
+          "symbolRoles": 0,
+          "range": [14, 29, 38]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IAmbiguous#Run().",
+          "symbolRoles": 0,
+          "range": [14, 39, 42]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#Factory().",
+          "symbolRoles": 1,
+          "range": [15, 14, 21]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Worker#`.ctor`().(factory)",
+          "symbolRoles": 0,
+          "range": [15, 27, 34]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IFactory#Run().",
+          "symbolRoles": 0,
+          "range": [15, 35, 38]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#",
+          "symbolRoles": 1,
+          "range": [17, 20, 32]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#Register().",
+          "symbolRoles": 1,
+          "range": [18, 21, 29]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#Register().(services)",
+          "symbolRoles": 1,
+          "range": [18, 49, 57]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.DependencyInjection.Abstractions 10.0.0.0 DependencyInjection/IServiceCollection#",
+          "symbolRoles": 0,
+          "range": [18, 30, 48]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#Register().(services)",
+          "symbolRoles": 0,
+          "range": [19, 4, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.DependencyInjection.Abstractions 10.0.0.0 DependencyInjection/ServiceCollectionServiceExtensions#AddSingleton(+7).",
+          "symbolRoles": 0,
+          "range": [19, 13, 25]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IService#",
+          "symbolRoles": 0,
+          "range": [19, 26, 34]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Service#",
+          "symbolRoles": 0,
+          "range": [19, 36, 43]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#Register().(services)",
+          "symbolRoles": 0,
+          "range": [20, 4, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.DependencyInjection.Abstractions 10.0.0.0 DependencyInjection/ServiceCollectionServiceExtensions#AddSingleton(+7).",
+          "symbolRoles": 0,
+          "range": [20, 13, 25]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IAmbiguous#",
+          "symbolRoles": 0,
+          "range": [20, 26, 36]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/First#",
+          "symbolRoles": 0,
+          "range": [20, 38, 43]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#Register().(services)",
+          "symbolRoles": 0,
+          "range": [21, 4, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.DependencyInjection.Abstractions 10.0.0.0 DependencyInjection/ServiceCollectionServiceExtensions#AddSingleton(+7).",
+          "symbolRoles": 0,
+          "range": [21, 13, 25]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IAmbiguous#",
+          "symbolRoles": 0,
+          "range": [21, 26, 36]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Second#",
+          "symbolRoles": 0,
+          "range": [21, 38, 44]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#Register().(services)",
+          "symbolRoles": 0,
+          "range": [22, 4, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.DependencyInjection.Abstractions 10.0.0.0 DependencyInjection/ServiceCollectionServiceExtensions#AddSingleton(+7).",
+          "symbolRoles": 0,
+          "range": [22, 13, 25]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IFactory#",
+          "symbolRoles": 0,
+          "range": [22, 26, 34]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/FactoryProduct#",
+          "symbolRoles": 0,
+          "range": [22, 36, 50]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/Registration#Register().(services)",
+          "symbolRoles": 0,
+          "range": [23, 4, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.Extensions.DependencyInjection.Abstractions 10.0.0.0 DependencyInjection/ServiceCollectionServiceExtensions#AddSingleton(+5).",
+          "symbolRoles": 0,
+          "range": [23, 13, 25]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/IFactory#",
+          "symbolRoles": 0,
+          "range": [23, 26, 34]
+        },
+        {
+          "symbol": "local 2",
+          "symbolRoles": 1,
+          "range": [23, 36, 37]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Example/FactoryProduct#",
+          "symbolRoles": 0,
+          "range": [23, 45, 59]
+        }
+      ]
+    }
+  ]
+}

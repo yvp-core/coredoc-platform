@@ -1,0 +1,708 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter";
+
+@plugin "@tailwindcss/typography";
+
+/* Figma Code Connect mapping files are design-tool metadata, not UI sources —
+   keep their class strings out of the production stylesheet. */
+@source not "../components/**/*.figma.tsx";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-primary: var(--color-zinc-950);
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: var(--color-zinc-800);
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --font-sans: "Inter Variable", sans-serif;
+
+  /* explorer graph tokens (see :root below for raw values) */
+  --color-bg-1: var(--bg-1);
+  --color-faint: var(--faint);
+  --color-code-bg: var(--code-bg);
+  --color-warn: var(--warn);
+  --color-gold: var(--gold);
+  --color-gold-dim: var(--gold-dim);
+  --color-gold-line: var(--gold-line);
+
+  /* Custom primitive colors */
+  --color-selago-50: #F7F7FB;
+  --color-selago-100: #EBEBF5;
+  --color-selago-200: #E3E4F1;
+  --color-dodger-blue-50: #EFF8FF;
+  --color-dodger-blue-100: #DAEEFF;
+  --color-dodger-blue-400: #5CB6FE;
+  --color-dodger-blue-500: #439CFB;
+  --color-dodger-blue-600: #2E7CD6;
+  --color-lavender-magenta-100: #FBE8FF;
+  --color-lavender-magenta-400: #F187FB;
+  /* The explorer canvas dot. Its own token rather than a reach into the alto ramp:
+     it sits between alto-200 and alto-300 and is tuned to read at 2px against the
+     content underlay, so it moves with the ornament and not with input hairlines. */
+  --color-graph-dot: #DFDFDF;
+  --color-alto-50: #FAFAFA;
+  --color-alto-200: #E6E6E6;
+  --color-alto-300: #D9D9D9;
+  --color-gray-50: #F9FAFB;
+  --color-gray-100: #F3F4F6;
+  --color-gray-200: #E5E7EB;
+  --color-gray-300: #D1D5DB;
+  --color-brand-600: #079467;
+
+  /* Chart primitives (Analytics). Grid and axis alias the alto hairline ramp so a
+     chart's rules move with the app's dividers, not with a chart-local value.
+     stage-1..5 is a sequential ramp in the brand family, read at paint time by
+     SVG via var(--color-chart-*): it encodes pipeline *progress* (earlier stage
+     -> later stage), so it must stay monotonic and must not be mistaken for the
+     categorical tag colors, which mean state rather than order. */
+  --color-chart-grid: var(--color-alto-200);
+  --color-chart-axis: var(--color-alto-300);
+  --color-chart-stage-1: var(--color-green-300);
+  --color-chart-stage-2: var(--color-green-400);
+  --color-chart-stage-3: var(--color-green-500);
+  --color-chart-stage-4: var(--color-green-600);
+  --color-chart-stage-5: var(--color-green-800);
+
+  /* Background colors */
+  --color-bg-primary: var(--color-white);
+  --color-bg-secondary: linear-gradient(180deg, rgba(255, 255, 255, 0.57) 0%, rgba(255, 255, 255, 0.48) 100%);
+  /* Docked right panel. Denser than --color-bg-secondary because this surface
+     floats over the graph canvas rather than the page ground, and the canvas is
+     high-contrast enough to read through a lighter glass. */
+  --color-bg-panel: linear-gradient(180deg, rgba(255, 255, 255, 0.80) 0%, rgba(255, 255, 255, 0.66) 100%);
+  /* Surface B — content card (main content region, graph filter panel). Lighter
+     than the panel glass because it sits on the page ground, not over the canvas. */
+  --color-bg-surface-b: linear-gradient(180deg, rgba(255, 255, 255, 0.57) 0%, rgba(255, 255, 255, 0.48) 100%);
+  --color-bg-scrim: #0000004D;
+  --color-bg-tertiary: var(--color-selago-100);
+  --color-bg-supportive: var(--color-zinc-300);
+  --color-bg-overlay: var(--color-gray-50);
+  --color-bg-overlay-hover: var(--color-gray-200);
+  --color-bg-bar: linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.95) 100%);
+  --color-bg-input: var(--color-zinc-50);
+  --color-bg-inverted: var(--color-zinc-700);
+  --color-bg-inverted-secondary: var(--color-zinc-800);
+  --color-bg-primary-hover: var(--color-selago-50);
+  --color-bg-primary-selected: var(--color-selago-200);
+
+  /* Action backgrounds */
+  --color-bg-action-primary: var(--color-zinc-950);
+  --color-bg-action-primary-hover: var(--color-zinc-800);
+  --color-bg-action-primary-disabled: var(--color-zinc-400);
+  --color-bg-action-secondary: var(--color-white);
+  --color-bg-accent: linear-gradient(273deg, var(--color-dodger-blue-500), var(--color-lavender-magenta-400));
+
+  /* Info & Warning backgrounds */
+  --color-bg-info: linear-gradient(87deg, var(--color-amber-200), var(--color-amber-300));
+  --color-bg-warning: var(--color-red-600);
+  --color-bg-warning-hover: var(--color-red-500);
+  /* Destructive counterpart of --color-bg-action-primary-disabled (zinc-950 -> zinc-400). */
+  --color-bg-warning-disabled: var(--color-red-300);
+
+  /* Tag backgrounds */
+  --color-bg-tag-info: var(--color-orange-100);
+  --color-bg-tag-warning: var(--color-amber-100);
+  --color-bg-tag-initial: var(--color-gray-200);
+  --color-bg-tag-progress: var(--color-dodger-blue-100);
+  --color-bg-tag-success: #D1FAE5;
+
+  /* Content (text) colors */
+  --color-content-brand: #12B981;
+  --color-content-primary: var(--color-zinc-800);
+  --color-content-secondary: var(--color-zinc-600);
+  --color-content-tertiary: var(--color-zinc-500);
+  --color-content-quaternary: var(--color-zinc-400);
+  --color-content-inverted: var(--color-white);
+  --color-content-action-primary: var(--color-white);
+  --color-content-action-secondary: var(--color-zinc-950);
+  --color-content-accent: linear-gradient(273deg, var(--color-dodger-blue-500), var(--color-lavender-magenta-400));
+  --color-content-warning: var(--color-red-700);
+
+  /* Tag content colors */
+  --color-content-tag-info: var(--color-orange-500);
+  --color-content-tag-warning: var(--color-amber-500);
+  --color-content-tag-initial: var(--color-gray-600);
+  --color-content-tag-success: var(--color-green-500);
+  --color-content-tag-progress: var(--color-dodger-blue-600);
+
+  /* Code content colors */
+  --color-content-code-green: #6FE6B7;
+  --color-content-code-magenta: var(--color-lavender-magenta-400);
+
+  /* Border colors */
+  --color-border-primary: rgba(255, 255, 255, 0.5);
+  --color-border-secondary: var(--color-zinc-50);
+  --color-border-secondary-selected: var(--color-zinc-600);
+  --color-border-tertiary: var(--color-zinc-300);
+  --color-border-inverted: var(--color-zinc-600);
+  --color-border-input: var(--color-alto-200);
+  --color-border-action: var(--color-zinc-800);
+  --color-border-action-secondary: var(--color-gray-50);
+  --color-border-controls: var(--color-alto-200);
+  --color-border-action-hover: var(--color-zinc-700);
+  --color-border-action-disabled: var(--color-zinc-200);
+  --color-border-input-hover: var(--color-zinc-400);
+  --color-border-input-disabled: var(--color-zinc-50);
+  --color-border-primary-hover: var(--color-zinc-300);
+  --color-border-primary-selected: var(--color-zinc-600);
+  --color-border-accent: linear-gradient(273deg, var(--color-dodger-blue-500), var(--color-lavender-magenta-400));
+  --color-border-draft: var(--color-gray-500);
+  --color-border-local: var(--color-green-400);
+  --color-border-cloud: var(--color-dodger-blue-400);
+
+  /* Content action state colors */
+  --color-content-action-secondary-hover: var(--color-zinc-800);
+  --color-content-action-secondary-disabled: var(--color-zinc-300);
+  --color-content-quaternary-disabled: var(--color-zinc-300);
+
+  /* Shadows */
+  --shadow-foundation: 0 1px 3px 0 rgba(0, 0, 0, 0.10);
+  --shadow-field: 0 0 2px 0 rgba(0, 0, 0, 0.10);
+  --shadow-surface: 0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 1px 4px 0 rgba(0, 0, 0, 0.10);
+  --shadow-feature: 0 1px 8px 2px rgba(0, 0, 0, 0.05), 0 1px 4px -2px rgba(0, 0, 0, 0.10);
+  --shadow-action: 0 1px 0 0 rgba(0, 0, 0, 0.03), 0 2px 2px 0 rgba(0, 0, 0, 0.03), 0 5px 5px 0 rgba(0, 0, 0, 0.05);
+  --shadow-scroll: 0 4px 4px 0 rgba(0, 0, 0, 0.04);
+
+  /* Backdrop blurs */
+  --blur-foundation: blur(3px);
+  --blur-action: blur(20px);
+}
+
+/* `bg-*` compiles to background-COLOR, which a gradient is not — so the glass
+   surfaces need their own utility. */
+@utility bg-panel {
+  background: var(--color-bg-panel);
+}
+
+/* The content underlay that floats over the page ground (Figma
+   `Background/Secondary/Default`). Declared as a utility for the same reason as
+   `bg-panel`: without it the token is unreachable, which is how the main content
+   area ended up wearing Surface B's lighter 0.57→0.48 gradient instead. */
+@utility bg-secondary-gradient {
+  background: var(--color-bg-secondary);
+}
+
+/* Surface A — glass panel (dialogs, drawers, sidebars). Border color and radius
+   stay with the consumer: dialogs take border-tertiary, drawers border-secondary;
+   both are rounded-xl. */
+@utility surface-a {
+  background: var(--color-bg-panel);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-foundation);
+}
+
+/* Surface B — content card. Ships without backdrop-filter on purpose: the
+   design's 1.5px blur is invisible over the opaque ground and costs a repaint
+   on every graph-canvas frame. Consumers set border and radius (16px, 8px on
+   the graph filter panel). */
+@utility surface-b {
+  background: var(--color-bg-surface-b);
+  box-shadow: var(--shadow-foundation);
+}
+
+@utility bg-info-gradient {
+  background: var(--color-bg-info);
+}
+
+/* Border/Accent/Default is a gradient; border-color can't take one, so the ring
+   is painted by a masked ::before over a transparent 2px border on the element.
+   Unlike .border-accent below, this paints no fill — it layers over any button
+   background. */
+@utility border-accent-gradient {
+  position: relative;
+  border-color: transparent;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    padding: 2px;
+    background: var(--color-border-accent);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+@utility text-content-accent-default {
+  background: linear-gradient(273deg, #439CFB 0%, #F187FB 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-icon svg path {
+  fill: url(#gradient-icon-fill);
+}
+
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+*/
+@layer base {
+
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.5rem;
+    --chart-1: oklch(0.646 0.222 41.116);
+    --chart-2: oklch(0.6 0.118 184.704);
+    --chart-3: oklch(0.398 0.07 227.392);
+    --chart-4: oklch(0.828 0.189 84.429);
+    --chart-5: oklch(0.769 0.188 70.08);
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.141 0.005 285.823);
+    --sidebar-primary: oklch(0.21 0.006 285.885);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.967 0.001 286.375);
+    --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
+    --sidebar-border: oklch(0.92 0.004 286.32);
+    --sidebar-ring: oklch(0.705 0.015 286.067);
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+    --chart-1: oklch(0.488 0.243 264.376);
+    --chart-2: oklch(0.696 0.17 162.48);
+    --chart-3: oklch(0.769 0.188 70.08);
+    --chart-4: oklch(0.627 0.265 303.9);
+    --chart-5: oklch(0.645 0.246 16.439);
+    --sidebar: oklch(0.21 0.006 285.885);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.274 0.006 286.033);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.552 0.016 285.938);
+  }
+
+  /*
+   * Explorer graph tokens — ported from apps/web/src/styles.css (the .light
+   * mapping). The desktop app runs in light mode, so the explorer palette is
+   * light to match (lib/explorer-theme.ts returns 'light'). Plain :root values
+   * (not swapped by .dark) until a real theme toggle exists. viz-style.ts reads
+   * the node (--n-) and edge (--edge-) tokens via getComputedStyle and falls
+   * back to hex literals if a token is unset.
+   */
+  :root {
+    --faint: #a3a3a3;
+    --bg-1: #fafafa;
+    /* code blocks stay dark-on-dark in both themes (readability), per web */
+    --code-bg: #0a0e14;
+    --warn: #b45309;
+    --gold: #eba636;
+    --gold-dim: rgba(217, 138, 42, 0.12);
+    --gold-line: rgba(217, 138, 42, 0.36);
+    --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.05);
+
+    /* graph node categorical palette (NodeType -> color), light-tuned */
+    --n-repository: #0f172a;
+    --n-package: #334155;
+    --n-file: #64748b;
+    --n-function: #2563eb;
+    --n-class: #7c3aed;
+    --n-interface: #8b5cf6;
+    --n-type_alias: #6366f1;
+    --n-enum: #db2777;
+    --n-variable: #94a3b8;
+    --n-entrypoint: #16a34a;
+    --n-entity: #d97706;
+    --n-external_call: #dc2626;
+    --n-component: #0891b2;
+    --n-route: #0d9488;
+    --n-state_store: #c026d3;
+
+    /* graph edge provenance palette + canvas glow, light-tuned */
+    --edge-parser: #94a3b8;
+    --edge-ai: #2563eb;
+    --edge-human: #16a34a;
+    --edge-crossrepo: #f59e0b;
+
+    /* graph captions + selection ring (hex: the canvas renderer can't parse oklch) */
+    --graph-caption: #27272a;
+    --graph-selection: #2563eb;
+  }
+
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    background-color: var(--color-bg-primary-selected);
+    background-image: url('/bg.svg');
+    background-repeat: no-repeat;
+    background-size: cover;
+  }
+}
+
+.font-thin {
+  font-weight: 0;
+}
+
+.font-extralight {
+  font-weight: 100;
+}
+
+.font-light {
+  font-weight: 200;
+}
+
+.font-normal {
+  font-weight: 300;
+}
+
+.font-medium {
+  font-weight: 400;
+}
+
+.font-semibold {
+  font-weight: 500;
+}
+
+.font-bold {
+  font-weight: 600;
+}
+
+.font-extrabold {
+  font-weight: 700;
+}
+
+.font-black {
+  font-weight: 800;
+}
+
+
+/* Fix Radix ScrollArea viewport stretching content wider than container */
+[data-slot="scroll-area-viewport"]>div {
+  display: block !important;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-muted-foreground/30 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/50;
+}
+
+/* Hide scrollbar utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Thin scrollbar utility */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ring, #737373) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--ring, #737373);
+  border-radius: var(--rounded-sm, 4px);
+}
+
+/* Electron drag region */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Terminal output styling */
+.terminal-output {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.terminal-output .stdout {
+  @apply text-foreground;
+}
+
+.terminal-output .stderr {
+  @apply text-content-warning;
+}
+
+/* Prose typography overrides for markdown rendering */
+.prose {
+  --tw-prose-body: hsl(var(--foreground));
+  --tw-prose-headings: hsl(var(--foreground));
+  --tw-prose-lead: hsl(var(--muted-foreground));
+  --tw-prose-links: hsl(var(--primary));
+  --tw-prose-bold: hsl(var(--foreground));
+  --tw-prose-counters: hsl(var(--muted-foreground));
+  --tw-prose-bullets: hsl(var(--muted-foreground));
+  --tw-prose-hr: hsl(var(--border));
+  --tw-prose-quotes: hsl(var(--foreground));
+  --tw-prose-quote-borders: hsl(var(--border));
+  --tw-prose-captions: hsl(var(--muted-foreground));
+  --tw-prose-code: hsl(var(--foreground));
+  --tw-prose-pre-code: hsl(var(--foreground));
+  --tw-prose-pre-bg: hsl(var(--muted));
+  --tw-prose-th-borders: hsl(var(--border));
+  --tw-prose-td-borders: hsl(var(--border));
+}
+
+.dark .prose {
+  --tw-prose-invert-body: hsl(var(--foreground));
+  --tw-prose-invert-headings: hsl(var(--foreground));
+  --tw-prose-invert-lead: hsl(var(--muted-foreground));
+  --tw-prose-invert-links: hsl(var(--primary));
+  --tw-prose-invert-bold: hsl(var(--foreground));
+  --tw-prose-invert-counters: hsl(var(--muted-foreground));
+  --tw-prose-invert-bullets: hsl(var(--muted-foreground));
+  --tw-prose-invert-hr: hsl(var(--border));
+  --tw-prose-invert-quotes: hsl(var(--foreground));
+  --tw-prose-invert-quote-borders: hsl(var(--border));
+  --tw-prose-invert-captions: hsl(var(--muted-foreground));
+  --tw-prose-invert-code: hsl(var(--foreground));
+  --tw-prose-invert-pre-code: hsl(var(--foreground));
+  --tw-prose-invert-pre-bg: hsl(var(--muted));
+  --tw-prose-invert-th-borders: hsl(var(--border));
+  --tw-prose-invert-td-borders: hsl(var(--border));
+}
+
+/* xterm.js terminal */
+.xterm {
+  height: 100%;
+}
+
+.xterm-viewport {
+  overflow-y: auto !important;
+  scrollbar-width: none;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.xterm .xterm-viewport {
+  background-color: var(--color-bg-inverted);
+}
+
+/* Indeterminate loader bar */
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.animate-indeterminate {
+  animation: indeterminate 1.2s ease-in-out infinite;
+}
+
+/* Mermaid diagram SVG styling */
+.mermaid-svg-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.shadow-1 {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.10);
+}
+
+.gradient-1 {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.57) 0%, rgba(255, 255, 255, 0.48) 100%);
+}
+
+.blur-1 {
+  backdrop-filter: blur(1px);
+}
+
+.border-c1 {
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.btn-primary {
+  border: 1.5px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 1px 0 0 rgba(0, 0, 0, 0.03), 0 1px 8px 2px rgba(0, 0, 0, 0.05), 0 1px 8px -2px rgba(0, 0, 0, 0.10);
+}
+
+.shadow-card {
+  box-shadow: 0 1px 8px 2px rgba(0, 0, 0, 0.05), 0 1px 4px -2px rgba(0, 0, 0, 0.10);
+}
+
+.border-controls {
+  position: relative;
+  border: none !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.50) 0%, rgba(255, 255, 255, 0.25) 100%);
+}
+
+.border-controls::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(70deg,
+      #F5F4F4 0%,
+      #F5F4F4 20%,
+      #E3E2E7 30%,
+      #E3E2E7 70%,
+      #FAFAFB 80%,
+      #FAFAFB 100%);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.border-accent {
+  position: relative;
+  border: none !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.50) 0%, rgba(255, 255, 255, 0.25) 100%);
+}
+
+.border-accent::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  background: var(--color-bg-accent);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Explorer canvas ground — the graph canvas is transparent, so the wrapper paints:
+   a dot grid for depth cueing plus a soft glow.
+
+/* Explorer canvas ground — the graph canvas is transparent, so the wrapper paints the
+   dot grid the design specifies and NOTHING else.
+
+   No background-COLOR: an opaque white here made the ornament stop being a ground
+   and start being a panel — the translucent left filter panel had nothing to show
+   through to, and the dots ended at its edge instead of running under it. The
+   surface below (the content underlay) is what this floats on.
+
+   No glow layer either: the design carries a flat dot field, and the soft radial
+   wash was an invention that tinted the whole canvas and fought the page gradient
+   showing through. */
+.graph-canvas-bg {
+  background-image: radial-gradient(circle at 1px 1px, var(--color-graph-dot) 1px, transparent 0);
+  background-position: 13px -2px;
+  background-size: 18px 18px;
+}

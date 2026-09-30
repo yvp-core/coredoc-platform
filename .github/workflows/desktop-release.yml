@@ -1,0 +1,619 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      # Desktop releases use a dedicated prefix so they do not collide with the
+      # product release pipeline (release.yml owns 'v*': server/CLI/Helm/air-gap).
+      - 'desktop-v*'
+
+jobs:
+  build-mac-arm64:
+    # Pinned, not macos-latest: `macos-latest` resolves to the macos-26 image, and
+    # its 20260831 refresh (macOS 25.6.0) broke electron-builder's temporary signing
+    # keychain (`security set-key-partition-list` → "SecKeychainUnlock: passphrase
+    # not correct"; desktop-v1.4.5). macos-15 is arm64 hardware and is the image the
+    # x64 job already signs on successfully with the same certificate.
+    runs-on: macos-15
+    name: Build (macOS-arm64)
+    environment: production
+
+    outputs:
+      notarization_id: ${{ steps.notarize.outputs.notarization-id }}
+      dmg_file: ${{ steps.notarize.outputs.dmg-file }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Set version from git tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#desktop-v}"
+          echo "Setting version to $VERSION"
+          cd apps/desktop
+          node -e "const p=require('./package.json'); p.version='$VERSION'; require('fs').writeFileSync('package.json', JSON.stringify(p, null, 2)+'\n')"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate desktop release env
+        shell: bash
+        run: |
+          if [[ -z "${COREDOC_SERVER_URL}" ]]; then
+            echo "::error::Missing COREDOC_SERVER_URL repository variable"
+            exit 1
+          fi
+          if [[ -z "${WORKOS_CLIENT_ID}" ]]; then
+            echo "::error::Missing WORKOS_CLIENT_ID (set either repository secret WORKOS_CLIENT_ID)"
+            exit 1
+          fi
+          # PostHog credentials are optional. When missing the desktop app
+          # ships without telemetry — useful for PR / dev builds, but we
+          # surface a warning so production releases do not drop telemetry
+          # silently after a secret rotation.
+          if [[ -z "${COREDOC_POSTHOG_KEY}" || -z "${COREDOC_POSTHOG_HOST}" ]]; then
+            echo "::warning::PostHog telemetry will be disabled in this build (COREDOC_POSTHOG_KEY and/or COREDOC_POSTHOG_HOST repository variable not set)"
+          fi
+        env:
+          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+          COREDOC_SERVER_URL: ${{ vars.COREDOC_SERVER_URL }}
+          COREDOC_POSTHOG_KEY: ${{ vars.COREDOC_POSTHOG_KEY }}
+          COREDOC_POSTHOG_HOST: ${{ vars.COREDOC_POSTHOG_HOST }}
+
+      - name: Cache turbo build
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-macOS-arm64-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-macOS-arm64-${{ hashFiles('pnpm-lock.yaml') }}-
+            turbo-macOS-arm64-
+
+      - name: Build all packages
+        run: pnpm build
+        env:
+          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+          COREDOC_SERVER_URL: ${{ vars.COREDOC_SERVER_URL }}
+          COREDOC_POSTHOG_KEY: ${{ vars.COREDOC_POSTHOG_KEY }}
+          COREDOC_POSTHOG_HOST: ${{ vars.COREDOC_POSTHOG_HOST }}
+
+      - name: Smoke test (pre-packaging)
+        run: pnpm --filter @coredoc/desktop smoke
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-mac-arm64-${{ hashFiles('apps/desktop/package.json') }}
+
+      - name: Package with electron-builder
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: >-
+            pnpm --filter @coredoc/desktop exec electron-builder
+            --mac
+            --arm64
+            --config.directories.output=dist-electron/macOS-arm64
+            --publish never
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+
+      - name: Smoke test (post-packaging)
+        run: pnpm --filter @coredoc/desktop smoke:post
+
+      - name: Clean build artifacts
+        shell: bash
+        run: |
+          cd apps/desktop/dist-electron/macOS-arm64
+          rm -f builder-debug.yml builder-effective-config.yaml
+          echo "=== Artifacts ==="
+          ls -la
+
+      - name: Submit notarization
+        id: notarize
+        uses: ./.github/actions/submit-macos-notarization
+        with:
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-app-specific-password: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          apple-team-id: ${{ secrets.APPLE_TEAM_ID }}
+          dmg-path: apps/desktop/dist-electron/macOS-arm64
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macOS-arm64
+          path: |
+            apps/desktop/dist-electron/macOS-arm64/*.dmg
+            apps/desktop/dist-electron/macOS-arm64/*.zip
+            apps/desktop/dist-electron/macOS-arm64/*.blockmap
+            apps/desktop/dist-electron/macOS-arm64/*.yml
+          if-no-files-found: error
+
+  build-mac-x64:
+    runs-on: macos-15
+    name: Build (macOS-x64)
+    environment: production
+
+    outputs:
+      notarization_id: ${{ steps.notarize.outputs.notarization-id }}
+      dmg_file: ${{ steps.notarize.outputs.dmg-file }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Set version from git tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#desktop-v}"
+          echo "Setting version to $VERSION"
+          cd apps/desktop
+          node -e "const p=require('./package.json'); p.version='$VERSION'; require('fs').writeFileSync('package.json', JSON.stringify(p, null, 2)+'\n')"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate desktop release env
+        shell: bash
+        run: |
+          if [[ -z "${COREDOC_SERVER_URL}" ]]; then
+            echo "::error::Missing COREDOC_SERVER_URL repository variable"
+            exit 1
+          fi
+          if [[ -z "${WORKOS_CLIENT_ID}" ]]; then
+            echo "::error::Missing WORKOS_CLIENT_ID (set either repository secret WORKOS_CLIENT_ID)"
+            exit 1
+          fi
+          # PostHog credentials are optional. When missing the desktop app
+          # ships without telemetry — useful for PR / dev builds, but we
+          # surface a warning so production releases do not drop telemetry
+          # silently after a secret rotation.
+          if [[ -z "${COREDOC_POSTHOG_KEY}" || -z "${COREDOC_POSTHOG_HOST}" ]]; then
+            echo "::warning::PostHog telemetry will be disabled in this build (COREDOC_POSTHOG_KEY and/or COREDOC_POSTHOG_HOST repository variable not set)"
+          fi
+        env:
+          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+          COREDOC_SERVER_URL: ${{ vars.COREDOC_SERVER_URL }}
+          COREDOC_POSTHOG_KEY: ${{ vars.COREDOC_POSTHOG_KEY }}
+          COREDOC_POSTHOG_HOST: ${{ vars.COREDOC_POSTHOG_HOST }}
+
+      - name: Cache turbo build
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-macOS-x64-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-macOS-x64-${{ hashFiles('pnpm-lock.yaml') }}-
+            turbo-macOS-x64-
+
+      - name: Build all packages
+        run: pnpm build
+        env:
+          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+          COREDOC_SERVER_URL: ${{ vars.COREDOC_SERVER_URL }}
+          COREDOC_POSTHOG_KEY: ${{ vars.COREDOC_POSTHOG_KEY }}
+          COREDOC_POSTHOG_HOST: ${{ vars.COREDOC_POSTHOG_HOST }}
+
+      - name: Smoke test (pre-packaging)
+        run: pnpm --filter @coredoc/desktop smoke
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-mac-x64-${{ hashFiles('apps/desktop/package.json') }}
+
+      - name: Package with electron-builder
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: >-
+            pnpm --filter @coredoc/desktop exec electron-builder
+            --mac
+            --x64
+            --config.directories.output=dist-electron/macOS-x64
+            --publish never
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+
+      - name: Smoke test (post-packaging)
+        run: pnpm --filter @coredoc/desktop smoke:post
+
+      - name: Clean build artifacts
+        shell: bash
+        run: |
+          cd apps/desktop/dist-electron/macOS-x64
+          rm -f builder-debug.yml builder-effective-config.yaml
+          echo "=== Artifacts ==="
+          ls -la
+
+      - name: Submit notarization
+        id: notarize
+        uses: ./.github/actions/submit-macos-notarization
+        with:
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-app-specific-password: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          apple-team-id: ${{ secrets.APPLE_TEAM_ID }}
+          dmg-path: apps/desktop/dist-electron/macOS-x64
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macOS-x64
+          path: |
+            apps/desktop/dist-electron/macOS-x64/*.dmg
+            apps/desktop/dist-electron/macOS-x64/*.zip
+            apps/desktop/dist-electron/macOS-x64/*.blockmap
+            apps/desktop/dist-electron/macOS-x64/*.yml
+          if-no-files-found: error
+
+  build-other:
+    # DISABLED — Windows/Linux desktop builds are paused (macOS-only releases).
+    # Re-enable by removing this `if: false`, adding `build-other` back to the
+    # `release` job's `needs`, and restoring the Windows/Linux artifact download
+    # + Windows manifest-merge steps in `release` (see the markers there).
+    if: false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            arch: x64
+            label: Windows-x64
+          - os: windows-latest
+            platform: win
+            arch: arm64
+            label: Windows-arm64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            label: Linux-x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: arm64
+            label: Linux-arm64
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.label }})
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Fix Windows long paths for NSIS
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          git config --system core.longpaths true
+          New-Item -ItemType Directory -Path "D:\s" -Force | Out-Null
+          pnpm config set virtual-store-dir D:\s --location project
+          Write-Host "=== .npmrc ==="
+          Get-Content .npmrc
+
+      - name: Install cross-compilation tools (Linux arm64)
+        if: matrix.platform == 'linux' && matrix.arch == 'arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Set version from git tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#desktop-v}"
+          echo "Setting version to $VERSION"
+          cd apps/desktop
+          node -e "const p=require('./package.json'); p.version='$VERSION'; require('fs').writeFileSync('package.json', JSON.stringify(p, null, 2)+'\n')"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate desktop release env
+        shell: bash
+        run: |
+          if [[ -z "${COREDOC_SERVER_URL}" ]]; then
+            echo "::error::Missing COREDOC_SERVER_URL repository variable"
+            exit 1
+          fi
+          if [[ -z "${WORKOS_CLIENT_ID}" ]]; then
+            echo "::error::Missing WORKOS_CLIENT_ID (set either repository secret WORKOS_CLIENT_ID)"
+            exit 1
+          fi
+          # PostHog credentials are optional. When missing the desktop app
+          # ships without telemetry — useful for PR / dev builds, but we
+          # surface a warning so production releases do not drop telemetry
+          # silently after a secret rotation.
+          if [[ -z "${COREDOC_POSTHOG_KEY}" || -z "${COREDOC_POSTHOG_HOST}" ]]; then
+            echo "::warning::PostHog telemetry will be disabled in this build (COREDOC_POSTHOG_KEY and/or COREDOC_POSTHOG_HOST repository variable not set)"
+          fi
+        env:
+          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+          COREDOC_SERVER_URL: ${{ vars.COREDOC_SERVER_URL }}
+          COREDOC_POSTHOG_KEY: ${{ vars.COREDOC_POSTHOG_KEY }}
+          COREDOC_POSTHOG_HOST: ${{ vars.COREDOC_POSTHOG_HOST }}
+
+      - name: Cache turbo build
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ matrix.label }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ matrix.label }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            turbo-${{ matrix.label }}-
+
+      - name: Build all packages
+        run: pnpm build
+        env:
+          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+          COREDOC_SERVER_URL: ${{ vars.COREDOC_SERVER_URL }}
+          COREDOC_POSTHOG_KEY: ${{ vars.COREDOC_POSTHOG_KEY }}
+          COREDOC_POSTHOG_HOST: ${{ vars.COREDOC_POSTHOG_HOST }}
+
+      - name: Smoke test (pre-packaging)
+        run: pnpm --filter @coredoc/desktop smoke
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/.cache/electron
+          key: electron-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('apps/desktop/package.json') }}
+
+      - name: Package with electron-builder
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: >-
+            pnpm --filter @coredoc/desktop exec electron-builder
+            --${{ matrix.platform }}
+            --${{ matrix.arch }}
+            --config.directories.output=dist-electron/${{ matrix.label }}
+            --publish never
+
+      - name: Smoke test (post-packaging)
+        run: pnpm --filter @coredoc/desktop smoke:post
+
+      - name: Clean and rename artifacts
+        shell: bash
+        run: |
+          cd apps/desktop/dist-electron/${{ matrix.label }}
+          rm -f builder-debug.yml builder-effective-config.yaml
+          # Append arch to Windows arm64 artifacts to avoid filename collisions
+          if [[ "${{ matrix.platform }}" == "win" && "${{ matrix.arch }}" == "arm64" ]]; then
+            for f in *.exe; do
+              [ -f "$f" ] && mv "$f" "${f%.exe}-arm64.exe"
+            done
+            for f in *.exe.blockmap; do
+              [ -f "$f" ] && mv "$f" "${f%.exe.blockmap}-arm64.exe.blockmap"
+            done
+            # Update manifest to reference renamed filenames
+            if [ -f latest.yml ]; then
+              # Replace .exe (but not inside .blockmap refs) by using a two-pass approach:
+              # 1. Protect .exe.blockmap with a placeholder
+              # 2. Replace remaining .exe with -arm64.exe
+              # 3. Restore .exe.blockmap and add -arm64 prefix
+              sed -i 's/\.exe\.blockmap/.__BLOCKMAP__/g' latest.yml
+              sed -i 's/\.exe/-arm64.exe/g' latest.yml
+              sed -i 's/\.__BLOCKMAP__/-arm64.exe.blockmap/g' latest.yml
+              # Remove top-level path/sha512 (merged manifest uses files array)
+              sed -i '/^path:/d' latest.yml
+              sed -i '/^sha512:/d' latest.yml
+              echo "=== Updated latest.yml ==="
+              cat latest.yml
+            fi
+          fi
+          echo "=== Artifacts ==="
+          ls -la
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.label }}
+          path: |
+            apps/desktop/dist-electron/${{ matrix.label }}/*.exe
+            apps/desktop/dist-electron/${{ matrix.label }}/*.AppImage
+            apps/desktop/dist-electron/${{ matrix.label }}/*.blockmap
+            apps/desktop/dist-electron/${{ matrix.label }}/*.yml
+          if-no-files-found: error
+
+  finalize-notarization:
+    needs: [build-mac-arm64, build-mac-x64]
+    runs-on: macos-latest
+    name: Finalize Notarization
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download macOS arm64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-macOS-arm64
+          path: artifacts/arm64
+
+      - name: Download macOS x64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-macOS-x64
+          path: artifacts/x64
+
+      - name: Finalize notarization
+        uses: ./.github/actions/finalize-macos-notarization
+        with:
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-app-specific-password: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          apple-team-id: ${{ secrets.APPLE_TEAM_ID }}
+          arm64-notarization-id: ${{ needs.build-mac-arm64.outputs.notarization_id }}
+          arm64-dmg-file: ${{ needs.build-mac-arm64.outputs.dmg_file }}
+          x64-notarization-id: ${{ needs.build-mac-x64.outputs.notarization_id }}
+          x64-dmg-file: ${{ needs.build-mac-x64.outputs.dmg_file }}
+          artifacts-path: artifacts
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#desktop-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Merge macOS update manifests
+        uses: ./.github/actions/merge-macos-manifests
+        with:
+          dist-path: artifacts
+          output-path: merged-manifests
+          version: ${{ steps.version.outputs.version }}
+
+      - name: Upload notarized artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macOS-notarized
+          path: |
+            artifacts/**/*.dmg
+            artifacts/**/*.zip
+            artifacts/**/*.blockmap
+            merged-manifests/latest-mac.yml
+          if-no-files-found: error
+
+  release:
+    # build-other (Windows/Linux) is disabled — macOS-only releases. Re-add
+    # `build-other` here when re-enabling that job.
+    needs: [finalize-notarization] #, build-other
+    runs-on: ubuntu-latest
+    name: Create Release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download notarized macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-macOS-notarized
+          path: artifacts/macOS-notarized
+
+      # Windows/Linux artifact download + Windows manifest merge are disabled
+      # while build-other is paused. Restore both steps (and the win/linux copy
+      # lines in "Collect release assets" below) when re-enabling that job.
+      # - name: Download other platform artifacts
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     path: artifacts/other
+      #     pattern: desktop-{Windows,Linux}-*
+      #     merge-multiple: false
+
+      # - name: Merge Windows update manifests
+      #   uses: ./.github/actions/merge-platform-manifests
+      #   with:
+      #     artifacts-path: artifacts/other
+      #     platform: Windows
+      #     manifest-name: latest.yml
+      #     output-path: merged-manifests
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets
+          # Copy notarized macOS DMGs
+          find artifacts/macOS-notarized -name "*.dmg" -exec cp {} release-assets/ \;
+          # Copy macOS updater ZIPs and blockmaps
+          find artifacts/macOS-notarized -name "*.zip" -exec cp {} release-assets/ \;
+          find artifacts/macOS-notarized -name "*.blockmap" -exec cp {} release-assets/ \;
+          # Copy merged macOS update manifest
+          find artifacts/macOS-notarized -name "latest-mac.yml" -exec cp {} release-assets/ \;
+          # Windows/Linux assets are disabled — build-other is paused (if: false).
+          # # Copy Windows and Linux binaries and blockmaps
+          # find artifacts/other -type f \( -name "*.exe" -o -name "*.AppImage" -o -name "*.blockmap" \) -exec cp {} release-assets/ \;
+          # # Copy merged Windows update manifest (x64+arm64 combined)
+          # cp merged-manifests/latest.yml release-assets/ 2>/dev/null || true
+          # # Copy Linux update manifests (electron-builder uses separate names per arch:
+          # # latest-linux.yml for x64, latest-linux-arm64.yml for arm64)
+          # find artifacts/other -name "latest-linux*.yml" -exec cp {} release-assets/ \;
+          echo "=== Release assets ==="
+          ls -la release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release assets as artifact for R2
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-release-assets
+          path: release-assets/*
+
+  upload-to-r2:
+    needs: [release]
+    runs-on: ubuntu-latest
+    name: Upload to R2
+    environment: production
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-release-assets
+          path: upload
+
+      - name: Upload to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ vars.R2_DESKTOP_BUCKET }}
+        run: |
+          for file in upload/*; do
+            filename=$(basename "$file")
+            content_type="application/octet-stream"
+            case "$filename" in
+              *.yml) content_type="text/yaml" ;;
+              *.dmg) content_type="application/x-apple-diskimage" ;;
+              *.zip) content_type="application/zip" ;;
+              *.exe) content_type="application/x-msdownload" ;;
+              *.AppImage) content_type="application/x-executable" ;;
+              *.blockmap) content_type="application/octet-stream" ;;
+            esac
+            echo "Uploading $filename ($content_type)"
+            aws s3 cp "$file" "s3://$R2_BUCKET/$filename" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --content-type "$content_type"
+          done
+          echo "=== Upload complete ==="

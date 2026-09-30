@@ -1,0 +1,161 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.6/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "assist": {
+    "enabled": false
+  },
+  "files": {
+    "includes": [
+      "packages/**/*.tsx",
+      "packages/**/*.ts",
+      "packages/**/*.js",
+      "packages/**/*.jsx",
+      "packages/**/*.mjs",
+      "packages/**/*.cjs",
+      "packages/**/*.json",
+      "apps/**/*.tsx",
+      "apps/**/*.ts",
+      "apps/**/*.js",
+      "apps/**/*.jsx",
+      "apps/**/*.mjs",
+      "apps/**/*.cjs",
+      "apps/**/*.json"
+    ],
+    "ignoreUnknown": true
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
+  "javascript": {
+    "parser": {
+      // Required for NestJS parameter decorators (@Query, @Body, @Param, etc.)
+      "unsafeParameterDecoratorsEnabled": true
+    },
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "all",
+      "semicolons": "always"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "a11y": "warn",
+      "complexity": {
+        "recommended": true,
+        "noBannedTypes": "off",
+        "noExcessiveLinesPerFunction": "off",
+        "useLiteralKeys": "off",
+        "useArrowFunction": "off",
+        // NestJS DI constructors that call super() are flagged but are required
+        "noUselessConstructor": "off"
+      },
+      "correctness": {
+        "recommended": true,
+        "noNodejsModules": "off",
+        "useImportExtensions": "off",
+        "noUnusedFunctionParameters": "warn",
+        "noUnusedVariables": "warn",
+        "noUnusedPrivateClassMembers": "warn",
+        "useExhaustiveDependencies": "warn"
+      },
+      "security": {
+        "recommended": true,
+        // noSecrets: disabled due to excessive false positives
+        // It flags normal strings like "Settings", "Integrations", etc. as potential secrets
+        "noSecrets": "off",
+        // noDangerouslySetInnerHtml: kept as warn for visibility.
+        // The Electron app sanitizes all HTML content before rendering.
+        "noDangerouslySetInnerHtml": "warn"
+      },
+      "style": {
+        "recommended": true,
+        "noDefaultExport": "off",
+        // noNonNullAssertion: disabled because non-null assertions are idiomatic in this codebase
+        // (e.g., after null checks, DI-injected values, Map.get after .has)
+        "noNonNullAssertion": "off",
+        "useNamingConvention": "off",
+        "noProcessEnv": "off",
+        "useNodejsImportProtocol": "off",
+        "useImportType": "off",
+        "useTemplate": "off"
+      },
+      "suspicious": {
+        "recommended": true,
+        "noConsole": "off",
+        "noEmptyBlockStatements": "warn",
+        "noAssignInExpressions": "warn",
+        "useAwait": "off",
+        "noExplicitAny": "warn",
+        "noImplicitAnyLet": "warn",
+        "useIterableCallbackReturn": "off",
+        "noControlCharactersInRegex": "warn",
+        "noArrayIndexKey": "warn",
+        "noShadowRestrictedNames": "warn",
+        "noRedeclare": "warn",
+        "noSelfCompare": "warn"
+      }
+    }
+  },
+  "overrides": [
+    {
+      // `@coredoc/db/testing` builds graph FIXTURES. It ships as a separate
+      // entry point so importing `@coredoc/db` never pulls it in, and nothing
+      // but a test may reach for it: a fixture in a product path would put
+      // fabricated nodes into a real graph read. Tests and their `.test-support`
+      // helpers are excluded below — they are the intended consumers.
+      "includes": ["**", "!**/*.test.ts", "!**/*.test.tsx", "!**/*.test-support.ts", "!packages/db/src/testing/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@coredoc/db/testing": "Graph fixtures are for tests only; product code must read a real graph."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      // NestJS server uses parameter decorators (@Query, @Body, @Param, @Res, etc.)
+      // which Biome's parser doesn't fully support, causing false parse errors.
+      // Also, NestJS decorator-bound params appear unused to static analysis.
+      "includes": ["apps/server/**"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedFunctionParameters": "off"
+          }
+        }
+      }
+    }
+  ],
+  "json": {
+    "formatter": {
+      "enabled": true
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    },
+    "formatter": {
+      "enabled": true
+    },
+    "linter": {
+      "enabled": true
+    }
+  }
+}

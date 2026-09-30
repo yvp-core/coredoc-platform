@@ -1,0 +1,18 @@
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: coredoc_test
+      POSTGRES_USER: coredoc_test
+      POSTGRES_PASSWORD: coredoc_test
+    ports:
+      - "127.0.0.1:${COREDOC_TEST_POSTGRES_PORT:-55432}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coredoc_test -d coredoc_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 2s
+    stop_grace_period: 5s

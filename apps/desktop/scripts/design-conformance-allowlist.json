@@ -1,0 +1,15 @@
+{
+  "$comment": "CHECK B exceptions for scripts/design-conformance.mjs. Every entry needs a non-empty \"reason\" — a reasonless entry is itself an error. \"file\" is optional and matches by path suffix; omit it to allow the value everywhere.",
+  "allow": [
+    {
+      "file": "src/renderer/components/ui/button.tsx",
+      "value": "#079467",
+      "reason": "Brand green for the `brand` button variant — documented in DESIGN.md (Color > Brand). Lives in the cva variant table, which is the single definition site."
+    },
+    {
+      "file": "src/renderer/components/ui/button.tsx",
+      "value": "#12B981",
+      "reason": "Hover pair of the brand green above — documented in DESIGN.md (Color > Brand)."
+    }
+  ]
+}

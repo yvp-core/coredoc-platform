@@ -1,0 +1,15 @@
+{
+  "repository": { "name": "demo-api", "type": "backend", "path": "./repos/demo-api" },
+  "git": {
+    "commitHash": "0000000000000000000000000000000000000000",
+    "commitShortHash": "0000000",
+    "branch": "main",
+    "isDirty": false,
+    "commitDate": "2026-01-01T00:00:00.000Z"
+  },
+  "entrypoints": [],
+  "entities": [],
+  "files": [],
+  "calls": [],
+  "externalCalls": []
+}

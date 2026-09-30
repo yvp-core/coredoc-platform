@@ -1,0 +1,1540 @@
+// Prisma schema for Coredoc control plane (PostgreSQL)
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Workspace {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String
+  slug             String
+  dbUrl            String?   @map("db_url")
+  dbTokenEncrypted String?   @map("db_token_encrypted")
+  isCloud          Boolean   @default(false) @map("is_cloud")
+  ciCdEnabled      Boolean   @default(false) @map("ci_cd_enabled")
+  deliveryEnabled  Boolean   @default(false) @map("delivery_enabled")
+  intentEnabled    Boolean   @default(false) @map("intent_enabled")
+  // Who records intent release events for this workspace (amendment §2).
+  // `manual` is today's behaviour and stays the default, so an existing
+  // workspace gains no automatic actor on deploy.
+  intentReleaseTrigger IntentReleaseTrigger @default(manual) @map("intent_release_trigger")
+  graphBackend     String    @default("file_snapshot") @map("graph_backend") @db.VarChar(32)
+  activeGraphVersionId String? @map("active_graph_version_id") @db.VarChar(64)
+  // Must default true alongside graphBackend = "file_snapshot": the
+  // workspaces_file_snapshot_requires_retention_check constraint (migration
+  // 20260811120000) rejects any file-snapshot row without retention.
+  retainGraphArtifacts Boolean @default(true) @map("retain_graph_artifacts")
+  workosOrganizationId String?   @unique @map("workos_organization_id")
+  syncedAt         DateTime? @map("synced_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  members          WorkspaceMember[]
+  repos            WorkspaceRepo[]
+  tokens           ServiceToken[]
+  parserArtifacts  ParserArtifact[]
+  mapperArtifact   MapperArtifact?
+  pushMetrics      PushMetric[]
+  mcpQueryMetrics  McpQueryMetric[]
+  pushJobs         PushJob[]
+  repoPushLeases   RepoPushLease[]
+  graphWriteLease  WorkspaceGraphWriteLease?
+  graphVersions    WorkspaceGraphVersion[] @relation("WorkspaceGraphVersions")
+  activeGraphVersion WorkspaceGraphVersion? @relation("WorkspaceActiveGraphVersion", fields: [id, activeGraphVersionId], references: [workspaceId, versionId], onDelete: NoAction, onUpdate: NoAction)
+  agentSessions    AgentSession[]
+  captureEvents    CaptureEvent[]
+  captureProvisioning CaptureProvisioning[]
+  captureAcceptedWatermarks CaptureAcceptedWatermark[]
+  workflowRuns     WorkflowRun[]
+  deliveryTasks    DeliveryTask[]
+  deliveryArtifacts DeliveryArtifact[]
+  taskExternalRefStateFacts TaskExternalRefStateFact[]
+  deliveryTaskCodeChanges DeliveryTaskCodeChange[]
+  deliveryShipEvidence DeliveryShipEvidence[]
+  deliveryReworkSignals DeliveryReworkSignal[]
+  mcpFeedback      McpFeedback[]
+  desktopAgentRuns DesktopAgentRun[]
+
+  deliveryConnectors  DeliveryConnector[]
+  codeChanges         CodeChange[]
+  deliveryRawPayloads DeliveryRawPayload[]
+
+  deliveryActors          DeliveryActor[]
+  deliveryActorIdentities DeliveryActorIdentity[]
+  deliveryStatusMaps      DeliveryStatusMap[]
+
+  intentHandoffs         IntentHandoff[]
+  intentDomains          IntentDomain[]
+  intentDimensions       IntentDimension[]
+  intentFeatures         IntentFeature[]
+  intentItems            IntentItem[]
+  intentReleaseEvents    IntentReleaseEvent[]
+  intentAuditEvents      IntentAuditEvent[]
+  intentMutationRequests IntentMutationRequest[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceGraphVersion {
+  workspaceId          String   @map("workspace_id") @db.Uuid
+  versionId            String   @map("version_id") @db.VarChar(64)
+  engine               String   @db.VarChar(16)
+  r2Key                String   @map("r2_key")
+  sha256               String   @db.VarChar(64)
+  sizeBytes            BigInt   @map("size_bytes")
+  storageFormatVersion Int      @map("storage_format_version")
+  manifest             Json     @db.JsonB
+  parentVersionId      String?  @map("parent_version_id") @db.VarChar(64)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace           Workspace               @relation("WorkspaceGraphVersions", fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  activeForWorkspaces Workspace[]             @relation("WorkspaceActiveGraphVersion")
+  parent              WorkspaceGraphVersion?  @relation("WorkspaceGraphVersionParent", fields: [workspaceId, parentVersionId], references: [workspaceId, versionId], onDelete: NoAction, onUpdate: NoAction)
+  children            WorkspaceGraphVersion[] @relation("WorkspaceGraphVersionParent")
+
+  @@id([workspaceId, versionId])
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, parentVersionId])
+  @@map("workspace_graph_versions")
+}
+
+model WorkspaceMember {
+  workspaceId         String   @map("workspace_id") @db.Uuid
+  // OAuth profile_id of the linked user. For invited-but-not-yet-logged-in
+  // members this holds a placeholder until first login reconciles it (see
+  // PrismaOAuthStore.upsertUserProfile + pending below).
+  userId              String   @map("user_id")
+  email               String
+  displayName         String?  @map("display_name")
+  role                String   @default("member")
+  // True while the member was invited by email but has not logged in yet. On
+  // first login PrismaOAuthStore re-keys the row to the real userId (profile_id)
+  // and clears this flag.
+  pending             Boolean  @default(false)
+  joinedAt            DateTime @default(now()) @map("joined_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitation WorkspaceInvitation?
+
+  @@id([workspaceId, userId])
+  // One identity per workspace. Emails are normalized to lowercase on write
+  // (see ControlPlaneService.addMember / createPendingMember), so this also
+  // stops a pending invite and a real member diverging for the same person.
+  @@unique([workspaceId, email])
+  @@map("workspace_members")
+}
+
+model WorkspaceInvitation {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId         String    @map("workspace_id") @db.Uuid
+  memberUserId        String    @map("member_user_id")
+  workosInvitationId  String?   @map("workos_invitation_id")
+  expiresAt           DateTime? @map("expires_at") @db.Timestamptz
+  lastSentAt          DateTime? @map("last_sent_at") @db.Timestamptz
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  member WorkspaceMember @relation(fields: [workspaceId, memberUserId], references: [workspaceId, userId], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([workspaceId, memberUserId])
+  @@index([workosInvitationId])
+  @@map("workspace_invitations")
+}
+
+model WorkspaceRepo {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId          String   @map("workspace_id") @db.Uuid
+  repoKey              String   @map("repo_key")
+  repoName             String   @map("repo_name")
+  gitUrl               String?  @map("git_url")
+  repoType             String?  @map("repo_type")
+  captureRepositoryKey String?  @map("capture_repository_key")
+  // Durable repo identity that intent anchors and feature seeds address a
+  // repository by (spec §6.5). `repoKey` above is the GRAPH identity; this is
+  // the display-form key whose hash must provably reproduce it — enforced by
+  // `workspace_repos_intent_repo_key_graph_hash_check` (migration
+  // 20260901100000), so a key can never be bound to the wrong graph.
+  intentRepoKey        String?  @map("intent_repo_key")
+  // Credential-free, normalized git remote (normalizeGitRemote), shape-checked
+  // by `workspace_repos_normalized_git_remote_check` in the same migration.
+  normalizedGitRemote  String?  @map("normalized_git_remote") @db.VarChar(2048)
+  // Per-repo URL prefix (e.g. '/v1/public/api-gateway'). Used by the cloud
+  // cross-repo resolver to index entrypoints under both raw and prefix-stripped
+  // paths so gateway-naive SDK callers match. Mirrors RepoConfig.httpPrefix
+  // from the CLI's coredoc.config.json — populated when desktop calls
+  // POST /workspaces/:id/repos.
+  httpPrefix  String?  @map("http_prefix")
+  // Branch a merge/deploy into counts as production for intent releases
+  // (amendment §2). Null = the default branch the delivery connector reports.
+  productionBranch String? @map("production_branch")
+  // Null inherits the workspace default; overrides apply only to this repository.
+  intentReleaseTrigger IntentReleaseTrigger? @map("intent_release_trigger")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Retained legacy transport data for rollback; no handoff runtime consumer.
+  intentAnchorsCommit String? @map("intent_anchors_commit") @db.VarChar(40)
+  intentAnchorsGraphVersionId String? @map("intent_anchors_graph_version_id") @db.VarChar(128)
+
+  // Push tracking
+  lastParseHash      String?   @map("last_parse_hash")
+  lastPushedAt       DateTime? @map("last_pushed_at") @db.Timestamptz
+  lastPushedByUserId String?   @map("last_pushed_by_user_id")
+  nodeCount          Int?      @map("node_count")
+  edgeCount          Int?      @map("edge_count")
+
+  // R2 versioned storage tracking
+  lastParsedVersion  String?   @map("last_parsed_version")
+  lastSummaryVersion String?   @map("last_summary_version")
+  lastEmbedVersion   String?   @map("last_embed_version")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  artifacts WorkspaceRepoArtifact[]
+
+  @@unique([workspaceId, repoKey])
+  @@unique([workspaceId, captureRepositoryKey])
+  @@unique([workspaceId, intentRepoKey])
+  @@map("workspace_repos")
+}
+
+enum WorkspaceRepoArtifactKind {
+  parsed
+  summary
+  embeddings
+}
+
+model WorkspaceRepoArtifact {
+  workspaceId String                    @map("workspace_id") @db.Uuid
+  repoKey     String                    @map("repo_key")
+  repoName    String                    @map("repo_name")
+  kind        WorkspaceRepoArtifactKind
+  version     String                    @db.VarChar(68)
+  r2Key       String                    @map("r2_key")
+  sha256      String                    @db.VarChar(64)
+  sizeBytes   BigInt                    @map("size_bytes")
+  createdAt   DateTime                  @default(now()) @map("created_at") @db.Timestamptz
+
+  repository WorkspaceRepo @relation(fields: [workspaceId, repoKey], references: [workspaceId, repoKey], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([workspaceId, repoKey, kind, version])
+  @@index([workspaceId, repoName, kind, version])
+  @@map("workspace_repo_artifacts")
+}
+
+model ServiceToken {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId    String    @map("workspace_id") @db.Uuid
+  name           String
+  tokenHash      String    @map("token_hash")
+  tokenEncrypted String?   @map("token_encrypted")
+  tokenPrefix    String?   @map("token_prefix") @db.VarChar(12)
+  permissions    String[]  @default([])
+  expiresAt      DateTime? @map("expires_at") @db.Timestamptz
+  createdBy      String    @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  lastUsedAt     DateTime? @map("last_used_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, name])
+  @@map("service_tokens")
+}
+
+model ParserArtifact {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  repoName    String   @map("repo_name")
+  r2Key       String   @map("r2_key")
+  sizeBytes   Int      @map("size_bytes")
+  sha256      String   @map("sha256")
+  uploadedBy  String   @map("uploaded_by")
+  uploadedAt  DateTime @default(now()) @map("uploaded_at") @db.Timestamptz
+  metadata    Json?    @map("metadata")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, repoName])
+  @@map("parser_artifacts")
+}
+
+model MapperArtifact {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @unique @map("workspace_id") @db.Uuid
+  r2Key       String   @map("r2_key")
+  sizeBytes   Int      @map("size_bytes")
+  sha256      String   @map("sha256")
+  uploadedBy  String   @map("uploaded_by")
+  uploadedAt  DateTime @default(now()) @map("uploaded_at") @db.Timestamptz
+  metadata    Json?    @map("metadata")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("mapper_artifacts")
+}
+
+model PushMetric {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  repoKey     String   @map("repo_key")
+  repoName    String   @map("repo_name")
+  executionToken String? @unique @map("execution_token") @db.Uuid
+
+  // Push context
+  commitHash     String?  @map("commit_hash")
+  pushedByUserId String?  @map("pushed_by_user_id")
+  pushMode       String   @map("push_mode") // 'incremental' | 'full'
+  pushedAt       DateTime @default(now()) @map("pushed_at") @db.Timestamptz
+
+  // Push performance
+  pushDurationMs Int?   @map("push_duration_ms")
+  diffSkippedPct Float? @map("diff_skipped_pct")
+
+  // Graph snapshot
+  totalNodes Int @map("total_nodes")
+  totalEdges Int @map("total_edges")
+  nodesByType Json @map("nodes_by_type")  // { function: 120, class: 30, ... }
+  edgesByType Json @map("edges_by_type")  // { CALLS: 500, IMPORTS: 200, ... }
+
+  // Derived counts
+  entrypointCount    Int @default(0) @map("entrypoint_count")
+  entityCount        Int @default(0) @map("entity_count")
+  externalCallCount  Int @default(0) @map("external_call_count")
+  componentCount     Int @default(0) @map("component_count")
+
+  // Change delta (compared to previous push, null for first push)
+  nodesAdded   Int? @map("nodes_added")
+  nodesUpdated Int? @map("nodes_updated")
+  nodesDeleted Int? @map("nodes_deleted")
+
+  // Documentation coverage
+  nodesWithSummaries  Int @default(0) @map("nodes_with_summaries")
+  nodesWithEmbeddings Int @default(0) @map("nodes_with_embeddings")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, repoKey])
+  @@index([workspaceId, pushedAt])
+  @@index([repoKey, pushedAt])
+  @@map("push_metrics")
+}
+
+model McpQueryMetric {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  toolName    String   @map("tool_name")
+  userId      String?  @map("user_id")
+  durationMs  Int      @map("duration_ms")
+  success     Boolean  @default(true)
+  // Retrieval-quality parity with the local SQLite `mcp_queries` table: number
+  // of items a list-shaped tool produced (0 for a single-entity miss), null
+  // for tools/response shapes the classifier can't establish a count for.
+  // Nullable — old rows and unclassified tools never joined a value, and
+  // `getMcpEmptyResultBreakdown` excludes NULL rows from both its numerator
+  // and denominator rather than treating them as non-empty or empty.
+  resultCount Int?     @map("result_count")
+  // Workspace repo scope the tool resolved for the call (vantage or explicit
+  // `scope` arg), when one was resolved. Null when the call was unscoped
+  // (whole-workspace) or scope resolution failed before the handler ran.
+  scope       String?
+  queriedAt   DateTime @default(now()) @map("queried_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, queriedAt])
+  @@index([workspaceId, toolName])
+  // Global date-only sweep for the retention cron: the composite index above
+  // is workspace-first and cannot serve `WHERE queried_at < cutoff` across all
+  // workspaces without a full scan.
+  @@index([queriedAt])
+  @@map("mcp_query_metrics")
+}
+
+model SyncState {
+  key       String   @id @map("key")
+  value     String   @map("value")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("sync_state")
+}
+
+// ===========================================================================
+// Self-hosted OAuth 2.1 authorization server (@rekog/mcp-nest custom store).
+// Field names mirror the IOAuthStore interface so PrismaOAuthStore maps 1:1.
+// expires_at / expiresAt are BigInt millisecond epochs (per the SDK contract).
+// ===========================================================================
+
+model OAuthClient {
+  client_id                  String   @id
+  client_secret              String?
+  client_name                String
+  client_description         String?
+  logo_uri                   String?
+  client_uri                 String?
+  developer_name             String?
+  developer_email            String?
+  redirect_uris              String[]
+  grant_types                String[]
+  response_types             String[]
+  token_endpoint_auth_method String
+  created_at                 DateTime @default(now()) @db.Timestamptz
+  updated_at                 DateTime @updatedAt @db.Timestamptz
+
+  @@map("oauth_clients")
+}
+
+model AuthorizationCode {
+  code                  String    @id
+  user_id               String
+  client_id             String
+  redirect_uri          String
+  code_challenge        String
+  code_challenge_method String
+  expires_at            BigInt
+  resource              String?
+  scope                 String?
+  used_at               DateTime? @db.Timestamptz
+  user_profile_id       String?
+  created_at            DateTime  @default(now()) @db.Timestamptz
+
+  @@map("oauth_authorization_codes")
+}
+
+model OAuthSession {
+  sessionId           String   @id
+  state               String
+  clientId            String?
+  redirectUri         String?
+  codeChallenge       String?
+  codeChallengeMethod String?
+  oauthState          String?
+  resource            String?
+  scope               String?
+  expiresAt           BigInt
+  created_at          DateTime @default(now()) @db.Timestamptz
+
+  @@map("oauth_sessions")
+}
+
+model OAuthUserProfile {
+  profile_id       String   @id
+  provider_user_id String
+  provider         String
+  username         String
+  email            String?
+  displayName      String?
+  avatarUrl        String?
+  raw              String?
+  created_at       DateTime @default(now()) @db.Timestamptz
+  updated_at       DateTime @updatedAt @db.Timestamptz
+
+  @@index([provider_user_id])
+  @@map("oauth_user_profiles")
+}
+
+model AgentSession {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId         String   @map("workspace_id") @db.Uuid
+  provider            String   @default("claude-code") @db.VarChar(32)
+  sessionId           String   @map("session_id")
+  userId              String?  @map("user_id")
+  userEmail           String?  @map("user_email")
+  model               String?
+  appVersion          String?  @map("app_version")
+
+  tokensInput         BigInt      @default(0) @map("tokens_input")
+  tokensOutput        BigInt      @default(0) @map("tokens_output")
+  tokensCacheRead     BigInt      @default(0) @map("tokens_cache_read")
+  tokensCacheCreation BigInt      @default(0) @map("tokens_cache_creation")
+  tokensReasoning     BigInt      @default(0) @map("tokens_reasoning")
+  costUsd             Float    @default(0) @map("cost_usd")
+  activeTimeSec       Float    @default(0) @map("active_time_sec")
+  commitCount         Int      @default(0) @map("commit_count")
+  prCount             Int      @default(0) @map("pr_count")
+  coredocToolCalls    Int      @default(0) @map("coredoc_tool_calls")
+  coredocTools        Json     @default("{}") @map("coredoc_tools")
+
+  locAdded            Int      @default(0) @map("loc_added")
+  locRemoved          Int      @default(0) @map("loc_removed")
+  coredocToolStats    Json     @default("{}") @map("coredoc_tool_stats")
+
+  // Task/PR join keys (v2 spec §3 Feed 1) — stamped by the session-context hook.
+  repoKey             String?  @map("repo_key")
+  branch              String?
+  prNumber            Int?     @map("pr_number")
+  issueKey            String?  @map("issue_key")
+  // Hook-stamped git HEAD at session start/end and retained usage counters.
+  headShaStart        String?  @map("head_sha_start")
+  headShaEnd          String?  @map("head_sha_end")
+  skillsUsed          Json     @default("{}") @map("skills_used")
+
+  lastEventNanos      BigInt   @default(0) @map("last_event_nanos")
+  /// Optimistic-lock counter for the log-ingest read-modify-write, incremented on
+  /// every write. The watermark cannot be the swap key because zero-timestamp
+  /// records do not advance it; two writers could otherwise overwrite JSON maps.
+  revision            Int      @default(0)
+
+  startedAt           DateTime @default(now()) @map("started_at") @db.Timestamptz
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workflowRuns WorkflowRun[]
+
+  // Keep both host-agnostic and host-aware lookup keys explicit while native
+  // telemetry exporters finish converging on the provider-qualified identity.
+  @@unique([workspaceId, sessionId])
+  @@unique([workspaceId, provider, sessionId])
+  @@index([workspaceId, startedAt])
+  @@index([workspaceId, issueKey])
+  @@map("agent_sessions")
+}
+
+model CaptureEvent {
+  id            BigInt   @id @default(autoincrement())
+  workspaceId   String   @map("workspace_id") @db.Uuid
+  eventId       String   @map("event_id") @db.Uuid
+  schemaVersion Int      @map("schema_version")
+  type          String   @db.VarChar(64)
+  occurredAt    DateTime @map("occurred_at") @db.Timestamptz
+  receivedAt    DateTime @default(now()) @map("received_at") @db.Timestamptz
+  host          String   @db.VarChar(32)
+  sessionId     String   @map("session_id") @db.VarChar(128)
+  runId         String?  @map("run_id") @db.VarChar(32)
+  repositoryKey String?  @map("repository_key") @db.VarChar(256)
+  taskId        String?  @map("task_id") @db.VarChar(128)
+  data          Json     @db.JsonB
+  actorId       String   @map("actor_id")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, eventId])
+  @@index([receivedAt, id], map: "capture_events_received_at_id_idx")
+  @@map("capture_events")
+}
+
+model CaptureProvisioning {
+  id            BigInt    @id @default(autoincrement())
+  workspaceId   String    @map("workspace_id") @db.Uuid
+  actorId       String    @map("actor_id")
+  host          String    @db.VarChar(32)
+  targetKey     String    @map("target_key") @db.VarChar(256)
+  repositoryKey String?   @map("repository_key") @db.VarChar(256)
+  state         String    @db.VarChar(16)
+  configuredAt  DateTime? @map("configured_at") @db.Timestamptz
+  disabledAt    DateTime? @map("disabled_at") @db.Timestamptz
+  reportedAt    DateTime  @map("reported_at") @db.Timestamptz
+  pendingCount  Int       @default(0) @map("pending_count")
+  errorCode     String?   @map("error_code") @db.VarChar(32)
+  attributionPendingCount  Int       @default(0) @map("attribution_pending_count")
+  attributionRejectedCount Int       @default(0) @map("attribution_rejected_count")
+  attributionLastClaimAt   DateTime? @map("attribution_last_claim_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, actorId, host, targetKey])
+  @@map("capture_provisioning")
+}
+
+model CaptureAcceptedWatermark {
+  workspaceId            String    @map("workspace_id") @db.Uuid
+  actorId                String    @map("actor_id")
+  host                   String    @db.VarChar(32)
+  scopeKey               String    @map("scope_key") @db.VarChar(320)
+  repositoryKey          String?   @map("repository_key") @db.VarChar(256)
+  firstAcceptedAt        DateTime  @map("first_accepted_at") @db.Timestamptz
+  lastAcceptedAt         DateTime  @map("last_accepted_at") @db.Timestamptz
+  workflowLastAcceptedAt DateTime? @map("workflow_last_accepted_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([workspaceId, actorId, host, scopeKey])
+  @@index([workspaceId, actorId, host, repositoryKey])
+  @@map("capture_accepted_watermarks")
+}
+
+model CaptureRetentionCheckpoint {
+  id                      String   @id @db.VarChar(32)
+  purgedThroughReceivedAt DateTime @map("purged_through_received_at") @db.Timestamptz
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("capture_retention_checkpoints")
+}
+
+model WorkflowRun {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId    String    @map("workspace_id") @db.Uuid
+  runId          String    @map("run_id") @db.VarChar(32)
+  agentSessionId String    @map("agent_session_id") @db.Uuid
+  actorId        String    @map("actor_id")
+  workflowId     String?   @map("workflow_id") @db.VarChar(76)
+  intent         String?   @db.VarChar(32)
+  risk           String?   @db.VarChar(16)
+  scale          String?   @db.VarChar(16)
+  repositoryKey  String?   @map("repository_key") @db.VarChar(256)
+  taskId         String?   @map("task_id") @db.VarChar(128)
+  deliveryTaskId String?   @map("delivery_task_id") @db.VarChar(40)
+  declaredStages Json?     @map("declared_stages") @db.JsonB
+  startedAt      DateTime? @map("started_at") @db.Timestamptz
+  finishedAt     DateTime? @map("finished_at") @db.Timestamptz
+  outcome        String?   @db.VarChar(16)
+  counters       Json?     @db.JsonB
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  workspace        Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agentSession     AgentSession              @relation(fields: [agentSessionId], references: [id], onDelete: Cascade)
+  deliveryTask     DeliveryTask?             @relation(fields: [workspaceId, deliveryTaskId], references: [workspaceId, id], onDelete: NoAction, onUpdate: Cascade)
+  stageOccurrences WorkflowStageOccurrence[]
+  workItems        WorkflowRunWorkItem[]
+
+  @@unique([workspaceId, runId])
+  @@unique([workspaceId, id])
+  @@index([agentSessionId])
+  @@index([workspaceId, deliveryTaskId])
+  // Serves the activity read's unfinished-run queries: the two counts and the capped list all
+  // filter `workspaceId` + `finishedAt IS NULL` and order/bound by `createdAt`.
+  @@index([workspaceId, finishedAt, createdAt])
+  @@map("workflow_runs")
+}
+
+model WorkflowRunWorkItem {
+  id            BigInt  @id @default(autoincrement())
+  workspaceId   String  @map("workspace_id") @db.Uuid
+  workflowRunId String  @map("workflow_run_id") @db.Uuid
+  provider      String  @db.VarChar(64)
+  externalId    String  @map("external_id") @db.VarChar(256)
+  externalKey   String? @map("external_key") @db.VarChar(256)
+
+  workflowRun WorkflowRun @relation(fields: [workspaceId, workflowRunId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([workspaceId, workflowRunId, provider, externalId], map: "workflow_run_work_items_identity_key")
+  @@index([workspaceId, provider, externalId], map: "workflow_run_work_items_external_identity_idx")
+  @@map("workflow_run_work_items")
+}
+
+model DeliveryTask {
+  workspaceId    String   @map("workspace_id") @db.Uuid
+  id             String   @db.VarChar(40)
+  repositoryKey  String?  @map("repository_key") @db.VarChar(256)
+  lifecycle      String   @db.VarChar(16)
+  authority      String   @db.VarChar(80)
+  authorityRefId BigInt?  @map("authority_ref_id")
+  title          String?  @db.VarChar(512)
+  createdBy      String   @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  workspace     Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  externalRefs  TaskExternalRef[]        @relation("DeliveryTaskExternalRefs")
+  authorityRef  TaskExternalRef?         @relation("DeliveryTaskAuthority", fields: [workspaceId, id, authorityRefId], references: [workspaceId, deliveryTaskId, id], onDelete: NoAction, onUpdate: Cascade)
+  workflowRuns  WorkflowRun[]
+  artifacts     DeliveryArtifact[]
+  codeChanges   DeliveryTaskCodeChange[]
+  shipEvidence  DeliveryShipEvidence[]
+  reworkSignals DeliveryReworkSignal[]
+
+  @@id([workspaceId, id])
+  @@index([workspaceId, createdAt])
+  @@map("delivery_tasks")
+}
+
+model TaskExternalRef {
+  id              BigInt    @id @default(autoincrement())
+  workspaceId     String    @map("workspace_id") @db.Uuid
+  deliveryTaskId  String    @map("delivery_task_id") @db.VarChar(40)
+  provider        String    @db.VarChar(64)
+  externalId      String    @map("external_id") @db.VarChar(256)
+  externalKey     String?   @map("external_key") @db.VarChar(256)
+  externalUrl     String?   @map("external_url") @db.VarChar(2048)
+  externalState   String?   @map("external_state") @db.VarChar(128)
+  connectorId     String?   @map("connector_id") @db.Uuid
+  sourceCreatedAt DateTime? @map("source_created_at") @db.Timestamptz
+  sourceUpdatedAt DateTime? @map("source_updated_at") @db.Timestamptz
+  lastObservedAt  DateTime? @map("last_observed_at") @db.Timestamptz
+
+  task              DeliveryTask               @relation("DeliveryTaskExternalRefs", fields: [workspaceId, deliveryTaskId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+  authorityForTasks DeliveryTask[]             @relation("DeliveryTaskAuthority")
+  // Prisma records the semantic SetNull action; the migration narrows it to
+  // PostgreSQL's column-list SET NULL (connector_id) so workspace_id survives.
+  connector         DeliveryConnector?         @relation(fields: [workspaceId, connectorId], references: [workspaceId, id], onDelete: SetNull, onUpdate: Cascade)
+  stateFacts        TaskExternalRefStateFact[]
+
+  @@unique([workspaceId, provider, externalId])
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, deliveryTaskId, id])
+  @@index([workspaceId, deliveryTaskId])
+  @@index([workspaceId, connectorId])
+  @@map("task_external_refs")
+}
+
+model TaskExternalRefStateFact {
+  id              BigInt   @id @default(autoincrement())
+  workspaceId     String   @map("workspace_id") @db.Uuid
+  externalRefId   BigInt   @map("external_ref_id")
+  sourceRef       String   @map("source_ref") @db.VarChar(512)
+  fromState       String?  @map("from_state") @db.VarChar(128)
+  toState         String   @map("to_state") @db.VarChar(128)
+  occurredAt      DateTime @map("occurred_at") @db.Timestamptz
+  sourceUpdatedAt DateTime @map("source_updated_at") @db.Timestamptz
+  receivedAt      DateTime @default(now()) @map("received_at") @db.Timestamptz
+  actorId         String?  @map("actor_id") @db.Uuid
+
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  externalRef TaskExternalRef @relation(fields: [workspaceId, externalRefId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+  // As with connector provenance, migration SQL narrows semantic SetNull to
+  // the optional actor_id column so required workspace_id survives.
+  actor       DeliveryActor?  @relation(fields: [workspaceId, actorId], references: [workspaceId, id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([workspaceId, externalRefId, sourceRef], map: "task_ref_state_source_key")
+  @@index([workspaceId, externalRefId, occurredAt, id])
+  @@index([workspaceId, actorId])
+  @@map("task_external_ref_state_facts")
+}
+
+model DeliveryArtifact {
+  workspaceId    String   @map("workspace_id") @db.Uuid
+  id             String   @db.VarChar(40)
+  deliveryTaskId String   @map("delivery_task_id") @db.VarChar(40)
+  repositoryKey  String   @map("repository_key") @db.VarChar(256)
+  kind           String   @db.VarChar(32)
+  createdBy      String   @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  task      DeliveryTask       @relation(fields: [workspaceId, deliveryTaskId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+  revisions ArtifactRevision[]
+
+  @@id([workspaceId, id])
+  @@index([workspaceId, deliveryTaskId, createdAt])
+  @@map("delivery_artifacts")
+}
+
+model ArtifactRevision {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  artifactId  String   @map("artifact_id") @db.VarChar(40)
+  sha256      String   @db.Char(64)
+  byteCount   Int      @map("byte_count")
+  markdown    String   @db.Text
+  checkpoint  String   @db.VarChar(32)
+  runId       String?  @map("run_id") @db.VarChar(32)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  artifact DeliveryArtifact @relation(fields: [workspaceId, artifactId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([workspaceId, artifactId, sha256])
+  @@index([workspaceId, artifactId, createdAt])
+  @@map("artifact_revisions")
+}
+
+model DeliveryTaskCodeChange {
+  workspaceId            String   @map("workspace_id") @db.Uuid
+  deliveryTaskId         String   @map("delivery_task_id") @db.VarChar(40)
+  codeChangeId           String   @map("code_change_id") @db.Uuid
+  associationSource      String   @map("association_source") @db.VarChar(32)
+  associationSourceValue String   @map("association_source_value") @db.VarChar(256)
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace  Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  task       DeliveryTask @relation(fields: [workspaceId, deliveryTaskId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+  codeChange CodeChange   @relation(fields: [workspaceId, codeChangeId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([workspaceId, deliveryTaskId, codeChangeId], map: "delivery_task_code_changes_pkey")
+  @@index([workspaceId, codeChangeId])
+  @@map("delivery_task_code_changes")
+}
+
+model DeliveryShipEvidence {
+  id             BigInt   @id @default(autoincrement())
+  workspaceId    String   @map("workspace_id") @db.Uuid
+  deliveryTaskId String   @map("delivery_task_id") @db.VarChar(40)
+  source         String   @db.VarChar(32)
+  sourceKey      String   @map("source_key") @db.VarChar(512)
+  occurredAt     DateTime @map("occurred_at") @db.Timestamptz
+  receivedAt     DateTime @default(now()) @map("received_at") @db.Timestamptz
+  actorId        String?  @map("actor_id")
+  provider       String?  @db.VarChar(64)
+  repoExternalId String?  @map("repo_external_id") @db.VarChar(256)
+  externalId     String?  @map("external_id") @db.VarChar(256)
+
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  task      DeliveryTask @relation(fields: [workspaceId, deliveryTaskId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([workspaceId, source, sourceKey], map: "delivery_ship_evidence_source_key")
+  @@index([workspaceId, deliveryTaskId, occurredAt, id])
+  @@map("delivery_ship_evidence")
+}
+
+model DeliveryReworkSignal {
+  id             BigInt   @id @default(autoincrement())
+  workspaceId    String   @map("workspace_id") @db.Uuid
+  deliveryTaskId String   @map("delivery_task_id") @db.VarChar(40)
+  kind           String   @db.VarChar(32)
+  sourceKey      String   @map("source_key") @db.VarChar(512)
+  sourceRef      String   @map("source_ref") @db.VarChar(512)
+  occurredAt     DateTime @map("occurred_at") @db.Timestamptz
+  observedAt     DateTime @default(now()) @map("observed_at") @db.Timestamptz
+
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  task      DeliveryTask @relation(fields: [workspaceId, deliveryTaskId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([workspaceId, kind, sourceKey], map: "delivery_rework_signals_source_key")
+  @@index([workspaceId, deliveryTaskId, occurredAt, id])
+  @@map("delivery_rework_signals")
+}
+
+model WorkflowStageOccurrence {
+  id            String    @id @db.Uuid
+  workflowRunId String    @map("workflow_run_id") @db.Uuid
+  stageId       String    @map("stage_id") @db.VarChar(76)
+  attempt       Int
+  startedAt     DateTime? @map("started_at") @db.Timestamptz
+  finishedAt    DateTime? @map("finished_at") @db.Timestamptz
+  outcome       String?   @db.VarChar(16)
+
+  workflowRun WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([workflowRunId, stageId, attempt])
+  @@map("workflow_stage_occurrences")
+}
+
+model McpFeedback {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId          String   @map("workspace_id") @db.Uuid
+  sessionId            String?  @map("session_id")
+  runId                String?  @map("run_id")
+  userId               String?  @map("user_id")
+  userEmail            String?  @map("user_email")
+  repoKey              String?  @map("repo_key")
+  overallRating        Int?     @map("overall_rating")
+  perToolIssues        Json     @default("[]") @map("per_tool_issues")
+  missingCapabilities  Json     @default("[]") @map("missing_capabilities")
+  misleadingMetadata   Json     @default("[]") @map("misleading_metadata")
+  sessionIssues        Json     @default("[]") @map("session_issues")
+  summary              String?  @db.VarChar(2000)
+  userRating           Int?     @map("user_rating")
+  userNotes            String?  @map("user_notes") @db.VarChar(2000)
+  reviewStatus         String   @default("unreviewed") @map("review_status") @db.VarChar(16)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, sessionId])
+  @@map("mcp_feedback")
+}
+
+enum PushJobType {
+  push
+  resolve
+  connector_sync
+  renormalize
+  classify
+}
+
+enum PushJobStatus {
+  pending
+  running
+  succeeded
+  failed
+}
+
+enum PushJobAttemptStatus {
+  running
+  succeeded
+  retry_scheduled
+  failed
+  lease_lost
+  interrupted
+}
+
+// HAND-WRITTEN PARTIAL INDEX — NOT REPRESENTABLE IN THIS SCHEMA.
+// Migration 20260804000000 creates `push_jobs_one_active_push_per_repo`
+// (UNIQUE ON (workspace_id, repo_name) WHERE type='push' AND status IN
+// ('pending','running')). The enqueue P2002 race handling in
+// push-queue.service.ts depends on it. Prisma cannot express partial indexes,
+// so `prisma migrate dev` will diff the schema against the shadow DB and
+// propose DROP INDEX — NEVER accept that drop; re-add the index in any
+// migration that regenerates this table.
+model PushJob {
+  id              String         @id @default(cuid())
+  workspaceId     String         @map("workspace_id") @db.Uuid
+  repoName        String?        @map("repo_name")
+  type            PushJobType
+  payload         Json
+  status          PushJobStatus  @default(pending)
+  attempts        Int            @default(0)
+  maxAttempts     Int            @default(3) @map("max_attempts")
+  lastError       String?        @map("last_error")
+  queuedAt        DateTime       @default(now()) @map("queued_at") @db.Timestamptz
+  nextRunAt       DateTime       @default(now()) @map("next_run_at") @db.Timestamptz
+  startedAt       DateTime?      @map("started_at") @db.Timestamptz
+  finishedAt      DateTime?      @map("finished_at") @db.Timestamptz
+  result          Json?
+  queuedByUserId  String?        @map("queued_by_user_id")
+  leaseToken     String?       @map("lease_token") @db.Uuid
+  heartbeatAt    DateTime?     @map("heartbeat_at") @db.Timestamptz
+  phase          String?
+  progress       Json?
+  workspace       Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  attemptHistory PushJobAttempt[]
+
+  @@index([status, nextRunAt])
+  @@index([workspaceId, queuedAt(sort: Desc)])
+  @@map("push_jobs")
+}
+
+model PushJobAttempt {
+  id            String               @id @default(cuid())
+  jobId         String               @map("job_id")
+  attemptNumber Int                  @map("attempt_number")
+  leaseToken    String               @unique @map("lease_token") @db.Uuid
+  status        PushJobAttemptStatus @default(running)
+  phase         String?
+  progress      Json?
+  startedAt     DateTime             @default(now()) @map("started_at") @db.Timestamptz
+  heartbeatAt   DateTime             @default(now()) @map("heartbeat_at") @db.Timestamptz
+  finishedAt    DateTime?            @map("finished_at") @db.Timestamptz
+  lastError     String?              @map("last_error")
+  phaseTimings  Json?                @map("phase_timings")
+
+  job PushJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, attemptNumber])
+  @@index([jobId, startedAt])
+  @@map("push_job_attempts")
+}
+
+model RepoPushLease {
+  workspaceId String   @map("workspace_id") @db.Uuid
+  repoName    String   @map("repo_name")
+  ownerToken  String   @map("owner_token") @db.Uuid
+  generation  BigInt   @default(1)
+  heartbeatAt DateTime @map("heartbeat_at") @db.Timestamptz
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, repoName])
+  @@index([expiresAt])
+  @@map("repo_push_leases")
+}
+
+model WorkspaceGraphWriteLease {
+  workspaceId String   @id @map("workspace_id") @db.Uuid
+  ownerToken  String   @map("owner_token") @db.Uuid
+  generation  BigInt   @default(1)
+  heartbeatAt DateTime @map("heartbeat_at") @db.Timestamptz
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("workspace_graph_write_leases")
+}
+
+model DesktopAgentRun {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId   String   @map("workspace_id") @db.Uuid
+  runId         String   @map("run_id")
+  kind          String
+  // Attribution is server-derived from the authenticated principal — never the
+  // payload user.* (spoofable by any token holder). See AgentRunsController.
+  userId        String?  @map("user_id")
+  userEmail     String?  @map("user_email")
+
+  // The 8 economics columns (mirror @coredoc/core AgentRunSummary 1:1).
+  tokensIn      Int      @default(0) @map("tokens_in")
+  tokensOut     Int      @default(0) @map("tokens_out")
+  costUsd       Float    @default(0) @map("cost_usd")
+  turns         Int      @default(0)
+  toolCalls     Int      @default(0) @map("tool_calls")
+  interventions Int      @default(0)
+  outcome       String
+  durationMs    Int      @default(0) @map("duration_ms")
+
+  appVersion    String?  @map("app_version")
+  surface       String?
+
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, runId])
+  @@index([workspaceId, createdAt])
+  @@map("desktop_agent_runs")
+}
+
+// ── Delivery connector ingestion retained for canonical task projection. ──
+
+enum DeliveryProvider {
+  jira
+  github
+  gitlab
+  coredoc
+}
+
+model DeliveryConnector {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId     String           @map("workspace_id") @db.Uuid
+  provider        DeliveryProvider
+  providerVariant String?          @map("provider_variant")
+  displayName     String           @map("display_name")
+  baseUrl         String?          @map("base_url")
+  authKind        String           @default("none") @map("auth_kind")
+  /// AES-256-GCM via database/encryption.ts; null when SERVER_ENCRYPTION_KEY unset (dev).
+  credentialsEncrypted String?      @map("credentials_encrypted")
+  config          Json             @default("{}")
+  capabilities    Json             @default("{}")
+  cursors         Json             @default("{}")
+  status          String           @default("active")
+  lastSyncAt      DateTime?        @map("last_sync_at") @db.Timestamptz
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  codeChanges CodeChange[]
+  rawPayloads DeliveryRawPayload[]
+  statusMaps  DeliveryStatusMap[]
+  externalRefs TaskExternalRef[]
+
+  @@unique([workspaceId, provider, providerVariant])
+  @@unique([workspaceId, id])
+  @@map("delivery_connectors")
+}
+
+enum CodeChangeState {
+  open
+  merged
+  closed
+}
+
+model CodeChange {
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId       String           @map("workspace_id") @db.Uuid
+  connectorId       String           @map("connector_id") @db.Uuid
+  provider          DeliveryProvider
+  repoExternalId    String           @map("repo_external_id")
+  workspaceRepoId   String?          @map("workspace_repo_id") @db.Uuid
+  externalId        String           @map("external_id")
+  number            Int?
+  title             String?
+  sourceBranch      String?          @map("source_branch")
+  targetBranch      String?          @map("target_branch")
+  state             CodeChangeState
+  isDraft           Boolean          @default(false) @map("is_draft")
+  createdAtSource   DateTime?        @map("created_at_source") @db.Timestamptz
+  readyForReviewAt  DateTime?        @map("ready_for_review_at") @db.Timestamptz
+  firstReviewAt     DateTime?        @map("first_review_at") @db.Timestamptz
+  approvedAt        DateTime?        @map("approved_at") @db.Timestamptz
+  mergedAt          DateTime?        @map("merged_at") @db.Timestamptz
+  closedAt          DateTime?        @map("closed_at") @db.Timestamptz
+  lastCommitAt      DateTime?        @map("last_commit_at") @db.Timestamptz
+  commitsCount      Int?             @map("commits_count")
+  additions         Int?
+  deletions         Int?
+  changedFiles      Int?             @map("changed_files")
+  changedPaths      String[]         @default([]) @map("changed_paths")
+  /// Rework heuristic, NOT a review tally: one round per CHANGES_REQUESTED review plus one
+  /// if any other review exists. NOT NULL (0 = "no rework observed"). Consumed by the rework
+  /// detectors and graph fusion — do not render it as "N reviews".
+  reviewRounds      Int              @default(0) @map("review_rounds")
+  /// Inline review comments on the diff, from the single-PR GET `review_comments`.
+  /// NOT NULL with a 0 default that predates the nullable detail columns below.
+  reviewComments    Int              @default(0) @map("review_comments")
+  aiAssisted        Boolean?         @map("ai_assisted")
+  externalUrl       String?          @map("external_url") @db.VarChar(2048)
+  /// Review SUBMISSIONS from the reviews list (approvals/comments/change requests), i.e. what
+  /// the canonical timeline renders as "N reviews". Nullable: NULL means the single-PR GET was
+  /// never seen for this row, distinct from a genuine 0.
+  reviewCount       Int?             @map("review_count")
+  /// Issue-style conversation comments on the PR, from the single-PR GET `comments` — a
+  /// different population from `reviewComments` (which counts inline diff comments).
+  /// Nullable with the same NULL-means-not-fetched contract as `reviewCount`.
+  commentCount      Int?             @map("comment_count")
+  attrs             Json             @default("{}")
+  firstSeenAt       DateTime         @default(now()) @map("first_seen_at") @db.Timestamptz
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connector DeliveryConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  deliveryTasks DeliveryTaskCodeChange[]
+
+  @@unique([workspaceId, provider, repoExternalId, externalId])
+  @@unique([workspaceId, id])
+  @@index([workspaceId, sourceBranch])
+  @@index([workspaceId, mergedAt])
+  @@map("delivery_code_changes")
+}
+
+model DeliveryRawPayload {
+  id           BigInt            @id @default(autoincrement())
+  workspaceId  String            @map("workspace_id") @db.Uuid
+  connectorId  String            @map("connector_id") @db.Uuid
+  resourceType String            @map("resource_type")
+  externalId   String?           @map("external_id")
+  payload      Json
+  truncated    Boolean           @default(false)
+  fetchedAt    DateTime          @default(now()) @map("fetched_at") @db.Timestamptz
+  processedAt  DateTime?         @map("processed_at") @db.Timestamptz
+  normVersion  Int?              @map("norm_version")
+  canonicalProjectionVersion Int? @map("canonical_projection_version")
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connector DeliveryConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, connectorId, resourceType, fetchedAt])
+  @@index([workspaceId, resourceType, canonicalProjectionVersion, id], map: "delivery_raw_payloads_projection_replay_idx")
+  @@map("delivery_raw_payloads")
+}
+
+// ── Connector actor identity map and canonical status policy. ──
+
+model DeliveryActor {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId  String   @map("workspace_id") @db.Uuid
+  displayName  String?  @map("display_name")
+  kind         String   @default("human") // human | agent | bot
+  // WorkspaceMember.userId when this actor is a matched workspace member;
+  // null = unmatched (surfaced in the admin unmatched-identities queue).
+  memberUserId String?  @map("member_user_id")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace  Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  identities DeliveryActorIdentity[]
+
+  taskExternalRefStateFacts TaskExternalRefStateFact[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, memberUserId])
+  @@map("delivery_actors")
+}
+
+model DeliveryActorIdentity {
+  id          BigInt   @id @default(autoincrement())
+  workspaceId String   @map("workspace_id") @db.Uuid
+  actorId     String   @map("actor_id") @db.Uuid
+  provider    String   // jira | github | email | coredoc
+  externalId  String   @map("external_id") // accountId / login / lowercased email / userId
+  method      String   // exact_email | provider_link | manual
+  confidence  Float    @default(1.0)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor     DeliveryActor @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, provider, externalId])
+  @@index([workspaceId, actorId])
+  @@map("delivery_actor_identities")
+}
+
+model DeliveryStatusMap {
+  id          BigInt        @id @default(autoincrement())
+  workspaceId String        @map("workspace_id") @db.Uuid
+  connectorId String        @map("connector_id") @db.Uuid
+  statusRaw           String        @map("status_raw")
+  lifecycle           String?       @db.VarChar(16)
+  createsShipEvidence Boolean       @default(false) @map("creates_ship_evidence")
+  source              String        @default("default") // default (statusCategory bootstrap) | admin
+  updatedAt   DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connector DeliveryConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, connectorId, statusRaw])
+  @@map("delivery_status_map")
+}
+
+// ===========================================================================
+// Cloud product-intent knowledge base (spec: .scratch/intent-cloud-design).
+//
+// Tenant isolation is PHYSICAL: every child references its parent through a
+// composite key carrying `workspaceId`, so a cross-workspace link cannot be
+// represented. Parent links use `NoAction` rather than `Restrict` on purpose —
+// NO ACTION still refuses to orphan a child, but its check runs at
+// end-of-statement, so a workspace hard delete (which cascades parent and child
+// in the same statement) still succeeds while a direct domain/feature delete
+// with live children still fails at the database.
+//
+// HAND-WRITTEN CONSTRAINTS AND INDEXES — NOT REPRESENTABLE IN THIS SCHEMA.
+// Migration 20260901101000 adds the CHECK constraints (attachment XOR, slug and
+// kind-prefix shape, version floor, supersession pairing, transition from<>to)
+// and 20260901102000 adds `pg_trgm` plus the GIN trigram indexes
+// `intent_items_title_trgm_idx` / `intent_items_statement_trgm_idx`.
+// `prisma migrate dev` diffs this file against a shadow database and will
+// propose dropping them — NEVER accept that drop; re-add them in any migration
+// that regenerates these tables.
+// ===========================================================================
+
+// Per-workspace actor that records intent releases (amendment §2).
+enum IntentReleaseTrigger {
+  manual
+  merge
+  deploy
+}
+
+enum IntentItemKind {
+  capability
+  use_case
+  flow
+  business_rule
+  limitation
+  decision
+}
+
+enum IntentItemAuthority {
+  candidate
+  accepted
+  rejected
+  superseded
+}
+
+enum IntentSourceKind {
+  spec
+  issue
+  adr
+  manual
+}
+
+/// Authority transitions additionally admit `import`: an import records
+/// arrival, it never fabricates a candidate→accepted decision that no reviewer
+/// made (spec §4.7).
+enum IntentAuthoritySourceKind {
+  spec
+  issue
+  adr
+  manual
+  import
+}
+
+enum IntentAuditEntityKind {
+  domain
+  feature
+  feature_seed
+  item
+  item_source
+  anchor
+  dimension
+}
+
+model IntentDomain {
+  workspaceId String   @map("workspace_id") @db.Uuid
+  id          String   @db.VarChar(64)
+  title       String   @db.VarChar(200)
+  statement   String   @db.VarChar(2000)
+  /// Tree `appliesWhen` (dimension clauses only); inherited by every item under it.
+  appliesWhen Json?    @map("applies_when") @db.JsonB
+  /// Hidden from browse defaults; children stay readable. Archiving is the only
+  /// way to retire a domain that still holds reviewed content.
+  archived    Boolean  @default(false)
+  createdBy   String   @map("created_by") @db.VarChar(256)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedBy   String   @map("updated_by") @db.VarChar(256)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  features  IntentFeature[]
+  items     IntentItem[]
+
+  @@id([workspaceId, id])
+  @@index([workspaceId, archived])
+  @@map("intent_domains")
+}
+
+/// A workspace-declared context dimension (country, plan, role, …) that item
+/// `applies_when` clauses and rule variants reference by id.
+model IntentDimension {
+  workspaceId String   @map("workspace_id") @db.Uuid
+  id          String   @db.VarChar(64)
+  title       String   @db.VarChar(200)
+  /// `[{id, title}]`, validated by core's `IntentDimensionSchema`. Flat: no hierarchy (LIM-2).
+  values      Json     @db.JsonB
+  multi       Boolean  @default(false)
+  archived    Boolean  @default(false)
+  createdBy   String   @map("created_by") @db.VarChar(256)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedBy   String   @map("updated_by") @db.VarChar(256)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([workspaceId, id])
+  @@index([workspaceId, archived])
+  @@map("intent_dimensions")
+}
+
+model IntentFeature {
+  workspaceId String   @map("workspace_id") @db.Uuid
+  id          String   @db.VarChar(64)
+  domainId    String   @map("domain_id") @db.VarChar(64)
+  title       String   @db.VarChar(200)
+  statement   String   @db.VarChar(2000)
+  appliesWhen Json?    @map("applies_when") @db.JsonB
+  archived    Boolean  @default(false)
+  createdBy   String   @map("created_by") @db.VarChar(256)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedBy   String   @map("updated_by") @db.VarChar(256)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  domain    IntentDomain        @relation(fields: [workspaceId, domainId], references: [workspaceId, id], onDelete: NoAction, onUpdate: Cascade)
+  seeds     IntentFeatureSeed[]
+  items     IntentItem[]
+
+  @@id([workspaceId, id])
+  // Reference target for the three-column attachment FK on IntentItem: a
+  // feature-attached item must name the feature's OWN domain, so "feature
+  // implies its domain" is a foreign key, not a service-layer promise.
+  @@unique([workspaceId, id, domainId])
+  @@index([workspaceId, domainId])
+  @@index([workspaceId, archived])
+  @@map("intent_features")
+}
+
+/// Declared entry points of a feature's code area (spec §4.3). The area itself
+/// is derived at read time and never stored.
+model IntentFeatureSeed {
+  id          BigInt   @id @default(autoincrement())
+  workspaceId String   @map("workspace_id") @db.Uuid
+  featureId   String   @map("feature_id") @db.VarChar(64)
+  repoKey     String   @map("repo_key") @db.VarChar(200)
+  nodeId      String   @map("node_id") @db.VarChar(500)
+  note        String?  @db.VarChar(2000)
+  createdBy   String   @map("created_by") @db.VarChar(256)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  feature IntentFeature @relation(fields: [workspaceId, featureId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([workspaceId, featureId, repoKey, nodeId], map: "intent_feature_seeds_identity_key")
+  @@index([workspaceId, repoKey, nodeId])
+  @@map("intent_feature_seeds")
+}
+
+model IntentItem {
+  workspaceId           String              @map("workspace_id") @db.Uuid
+  id                    String              @db.VarChar(64)
+  /// Attachment is exactly one of: product root (both refs null), a domain, or
+  /// a feature (which carries its own domain). Enforced by
+  /// `intent_items_attachment_check` plus the composite feature FK.
+  domainId              String?             @map("domain_id") @db.VarChar(64)
+  featureId             String?             @map("feature_id") @db.VarChar(64)
+  kind                  IntentItemKind
+  title                 String              @db.VarChar(200)
+  statement             String              @db.VarChar(2000)
+  payload               Json?               @db.JsonB
+  /// Context conditions (`ContextCondition[]`, AND-joined); NULL = unconditional.
+  appliesWhen           Json?               @map("applies_when") @db.JsonB
+  rationale             String?             @db.VarChar(2000)
+  /// Changes only through the review operation; creation always yields
+  /// `candidate` (spec §5).
+  authority             IntentItemAuthority @default(candidate)
+  proposedSuccessorOfId String?             @map("proposed_successor_of_id") @db.VarChar(64)
+  supersededById        String?             @map("superseded_by_id") @db.VarChar(64)
+  /// Optimistic-concurrency token. Every write is
+  /// `UPDATE … WHERE id = ? AND version = ?` and increments it — never
+  /// read-then-write.
+  version               Int                 @default(1)
+  createdBy             String              @map("created_by") @db.VarChar(256)
+  createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  updatedBy             String              @map("updated_by") @db.VarChar(256)
+  updatedAt             DateTime            @updatedAt @map("updated_at") @db.Timestamptz
+
+  workspace            Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  domain               IntentDomain?              @relation(fields: [workspaceId, domainId], references: [workspaceId, id], onDelete: NoAction, onUpdate: Cascade)
+  feature              IntentFeature?             @relation(fields: [workspaceId, featureId, domainId], references: [workspaceId, id, domainId], onDelete: NoAction, onUpdate: Cascade)
+  supersededBy         IntentItem?                @relation("IntentItemSupersession", fields: [workspaceId, supersededById], references: [workspaceId, id], onDelete: NoAction, onUpdate: NoAction)
+  supersedes           IntentItem[]               @relation("IntentItemSupersession")
+  proposedSuccessorOf  IntentItem?                @relation("IntentItemReplacement", fields: [workspaceId, proposedSuccessorOfId], references: [workspaceId, id], onDelete: NoAction, onUpdate: NoAction)
+  replacementProposals IntentItem[]               @relation("IntentItemReplacement")
+  sources              IntentItemSource[]
+  anchors              IntentAnchor[]
+  transitions          IntentAuthorityTransition[]
+
+  @@id([workspaceId, id])
+  @@index([workspaceId, authority])
+  @@index([workspaceId, kind])
+  @@index([workspaceId, domainId])
+  @@index([workspaceId, featureId])
+  @@index([workspaceId, updatedAt])
+  @@map("intent_items")
+}
+
+/// Provenance rows rather than embedded JSON, so "items originating from spec
+/// X" stays a SQL query (spec §4.5).
+model IntentItemSource {
+  id          BigInt           @id @default(autoincrement())
+  workspaceId String           @map("workspace_id") @db.Uuid
+  itemId      String           @map("item_id") @db.VarChar(64)
+  kind        IntentSourceKind
+  ref         String           @db.VarChar(500)
+  localId     String           @map("local_id") @db.VarChar(200)
+  revision    String?          @db.VarChar(200)
+  locator     String?          @db.VarChar(500)
+  /// Human label of the source document, as the capturing agent read it. Not part
+  /// of the `(ref, localId)` identity: a re-titled spec is the same source.
+  title       String?          @db.VarChar(200)
+  /// Where a reader can open the source. Validated by the contract's `externalUrl`
+  /// rule (http/https, no credentials) before it ever reaches this column.
+  url         String?          @db.VarChar(2048)
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz
+
+  item IntentItem @relation(fields: [workspaceId, itemId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([workspaceId, itemId, kind, ref, localId], map: "intent_item_sources_identity_key")
+  @@index([workspaceId, kind, ref])
+  @@map("intent_item_sources")
+}
+
+/// `anchorStatus` (matched/changed/missing) is computed at read time against the
+/// current graph snapshot and is deliberately NOT a column here (spec §4.6).
+model IntentAnchor {
+  id                  BigInt   @id @default(autoincrement())
+  workspaceId         String   @map("workspace_id") @db.Uuid
+  itemId              String   @map("item_id") @db.VarChar(64)
+  repoKey             String   @map("repo_key") @db.VarChar(200)
+  nodeId              String   @map("node_id") @db.VarChar(500)
+  nodeType            String   @map("node_type") @db.VarChar(64)
+  capturedVersionedId String   @map("captured_versioned_id") @db.VarChar(500)
+  rationale           String?  @db.VarChar(2000)
+  /// `manual` (a maintainer anchored it in a user session) or `ci` (written by
+  /// the bindings sync from a PR manifest). The CI sync creates, refreshes and
+  /// removes only its OWN rows; a `manual` row of the same identity is left
+  /// alone (bindings spec BR-1).
+  source              String   @default("manual") @db.VarChar(16)
+  disabledAt          DateTime? @map("disabled_at") @db.Timestamptz
+  disabledBy          String? @map("disabled_by") @db.VarChar(256)
+  createdBy           String   @map("created_by") @db.VarChar(256)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  item IntentItem @relation(fields: [workspaceId, itemId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([workspaceId, itemId, repoKey, nodeId], map: "intent_anchors_identity_key")
+  @@index([workspaceId, repoKey, nodeId])
+  @@map("intent_anchors")
+}
+
+/// Append-only decision history, readable through the API — not just an ops log.
+model IntentAuthorityTransition {
+  id             BigInt                    @id @default(autoincrement())
+  workspaceId    String                    @map("workspace_id") @db.Uuid
+  itemId         String                    @map("item_id") @db.VarChar(64)
+  /// NULL for import arrivals: an import records that an item arrived already
+  /// accepted, it does not fabricate a decision that never happened.
+  fromAuthority  IntentItemAuthority?      @map("from_authority")
+  toAuthority    IntentItemAuthority       @map("to_authority")
+  /// ALWAYS derived from the auth token, never from the request payload.
+  actorId        String                    @map("actor_id") @db.VarChar(256)
+  actorRole      String                    @map("actor_role") @db.VarChar(32)
+  reason         String                    @db.VarChar(2000)
+  sourceKind     IntentAuthoritySourceKind @map("source_kind")
+  sourceRef      String                    @map("source_ref") @db.VarChar(500)
+  sourceLocalId  String?                   @map("source_local_id") @db.VarChar(200)
+  sourceRevision String?                   @map("source_revision") @db.VarChar(200)
+  workItem       Json?                     @map("work_item") @db.JsonB
+  createdAt      DateTime                  @default(now()) @map("created_at") @db.Timestamptz
+
+  item IntentItem @relation(fields: [workspaceId, itemId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([workspaceId, itemId, createdAt], map: "intent_authority_transitions_item_recency_idx")
+  @@index([workspaceId, createdAt])
+  @@map("intent_authority_transitions")
+}
+
+/// Workspace-scoped generic trail for tree CRUD and non-authority edits.
+/// Authority changes are recorded in IntentAuthorityTransition instead.
+model IntentAuditEvent {
+  id          String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String                @map("workspace_id") @db.Uuid
+  entityKind  IntentAuditEntityKind @map("entity_kind")
+  entityId    String                @map("entity_id") @db.VarChar(200)
+  operation   String                @db.VarChar(32)
+  actorId     String                @map("actor_id") @db.VarChar(256)
+  actorRole   String                @map("actor_role") @db.VarChar(32)
+  /// Bounded before/after projections — never a full row dump.
+  before      Json?                 @db.JsonB
+  after       Json?                 @db.JsonB
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, entityKind, entityId, createdAt], map: "intent_audit_events_entity_recency_idx")
+  @@map("intent_audit_events")
+}
+
+/// Idempotency ledger. A replay with the same key AND request hash returns the
+/// stored response; the same key with a different hash is an error. Retention
+/// window is 30 days, documented with migration 20260901101000; the sweep lands
+/// with the mutation-request writer.
+model IntentMutationRequest {
+  workspaceId    String   @map("workspace_id") @db.Uuid
+  idempotencyKey String   @map("idempotency_key") @db.VarChar(200)
+  operation      String   @db.VarChar(64)
+  requestHash    String   @map("request_hash") @db.Char(64)
+  response       Json     @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([workspaceId, idempotencyKey])
+  // Global date-only sweep for the retention cron: the workspace-first primary
+  // key cannot serve `WHERE created_at < cutoff` across all workspaces.
+  @@index([createdAt])
+  @@map("intent_mutation_requests")
+}
+
+/// Durable effectivity evidence; unlike the mutation replay cache this is never swept.
+model IntentReleaseEvent {
+  workspaceId    String   @map("workspace_id") @db.Uuid
+  seq            Int
+  kind           String   @db.VarChar(16)
+  idempotencyKey String   @map("idempotency_key") @db.VarChar(200)
+  requestHash    String   @map("request_hash") @db.VarChar(64)
+  recordedBy     String   @map("recorded_by") @db.VarChar(256)
+  recordedAt     DateTime @default(now()) @map("recorded_at") @db.Timestamptz
+  deliveredRef   String?  @map("delivered_ref") @db.VarChar(256)
+  reason         String   @db.VarChar(2000)
+  data           Json     @db.JsonB
+  response       Json     @db.JsonB
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, seq])
+  @@unique([workspaceId, idempotencyKey])
+  @@index([workspaceId, deliveredRef])
+  @@map("intent_release_events")
+}
+
+// One unfinished operation per reviewed change. JSON stores bounded declarations/results,
+// not a second graph or authority store. Both consumers are in IntentHandoffService.
+model IntentHandoff {
+  id String @id @db.Uuid
+  workspaceId String @map("workspace_id") @db.Uuid
+  repoKey String @map("repo_key") @db.VarChar(200)
+  version Int @default(1)
+  headSha String @map("head_sha") @db.VarChar(40)
+  prNumber Int? @map("pr_number")
+  payload Json
+  mappingState String @default("pending") @map("mapping_state") @db.VarChar(32)
+  deliveryState String @default("pending") @map("delivery_state") @db.VarChar(32)
+  mappingReason String? @map("mapping_reason") @db.VarChar(200)
+  deliveryReason String? @map("delivery_reason") @db.VarChar(200)
+  results Json @default("[]")
+  mergeCommit String? @map("merge_commit") @db.VarChar(40)
+  prObservedAt DateTime? @map("pr_observed_at") @db.Timestamptz
+  mergedAt DateTime? @map("merged_at") @db.Timestamptz
+  nextAttemptAt DateTime? @default(now()) @map("next_attempt_at") @db.Timestamptz
+  /// Post-merge automatic retries (BR-6); bounded by the processor, reset on a session re-save.
+  deliveryAttempts Int @default(0) @map("delivery_attempts")
+  mappingAttempts Int @default(0) @map("mapping_attempts")
+  /// The deploy that last attempted this delivery: a retry of THAT deploy re-attempts its own failures only.
+  deliveryDeployId String? @map("delivery_deploy_id")
+  createdBy String @map("created_by")
+  updatedBy String @map("updated_by")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  @@index([nextAttemptAt])
+  @@unique([workspaceId, repoKey, prNumber])
+  @@map("intent_handoffs")
+}

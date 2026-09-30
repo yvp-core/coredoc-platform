@@ -1,0 +1,67 @@
+name: Desktop CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - 'packages/**'
+      # The desktop build vendors these repo-root folders into the runtime
+      # bundle (copy-runtime-bundles.mjs → authoring-kit) and the packages'
+      # build-env codegen (gen-build-env.mjs → scripts/load-root-env.mjs), so
+      # changes here can change the packaged app / smoke result.
+      - 'skills/**'
+      - 'scripts/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
+      - 'turbo.json'
+      - '.github/workflows/desktop-ci.yml'
+
+jobs:
+  ci:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache turbo build
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            turbo-${{ runner.os }}-
+
+      - name: Build all packages (including desktop)
+        run: pnpm build
+        env:
+          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+          COREDOC_SERVER_URL: ${{ vars.COREDOC_SERVER_URL }}
+
+      - name: Lint & format (Biome)
+        run: pnpm check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Desktop tests
+        run: pnpm --filter @coredoc/desktop test
+
+      - name: Smoke test
+        run: pnpm --filter @coredoc/desktop smoke

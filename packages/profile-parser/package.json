@@ -1,0 +1,91 @@
+{
+  "name": "@coredoc/profile-parser",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "description": "Profile-driven extraction engine: a generic engine that interprets a declarative ExtractionProfile over a tree-sitter+SCIP substrate",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    "./csharp": {
+      "types": "./dist/substrate/csharp/desktop.d.ts",
+      "import": "./dist/substrate/csharp/desktop.js"
+    },
+    "./csharp-tools": {
+      "types": "./dist/substrate/csharp/scip-run.d.ts",
+      "import": "./dist/substrate/csharp/scip-run.js"
+    },
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./csharp-install": {
+      "types": "./dist/substrate/csharp/scip-install.d.ts",
+      "import": "./dist/substrate/csharp/scip-install.js"
+    },
+    "./ruby-install": {
+      "types": "./dist/substrate/ruby/scip-tool.d.ts",
+      "import": "./dist/substrate/ruby/scip-tool.js"
+    },
+    "./python-install": {
+      "types": "./dist/substrate/python/scip-tool.d.ts",
+      "import": "./dist/substrate/python/scip-tool.js"
+    },
+    "./optional-index": {
+      "types": "./dist/facts/scip/index-host.d.ts",
+      "import": "./dist/facts/scip/index-host.js"
+    },
+    "./ruby-tools": {
+      "types": "./dist/substrate/ruby/scip-run.d.ts",
+      "import": "./dist/substrate/ruby/scip-run.js"
+    },
+    "./python-tools": {
+      "types": "./dist/substrate/python/scip-run.d.ts",
+      "import": "./dist/substrate/python/scip-run.js"
+    },
+    "./rust-tools": {
+      "types": "./dist/substrate/rust/scip-run.d.ts",
+      "import": "./dist/substrate/rust/scip-run.js"
+    },
+    "./go-tools": {
+      "types": "./dist/substrate/go/scip-run.d.ts",
+      "import": "./dist/substrate/go/scip-run.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepack": "pnpm run clean && pnpm run build",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo *.tsbuildinfo",
+    "test": "vitest run",
+    "run": "tsx src/run.ts"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.11.0",
+    "@coredoc/core": "workspace:*",
+    "@cursorless/tree-sitter-wasms": "0.10.0",
+    "@scip-code/scip": "^0.8.1",
+    "@sourcegraph/scip-typescript": "0.4.0",
+    "fast-xml-parser": "^5.5.8",
+    "tree-sitter-c-sharp": "https://github.com/yvp-core/tree-sitter-c-sharp/releases/download/0.23.5-coredoc.1/tree-sitter-c-sharp-0.23.5-coredoc.1.tgz",
+    "typescript": ">=5.0.0",
+    "web-tree-sitter": "0.27.0",
+    "yaml": "^2.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.7.0",
+    "vitest": "^1.2.0"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "files": [
+    "dist",
+    "scripts"
+  ]
+}

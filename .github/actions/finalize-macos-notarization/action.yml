@@ -1,0 +1,133 @@
+name: Finalize macOS Notarization
+description: Wait for notarization to complete, verify status, and staple tickets
+
+inputs:
+  apple-id:
+    description: Apple ID email for notarytool
+    required: true
+  apple-app-specific-password:
+    description: App-specific password for notarytool
+    required: true
+  apple-team-id:
+    description: Apple Developer Team ID
+    required: true
+  arm64-notarization-id:
+    description: Notarization submission ID for arm64 build
+    required: true
+  arm64-dmg-file:
+    description: DMG filename for arm64 build
+    required: true
+  x64-notarization-id:
+    description: Notarization submission ID for x64 build
+    required: true
+  x64-dmg-file:
+    description: DMG filename for x64 build
+    required: true
+  artifacts-path:
+    description: Directory containing downloaded artifacts
+    required: true
+  timeout:
+    description: Timeout in seconds for notarization wait
+    required: false
+    default: '1200'
+
+outputs:
+  arm64-stapled:
+    description: Whether arm64 DMG was successfully stapled
+    value: ${{ steps.finalize.outputs.arm64-stapled }}
+  x64-stapled:
+    description: Whether x64 DMG was successfully stapled
+    value: ${{ steps.finalize.outputs.x64-stapled }}
+
+runs:
+  using: composite
+  steps:
+    - name: Wait, verify, and staple notarization
+      id: finalize
+      shell: bash
+      run: |
+        APPLE_ID="${{ inputs.apple-id }}"
+        APPLE_PASSWORD="${{ inputs.apple-app-specific-password }}"
+        TEAM_ID="${{ inputs.apple-team-id }}"
+        ARTIFACTS="${{ inputs.artifacts-path }}"
+        TIMEOUT="${{ inputs.timeout }}"
+
+        finalize_one() {
+          local ARCH="$1"
+          local SUBMISSION_ID="$2"
+          local DMG_FILE="$3"
+          local MAX_ATTEMPTS=3
+          local ATTEMPT=0
+
+          echo "::group::Waiting for $ARCH notarization ($SUBMISSION_ID)"
+
+          while (( ATTEMPT < MAX_ATTEMPTS )); do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS — waiting up to ${TIMEOUT}s..."
+
+            xcrun notarytool wait "$SUBMISSION_ID" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_PASSWORD" \
+              --team-id "$TEAM_ID" \
+              --timeout "$TIMEOUT" || true
+
+            STATUS=$(xcrun notarytool info "$SUBMISSION_ID" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_PASSWORD" \
+              --team-id "$TEAM_ID" \
+              --output-format json | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+
+            echo "Notarization status for $ARCH: $STATUS"
+
+            if [[ "$STATUS" == "Accepted" ]]; then
+              break
+            fi
+
+            if [[ "$STATUS" == "In Progress" && ATTEMPT -lt MAX_ATTEMPTS ]]; then
+              echo "::warning::Still in progress, retrying wait..."
+              continue
+            fi
+
+            echo "::error::Notarization failed for $ARCH (status: $STATUS)"
+            echo "Fetching notarization log..."
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_PASSWORD" \
+              --team-id "$TEAM_ID" || true
+            echo "::endgroup::"
+            return 1
+          done
+
+          DMG_PATH=$(find "$ARTIFACTS" -name "$DMG_FILE" | head -1)
+          if [[ -z "$DMG_PATH" ]]; then
+            echo "::error::DMG not found: $DMG_FILE in $ARTIFACTS"
+            echo "::endgroup::"
+            return 1
+          fi
+
+          echo "Stapling ticket to $DMG_PATH..."
+          xcrun stapler staple "$DMG_PATH"
+          echo "::endgroup::"
+          return 0
+        }
+
+        ARM64_OK=false
+        X64_OK=false
+
+        if finalize_one "arm64" "${{ inputs.arm64-notarization-id }}" "${{ inputs.arm64-dmg-file }}"; then
+          ARM64_OK=true
+        fi
+
+        if finalize_one "x64" "${{ inputs.x64-notarization-id }}" "${{ inputs.x64-dmg-file }}"; then
+          X64_OK=true
+        fi
+
+        echo "arm64-stapled=$ARM64_OK" >> "$GITHUB_OUTPUT"
+        echo "x64-stapled=$X64_OK" >> "$GITHUB_OUTPUT"
+
+        if [[ "$ARM64_OK" != "true" || "$X64_OK" != "true" ]]; then
+          echo "::error::One or more notarizations failed"
+          exit 1
+        fi
+
+        echo "Both architectures notarized and stapled successfully"

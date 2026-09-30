@@ -1,0 +1,72 @@
+[
+  {
+    "file": "Data.cs",
+    "start": 241,
+    "end": 242,
+    "type": "Microsoft.EntityFrameworkCore.ModelBuilder",
+    "typeArguments": []
+  },
+  {
+    "file": "Data.cs",
+    "start": 241,
+    "end": 257,
+    "type": "Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder`1",
+    "typeArguments": ["Example.Item"]
+  },
+  {
+    "file": "Data.cs",
+    "start": 438,
+    "end": 445,
+    "type": "Microsoft.EntityFrameworkCore.IDbContextFactory`1",
+    "typeArguments": []
+  },
+  {
+    "file": "Data.cs",
+    "start": 476,
+    "end": 483,
+    "type": null,
+    "typeArguments": []
+  },
+  {
+    "file": "Data.cs",
+    "start": 476,
+    "end": 495,
+    "type": "Microsoft.EntityFrameworkCore.DbSet`1",
+    "typeArguments": ["Example.Item"]
+  },
+  {
+    "file": "Data.cs",
+    "start": 581,
+    "end": 588,
+    "type": "Microsoft.EntityFrameworkCore.IDbContextFactory`1",
+    "typeArguments": []
+  },
+  {
+    "file": "Data.cs",
+    "start": 613,
+    "end": 620,
+    "type": null,
+    "typeArguments": []
+  },
+  {
+    "file": "Data.cs",
+    "start": 613,
+    "end": 632,
+    "type": "Microsoft.EntityFrameworkCore.DbSet`1",
+    "typeArguments": ["Example.Item"]
+  },
+  {
+    "file": "Data.cs",
+    "start": 681,
+    "end": 688,
+    "type": "Example.Fake",
+    "typeArguments": []
+  },
+  {
+    "file": "Data.cs",
+    "start": 681,
+    "end": 700,
+    "type": "Example.FakeSet`1",
+    "typeArguments": ["Example.Item"]
+  }
+]

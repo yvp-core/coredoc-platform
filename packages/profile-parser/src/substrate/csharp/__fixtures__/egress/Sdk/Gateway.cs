@@ -1,0 +1,1 @@
+namespace Demo; public class Gateway { public void Publish(string message) {} }

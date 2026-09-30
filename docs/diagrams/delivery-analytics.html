@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delivery Analytics Spine</title>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #12a968;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1200px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-sans);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · delivery observability</p>
+    <h1>Delivery analytics — Jira, Git and agent sessions on one spine</h1>
+
+    <svg viewBox="0 0 1000 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="delivery-spine-title delivery-spine-desc">
+      <title id="delivery-spine-title">Delivery Analytics Spine</title>
+      <desc id="delivery-spine-desc">Jira issues, GitHub pull requests, OTel agent-session telemetry and workflow capture events are normalized and fused into one canonical delivery spine, which powers the task timeline, KPI, activity and capture-health views in the desktop Observability tab.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#12a968"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- ═══ Zones ═══ -->
+      <!-- Zone: coredoc server -->
+      <rect x="288" y="64" width="424" height="352" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="304" y="68" width="288" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="448" y="77" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">COREDOC SERVER · CLOUD SAAS OR ON-PREM</text>
+
+      <!-- Zone: desktop views -->
+      <rect x="744" y="112" width="232" height="288" rx="8"
+            fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="764" y="116" width="192" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="860" y="125" fill="rgba(45,49,66,0.40)" font-size="7"
+            font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">DESKTOP · OBSERVABILITY TAB</text>
+
+      <!-- ═══ Arrows ═══ -->
+      <!-- Jira -> importers (straight) -->
+      <line x1="200" y1="128" x2="304" y2="128" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="224" y="108" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="252" y="117" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">JQL POLL</text>
+      <!-- GitHub -> importers (elbow up) -->
+      <path d="M200,216 H244 Q252,216 252,208 V160 Q252,152 260,152 H304"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <!-- Agent sessions -> ingest (straight) -->
+      <line x1="200" y1="304" x2="304" y2="304" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="234" y="284" width="36" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="252" y="293" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">OTLP</text>
+      <!-- Workflow skills -> ingest (elbow up) -->
+      <path d="M200,392 H244 Q252,392 252,384 V352 Q252,344 260,344 H304"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <!-- Importers -> spine -->
+      <path d="M480,136 H500 Q508,136 508,144 V216 Q508,224 516,224 H536"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="520" y="172" width="52" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="546" y="181" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">PROJECT</text>
+      <!-- Ingest -> spine -->
+      <path d="M480,344 H500 Q508,344 508,336 V280 Q508,272 516,272 H536"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="520" y="304" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="552" y="313" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">TASK LINKS</text>
+      <!-- Spine -> timeline view (accent serve) -->
+      <line x1="696" y1="224" x2="760" y2="224" stroke="#12a968" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <rect x="708" y="204" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="728" y="213" fill="#0d7a4c" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">REST</text>
+      <!-- Ingest -> activity view -->
+      <line x1="480" y1="348" x2="760" y2="348" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="600" y="328" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="620" y="337" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace"
+            text-anchor="middle" letter-spacing="0.06em">REST</text>
+
+      <!-- ═══ Nodes ═══ -->
+      <!-- Jira -->
+      <rect x="40" y="96" width="160" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="40" y="96" width="160" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="48" y="102" width="28" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="62" y="111" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+      <text x="120" y="134" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Jira Cloud</text>
+      <text x="120" y="150" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">issues · hourly poll</text>
+
+      <!-- GitHub -->
+      <rect x="40" y="184" width="160" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="40" y="184" width="160" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="48" y="190" width="28" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="62" y="199" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+      <text x="120" y="222" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">GitHub</text>
+      <text x="120" y="238" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">PRs · diffs · hourly poll</text>
+
+      <!-- Agent sessions -->
+      <rect x="40" y="272" width="160" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="40" y="272" width="160" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="48" y="278" width="28" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="62" y="287" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+      <text x="120" y="310" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Agent sessions</text>
+      <text x="120" y="326" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Claude Code · Codex</text>
+
+      <!-- Workflow skills -->
+      <rect x="40" y="360" width="160" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="40" y="360" width="160" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="48" y="366" width="28" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
+      <text x="62" y="375" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+      <text x="120" y="398" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Workflow skills</text>
+      <text x="120" y="414" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">runs · stages · capabilities</text>
+
+      <!-- Importers -->
+      <rect x="304" y="96" width="176" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="304" y="96" width="176" height="80" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="312" y="102" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="330" y="111" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SYNC</text>
+      <text x="392" y="132" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Importers</text>
+      <text x="392" y="148" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">normalize · project</text>
+      <text x="392" y="162" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">raw payloads 30d · cron</text>
+
+      <!-- OTLP + capture ingest -->
+      <rect x="304" y="288" width="176" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="304" y="288" width="176" height="80" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="312" y="294" width="44" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="334" y="303" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">INGEST</text>
+      <text x="392" y="324" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">OTel + capture ingest</text>
+      <text x="392" y="340" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">otel-ingest · capture.service</text>
+      <text x="392" y="354" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">content-free · idempotent</text>
+
+      <!-- Canonical spine (focal) -->
+      <rect x="536" y="200" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="536" y="200" width="160" height="96" rx="6" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <rect x="544" y="206" width="32" height="12" rx="2" fill="transparent" stroke="rgba(18,169,104,0.5)" stroke-width="0.8"/>
+      <text x="560" y="215" fill="#0d7a4c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CORE</text>
+      <text x="616" y="236" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Canonical spine</text>
+      <text x="616" y="252" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">tasks · refs · runs</text>
+      <text x="616" y="266" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">ship · rework · artifacts</text>
+      <text x="616" y="280" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">actor fusion · status map</text>
+
+      <!-- Task timeline view -->
+      <rect x="760" y="188" width="200" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="760" y="188" width="200" height="72" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="768" y="194" width="32" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="784" y="203" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VIEW</text>
+      <text x="860" y="226" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Task timeline · KPIs</text>
+      <text x="860" y="242" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">journey · ship · rework</text>
+
+      <!-- Activity view -->
+      <rect x="760" y="312" width="200" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="760" y="312" width="200" height="72" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="768" y="318" width="32" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+      <text x="784" y="327" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VIEW</text>
+      <text x="860" y="350" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Activity · health</text>
+      <text x="860" y="366" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">tokens · cost · tools · outbox</text>
+
+      <!-- Annotation -->
+      <text x="392" y="444" fill="#4f5d75" font-size="12" font-family="'Geist', sans-serif" text-anchor="middle">Content-free by construction — only structural IDs travel,</text>
+      <text x="392" y="460" fill="#4f5d75" font-size="12" font-family="'Geist', sans-serif" text-anchor="middle">never code, prompts or diffs.</text>
+
+      <!-- ═══ Legend ═══ -->
+      <line x1="32" y1="480" x2="968" y2="480" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="500" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <rect x="112" y="490" width="16" height="12" rx="2" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <text x="136" y="500" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">CANONICAL SPINE · ONE SOURCE OF TRUTH</text>
+
+      <line x1="400" y1="496" x2="440" y2="496" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="448" y="500" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">INGEST · FUSE</text>
+
+      <line x1="576" y1="496" x2="616" y2="496" stroke="#12a968" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <text x="624" y="500" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">SERVED TO TEAM VIEWS</text>
+    </svg>
+  </div>
+</body>
+</html>

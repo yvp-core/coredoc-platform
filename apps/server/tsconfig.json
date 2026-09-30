@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    // Only for src/modules/license/license-format.mjs: the license signer
+    // (scripts/license-tool.mjs, run by `node` with no build) and the server
+    // verifier must share one canonicalization implementation, so that file is
+    // plain JS with JSDoc types and tsc emits it into dist/ alongside the rest.
+    "allowJs": true,
+    "isolatedModules": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.test-support.ts"],
+  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/db" }, { "path": "../../packages/mcp" }]
+}

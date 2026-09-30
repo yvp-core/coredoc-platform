@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Target SDLC Loop</title>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #12a968;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1100px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-sans);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 840px; display: block; }
+    .coda {
+      font-family: var(--font-sans);
+      font-size: 0.9rem;
+      color: var(--color-muted);
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Process · target SDLC</p>
+    <h1>Planned SDLC — one spec travels from PRD to merge</h1>
+
+    <svg viewBox="0 0 840 436" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="sdlc-loop-title sdlc-loop-desc">
+      <title id="sdlc-loop-title">Target SDLC Loop</title>
+      <desc id="sdlc-loop-desc">Product writes a PRD with Coredoc MCP context, dev turns it into a spec and implementation, QA validates acceptance criteria with a browser-use agent, CI reviews the pull request against the spec, and merge re-extracts the code graph and intent overlay.</desc>
+      <defs>
+        <pattern id="sdlc-dots" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="11" cy="11" r="0.8" fill="rgba(45,49,66,0.10)"/>
+        </pattern>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#12a968"/></marker>
+        <marker id="arrow-sm" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto"><polygon points="0 0, 6 2.5, 0 5" fill="#4f5d75"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+      <rect width="100%" height="100%" fill="url(#sdlc-dots)" opacity="0.55"/>
+
+      <!-- Lane tints (lanes 0 and 2) -->
+      <rect x="140" y="36" width="700" height="80" fill="rgba(45,49,66,0.018)"/>
+      <rect x="140" y="196" width="700" height="80" fill="rgba(45,49,66,0.018)"/>
+
+      <!-- Lane dividers -->
+      <line x1="0" y1="36" x2="840" y2="36" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="116" x2="840" y2="116" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="196" x2="840" y2="196" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="276" x2="840" y2="276" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="356" x2="840" y2="356" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <!-- Label column border -->
+      <line x1="140" y1="36" x2="140" y2="356" stroke="rgba(45,49,66,0.20)" stroke-width="1"/>
+
+      <!-- Step header chips -->
+      <rect x="190" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="198" y="19" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">1</text>
+      <text x="198" y="32" fill="#4f5d75" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em" font-weight="500">PRD</text>
+
+      <rect x="302" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="310" y="19" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">2</text>
+      <text x="310" y="32" fill="#4f5d75" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em" font-weight="500">SPEC</text>
+
+      <rect x="414" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="422" y="19" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">3</text>
+      <text x="422" y="32" fill="#4f5d75" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em" font-weight="500">BUILD</text>
+
+      <rect x="526" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="534" y="19" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">4</text>
+      <text x="534" y="32" fill="#4f5d75" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em" font-weight="500">VALIDATE</text>
+
+      <rect x="638" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="646" y="19" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">5</text>
+      <text x="646" y="32" fill="#4f5d75" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em" font-weight="500">REVIEW</text>
+
+      <rect x="750" y="8" width="16" height="16" rx="8" fill="rgba(18,169,104,0.20)"/>
+      <text x="758" y="19" fill="#0d7a4c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">6</text>
+      <text x="758" y="32" fill="#0d7a4c" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em" font-weight="500">MERGE</text>
+
+      <!-- Lane labels -->
+      <text x="70" y="80" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PRODUCT</text>
+      <text x="70" y="160" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">DEV</text>
+      <text x="70" y="240" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">QA</text>
+      <text x="70" y="320" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CI/CD</text>
+
+      <!-- ═══ Connectors (before nodes) ═══ -->
+      <!-- PRD -> Spec+plan (down) -->
+      <path d="M248,76 H302 Q310,76 310,84 V124" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- Spec+plan -> Implement (same lane) -->
+      <line x1="360" y1="156" x2="372" y2="156" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- Implement -> QA (down) -->
+      <path d="M472,156 H526 Q534,156 534,164 V204" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- QA -> PR review (down) -->
+      <path d="M584,236 H638 Q646,236 646,244 V284" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- PR review -> Merge (same lane, focal-in) -->
+      <line x1="696" y1="316" x2="708" y2="316" stroke="#12a968" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+
+      <!-- ═══ Nodes ═══ -->
+      <!-- PRODUCT / step 1: PRD authoring -->
+      <rect x="148" y="44" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="152" y="48" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="159" y="56" fill="#2d3142" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">PRD</text>
+      <text x="198" y="70" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">PRD authoring</text>
+      <text x="198" y="84" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">idea → PRD</text>
+      <text x="198" y="96" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">Coredoc MCP · intent ctx</text>
+      <rect x="232" y="98" width="16" height="8" rx="2" fill="#9c6b50"/>
+      <text x="240" y="104" fill="#ffffff" font-size="5" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="700">FL</text>
+
+      <!-- DEV / step 2: Spec + plan -->
+      <rect x="260" y="124" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="264" y="128" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="271" y="136" fill="#2d3142" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">DEV</text>
+      <text x="310" y="150" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Spec + plan</text>
+      <text x="310" y="164" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">PRD → spec.md</text>
+      <text x="310" y="176" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">coredoc-workflows</text>
+      <rect x="264" y="178" width="16" height="8" rx="2" fill="#9c6b50"/>
+      <text x="272" y="184" fill="#ffffff" font-size="5" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="700">FL</text>
+      <rect x="340" y="178" width="16" height="8" rx="2" fill="#9c6b50"/>
+      <text x="348" y="184" fill="#ffffff" font-size="5" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="700">FL</text>
+
+      <!-- DEV / step 3: Implement -->
+      <rect x="372" y="124" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="376" y="128" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="383" y="136" fill="#2d3142" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">DEV</text>
+      <text x="422" y="150" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Implement</text>
+      <text x="422" y="164" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">spec → code + tests</text>
+      <text x="422" y="176" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">coredoc-implement · MCP</text>
+      <rect x="376" y="178" width="16" height="8" rx="2" fill="#9c6b50"/>
+      <text x="384" y="184" fill="#ffffff" font-size="5" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="700">FL</text>
+
+      <!-- QA / step 4: QA validation -->
+      <rect x="484" y="204" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="488" y="208" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="495" y="216" fill="#2d3142" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">QA</text>
+      <text x="534" y="230" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">QA validation</text>
+      <text x="534" y="244" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">ACs → verdict</text>
+      <text x="534" y="256" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">browser agent · spec</text>
+      <rect x="488" y="258" width="16" height="8" rx="2" fill="#9c6b50"/>
+      <text x="496" y="264" fill="#ffffff" font-size="5" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="700">FL</text>
+      <rect x="564" y="258" width="16" height="8" rx="2" fill="#9c6b50"/>
+      <text x="572" y="264" fill="#ffffff" font-size="5" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="700">FL</text>
+
+      <!-- CI / step 5: PR review -->
+      <rect x="596" y="284" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="600" y="288" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="607" y="296" fill="#2d3142" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">CI</text>
+      <text x="646" y="310" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">PR review</text>
+      <text x="646" y="324" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">diff vs spec</text>
+      <text x="646" y="336" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">coredoc-review · CI</text>
+
+      <!-- CI / step 6: Merge + extract (focal) -->
+      <rect x="708" y="284" width="100" height="64" rx="4" fill="rgba(18,169,104,0.08)" stroke="#12a968" stroke-width="1"/>
+      <rect x="712" y="288" width="14" height="10" rx="2" fill="rgba(18,169,104,0.20)"/>
+      <text x="719" y="296" fill="#0d7a4c" font-size="6" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">CI</text>
+      <text x="758" y="310" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Merge + extract</text>
+      <text x="758" y="324" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">graph + intent sync</text>
+      <text x="758" y="336" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">coredoc ci run · capture</text>
+
+      <!-- ═══ Legend ═══ -->
+      <text x="144" y="376" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">STEPS</text>
+      <rect x="204" y="364" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="212" y="375" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">1</text>
+      <text x="228" y="376" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">PRD</text>
+      <rect x="284" y="364" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="292" y="375" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">2</text>
+      <text x="308" y="376" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">SPEC</text>
+      <rect x="368" y="364" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="376" y="375" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">3</text>
+      <text x="392" y="376" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">BUILD</text>
+      <rect x="456" y="364" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="464" y="375" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">4</text>
+      <text x="480" y="376" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">VALIDATE</text>
+      <rect x="560" y="364" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="568" y="375" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">5</text>
+      <text x="584" y="376" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">REVIEW</text>
+      <rect x="656" y="364" width="16" height="16" rx="8" fill="rgba(18,169,104,0.20)"/>
+      <text x="664" y="375" fill="#0d7a4c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">6</text>
+      <text x="680" y="376" fill="#0d7a4c" font-size="7" font-family="'Geist Mono', monospace">MERGE</text>
+
+      <text x="144" y="397" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">DATA TYPE</text>
+      <rect x="224" y="389" width="16" height="8" rx="2" fill="#9c6b50"/>
+      <text x="232" y="395" fill="#ffffff" font-size="5" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="700">FL</text>
+      <text x="248" y="397" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">PRD · SPEC · REPORT</text>
+      <text x="404" y="397" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace">left chip = input · right chip = output</text>
+
+      <text x="144" y="419" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">FLOW</text>
+      <line x1="224" y1="416" x2="264" y2="416" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <text x="272" y="419" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">HANDOFF</text>
+      <line x1="344" y1="416" x2="384" y2="416" stroke="#12a968" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <text x="392" y="419" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">INTO MERGE · FOCAL</text>
+    </svg>
+
+    <p class="coda">After merge, CI re-extracts the code graph and intent overlay — the next PRD starts from fresh, grounded context. The loop closes.</p>
+  </div>
+</body>
+</html>

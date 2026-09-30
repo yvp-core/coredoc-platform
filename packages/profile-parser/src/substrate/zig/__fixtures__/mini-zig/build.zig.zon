@@ -1,0 +1,4 @@
+.{
+    .name = "mini_zig",
+    .version = "0.0.0",
+}

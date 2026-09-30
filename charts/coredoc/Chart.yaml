@@ -1,0 +1,24 @@
+apiVersion: v2
+name: coredoc
+description: >-
+  Coredoc self-hosted server — AI-powered codebase analysis platform.
+  Deploys the Coredoc API (NestJS), wires an in-cluster Neo4j graph
+  (data plane), and connects to an external Postgres (control plane)
+  and any S3-compatible object store (artifacts).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - coredoc
+  - code-analysis
+  - mcp
+sources:
+  - https://github.com/yvp-core/coredoc
+dependencies:
+  # Upstream Neo4j community chart (https://neo4j.com/docs/operations-manual/current/kubernetes/).
+  # 2026.5.0 is the version proven in production with the values block in
+  # values.yaml (community edition, APOC + graph-data-science, 4G heap).
+  - name: neo4j
+    version: 2026.5.0
+    repository: https://helm.neo4j.com/neo4j
+    condition: neo4j.enabled

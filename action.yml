@@ -1,0 +1,293 @@
+name: 'Coredoc Parse & Push'
+description: 'Parse a codebase and push its code graph to a Coredoc workspace'
+branding:
+  icon: 'upload-cloud'
+  color: 'blue'
+
+# Two delivery channels, picked by the `image` input:
+#   - bundle mode (default, cloud):   downloads the CLI from your Coredoc server,
+#     authenticated with the same `token` you already pass. No registry, no extra
+#     credential. Needs node, curl, jq and tar on the runner.
+#   - image mode (on-prem):           set `image` to run the CLI from a Docker
+#     image instead. The runner must already be authenticated to pull it — the
+#     same pull credential that gets you the server image and Helm chart.
+
+# Prerequisites in the calling workflow, before this step:
+#   1. actions/checkout the repo to parse
+#   2. install its dependencies (e.g. `npm ci` / `pnpm install`) — the SCIP tier
+#      (scip-typescript) needs the target repo's node_modules for type resolution
+#   3. bundle mode only: actions/setup-node (Node 22+)
+inputs:
+  repo-name:
+    description: 'Repository name in the Coredoc workspace'
+    required: true
+  workspace-id:
+    description: 'Coredoc workspace ID'
+    required: true
+  token:
+    description: 'Coredoc service token (cdt_...) with permissions: parser:read, result:write, result:read, repo:push; intent:release for deployment recording'
+    required: true
+  image:
+    description: 'Optional. Run the CLI from this Docker image (e.g. ghcr.io/yvp-core/coredoc-cli:latest) instead of downloading the bundle; the runner must be authenticated to pull it. Leave unset for the bundle channel.'
+    required: false
+    default: ''
+  cli-version:
+    description: 'Bundle mode only. CLI bundle version: latest (default), v<semver>, or main-<sha>.'
+    required: false
+    default: 'latest'
+  install-csharp-tools:
+    # Retained for workflows written before the multi-language install-tools input.
+    description: 'Bundle channel only. Explicitly download the pinned C# indexer to the Coredoc tool cache. The runner must provide .NET SDK 10 and Linux bubblewrap. Default false; unavailable enhanced analysis falls back unless the profile requires it.'
+    required: false
+    default: 'false'
+  server-url:
+    description: 'Coredoc server URL (default: the Coredoc cloud API; set your own host for on-prem deployments)'
+    required: false
+    default: 'https://api.coredoc.ai'
+  install-tools:
+    description: 'Bundle channel only. Space-separated optional indexers to install explicitly: csharp ruby python. Go and Rust use runner-provided SDKs and indexers. Installs run sequentially before the single monorepo parse; missing tools follow the profile fallback policy.'
+    required: false
+    default: ''
+  dry-run:
+    description: 'Parse but do not push (for testing)'
+    required: false
+    default: 'false'
+  llm-api-key:
+    description: 'API key for LLM summarization (OpenRouter, OpenAI, or custom provider). If not provided, summarization is skipped.'
+    required: false
+  llm-provider:
+    description: 'LLM provider: openrouter (default), openai, anthropic, or a custom OpenAI-compatible URL'
+    required: false
+    default: 'openrouter'
+  llm-model:
+    description: 'Model for summarization (default: anthropic/claude-haiku-4-5-20251001)'
+    required: false
+    default: 'anthropic/claude-haiku-4-5-20251001'
+  push-timeout:
+    description: 'Minutes to wait for the server-side push job to finish before the step fails (the push itself keeps running server-side on timeout).'
+    required: false
+    default: '15'
+  profile-path:
+    description: 'Optional. Repository-relative path to a checked-in profile.ts. CI validates and runs it without a pre-published workspace parser. Leave empty to fetch the workspace parser.'
+    required: false
+    default: ''
+  intent-release:
+    description: 'Record an intent release after a successful production deploy using the same CI token. Requires actions: read on GITHUB_TOKEN. Leave false for graph-only or merge-mode jobs.'
+    required: false
+    default: 'false'
+  intent-repo-key:
+    description: 'Optional. The repo key the release is recorded against — `repos[].key` from coredoc.config.json, which differs from `repo-name` only when that entry sets an explicit `key`. Defaults to repo-name.'
+    required: false
+    default: ''
+  deploy-ref:
+    description: 'Optional. The ref that was actually deployed (tag or sha). Defaults to github.sha, which is only correct when this workflow runs ON the deployed commit — a workflow on main that deploys an older tag must pass that tag here.'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    # -------------------------------------------------------------------------
+    # Bundle mode — download + run in one step so the artifact paths stay local
+    # (a composite action would otherwise have to hand them over via GITHUB_ENV).
+    # -------------------------------------------------------------------------
+    - name: Run Coredoc CI (bundle)
+      if: inputs.image == ''
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        for TOOL in node curl jq tar; do
+          command -v "$TOOL" >/dev/null 2>&1 || {
+            echo "::error::'${TOOL}' is required for bundle mode. Add actions/setup-node for node, or pass the 'image' input to run the CLI from a Docker image instead."
+            exit 1
+          }
+        done
+
+        sha256_of() {
+          if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+          else shasum -a 256 "$1" | cut -d' ' -f1; fi
+        }
+
+        # Explicit failure branch: `set -e` would otherwise abort on curl's exit
+        # code alone, and "process exited 22" tells the caller nothing.
+        RESPONSE=$(curl -fsSL "${COREDOC_SERVER_URL}/api/v1/cli/bundle?v=${COREDOC_CLI_BUNDLE_VERSION}" \
+          -H "Authorization: Bearer ${COREDOC_TOKEN}") || {
+          echo "::error::Could not reach ${COREDOC_SERVER_URL}/api/v1/cli/bundle. Check the token (needs a valid cdt_ service token), the server-url, and that cli-version '${COREDOC_CLI_BUNDLE_VERSION}' was published."
+          exit 1
+        }
+        URL=$(echo "$RESPONSE" | jq -r '.url')
+        RT_URL=$(echo "$RESPONSE" | jq -r '.runtimeModulesUrl')
+        EXPECTED_SHA=$(echo "$RESPONSE" | jq -r '.sha256')
+        RESOLVED=$(echo "$RESPONSE" | jq -r '.version // empty')
+        if [ "$URL" = "null" ] || [ -z "$URL" ]; then
+          echo "::error::Failed to get CLI bundle download URL. Check the token, server URL, and that cli-version '${COREDOC_CLI_BUNDLE_VERSION}' exists."
+          exit 1
+        fi
+
+        curl -fsSL "$URL" -o "${RUNNER_TEMP}/coredoc-cli.mjs"
+        ACTUAL_SHA=$(sha256_of "${RUNNER_TEMP}/coredoc-cli.mjs")
+        if [ "$EXPECTED_SHA" != "null" ] && [ -n "$EXPECTED_SHA" ] && [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+          echo "::error::CLI bundle SHA-256 mismatch (expected: ${EXPECTED_SHA:0:16}..., got: ${ACTUAL_SHA:0:16}...)"
+          exit 1
+        fi
+        echo "Downloaded Coredoc CLI ${RESOLVED:-$COREDOC_CLI_BUNDLE_VERSION} ($(du -h "${RUNNER_TEMP}/coredoc-cli.mjs" | cut -f1))"
+
+        # Report the CONCRETE version the server resolved, not the request
+        # ("latest") — packages/core/src/telemetry reads this exact variable.
+        export COREDOC_CLI_VERSION="${RESOLVED:-unknown}"
+
+        # TypeScript's indexer ships in the sidecar. Other downloads are explicit.
+
+        if [ "$RT_URL" != "null" ] && [ -n "$RT_URL" ]; then
+          EXPECTED_RT_SHA=$(echo "$RESPONSE" | jq -r '.runtimeSha256 // empty')
+          curl -fsSL "$RT_URL" -o "${RUNNER_TEMP}/runtime-modules.tar.gz"
+          if [ -n "$EXPECTED_RT_SHA" ]; then
+            ACTUAL_RT_SHA=$(sha256_of "${RUNNER_TEMP}/runtime-modules.tar.gz")
+            if [ "$ACTUAL_RT_SHA" != "$EXPECTED_RT_SHA" ]; then
+              echo "::error::Runtime modules SHA-256 mismatch (expected: ${EXPECTED_RT_SHA:0:16}..., got: ${ACTUAL_RT_SHA:0:16}...)"
+              exit 1
+            fi
+          fi
+          tar -xzf "${RUNNER_TEMP}/runtime-modules.tar.gz" -C "${RUNNER_TEMP}"
+          export COREDOC_RUNTIME_MODULES="${RUNNER_TEMP}/runtime-modules/node_modules"
+          export NODE_PATH="${RUNNER_TEMP}/runtime-modules/node_modules"
+        fi
+
+        TOOLS="$COREDOC_INSTALL_TOOLS"
+        if [ "$COREDOC_INSTALL_CSHARP_TOOLS" = "true" ]; then TOOLS="$TOOLS csharp"; fi
+        for TOOL in $TOOLS; do
+          case "$TOOL" in csharp|ruby|python) ;; *) echo "::error::Unknown install-tools entry: $TOOL"; exit 1 ;; esac
+          if ! node "${RUNNER_TEMP}/coredoc-cli.mjs" tools install "$TOOL"; then
+            echo "::warning::$TOOL indexer setup failed. Parsing will follow the profile's fallback policy."
+          fi
+        done
+
+        node "${RUNNER_TEMP}/coredoc-cli.mjs" ci run -r "${COREDOC_REPO_NAME}" --push-timeout "${COREDOC_PUSH_TIMEOUT}" ${DRY_RUN_ARG}
+      env:
+        COREDOC_PUSH_TIMEOUT: ${{ inputs.push-timeout }}
+        COREDOC_CLI_BUNDLE_VERSION: ${{ inputs.cli-version }}
+        COREDOC_INSTALL_CSHARP_TOOLS: ${{ inputs.install-csharp-tools }}
+        COREDOC_INSTALL_TOOLS: ${{ inputs.install-tools }}
+        COREDOC_REPO_NAME: ${{ inputs.repo-name }}
+        COREDOC_TOKEN: ${{ inputs.token }}
+        COREDOC_PROFILE_PATH: ${{ inputs.profile-path }}
+        COREDOC_WORKSPACE_ID: ${{ inputs.workspace-id }}
+        COREDOC_SERVER_URL: ${{ inputs.server-url }}
+        COREDOC_LLM_API_KEY: ${{ inputs.llm-api-key }}
+        COREDOC_LLM_PROVIDER: ${{ inputs.llm-provider }}
+        COREDOC_LLM_MODEL: ${{ inputs.llm-model }}
+        DRY_RUN_ARG: ${{ inputs.dry-run == 'true' && '--dry-run' || '' }}
+
+    # -------------------------------------------------------------------------
+    # Image mode — on-prem, where the registry pull credential is already wired.
+    # -------------------------------------------------------------------------
+    - name: Run Coredoc CI (Docker image)
+      if: inputs.image != ''
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "Coredoc: the official Alpine image provides C# basic analysis. Use the bundle channel with .NET SDK 10 and bubblewrap for C# enhanced analysis."
+        docker run --rm \
+          -v "${GITHUB_WORKSPACE}:/workspace" -w /workspace \
+          -e COREDOC_TOKEN -e COREDOC_WORKSPACE_ID -e COREDOC_SERVER_URL \
+          -e COREDOC_LLM_API_KEY -e COREDOC_LLM_PROVIDER -e COREDOC_LLM_MODEL \
+          -e COREDOC_PROFILE_PATH -e COREDOC_SCIP_MAX_OLD_SPACE_MB \
+          -e GITHUB_HEAD_REF -e GITHUB_REF_NAME -e GITHUB_REF -e GITHUB_SHA -e GITHUB_EVENT_NAME \
+          "${COREDOC_CLI_IMAGE}" \
+          ci run -r "${COREDOC_REPO_NAME}" --push-timeout "${COREDOC_PUSH_TIMEOUT}" ${DRY_RUN_ARG}
+      env:
+        COREDOC_PUSH_TIMEOUT: ${{ inputs.push-timeout }}
+        COREDOC_CLI_IMAGE: ${{ inputs.image }}
+        COREDOC_REPO_NAME: ${{ inputs.repo-name }}
+        COREDOC_TOKEN: ${{ inputs.token }}
+        COREDOC_PROFILE_PATH: ${{ inputs.profile-path }}
+        COREDOC_WORKSPACE_ID: ${{ inputs.workspace-id }}
+        COREDOC_SERVER_URL: ${{ inputs.server-url }}
+        COREDOC_LLM_API_KEY: ${{ inputs.llm-api-key }}
+        COREDOC_LLM_PROVIDER: ${{ inputs.llm-provider }}
+        COREDOC_LLM_MODEL: ${{ inputs.llm-model }}
+        DRY_RUN_ARG: ${{ inputs.dry-run == 'true' && '--dry-run' || '' }}
+
+    # -------------------------------------------------------------------------
+    # Product-intent release — OPTIONAL, and nothing to do with parse+push.
+    #
+    # Use this action AFTER your production deploy job: this step asserts "this
+    # ref is live", a fact only the deploy knows. It is skipped entirely unless
+    # `intent-release: true` is set; dry runs never record delivery.
+    #
+    # The deployment identity comes from the RUN (`run_id` / attempt 1's
+    # `run_started_at`), never from this step's clock: a re-run carries the same pair,
+    # replays the same idempotency key on the server, and cannot leapfrog a
+    # release recorded in between.
+    # -------------------------------------------------------------------------
+    - name: Record Coredoc intent release
+      if: inputs.intent-release == 'true' && inputs.dry-run != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # Non-fatal on purpose: `set -e` + `curl -f` inside a command
+        # substitution would kill the step before the explicit `::error::`
+        # branches below, and a 403 from the default restricted GITHUB_TOKEN is
+        # exactly the case that needs a readable message.
+        gh_api() {
+          curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/$1" || true
+        }
+
+        PERMS_HINT="The workflow's GITHUB_TOKEN needs 'actions: read' (permissions: block)."
+
+        REF="${COREDOC_DEPLOY_REF}"
+        if [ -z "$REF" ]; then
+          # Correct ONLY when this workflow runs on the deployed commit. A
+          # workflow on main that deploys an older tag must pass `deploy-ref`.
+          REF="${GITHUB_SHA}"
+          echo "deploy-ref not set; using github.sha (${GITHUB_SHA}) as the deployed ref."
+        fi
+
+        # The checkout first (a tag fetched locally resolves offline), the API
+        # second (the ref may not be in this checkout's refspec at all).
+        SHA=$(git rev-parse --verify --quiet "${REF}^{commit}" || true)
+        if [ -z "$SHA" ]; then
+          SHA=$(gh_api "commits/${REF}" | jq -r '.sha // empty')
+        fi
+        if [ -z "$SHA" ]; then
+          echo "::error::Could not resolve deploy ref '${REF}' to a commit, locally or through the commits API. Nothing was recorded."
+          exit 1
+        fi
+
+        # Attempt 1's start time, not this attempt's: GitHub reports a distinct
+        # `run_started_at` per attempt, so reading the run object would mint a
+        # newer ordering token (and a different body) on every re-run.
+        DEPLOYED_AT=$(gh_api "actions/runs/${GITHUB_RUN_ID}/attempts/1" | jq -r '.run_started_at // empty')
+        if [ -z "$DEPLOYED_AT" ]; then
+          echo "::error::Could not read run_started_at for attempt 1 of run ${GITHUB_RUN_ID}. ${PERMS_HINT} Nothing was recorded."
+          exit 1
+        fi
+
+        if [ -f "${RUNNER_TEMP}/coredoc-cli.mjs" ]; then
+          node "${RUNNER_TEMP}/coredoc-cli.mjs" intent release \
+            --workspace-id "${COREDOC_WORKSPACE_ID}" --repo "${COREDOC_INTENT_REPO_KEY}" --ref "${SHA}" \
+            --deploy-id "${GITHUB_RUN_ID}" --deployed-at "${DEPLOYED_AT}"
+        else
+          docker run --rm \
+            -v "${RUNNER_TEMP}:/runner-temp" \
+            -e COREDOC_TOKEN -e COREDOC_SERVER_URL \
+            "${COREDOC_CLI_IMAGE}" \
+            intent release \
+            --workspace-id "${COREDOC_WORKSPACE_ID}" --repo "${COREDOC_INTENT_REPO_KEY}" --ref "${SHA}" \
+            --deploy-id "${GITHUB_RUN_ID}" --deployed-at "${DEPLOYED_AT}"
+        fi
+      env:
+        COREDOC_DEPLOY_REF: ${{ inputs.deploy-ref }}
+        COREDOC_CLI_IMAGE: ${{ inputs.image }}
+        # The workspace repo KEY (`repos[].key ?? repos[].name`), which is what
+        # the server matches, not the display name.
+        COREDOC_INTENT_REPO_KEY: ${{ inputs.intent-repo-key != '' && inputs.intent-repo-key || inputs.repo-name }}
+        # One CI credential covers graph publishing and deployment releases.
+        # The step opt-in controls execution; API access is gated by permission and repo mode.
+        COREDOC_TOKEN: ${{ inputs.token }}
+        COREDOC_WORKSPACE_ID: ${{ inputs.workspace-id }}
+        COREDOC_SERVER_URL: ${{ inputs.server-url }}
+        GITHUB_TOKEN: ${{ github.token }}

@@ -1,0 +1,195 @@
+{
+  "projectRoot": "file:///fixture",
+  "documents": [
+    {
+      "relativePath": "Program.cs",
+      "occurrences": [
+        {
+          "symbol": "scip-dotnet nuget . . Microsoft/",
+          "symbolRoles": 0,
+          "range": [0, 6, 15]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . AspNetCore/",
+          "symbolRoles": 0,
+          "range": [0, 16, 26]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . Builder/",
+          "symbolRoles": 0,
+          "range": [0, 27, 34]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 1,
+          "range": [1, 4, 7]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore 10.0.0.0 Builder/WebApplication#",
+          "symbolRoles": 0,
+          "range": [1, 10, 24]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore 10.0.0.0 Builder/WebApplication#CreateBuilder(+1).",
+          "symbolRoles": 0,
+          "range": [1, 25, 38]
+        },
+        {
+          "symbol": "scip-dotnet nuget . . ``/Program#`<Main>$`().(args)",
+          "symbolRoles": 0,
+          "range": [1, 39, 43]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore 10.0.0.0 Builder/WebApplicationBuilder#Build().",
+          "symbolRoles": 0,
+          "range": [1, 45, 50]
+        },
+        {
+          "symbol": "local 1",
+          "symbolRoles": 1,
+          "range": [2, 4, 7]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [2, 10, 13]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Routing 10.0.0.0 Builder/EndpointRouteBuilderExtensions#MapGroup().",
+          "symbolRoles": 0,
+          "range": [2, 14, 22]
+        },
+        {
+          "symbol": "local 2",
+          "symbolRoles": 1,
+          "range": [3, 4, 6]
+        },
+        {
+          "symbol": "local 1",
+          "symbolRoles": 0,
+          "range": [3, 9, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Routing 10.0.0.0 Builder/EndpointRouteBuilderExtensions#MapGroup().",
+          "symbolRoles": 0,
+          "range": [3, 13, 21]
+        },
+        {
+          "symbol": "local 2",
+          "symbolRoles": 0,
+          "range": [4, 0, 2]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Routing 10.0.0.0 Builder/EndpointRouteBuilderExtensions#MapGet(+1).",
+          "symbolRoles": 0,
+          "range": [4, 3, 9]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [5, 0, 3]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Routing 10.0.0.0 Builder/EndpointRouteBuilderExtensions#MapGroup().",
+          "symbolRoles": 0,
+          "range": [5, 4, 12]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Routing 10.0.0.0 Builder/EndpointRouteBuilderExtensions#MapGroup().",
+          "symbolRoles": 0,
+          "range": [5, 24, 32]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Routing 10.0.0.0 Builder/EndpointRouteBuilderExtensions#MapGet(+1).",
+          "symbolRoles": 0,
+          "range": [5, 44, 50]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [6, 0, 3]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Routing 10.0.0.0 Builder/EndpointRouteBuilderExtensions#MapGroup().",
+          "symbolRoles": 0,
+          "range": [6, 4, 12]
+        },
+        {
+          "symbol": "local 3",
+          "symbolRoles": 0,
+          "range": [6, 13, 22]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Routing 10.0.0.0 Builder/EndpointRouteBuilderExtensions#MapGet(+1).",
+          "symbolRoles": 0,
+          "range": [6, 26, 32]
+        },
+        {
+          "symbol": "local 4",
+          "symbolRoles": 1,
+          "range": [7, 4, 9]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [7, 12, 15]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Routing 10.0.0.0 Builder/EndpointRouteBuilderExtensions#MapGroup().",
+          "symbolRoles": 0,
+          "range": [7, 16, 24]
+        },
+        {
+          "symbol": "local 4",
+          "symbolRoles": 0,
+          "range": [8, 0, 5]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [8, 8, 11]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Routing 10.0.0.0 Builder/EndpointRouteBuilderExtensions#MapGroup().",
+          "symbolRoles": 0,
+          "range": [8, 12, 20]
+        },
+        {
+          "symbol": "local 4",
+          "symbolRoles": 0,
+          "range": [9, 0, 5]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore.Routing 10.0.0.0 Builder/EndpointRouteBuilderExtensions#MapGet(+1).",
+          "symbolRoles": 0,
+          "range": [9, 6, 12]
+        },
+        {
+          "symbol": "local 0",
+          "symbolRoles": 0,
+          "range": [10, 0, 3]
+        },
+        {
+          "symbol": "scip-dotnet nuget Microsoft.AspNetCore 10.0.0.0 Builder/WebApplication#Run().",
+          "symbolRoles": 0,
+          "range": [10, 4, 7]
+        },
+        {
+          "symbol": "local 3",
+          "symbolRoles": 1,
+          "range": [11, 7, 16]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 System/Environment#",
+          "symbolRoles": 0,
+          "range": [11, 22, 33]
+        },
+        {
+          "symbol": "scip-dotnet nuget System.Runtime 10.0.0.0 System/Environment#GetEnvironmentVariable().",
+          "symbolRoles": 0,
+          "range": [11, 34, 56]
+        }
+      ]
+    }
+  ]
+}

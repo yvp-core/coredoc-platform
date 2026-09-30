@@ -1,0 +1,7 @@
+{
+  "name": "widget-ordering",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Widget ordering service used as the Coredoc intent-eval fixture."
+}

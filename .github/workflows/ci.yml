@@ -1,0 +1,168 @@
+# =============================================================================
+# CI — the full-suite test gate for the monorepo.
+#
+# This is where "proven" gets established: every PR and every push to main
+# runs install + build + the full `pnpm test`, plus the server's Postgres
+# integration suites (which `pnpm test` skips without a database). The release
+# pipeline (release.yml) does NOT re-run the suite — its ci-gate job only asserts the
+# tagged commit has a green run of THIS workflow, so artifacts ship exactly
+# what was already tested here.
+#
+# No path filters, deliberately: a doc-only commit on main still needs a CI
+# run, or tagging it for release would fail the ci-gate lookup.
+#
+# workflow_dispatch is the escape hatch for commits that predate this
+# workflow (or lost their run to retention):
+#   gh workflow run ci.yml --ref <tag-or-branch>
+# =============================================================================
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# PR runs group by ref, so a new push supersedes the in-flight run for that PR.
+# Push runs group by SHA instead: GitHub queues at most ONE run per group, so a
+# third merge in quick succession silently cancels the queued second one before
+# its jobs ever start. A cancelled main run saves no turbo cache (the next run
+# then rebuilds everything) and leaves its commit without the green run that
+# release.yml's ci-gate looks up. Per-SHA groups let every merge run.
+concurrency:
+  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Turbo caches build AND test tasks by input hash: a package the PR did not
+      # touch (nor any of its dependencies) replays its last green run. PR runs
+      # restore the newest main cache; the main-push run after a merge then only
+      # re-tests what the PR changed. Tasks that read repo-root files declare
+      # them as inputs in turbo.json, or a replay would go stale.
+      - name: Cache turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            turbo-${{ runner.os }}-
+
+      - name: Plugin skills drift gate
+        # plugins/coredoc/skills is a committed mirror of skills/<name>/ —
+        # a skill authored or edited in the mirror is lost on the next sync.
+        run: |
+          pnpm sync:plugin-skills
+          # git diff --exit-code ignores untracked files, so a NEW synced file
+          # (a new reference doc or a whole new skill) that was never committed
+          # would pass the gate. Use porcelain status, which sees untracked paths.
+          if [ -n "$(git status --porcelain plugins/coredoc/skills)" ]; then
+            echo "Plugin skills mirror is out of sync with skills/ — run 'pnpm sync:plugin-skills' and commit:"
+            git status --porcelain plugins/coredoc/skills
+            git diff plugins/coredoc/skills
+            exit 1
+          fi
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        # Running every package's vitest at once saturates the 4-vCPU runner and
+        # trips hook/test timeouts (each vitest already parallelizes internally).
+        env:
+          TURBO_CONCURRENCY: 2
+        run: pnpm test
+
+  # The server's Postgres integration suites self-skip when their
+  # *_TEST_DATABASE_URL is unset, so `pnpm test` above proves nothing about
+  # them — schema, migration and Prisma-behaviour regressions land silently.
+  # This job is what makes them count. Separate from `test` (not `needs:`) so
+  # both gates report independently and run in parallel; a red job here fails
+  # the run, which is what release.yml's ci-gate asserts on.
+  #
+  # It drives apps/server/scripts/test-postgres-integration.sh unchanged —
+  # the exact command a developer runs locally (`pnpm --filter @coredoc/server
+  # test:postgres`). Deliberately NOT a `services: postgres` container: the
+  # image, credentials, tmpfs data dir, healthcheck and port are already
+  # declared once in apps/server/docker-compose.test.yml, and a services block
+  # would fork that config into YAML that drifts from local runs. ubuntu-latest
+  # ships Docker with the Compose v2 plugin, so the script needs no CI-only path.
+  server-postgres:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The affected-check below diffs against a base commit, which a
+          # depth-1 clone does not contain.
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # These suites only exercise @coredoc/server and its workspace dependency
+      # closure (@coredoc/core, db and mcp today), so a commit that touches none
+      # of them can skip the Docker spin-up. Ask turbo which packages the diff
+      # reached instead of hand-listing paths here: that list would go stale the
+      # first time the server gains or drops a dependency, and a stale list fails
+      # silently, by skipping a suite that should have run. turbo also attributes
+      # pnpm-lock.yaml edits to the packages whose resolved dependencies actually
+      # moved. No base commit (workflow_dispatch, a branch's first push) means
+      # run it.
+      - name: Is @coredoc/server affected?
+        id: affected
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "No base commit to diff against — running the suites."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          count=$(pnpm exec turbo ls --skip-infer \
+            --filter="@coredoc/server...[$BASE...HEAD]" --output=json | jq -r '.packages.count')
+          echo "Packages affected in @coredoc/server's closure since $BASE: $count"
+          if [ "$count" = "0" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # vitest transforms the server's own sources, but they import
+      # @coredoc/core|db|mcp through package exports that point at dist/.
+      - name: Build server and its dependencies
+        if: steps.affected.outputs.run == 'true'
+        run: pnpm build --filter "@coredoc/server..."
+
+      - name: Server Postgres integration suites
+        if: steps.affected.outputs.run == 'true'
+        run: pnpm --filter @coredoc/server test:postgres

@@ -1,0 +1,42 @@
+{
+  "frozenBeforeTuning": true,
+  "sourceRepo": "coredoc-workflows",
+  "sourceRevision": "c9be32f98d095d7fb92b2b09d5bbb79e394dc195",
+  "sourcePath": "benchmarks/workflow-change-baseline/fixture/",
+  "sourceHashes": {
+    "src/pricing.mjs": "43b265648cdebc594dc05a75f5f4b004ce5351df54a074abc4a52a4959bb4ddd",
+    "README.md": "048cbf2ad301479ae89e0445f4acfcd72d26050933ceb29d96aa62f0b69e28ae"
+  },
+  "classification": "Independently pre-existing synthetic benchmark from another repo, not a customer production sample",
+  "policySource": "README.md: silver: 10%",
+  "statement": "The silver membership tier receives a 10% discount.",
+  "itemId": "br-silver-membership-discount",
+  "stages": [
+    {
+      "id": "new",
+      "task": "Correct the silver membership discount from the broken value 15 back to the documented 10. Map the implemented policy to the source location. Other tiers and public functions retain their behavior.",
+      "files": [
+        "src/pricing.mjs"
+      ],
+      "expectedSymbol": "discountFor"
+    },
+    {
+      "id": "move",
+      "task": "Move the membership discount table and discountFor lookup into src/membership.mjs. Keep checkoutTotal and renewalTotal in src/pricing.mjs importing the lookup. The discount policy and public results do not change. Update only the moved implementation links using the supplied old CI anchors.",
+      "files": [
+        "src/pricing.mjs",
+        "src/membership.mjs"
+      ],
+      "expectedSymbol": "discountFor"
+    },
+    {
+      "id": "delete",
+      "task": "Remove membership-based pricing from this fixture. checkoutTotal and renewalTotal now return the subtotal unchanged; delete the membership lookup module. Record removal of implementation links for the supplied policy, without changing its authority.",
+      "files": [
+        "src/pricing.mjs"
+      ],
+      "expectedSymbol": null
+    }
+  ],
+  "limits": "Intent row is an isolated test representation of the README rule, not live approval. Assessor-only metadata is withheld from model input. Future model stages get only normal task/source/diff and prior actual CI anchors."
+}
