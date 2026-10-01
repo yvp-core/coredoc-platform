@@ -129,9 +129,9 @@ describe('WebAuthController', () => {
       expect(html).toContain('Download for Intel Mac');
     });
 
-    it('redirects downloads to the latest public R2 asset', async () => {
+    it('redirects downloads to the latest public release asset', async () => {
       latestMacDownloadUrlMock.mockResolvedValue(
-        'https://coredoc-desktop-releases.yevhen-popenko.workers.dev/Coredoc-1.1.0-arm64.dmg',
+        'https://github.com/yvp-core/coredoc-platform/releases/latest/download/Coredoc-1.1.0-arm64.dmg',
       );
       const res = mockRes();
 
@@ -139,7 +139,7 @@ describe('WebAuthController', () => {
 
       expect(latestMacDownloadUrlMock).toHaveBeenCalledWith('arm64');
       expect(res.redirect).toHaveBeenCalledWith(
-        'https://coredoc-desktop-releases.yevhen-popenko.workers.dev/Coredoc-1.1.0-arm64.dmg',
+        'https://github.com/yvp-core/coredoc-platform/releases/latest/download/Coredoc-1.1.0-arm64.dmg',
       );
     });
 

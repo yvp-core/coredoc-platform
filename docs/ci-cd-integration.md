@@ -16,7 +16,7 @@ The CLI reaches your runner through one of two channels, both shipping the tree-
 
 | Channel | Who it's for | How the download is gated |
 |---|---|---|
-| **Bundle** (default) | Coredoc cloud | Your `COREDOC_TOKEN` — the same one the action already needs. The server hands back a short-lived presigned URL, and the action verifies the published SHA-256 before running it. No registry, no second credential. |
+| **Bundle** (default) | Coredoc cloud | Nothing extra. The server resolves the bundle on the public GitHub Release, and the action verifies the published SHA-256 before running it. No registry, no second credential. |
 | **Docker image** | On-prem | Your registry pull credential — the same one that gets you the server image and Helm chart. Set the `image` input to select it. |
 
 ## Prerequisites
@@ -476,10 +476,10 @@ The engine's SCIP tier shells out to `scip-typescript`, which needs the target r
 The indexer holds the repo's whole TypeScript program in one V8 heap. The CLI gives it an 8 GB ceiling by default, so this now means the **runner** is short on real memory: give the job (or the Docker host in image mode) at least 8 GB, or lower the ceiling to what the runner actually has with `COREDOC_SCIP_MAX_OLD_SPACE_MB` (in MB; forwarded into the container in image mode). A child killed with `SIGKILL` instead of a V8 OOM is the cgroup limit, not the heap.
 
 ### "Failed to get CLI bundle download URL" (bundle mode)
-The bundle endpoint authenticates with your `COREDOC_TOKEN`, so this is usually a bad or revoked token, a `server-url` pointing somewhere that doesn't serve `/api/v1/cli/bundle`, or a `cli-version` that was never published. `latest` always resolves if any bundle exists.
+This is usually a `server-url` pointing somewhere that doesn't serve `/api/v1/cli/bundle` (it is off unless `ENABLE_CLI_BUNDLE=true`), a `cli-version` that was never published, or a server that cannot reach GitHub. `latest` always resolves if any bundle exists.
 
 ### "CLI bundle SHA-256 mismatch" (bundle mode)
-The downloaded file doesn't match the hash the server published for that version — a truncated download or a tampered object. The action refuses to run it. Re-run the job; if it persists, report the version, since it means R2 and the manifest disagree.
+The downloaded file doesn't match the hash the server published for that version — a truncated download or a tampered object. The action refuses to run it. Re-run the job; if it persists, report the version, since it means the release assets and their descriptor disagree.
 
 ### Runner can't pull the CLI image (image mode)
 `docker run` needs registry access. Use a runner already authenticated to your registry (self-hosted org runners inherit it), or add a `docker login` / `gcloud auth configure-docker` step before the action.

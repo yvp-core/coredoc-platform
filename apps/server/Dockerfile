@@ -1,10 +1,3 @@
-# STRIP_ARTIFACTS selects the dist source for the production stage (D3 source
-# protection): `true` (default) strips source maps + our own typings from
-# our packages' dist; `false` ships them as-built — that variant is published
-# as the :{version}-debug tag for support symbolication (release.yml).
-# Declared before the first FROM so it can select a stage name below.
-ARG STRIP_ARTIFACTS=true
-
 # =============================================================================
 # Stage 1: Base - Install dependencies (server-only: byte-for-byte pre-B1-2
 # semantics). The web dependency graph (vite, rollup, esbuild, react,
@@ -107,32 +100,6 @@ COPY apps/web/ ./apps/web/
 RUN pnpm --filter @coredoc/web build
 
 # =============================================================================
-# Dist selection (D3): the production stage copies dist from the `dist` alias,
-# which resolves to one of the two stages below via STRIP_ARTIFACTS. The strip
-# MUST happen in its own stage — deleting after the COPY in the production
-# stage would only add a whiteout layer and leave the bytes recoverable from
-# the image. Only OUR packages' dist is touched: node_modules third-party
-# typings and the prisma CLI + schema (migration job) are untouched.
-# =============================================================================
-
-# Pass-through: the :{version}-debug tag keeps source maps + typings as built.
-FROM build AS dist-strip-false
-
-# Strip source maps and our own packages' typings from dist. Nothing reads
-# these at runtime (no source-map consumer registered; Prisma loads its query
-# compiler from @prisma/client in node_modules, not from dist typings).
-# Also drop the now-dangling `//# sourceMappingURL=` trailers so devtools /
-# --enable-source-maps never chase maps that no longer exist.
-FROM build AS dist-strip-true
-RUN find packages/core/dist packages/db/dist packages/mcp/dist apps/server/dist \
-         -type f \( -name '*.js.map' -o -name '*.d.ts.map' -o -name '*.d.ts' \) -delete && \
-    find packages/core/dist packages/db/dist packages/mcp/dist apps/server/dist \
-         -type f -name '*.js' \
-         -exec sed -i '/^\/\/# sourceMappingURL=/d' {} +
-
-FROM dist-strip-${STRIP_ARTIFACTS} AS dist
-
-# =============================================================================
 # Stage 3: Production - Minimal runtime
 # =============================================================================
 FROM node:22-bookworm-slim AS production
@@ -150,20 +117,19 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOME=/opt/ladybug
 
-# Copy built artifacts and node_modules. dist dirs come from the `dist` alias
-# (stripped by default, see STRIP_ARTIFACTS); everything else from `build`.
+# Copy built artifacts and node_modules.
 COPY --from=build /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
 COPY --from=build /app/node_modules ./node_modules
-COPY --from=dist /app/packages/core/dist ./packages/core/dist
+COPY --from=build /app/packages/core/dist ./packages/core/dist
 COPY --from=build /app/packages/core/package.json ./packages/core/
 COPY --from=build /app/packages/core/node_modules ./packages/core/node_modules
-COPY --from=dist /app/packages/db/dist ./packages/db/dist
+COPY --from=build /app/packages/db/dist ./packages/db/dist
 COPY --from=build /app/packages/db/package.json ./packages/db/
 COPY --from=build /app/packages/db/node_modules ./packages/db/node_modules
-COPY --from=dist /app/packages/mcp/dist ./packages/mcp/dist
+COPY --from=build /app/packages/mcp/dist ./packages/mcp/dist
 COPY --from=build /app/packages/mcp/package.json ./packages/mcp/
 COPY --from=build /app/packages/mcp/node_modules ./packages/mcp/node_modules
-COPY --from=dist /app/apps/server/dist ./apps/server/dist
+COPY --from=build /app/apps/server/dist ./apps/server/dist
 COPY --from=build /app/apps/server/package.json ./apps/server/
 COPY --from=build /app/apps/server/node_modules ./apps/server/node_modules
 COPY --from=build /app/apps/server/prisma ./apps/server/prisma

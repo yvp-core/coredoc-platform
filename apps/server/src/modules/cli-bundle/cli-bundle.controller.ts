@@ -1,11 +1,11 @@
-import { BadRequestException, Controller, Get, Query, UseGuards } from '@nestjs/common';
-import { AuthGuard } from '../../auth/auth.guard.js';
+import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { CliBundleService } from './cli-bundle.service.js';
 
-const VERSION_PATTERN = /^(latest|main-[a-f0-9]{7,14}|v\d+\.\d+\.\d+(-[\w.]+)?)$/;
+const VERSION_PATTERN = /^(latest|v\d+\.\d+\.\d+(-[\w.]+)?)$/;
 
+// Public on purpose: the bundle is an asset of a public GitHub Release, so a
+// token gate here would protect nothing. Clients may still send one.
 @Controller('cli')
-@UseGuards(AuthGuard)
 export class CliBundleController {
   constructor(private readonly cliBundleService: CliBundleService) {}
 

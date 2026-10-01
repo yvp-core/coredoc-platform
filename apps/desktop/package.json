@@ -113,8 +113,9 @@
     "appId": "com.coredoc.desktop",
     "productName": "Coredoc",
     "publish": {
-      "provider": "generic",
-      "url": "https://coredoc-desktop-releases.yevhen-popenko.workers.dev"
+      "provider": "github",
+      "owner": "yvp-core",
+      "repo": "coredoc-platform"
     },
     "icon": "resources/icons/icon",
     "directories": {

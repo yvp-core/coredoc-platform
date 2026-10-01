@@ -2,11 +2,12 @@ import { parse } from 'yaml';
 import { z } from 'zod';
 import { type AuthConfig, authConfigFromEnv } from '../../config/app-config.js';
 
-// Public bucket holding the notarized desktop builds and the electron-builder
-// updater manifest. Configurable so on-prem installs can point at their own
-// mirror (or an egress-allowed host) instead of the hosted default — see
+// The latest stable GitHub Release holds the notarized desktop builds and the
+// electron-builder updater manifest (product `server-v*` releases are never
+// "latest"). Configurable so on-prem installs can point at their own mirror
+// (or an egress-allowed host) instead of the hosted default — see
 // docs/onprem/INSTALL.md §11.
-const DEFAULT_DESKTOP_RELEASES_URL = 'https://coredoc-desktop-releases.yevhen-popenko.workers.dev';
+const DEFAULT_DESKTOP_RELEASES_URL = 'https://github.com/yvp-core/coredoc-platform/releases/latest/download';
 const RELEASE_REQUEST_TIMEOUT_MS = 10_000;
 
 export class DesktopReleaseError extends Error {
@@ -40,7 +41,7 @@ function isSafeDmgName(filename: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9._-]*\.dmg$/.test(filename);
 }
 
-/** Resolve the latest notarized DMG without exposing the private GitHub repo. */
+/** Resolve the latest notarized DMG from the release manifest. */
 export async function latestMacDownloadUrl(
   architecture: MacArchitecture,
   request: typeof fetch = fetch,

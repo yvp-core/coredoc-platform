@@ -67,7 +67,7 @@ image **digest**, so verify by digest (or by tag, which cosign resolves to the
 digest for you):
 
 ```bash
-COSIGN_IDENTITY='^https://github\.com/yvp-core/coredoc-parser/\.github/workflows/release\.yml@refs/tags/v'
+COSIGN_IDENTITY='^https://github\.com/yvp-core/coredoc-platform/\.github/workflows/release\.yml@refs/tags/server-v'
 
 cosign verify \
   --certificate-identity-regexp "$COSIGN_IDENTITY" \
@@ -175,9 +175,9 @@ Uses AuthKit as an OIDC provider (WorkOS Connect):
    Desktop or download it. This page does not require the optional web app.
    The Desktop action uses the registered `coredoc://login` protocol and always
    connects to the server already configured in Desktop. macOS downloads are
-   resolved from the public R2 updater manifest, not from the private GitHub
-   repository. Publish a Desktop release built from this code (via a newer
-   `desktop-v*` tag) to R2 before rolling out the server; older installed builds
+   resolved from the updater manifest of the latest stable Desktop GitHub
+   Release. Publish a Desktop release built from this code (via a newer `v*`
+   tag) before rolling out the server; older installed builds
    do not understand the invitation login action, so the handoff page leads
    with the latest download.
 6. With WorkOS, the AuthKit tenant config (auth methods, SSO connections,
@@ -265,7 +265,7 @@ All default **false**; rendered as literal `'true'`/`'false'` env strings:
 |---|---|
 | `config.allowSourcesInGraph` | Pushes that include source-code bodies (`ALLOW_SOURCES_IN_GRAPH`) |
 | `config.enableSourceModule` | `GET /workspaces/:id/source/...` git-provider fetch (`ENABLE_SOURCE_MODULE`) — adds outbound egress to your git host (§11) |
-| `config.enableCliBundle` | `GET /cli/bundle` presigned CLI bundle downloads (`ENABLE_CLI_BUNDLE`) |
+| `config.enableCliBundle` | `GET /cli/bundle` CLI bundle downloads from GitHub Releases (`ENABLE_CLI_BUNDLE`) — adds outbound egress to `github.com` + `api.github.com` (§11) |
 | `config.enableSemanticSearch` | Sets `ENABLE_SEMANTIC_SEARCH` on the server. Currently a no-op there: the `semantic_search` tool is registered only by the **local stdio** MCP server (CLI-side), not the cloud/on-prem MCP surface. Leave `false`. |
 
 ### 6.5 `storage`
@@ -523,8 +523,9 @@ An installed Coredoc server makes exactly these outbound connections:
   runs you configure (`COREDOC_LLM_*` in your CI); the server itself does not
   call an LLM.
 - **Your git host** — only if you enable `config.enableSourceModule`.
-- **`coredoc-desktop-releases.yevhen-popenko.workers.dev`** — the public
-  desktop updater manifest (`latest-mac.yml`), fetched only when someone hits
+- **`github.com` + `objects.githubusercontent.com`** — the desktop updater
+  manifest (`latest-mac.yml`) on the latest stable Desktop GitHub Release of
+  `yvp-core/coredoc-platform`, fetched only when someone hits
   `GET /api/v1/auth/web/desktop-download` from the invitation handoff page.
   Blocking it returns 502 on that route and leaves everything else working.
   Set `server.env.DESKTOP_RELEASES_URL` to point at your own mirror of the

@@ -1,117 +1,115 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CliBundleService } from './cli-bundle.service.js';
 
-function createMockR2() {
-  return {
-    download: vi.fn(),
-    getPresignedDownloadUrl: vi.fn(),
-  };
+const SHA_A = 'a'.repeat(64);
+const SHA_B = 'b'.repeat(64);
+const RELEASES_API = 'https://api.github.com/repos/yvp-core/coredoc-platform/releases?per_page=50';
+const DOWNLOAD = 'https://github.com/yvp-core/coredoc-platform/releases/download';
+
+function release(tag: string, overrides: Record<string, unknown> = {}) {
+  return { tag_name: tag, draft: false, prerelease: false, assets: [{ name: 'cli-bundle.json' }], ...overrides };
+}
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status });
 }
 
 describe('CliBundleService', () => {
   let service: CliBundleService;
-  let r2: ReturnType<typeof createMockR2>;
-
-  const manifest = {
-    latest: 'v1.0.0',
-    versions: [
-      { version: 'v1.0.0', sha256: 'abc123', uploadedAt: '2026-03-31T12:00:00Z' },
-      { version: 'v0.9.0', sha256: 'def456', uploadedAt: '2026-03-30T12:00:00Z' },
-    ],
-  };
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let releases: unknown[];
+  let descriptors: Record<string, unknown>;
 
   beforeEach(() => {
-    r2 = createMockR2();
-    service = new CliBundleService(r2 as any);
+    releases = [
+      release('v1.6.0'), // Desktop release: not a CLI bundle
+      release('server-v1.1.0', { assets: [] }), // no bundle attached
+      release('server-v1.0.0'),
+      release('server-v0.9.0'),
+    ];
+    descriptors = {
+      'server-v1.0.0': { version: 'v1.0.0', sha256: SHA_A, runtimeSha256: SHA_B },
+      'server-v0.9.0': { version: 'v0.9.0', sha256: SHA_B },
+    };
+    fetchMock = vi.fn(async (url: string) => {
+      if (url === RELEASES_API) return json(releases);
+      const match = url.match(/\/releases\/download\/([^/]+)\/cli-bundle\.json$/);
+      if (match && descriptors[match[1]]) return json(descriptors[match[1]]);
+      return new Response('Not Found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    service = new CliBundleService();
   });
 
-  it('resolves "latest" to the concrete version from manifest', async () => {
-    r2.download.mockResolvedValue(Buffer.from(JSON.stringify(manifest)));
-    r2.getPresignedDownloadUrl.mockResolvedValue('https://presigned-url');
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
-    const result = await service.getBundleUrl('latest');
-
-    expect(r2.download).toHaveBeenCalledWith('cli-bundles/manifest.json');
-    expect(r2.getPresignedDownloadUrl).toHaveBeenCalledWith('cli-bundles/v1.0.0/coredoc-cli.mjs', 300);
-    expect(result).toEqual({
-      url: 'https://presigned-url',
-      runtimeModulesUrl: 'https://presigned-url',
+  it('resolves "latest" to the newest server release that carries a bundle', async () => {
+    await expect(service.getBundleUrl('latest')).resolves.toEqual({
+      url: `${DOWNLOAD}/server-v1.0.0/coredoc-cli.mjs`,
+      runtimeModulesUrl: `${DOWNLOAD}/server-v1.0.0/runtime-modules.tar.gz`,
       version: 'v1.0.0',
-      sha256: 'abc123',
+      sha256: SHA_A,
+      runtimeSha256: SHA_B,
     });
   });
 
-  it('resolves a specific version', async () => {
-    r2.download.mockResolvedValue(Buffer.from(JSON.stringify(manifest)));
-    r2.getPresignedDownloadUrl.mockResolvedValue('https://presigned-url');
-
+  it('resolves a pinned version to its server-v release without the releases API', async () => {
     const result = await service.getBundleUrl('v0.9.0');
 
-    expect(r2.getPresignedDownloadUrl).toHaveBeenCalledWith('cli-bundles/v0.9.0/coredoc-cli.mjs', 300);
-    expect(result).toEqual({
-      url: 'https://presigned-url',
-      runtimeModulesUrl: 'https://presigned-url',
-      version: 'v0.9.0',
-      sha256: 'def456',
-    });
+    expect(result.url).toBe(`${DOWNLOAD}/server-v0.9.0/coredoc-cli.mjs`);
+    expect(result.version).toBe('v0.9.0');
+    expect(result).not.toHaveProperty('runtimeSha256');
+    expect(fetchMock).not.toHaveBeenCalledWith(RELEASES_API, expect.anything());
   });
 
-  it('throws when manifest is missing', async () => {
-    r2.download.mockResolvedValue(null);
+  it('skips draft and pre-release server releases for "latest"', async () => {
+    releases = [release('server-v2.0.0', { draft: true }), release('server-v1.9.0', { prerelease: true }), ...releases];
 
-    await expect(service.getBundleUrl('latest')).rejects.toThrow('CLI bundle manifest not found');
+    await expect(service.getBundleUrl('latest')).resolves.toMatchObject({ version: 'v1.0.0' });
   });
 
-  it('throws when requested version is not in manifest', async () => {
-    r2.download.mockResolvedValue(Buffer.from(JSON.stringify(manifest)));
-
+  it('throws NotFound for a version that was never published', async () => {
     await expect(service.getBundleUrl('v99.0.0')).rejects.toThrow('CLI bundle version v99.0.0 not found');
   });
 
-  it('throws when R2 returns null presigned URL (local dev)', async () => {
-    r2.download.mockResolvedValue(Buffer.from(JSON.stringify(manifest)));
-    r2.getPresignedDownloadUrl.mockResolvedValue(null);
+  it('throws NotFound when no server release carries a bundle', async () => {
+    releases = [release('v1.6.0')];
 
-    await expect(service.getBundleUrl('latest')).rejects.toThrow('Presigned URL generation failed');
+    await expect(service.getBundleUrl('latest')).rejects.toThrow('No published CLI bundle release');
   });
 
-  it('includes runtimeSha256 when present in manifest entry', async () => {
-    const manifestWithRuntime = {
-      latest: 'v2.0.0',
-      versions: [
-        { version: 'v2.0.0', sha256: 'abc123', runtimeSha256: 'runtime789', uploadedAt: '2026-03-31T12:00:00Z' },
-      ],
-    };
-    r2.download.mockResolvedValue(Buffer.from(JSON.stringify(manifestWithRuntime)));
-    r2.getPresignedDownloadUrl.mockResolvedValue('https://presigned-url');
+  it('rejects a malformed descriptor', async () => {
+    descriptors['server-v1.0.0'] = { version: 'v1.0.0', sha256: 'not-a-sha' };
 
-    const result = await service.getBundleUrl('latest');
-
-    expect(result).toEqual({
-      url: 'https://presigned-url',
-      runtimeModulesUrl: 'https://presigned-url',
-      version: 'v2.0.0',
-      sha256: 'abc123',
-      runtimeSha256: 'runtime789',
-    });
+    await expect(service.getBundleUrl('v1.0.0')).rejects.toThrow('CLI bundle descriptor is invalid');
   });
 
-  it('omits runtimeSha256 when absent from manifest entry', async () => {
-    r2.download.mockResolvedValue(Buffer.from(JSON.stringify(manifest)));
-    r2.getPresignedDownloadUrl.mockResolvedValue('https://presigned-url');
-
-    const result = await service.getBundleUrl('latest');
-
-    expect(result).not.toHaveProperty('runtimeSha256');
-  });
-
-  it('caches manifest and reuses within TTL', async () => {
-    r2.download.mockResolvedValue(Buffer.from(JSON.stringify(manifest)));
-    r2.getPresignedDownloadUrl.mockResolvedValue('https://presigned-url');
-
+  it('caches the latest tag and immutable descriptors', async () => {
     await service.getBundleUrl('latest');
-    await service.getBundleUrl('v0.9.0');
+    await service.getBundleUrl('latest');
+    await service.getBundleUrl('v1.0.0');
 
-    expect(r2.download).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back to the cached latest tag when GitHub is unavailable', async () => {
+    vi.useFakeTimers();
+    try {
+      await service.getBundleUrl('latest');
+      vi.advanceTimersByTime(11 * 60_000);
+      fetchMock.mockImplementationOnce(async () => new Response('', { status: 503 }));
+
+      await expect(service.getBundleUrl('latest')).resolves.toMatchObject({ version: 'v1.0.0' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports unavailability when GitHub fails with nothing cached', async () => {
+    fetchMock.mockImplementationOnce(async () => new Response('', { status: 503 }));
+
+    await expect(service.getBundleUrl('latest')).rejects.toThrow('CLI bundle releases are unavailable');
   });
 });

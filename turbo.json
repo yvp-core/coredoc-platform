@@ -1,6 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalEnv": ["WORKOS_CLIENT_ID", "COREDOC_SERVER_URL", "COREDOC_POSTHOG_KEY", "COREDOC_POSTHOG_HOST"],
+  "globalEnv": ["COREDOC_SERVER_URL", "COREDOC_POSTHOG_KEY", "COREDOC_POSTHOG_HOST"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

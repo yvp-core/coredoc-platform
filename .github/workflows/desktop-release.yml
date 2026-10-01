@@ -3,9 +3,12 @@ name: Desktop Release
 on:
   push:
     tags:
-      # Desktop releases use a dedicated prefix so they do not collide with the
-      # product release pipeline (release.yml owns 'v*': server/CLI/Helm/air-gap).
-      - 'desktop-v*'
+      # Desktop owns plain semver tags (v1.5.0, v1.5.0-beta.1): electron-updater's
+      # GitHub provider resolves updates from them. The product pipeline
+      # (release.yml: server/CLI/Helm/air-gap) uses 'server-v*' and never marks
+      # its releases "latest". Pre-releases must use `-beta.N` — the provider
+      # ignores any other pre-release channel name.
+      - 'v*'
 
 jobs:
   build-mac-arm64:
@@ -38,7 +41,7 @@ jobs:
       - name: Set version from git tag
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#desktop-v}"
+          VERSION="${GITHUB_REF_NAME#v}"
           echo "Setting version to $VERSION"
           cd apps/desktop
           node -e "const p=require('./package.json'); p.version='$VERSION'; require('fs').writeFileSync('package.json', JSON.stringify(p, null, 2)+'\n')"
@@ -53,10 +56,6 @@ jobs:
             echo "::error::Missing COREDOC_SERVER_URL repository variable"
             exit 1
           fi
-          if [[ -z "${WORKOS_CLIENT_ID}" ]]; then
-            echo "::error::Missing WORKOS_CLIENT_ID (set either repository secret WORKOS_CLIENT_ID)"
-            exit 1
-          fi
           # PostHog credentials are optional. When missing the desktop app
           # ships without telemetry — useful for PR / dev builds, but we
           # surface a warning so production releases do not drop telemetry
@@ -65,7 +64,6 @@ jobs:
             echo "::warning::PostHog telemetry will be disabled in this build (COREDOC_POSTHOG_KEY and/or COREDOC_POSTHOG_HOST repository variable not set)"
           fi
         env:
-          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
           COREDOC_SERVER_URL: ${{ vars.COREDOC_SERVER_URL }}
           COREDOC_POSTHOG_KEY: ${{ vars.COREDOC_POSTHOG_KEY }}
           COREDOC_POSTHOG_HOST: ${{ vars.COREDOC_POSTHOG_HOST }}
@@ -82,7 +80,6 @@ jobs:
       - name: Build all packages
         run: pnpm build
         env:
-          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
           COREDOC_SERVER_URL: ${{ vars.COREDOC_SERVER_URL }}
           COREDOC_POSTHOG_KEY: ${{ vars.COREDOC_POSTHOG_KEY }}
           COREDOC_POSTHOG_HOST: ${{ vars.COREDOC_POSTHOG_HOST }}
@@ -167,7 +164,7 @@ jobs:
       - name: Set version from git tag
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#desktop-v}"
+          VERSION="${GITHUB_REF_NAME#v}"
           echo "Setting version to $VERSION"
           cd apps/desktop
           node -e "const p=require('./package.json'); p.version='$VERSION'; require('fs').writeFileSync('package.json', JSON.stringify(p, null, 2)+'\n')"
@@ -182,10 +179,6 @@ jobs:
             echo "::error::Missing COREDOC_SERVER_URL repository variable"
             exit 1
           fi
-          if [[ -z "${WORKOS_CLIENT_ID}" ]]; then
-            echo "::error::Missing WORKOS_CLIENT_ID (set either repository secret WORKOS_CLIENT_ID)"
-            exit 1
-          fi
           # PostHog credentials are optional. When missing the desktop app
           # ships without telemetry — useful for PR / dev builds, but we
           # surface a warning so production releases do not drop telemetry
@@ -194,7 +187,6 @@ jobs:
             echo "::warning::PostHog telemetry will be disabled in this build (COREDOC_POSTHOG_KEY and/or COREDOC_POSTHOG_HOST repository variable not set)"
           fi
         env:
-          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
           COREDOC_SERVER_URL: ${{ vars.COREDOC_SERVER_URL }}
           COREDOC_POSTHOG_KEY: ${{ vars.COREDOC_POSTHOG_KEY }}
           COREDOC_POSTHOG_HOST: ${{ vars.COREDOC_POSTHOG_HOST }}
@@ -211,7 +203,6 @@ jobs:
       - name: Build all packages
         run: pnpm build
         env:
-          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
           COREDOC_SERVER_URL: ${{ vars.COREDOC_SERVER_URL }}
           COREDOC_POSTHOG_KEY: ${{ vars.COREDOC_POSTHOG_KEY }}
           COREDOC_POSTHOG_HOST: ${{ vars.COREDOC_POSTHOG_HOST }}
@@ -334,7 +325,7 @@ jobs:
       - name: Set version from git tag
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#desktop-v}"
+          VERSION="${GITHUB_REF_NAME#v}"
           echo "Setting version to $VERSION"
           cd apps/desktop
           node -e "const p=require('./package.json'); p.version='$VERSION'; require('fs').writeFileSync('package.json', JSON.stringify(p, null, 2)+'\n')"
@@ -349,10 +340,6 @@ jobs:
             echo "::error::Missing COREDOC_SERVER_URL repository variable"
             exit 1
           fi
-          if [[ -z "${WORKOS_CLIENT_ID}" ]]; then
-            echo "::error::Missing WORKOS_CLIENT_ID (set either repository secret WORKOS_CLIENT_ID)"
-            exit 1
-          fi
           # PostHog credentials are optional. When missing the desktop app
           # ships without telemetry — useful for PR / dev builds, but we
           # surface a warning so production releases do not drop telemetry
@@ -361,7 +348,6 @@ jobs:
             echo "::warning::PostHog telemetry will be disabled in this build (COREDOC_POSTHOG_KEY and/or COREDOC_POSTHOG_HOST repository variable not set)"
           fi
         env:
-          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
           COREDOC_SERVER_URL: ${{ vars.COREDOC_SERVER_URL }}
           COREDOC_POSTHOG_KEY: ${{ vars.COREDOC_POSTHOG_KEY }}
           COREDOC_POSTHOG_HOST: ${{ vars.COREDOC_POSTHOG_HOST }}
@@ -378,7 +364,6 @@ jobs:
       - name: Build all packages
         run: pnpm build
         env:
-          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
           COREDOC_SERVER_URL: ${{ vars.COREDOC_SERVER_URL }}
           COREDOC_POSTHOG_KEY: ${{ vars.COREDOC_POSTHOG_KEY }}
           COREDOC_POSTHOG_HOST: ${{ vars.COREDOC_POSTHOG_HOST }}
@@ -486,10 +471,20 @@ jobs:
           x64-dmg-file: ${{ needs.build-mac-x64.outputs.dmg_file }}
           artifacts-path: artifacts
 
-      - name: Extract version from tag
+      # electron-builder names the update manifest after the version's
+      # pre-release id (1.5.0-beta.1 → beta-mac.yml), so the merge must too.
+      - name: Extract version and channel from tag
         id: version
         shell: bash
-        run: echo "version=${GITHUB_REF_NAME#desktop-v}" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          CHANNEL=latest
+          if [[ "$VERSION" == *-* ]]; then
+            CHANNEL="${VERSION#*-}"
+            CHANNEL="${CHANNEL%%.*}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "channel=${CHANNEL}" >> "$GITHUB_OUTPUT"
 
       - name: Merge macOS update manifests
         uses: ./.github/actions/merge-macos-manifests
@@ -497,6 +492,7 @@ jobs:
           dist-path: artifacts
           output-path: merged-manifests
           version: ${{ steps.version.outputs.version }}
+          channel: ${{ steps.version.outputs.channel }}
 
       - name: Upload notarized artifacts
         uses: actions/upload-artifact@v4
@@ -506,7 +502,7 @@ jobs:
             artifacts/**/*.dmg
             artifacts/**/*.zip
             artifacts/**/*.blockmap
-            merged-manifests/latest-mac.yml
+            merged-manifests/*-mac.yml
           if-no-files-found: error
 
   release:
@@ -553,8 +549,8 @@ jobs:
           # Copy macOS updater ZIPs and blockmaps
           find artifacts/macOS-notarized -name "*.zip" -exec cp {} release-assets/ \;
           find artifacts/macOS-notarized -name "*.blockmap" -exec cp {} release-assets/ \;
-          # Copy merged macOS update manifest
-          find artifacts/macOS-notarized -name "latest-mac.yml" -exec cp {} release-assets/ \;
+          # Copy merged macOS update manifest (latest-mac.yml, or beta-mac.yml for a beta)
+          find artifacts/macOS-notarized -name "*-mac.yml" -exec cp {} release-assets/ \;
           # Windows/Linux assets are disabled — build-other is paused (if: false).
           # # Copy Windows and Linux binaries and blockmaps
           # find artifacts/other -type f \( -name "*.exe" -o -name "*.AppImage" -o -name "*.blockmap" \) -exec cp {} release-assets/ \;
@@ -566,54 +562,15 @@ jobs:
           echo "=== Release assets ==="
           ls -la release-assets/
 
+      # The GitHub Release IS the update feed (build.publish → provider: github):
+      # stable clients follow /releases/latest, beta clients the newest
+      # pre-release. A `-beta.N` tag is therefore a pre-release and never "latest".
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
           files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload release assets as artifact for R2
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-release-assets
-          path: release-assets/*
-
-  upload-to-r2:
-    needs: [release]
-    runs-on: ubuntu-latest
-    name: Upload to R2
-    environment: production
-
-    steps:
-      - name: Download release assets
-        uses: actions/download-artifact@v4
-        with:
-          name: desktop-release-assets
-          path: upload
-
-      - name: Upload to R2
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          R2_BUCKET: ${{ vars.R2_DESKTOP_BUCKET }}
-        run: |
-          for file in upload/*; do
-            filename=$(basename "$file")
-            content_type="application/octet-stream"
-            case "$filename" in
-              *.yml) content_type="text/yaml" ;;
-              *.dmg) content_type="application/x-apple-diskimage" ;;
-              *.zip) content_type="application/zip" ;;
-              *.exe) content_type="application/x-msdownload" ;;
-              *.AppImage) content_type="application/x-executable" ;;
-              *.blockmap) content_type="application/octet-stream" ;;
-            esac
-            echo "Uploading $filename ($content_type)"
-            aws s3 cp "$file" "s3://$R2_BUCKET/$filename" \
-              --endpoint-url "$R2_ENDPOINT" \
-              --content-type "$content_type"
-          done
-          echo "=== Upload complete ==="
