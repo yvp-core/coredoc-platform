@@ -664,7 +664,8 @@ jobs:
       # whatever is there and leave its notes alone.
       #
       # Never "latest": desktop auto-update and the server's desktop download
-      # resolve `/releases/latest`, which must stay a desktop release.
+      # resolve `/releases/latest`, which must stay a desktop release. The step
+      # after this one enforces that.
       - name: Publish the kit to the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -678,7 +679,6 @@ jobs:
           if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
             echo "Release ${GITHUB_REF_NAME} already exists — attaching the kit"
             gh release upload "${GITHUB_REF_NAME}" "${ASSETS[@]}" --clobber
-            gh release edit "${GITHUB_REF_NAME}" --latest=false
           else
             gh release create "${GITHUB_REF_NAME}" \
               --title "coredoc server v${VERSION}" \
@@ -687,3 +687,28 @@ jobs:
               "${ASSETS[@]}"
           fi
           gh release upload "${GITHUB_REF_NAME}" cli-bundle/cli-bundle.json --clobber
+
+      # GitHub cannot clear "latest" from a release, only move it to another one,
+      # so `--latest=false` does nothing to a release that already holds the
+      # flag. A server release cut in the UI gets it by default ("Set as the
+      # latest release" is pre-checked). Hand it back to the newest stable
+      # Desktop release so `/releases/latest` keeps serving latest-mac.yml.
+      - name: Keep a Desktop release as latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          LATEST="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name 2>/dev/null || true)"
+          if [[ "${LATEST}" != server-v* ]]; then
+            echo "Latest release is '${LATEST:-none}' — nothing to fix"
+            exit 0
+          fi
+          DESKTOP="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq '
+            [.[] | select((.draft or .prerelease) | not) | select(.tag_name | test("^v[0-9]"))]
+            | first | .tag_name // empty')"
+          if [[ -z "${DESKTOP}" ]]; then
+            echo "::warning::${LATEST} is the latest release and no stable Desktop release exists to take it back. Desktop auto-update will fail until one is published."
+            exit 0
+          fi
+          gh release edit "${DESKTOP}" --latest
+          echo "Latest release moved from ${LATEST} to ${DESKTOP}"

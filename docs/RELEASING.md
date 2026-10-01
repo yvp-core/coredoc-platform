@@ -10,9 +10,12 @@ from semver tags and from `/releases/latest`.
 | `v1.5.0-beta.1` | `desktop-release.yml` | Desktop beta: a GitHub **pre-release** |
 | `server-v0.0.40` | `release.yml` | Server and CLI images, CLI bundle, Helm chart, air-gap kit; a GitHub Release that is **never** latest |
 
-Never mark a `server-v*` release as latest by hand. Stable Desktop clients and
-the server's `GET /api/v1/auth/web/desktop-download` both read
-`/releases/latest`.
+Never mark a `server-v*` release as latest. Stable Desktop clients and the
+server's `GET /api/v1/auth/web/desktop-download` both read `/releases/latest`.
+Prefer pushing the tag (`git tag server-vX.Y.Z && git push origin
+server-vX.Y.Z`). If you create a server release in the UI instead, clear
+**Set as the latest release**. `release.yml` also moves the flag back to the
+newest stable Desktop release, but only when it runs.
 
 ## Desktop
 
