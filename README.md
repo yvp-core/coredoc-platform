@@ -285,10 +285,10 @@ configs may still select SQLite; use `ladybug` for the current graph.
   "mcpServers": {
     "coredoc": {
       "command": "node",
-      "args": ["/abs/path/to/coredoc-parser/packages/mcp/dist/index.js"],
+      "args": ["/abs/path/to/coredoc-platform/packages/mcp/dist/index.js"],
       "env": {
         "COREDOC_DB_BACKEND": "ladybug",
-        "MCP_CONFIG_PATH": "/abs/path/to/coredoc-parser/coredoc.config.json",
+        "MCP_CONFIG_PATH": "/abs/path/to/coredoc-platform/coredoc.config.json",
         "COREDOC_SCOPE": "project:my-project",
         "COREDOC_CURRENT_REPO": "user-service"
       }

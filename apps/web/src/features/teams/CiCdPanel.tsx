@@ -380,7 +380,7 @@ function CiCdToggleCard({ wsId, canManage }: { wsId: string; canManage: boolean 
       />
       <CardBody className="flex flex-col gap-2">
         <p className="text-[12px] text-ink-3">
-          With CI/CD on, the <span className="font-mono text-[11.5px]">yvp-core/coredoc-parser</span> GitHub Action runs
+          With CI/CD on, the <span className="font-mono text-[11.5px]">yvp-core/coredoc-platform</span> GitHub Action runs
           parse → push on each trigger. It authenticates with a CI-scoped token from the table below, stored as the
           repository secret <span className="font-mono text-[11.5px]">COREDOC_TOKEN</span>.
         </p>

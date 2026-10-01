@@ -2,7 +2,7 @@
   "name": "@coredoc/core",
   "version": "1.0.0",
   "license": "Apache-2.0",
-  "description": "Core types and utilities for coredoc-parser",
+  "description": "Core types and utilities for coredoc-platform",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
