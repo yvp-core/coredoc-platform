@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://coredoc.ai/schema/coredoc.schema.json",
   "title": "Coredoc Configuration",
-  "description": "Configuration schema for coredoc-parser",
+  "description": "Configuration schema for coredoc-platform",
   "type": "object",
   "required": ["version", "projects", "output", "parserStorage", "agentMode"],
   "properties": {

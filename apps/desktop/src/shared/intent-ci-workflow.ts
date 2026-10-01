@@ -62,7 +62,7 @@ jobs:
 
       # Ruby and Python: no language SDK is required by these optional indexers.
       # Their explicit download is selected with install-tools below.
-      - uses: yvp-core/coredoc-parser@main
+      - uses: yvp-core/coredoc-platform@main
         with:
           repo-name: ${JSON.stringify(input.repoName)}
 ${input.intentRepoKey ? `          intent-repo-key: ${JSON.stringify(input.intentRepoKey)}\n` : ''}          profile-path: .coredoc/profile.ts
@@ -88,7 +88,7 @@ ${input.intentRepoKey ? `          intent-repo-key: ${JSON.stringify(input.inten
   run: test -n "$DEPLOYED_SHA" || { echo "::error::The deploy step must output deployed_sha"; exit 1; }
   env:
     DEPLOYED_SHA: \${{ steps.deploy.outputs.deployed_sha }}
-- uses: yvp-core/coredoc-parser@main
+- uses: yvp-core/coredoc-platform@main
   with:
     repo-name: ${JSON.stringify(input.repoName)}
 ${input.intentRepoKey ? `    intent-repo-key: ${JSON.stringify(input.intentRepoKey)}\n` : ''}    profile-path: .coredoc/profile.ts
