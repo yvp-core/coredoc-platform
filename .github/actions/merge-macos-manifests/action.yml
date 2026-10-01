@@ -1,5 +1,5 @@
 name: Merge macOS Update Manifests
-description: Merge latest-mac.yml from arm64 and x64 builds, falling back to ZIP metadata generation
+description: Merge <channel>-mac.yml from arm64 and x64 builds, falling back to ZIP metadata generation
 
 inputs:
   dist-path:
@@ -11,6 +11,10 @@ inputs:
   version:
     description: App version (without v prefix); used if manifests must be regenerated
     required: true
+  channel:
+    description: electron-builder update channel (`latest`, or `beta` for a -beta.N version)
+    required: false
+    default: latest
 
 runs:
   using: composite
@@ -23,6 +27,7 @@ runs:
         DIST="${{ inputs.dist-path }}"
         OUTPUT="${{ inputs.output-path }}"
         VERSION="${{ inputs.version }}"
+        CHANNEL_FILE="${{ inputs.channel }}-mac.yml"
         mkdir -p "$OUTPUT"
 
         find_artifact() {
@@ -31,15 +36,15 @@ runs:
           find "$DIST" -path "*${arch}*" -name "$pattern" | head -1
         }
 
-        ARM64_MANIFEST=$(find_artifact "arm64" "latest-mac.yml" || true)
-        X64_MANIFEST=$(find_artifact "x64" "latest-mac.yml" || true)
+        ARM64_MANIFEST=$(find_artifact "arm64" "$CHANNEL_FILE" || true)
+        X64_MANIFEST=$(find_artifact "x64" "$CHANNEL_FILE" || true)
 
         if [[ -n "$ARM64_MANIFEST" && -n "$X64_MANIFEST" ]]; then
           echo "Merging existing manifests:"
           echo "  arm64: $ARM64_MANIFEST"
           echo "  x64: $X64_MANIFEST"
 
-          export ARM64_MANIFEST X64_MANIFEST OUTPUT
+          export ARM64_MANIFEST X64_MANIFEST OUTPUT CHANNEL_FILE
           ruby -e '
         require "yaml"
 
@@ -66,14 +71,14 @@ runs:
           result << entry
         end
 
-        out_file = File.join(ENV.fetch("OUTPUT"), "latest-mac.yml")
+        out_file = File.join(ENV.fetch("OUTPUT"), ENV.fetch("CHANNEL_FILE"))
         yaml = YAML.dump(merged).sub(/\A---\s*\n/, "")
         File.write(out_file, yaml)
         puts "Merged manifest written to #{out_file}"
         puts "  Total file entries: #{merged["files"].length}"
           '
         else
-          echo "One or both manifests are missing; rebuilding latest-mac.yml from ZIP artifacts."
+          echo "One or both manifests are missing; rebuilding $CHANNEL_FILE from ZIP artifacts."
           echo "  arm64 manifest: ${ARM64_MANIFEST:-NOT FOUND}"
           echo "  x64 manifest: ${X64_MANIFEST:-NOT FOUND}"
 
@@ -81,7 +86,7 @@ runs:
           X64_ZIP=$(find_artifact "x64" "*.zip" || true)
 
           if [[ -z "$ARM64_ZIP" || -z "$X64_ZIP" ]]; then
-            echo "::error::Could not find both latest-mac.yml manifests or both ZIP artifacts"
+            echo "::error::Could not find both $CHANNEL_FILE manifests or both ZIP artifacts"
             echo "  arm64 zip: ${ARM64_ZIP:-NOT FOUND}"
             echo "  x64 zip: ${X64_ZIP:-NOT FOUND}"
             exit 1
@@ -99,7 +104,7 @@ runs:
           X64_NAME=$(basename "$X64_ZIP")
           RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
 
-          export OUTPUT VERSION RELEASE_DATE ARM64_NAME ARM64_SHA512 ARM64_SIZE X64_NAME X64_SHA512 X64_SIZE
+          export OUTPUT CHANNEL_FILE VERSION RELEASE_DATE ARM64_NAME ARM64_SHA512 ARM64_SIZE X64_NAME X64_SHA512 X64_SIZE
           ruby -e '
         require "yaml"
 
@@ -120,7 +125,7 @@ runs:
           "releaseDate" => ENV.fetch("RELEASE_DATE"),
         }
 
-        out_file = File.join(ENV.fetch("OUTPUT"), "latest-mac.yml")
+        out_file = File.join(ENV.fetch("OUTPUT"), ENV.fetch("CHANNEL_FILE"))
         yaml = YAML.dump(manifest).sub(/\A---\s*\n/, "")
         File.write(out_file, yaml)
         puts "Manifest written to #{out_file}"
@@ -128,5 +133,5 @@ runs:
           '
         fi
 
-        echo "=== latest-mac.yml ==="
-        cat "$OUTPUT/latest-mac.yml"
+        echo "=== $CHANNEL_FILE ==="
+        cat "$OUTPUT/$CHANNEL_FILE"

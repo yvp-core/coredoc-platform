@@ -30,10 +30,10 @@ describe('latestMacDownloadUrl', () => {
     const request = vi.fn().mockResolvedValue(response(manifest));
 
     await expect(latestMacDownloadUrl(architecture, request)).resolves.toBe(
-      `https://coredoc-desktop-releases.yevhen-popenko.workers.dev/${filename}`,
+      `https://github.com/yvp-core/coredoc-platform/releases/latest/download/${filename}`,
     );
     expect(request).toHaveBeenCalledWith(
-      'https://coredoc-desktop-releases.yevhen-popenko.workers.dev/latest-mac.yml',
+      'https://github.com/yvp-core/coredoc-platform/releases/latest/download/latest-mac.yml',
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });

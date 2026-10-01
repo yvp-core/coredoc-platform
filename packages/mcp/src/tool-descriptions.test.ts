@@ -37,7 +37,7 @@ describe('coredoc-mcp skill core', () => {
   });
 
   it('pins the affirmative-negative-claim rule in the bundle (issue-17 n=3 finding)', () => {
-    // day-admin fp cell, n=3: the MCP arm twice AFFIRMED "no configVersion bump is needed"
+    // Eval fp cell, n=3: the MCP arm twice AFFIRMED "no configVersion bump is needed"
     // while the source-reading baseline took the version-contract cluster clean both times.
     expect(COREDOC_MCP_SKILL).toMatch(/affirmative negative claim/i);
     expect(COREDOC_MCP_SKILL).toMatch(/not evidence\s+the bump is optional/i);

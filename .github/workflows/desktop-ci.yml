@@ -51,7 +51,6 @@ jobs:
       - name: Build all packages (including desktop)
         run: pnpm build
         env:
-          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
           COREDOC_SERVER_URL: ${{ vars.COREDOC_SERVER_URL }}
 
       - name: Lint & format (Biome)

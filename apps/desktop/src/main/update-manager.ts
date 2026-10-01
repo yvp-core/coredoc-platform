@@ -1,7 +1,8 @@
 /**
  * Update Manager - Handles auto-update lifecycle via electron-updater.
  *
- * Uses the generic provider configured in package.json build.publish.
+ * Uses the GitHub Releases provider configured in package.json build.publish;
+ * a managed config may swap in a generic mirror for closed networks.
  * Checks for updates on app launch and every 4 hours.
  * Downloads in background; user decides when to restart.
  */
@@ -29,6 +30,9 @@ function setupAutoUpdater(): void {
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
+  // A `-beta.N` build follows GitHub pre-releases (the beta channel); a stable
+  // build only ever sees /releases/latest.
+  autoUpdater.allowPrerelease = app.getVersion().includes('-');
 
   // Closed-network installs mirror the release feed. Only the managed config may
   // move it — an env var or renderer value here would let a local process serve

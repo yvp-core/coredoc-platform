@@ -54,18 +54,9 @@ describe('CliBundleController', () => {
     });
   });
 
-  it('accepts main-sha version format', async () => {
-    service.getBundleUrl.mockResolvedValue({
-      url: 'https://presigned-url',
-      runtimeModulesUrl: 'https://presigned-url-rt',
-      version: 'main-b144af7',
-      sha256: 'ghi789',
-    });
-
-    const result = await controller.getBundle('main-b144af7');
-
-    expect(service.getBundleUrl).toHaveBeenCalledWith('main-b144af7');
-    expect(result.version).toBe('main-b144af7');
+  it('rejects main-sha versions (no longer published)', async () => {
+    await expect(controller.getBundle('main-b144af7')).rejects.toThrow('Invalid version format');
+    expect(service.getBundleUrl).not.toHaveBeenCalled();
   });
 
   it('rejects invalid version format', async () => {

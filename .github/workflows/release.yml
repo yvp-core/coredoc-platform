@@ -1,21 +1,24 @@
 # =============================================================================
 # Product release pipeline (D2).
 #
-# Trigger: push a tag `v<semver>` (e.g. v0.0.39). The tag is the single source
-# of truth for the release version: artifact-producing jobs stamp it into the
+# Trigger: push a tag `server-v<semver>` (e.g. server-v0.0.39). Plain `v*` tags
+# belong to desktop-release.yml: electron-updater's GitHub provider only reads
+# semver tags and `/releases/latest`, so product releases use a non-semver
+# prefix and are never marked "latest". The tag is the single source of truth
+# for the release version: artifact-producing jobs stamp it into the
 # workspace package.json files before building (same model as
 # desktop-release.yml), so no pre-tag version-bump commit is required.
 #
 # Publishes, in dependency order:
 #   1. test          — proven-commit gate: asserts a green ci.yml run for the
 #                      tagged commit (the suite itself runs on PRs + main pushes)
-#   2. server image  — ghcr.io/yvp-core/coredoc-server:{version}, :latest,
-#                      and :{version}-debug (see note in the job)
+#   2. server image  — ghcr.io/yvp-core/coredoc-server:{version} + :latest
 #   3. cli image     — ghcr.io/yvp-core/coredoc-cli:{version} + :latest
-#   4. cli bundle    — R2 cli-bundles/{tag}/ + /latest/ behind GET /api/v1/cli/bundle
+#   4. cli bundle    — release assets behind GET /api/v1/cli/bundle
 #   5. chart         — helm chart to oci://ghcr.io/yvp-core/charts/coredoc
 #   6. airgap kit    — coredoc-onprem-{version}.tar.gz attached to a GitHub
-#                      Release (images + chart + values example + docs)
+#                      Release (images + chart + values example + docs),
+#                      together with the CLI bundle
 #
 # Assumptions (deliberate — no secrets beyond the ambient GITHUB_TOKEN):
 #   - GITHUB_TOKEN can push packages to the ghcr.io/yvp-core namespace
@@ -31,7 +34,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'server-v*'
 
 permissions:
   contents: write # create the GitHub Release + upload the air-gap kit
@@ -54,7 +57,7 @@ jobs:
       - name: Derive version from tag
         id: version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${GITHUB_REF_NAME#server-v}"
           PKG_VERSION="$(node -p "require('./package.json').version")"
           if [ "$VERSION" != "$PKG_VERSION" ]; then
             echo "::notice::Tag version ${VERSION} differs from root package.json (${PKG_VERSION}); artifacts are stamped from the tag."
@@ -109,12 +112,8 @@ jobs:
           exit 1
 
   # ---------------------------------------------------------------------------
-  # Server image — apps/server/Dockerfile, target `production`.
-  # Two builds (D3): the main tags are built with STRIP_ARTIFACTS=true (source
-  # maps + own typings removed from dist); :{version}-debug is built with
-  # STRIP_ARTIFACTS=false for support symbolication. Both share the same
-  # buildx cache scope, so the debug build reuses the base/build layers and
-  # only re-runs the cheap dist-selection + final stage.
+  # Server image — apps/server/Dockerfile, target `production`. The source is
+  # public, so the image ships dist as built (source maps + typings included).
   # ---------------------------------------------------------------------------
   server-image:
     needs: [prepare, test]
@@ -167,7 +166,7 @@ jobs:
 
       - name: Stamp workspace versions from tag
         run: |
-          VERSION="${GITHUB_REF_NAME#v}" node -e '
+          VERSION="${GITHUB_REF_NAME#server-v}" node -e '
             const fs = require("fs");
             const version = process.env.VERSION;
             const manifests = [
@@ -194,7 +193,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push server image (stripped)
+      - name: Build and push server image
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
@@ -207,28 +206,9 @@ jobs:
           # the pushed manifest, instead of whatever buildx defaults to.
           provenance: mode=max
           sbom: true
-          build-args: |
-            STRIP_ARTIFACTS=true
           tags: |
             ghcr.io/yvp-core/coredoc-server:${{ needs.prepare.outputs.version }}
             ghcr.io/yvp-core/coredoc-server:latest
-          cache-from: type=gha,scope=server
-          cache-to: type=gha,scope=server,mode=max
-
-      - name: Build and push server debug image (unstripped)
-        id: build_debug
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
-        with:
-          context: .
-          file: apps/server/Dockerfile
-          target: production
-          push: true
-          provenance: mode=max
-          sbom: true
-          build-args: |
-            STRIP_ARTIFACTS=false
-          tags: |
-            ghcr.io/yvp-core/coredoc-server:${{ needs.prepare.outputs.version }}-debug
           cache-from: type=gha,scope=server
           cache-to: type=gha,scope=server,mode=max
 
@@ -236,16 +216,14 @@ jobs:
         uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
 
       # Signing BY DIGEST is load-bearing: a tag is mutable, so a tag signature
-      # says nothing about which bytes a customer pulled. The digest outputs come
-      # straight from the two build steps above.
-      - name: Sign server images (keyless, by digest)
+      # says nothing about which bytes a customer pulled. The digest output comes
+      # straight from the build step above.
+      - name: Sign server image (keyless, by digest)
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
-          DEBUG_DIGEST: ${{ steps.build_debug.outputs.digest }}
         run: |
           set -euo pipefail
           cosign sign --yes "ghcr.io/yvp-core/coredoc-server@${DIGEST}"
-          cosign sign --yes "ghcr.io/yvp-core/coredoc-server@${DEBUG_DIGEST}"
 
       # Standalone SPDX document (a file a customer can feed to their scanner
       # without knowing about OCI referrers). Ships as a release asset and inside
@@ -290,7 +268,7 @@ jobs:
 
       - name: Stamp workspace versions from tag
         run: |
-          VERSION="${GITHUB_REF_NAME#v}" node -e '
+          VERSION="${GITHUB_REF_NAME#server-v}" node -e '
             const fs = require("fs");
             const version = process.env.VERSION;
             const manifests = [
@@ -327,8 +305,6 @@ jobs:
           push: true
           provenance: mode=max
           sbom: true
-          build-args: |
-            STRIP_ARTIFACTS=true
           tags: |
             ghcr.io/yvp-core/coredoc-cli:${{ needs.prepare.outputs.version }}
             ghcr.io/yvp-core/coredoc-cli:latest
@@ -336,12 +312,11 @@ jobs:
           cache-to: type=gha,scope=cli,mode=max
 
       # The image is functional only if the profile-typecheck gate can resolve its
-      # schema (profile-parser + core dist/*.d.ts survive the STRIP_ARTIFACTS stage).
-      # A zero-diagnostic result on an invalid profile means the schema degraded to
-      # `any` (unresolved imports are tolerated by design) — treat that as broken too.
-      # This shipped broken once: the strip stage deleted all .d.ts and every client
-      # `ci run` failed with "Cannot typecheck profiles". Runs before signing so a
-      # broken image never becomes a signed release.
+      # schema (profile-parser + core dist/*.d.ts). A zero-diagnostic result on an
+      # invalid profile means the schema degraded to `any` (unresolved imports are
+      # tolerated by design) — treat that as broken too. This shipped broken once,
+      # when a since-removed strip stage deleted all .d.ts. Runs before signing so
+      # a broken image never becomes a signed release.
       - name: Smoke-test CLI image (profile typecheck gate)
         env:
           IMAGE: ghcr.io/yvp-core/coredoc-cli@${{ steps.build.outputs.digest }}
@@ -387,33 +362,24 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
-  # CLI bundle — the R2 download channel behind `GET /api/v1/cli/bundle`, which
-  # is how cloud customers' CI gets the CLI (gated by their own `cdt_` token).
+  # CLI bundle — the download channel behind `GET /api/v1/cli/bundle`, which is
+  # how cloud customers' CI gets the CLI. The server resolves it from this
+  # tag's GitHub Release (cli-bundle.service.ts): coredoc-cli.mjs,
+  # runtime-modules.tar.gz and cli-bundle.json (version + SHA-256s). airgap-kit
+  # owns the release, so this job hands the files over as an artifact.
   # On-prem uses the image above instead; both channels ship every release.
   #
-  # The version key MUST stay v-prefixed: the server accepts only
-  # `latest | main-<sha> | v<semver>` (cli-bundle.controller.ts) and the manifest
-  # is keyed by that same string — so GITHUB_REF_NAME (v1.2.3), NOT
-  # needs.prepare.outputs.version (1.2.3), which would 404 on every lookup.
-  #
-  # `environment: production` is load-bearing — the R2_* secrets live on that
-  # environment, not on the repo.
+  # The descriptor version MUST stay v-prefixed (v1.2.3): the endpoint accepts
+  # `latest | v<semver>` and maps it to the `server-v` tag.
   #
   # This is the ONLY publisher of CLI bundles, deliberately: it sits behind the
   # proven-commit gate (the `test` job asserts a green ci.yml run for this
   # commit), so `latest` always means "latest tested release" — the same
-  # promise as the :latest image tag. A trunk-driven publisher would quietly
-  # repoint `latest` at untested code for every customer defaulting to it.
+  # promise as the :latest image tag.
   # ---------------------------------------------------------------------------
   cli-bundle:
     needs: [prepare, test]
     runs-on: ubuntu-latest
-    environment: production
-    # The manifest update is a read-modify-write on one R2 object; two tags
-    # pushed back-to-back would otherwise clobber one of the two entries.
-    concurrency:
-      group: cli-bundle-manifest
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -433,7 +399,7 @@ jobs:
       # committed manifests, so stamping first risks a spurious lockfile failure.
       - name: Stamp workspace versions from tag
         run: |
-          VERSION="${GITHUB_REF_NAME#v}" node -e '
+          VERSION="${GITHUB_REF_NAME#server-v}" node -e '
             const fs = require("fs");
             const version = process.env.VERSION;
             const manifests = [
@@ -473,44 +439,26 @@ jobs:
           node dist/cli-bundle/coredoc-cli.mjs ci run --help > /dev/null
           echo "bundle smoke-test OK (${OUT})"
 
-      - name: Upload bundle to R2 and update the manifest
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      - name: Write the bundle descriptor
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME}"
-          BUNDLE="dist/cli-bundle/coredoc-cli.mjs"
-          RUNTIME="dist/cli-bundle/runtime-modules.tar.gz"
-          SHA256="$(cat dist/cli-bundle/sha256.txt)"
-          RUNTIME_SHA256="$(cat dist/cli-bundle/runtime-modules-sha256.txt)"
-          NOW="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-          MANIFEST_KEY="cli-bundles/manifest.json"
+          jq -n \
+            --arg v "v${{ needs.prepare.outputs.version }}" \
+            --arg sha "$(cat dist/cli-bundle/sha256.txt)" \
+            --arg rtsha "$(cat dist/cli-bundle/runtime-modules-sha256.txt)" \
+            '{ version: $v, sha256: $sha, runtimeSha256: $rtsha }' > dist/cli-bundle/cli-bundle.json
+          cat dist/cli-bundle/cli-bundle.json
 
-          for TARGET in "$VERSION" latest; do
-            aws s3 cp "$BUNDLE" "s3://$R2_BUCKET/cli-bundles/$TARGET/coredoc-cli.mjs" \
-              --endpoint-url "$R2_ENDPOINT" \
-              --content-type "application/javascript"
-            aws s3 cp "$RUNTIME" "s3://$R2_BUCKET/cli-bundles/$TARGET/runtime-modules.tar.gz" \
-              --endpoint-url "$R2_ENDPOINT" \
-              --content-type "application/gzip"
-          done
-
-          aws s3 cp "s3://$R2_BUCKET/$MANIFEST_KEY" /tmp/manifest.json \
-            --endpoint-url "$R2_ENDPOINT" 2>/dev/null || echo '{"latest":"","versions":[]}' > /tmp/manifest.json
-
-          jq --arg v "$VERSION" --arg sha "$SHA256" --arg rtsha "$RUNTIME_SHA256" --arg now "$NOW" '
-            .latest = $v |
-            .versions = [{ version: $v, sha256: $sha, runtimeSha256: $rtsha, uploadedAt: $now }] + [.versions[] | select(.version != $v)] |
-            .versions = .versions[:20]
-          ' /tmp/manifest.json > /tmp/manifest-updated.json
-
-          aws s3 cp /tmp/manifest-updated.json "s3://$R2_BUCKET/$MANIFEST_KEY" \
-            --endpoint-url "$R2_ENDPOINT" \
-            --content-type "application/json"
+      - name: Upload bundle artifact (for the GitHub Release)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cli-bundle
+          path: |
+            dist/cli-bundle/coredoc-cli.mjs
+            dist/cli-bundle/runtime-modules.tar.gz
+            dist/cli-bundle/cli-bundle.json
+          if-no-files-found: error
+          retention-days: 1
 
   # ---------------------------------------------------------------------------
   # Helm chart — package with the release version and push as an OCI artifact.
@@ -602,7 +550,7 @@ jobs:
   # Attached to a GitHub Release for the tag with generated notes.
   # ---------------------------------------------------------------------------
   airgap-kit:
-    needs: [prepare, server-image, cli-image, chart]
+    needs: [prepare, server-image, cli-image, cli-bundle, chart]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -612,6 +560,12 @@ jobs:
         with:
           name: chart
           path: dist/
+
+      - name: Download CLI bundle artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cli-bundle
+          path: cli-bundle/
 
       - name: Download SBOM artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -708,19 +662,28 @@ jobs:
       # the UI (which also creates the tag), or left over from a re-run/retag of
       # the same version. `gh release create` hard-errors on that, so attach to
       # whatever is there and leave its notes alone.
+      #
+      # Never "latest": desktop auto-update and the server's desktop download
+      # resolve `/releases/latest`, which must stay a desktop release.
       - name: Publish the kit to the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           VERSION="${{ needs.prepare.outputs.version }}"
-          ASSETS=("coredoc-onprem-${VERSION}.tar.gz" "coredoc-onprem-${VERSION}.tar.gz.sha256" sboms/*.spdx.json)
+          # cli-bundle.json is uploaded LAST: the server treats a release as carrying a
+          # bundle once the descriptor is there, so the files it names must be too.
+          ASSETS=("coredoc-onprem-${VERSION}.tar.gz" "coredoc-onprem-${VERSION}.tar.gz.sha256" sboms/*.spdx.json
+            cli-bundle/coredoc-cli.mjs cli-bundle/runtime-modules.tar.gz)
           if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
             echo "Release ${GITHUB_REF_NAME} already exists — attaching the kit"
             gh release upload "${GITHUB_REF_NAME}" "${ASSETS[@]}" --clobber
+            gh release edit "${GITHUB_REF_NAME}" --latest=false
           else
             gh release create "${GITHUB_REF_NAME}" \
-              --title "coredoc v${VERSION}" \
+              --title "coredoc server v${VERSION}" \
               --generate-notes \
+              --latest=false \
               "${ASSETS[@]}"
           fi
+          gh release upload "${GITHUB_REF_NAME}" cli-bundle/cli-bundle.json --clobber
