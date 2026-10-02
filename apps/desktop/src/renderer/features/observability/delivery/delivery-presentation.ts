@@ -20,7 +20,8 @@ import {
 } from '../../../../shared/ipc-types.js';
 import { formatUsd, NO_DATA, plural } from '../observability-format';
 
-const HOUR_MS = 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
 
 /** The one small-sample threshold on this surface (BR-11): at or below it, a median is directional. */
 export const DIRECTIONAL_SAMPLE_MAX = 4;
@@ -36,17 +37,23 @@ export function stageColor(stageIndex: number): string {
 }
 
 /**
- * Delivery durations are days-to-hours, not the seconds-to-minutes the shared
- * `formatDurationMs` targets: ≥48h reads "1.2d", ≥10h "14h", else "3.5h".
+ * Delivery durations run from minutes to days, coarser than the seconds the shared
+ * `formatDurationMs` keeps: ≥48h reads "1.2d", ≥10h "14h", ≥1h "3h 30m", else "6m".
+ * Below 10h the unit is whole minutes, never a fraction of an hour — "0.1h" was
+ * read as 10 minutes, and a 2-minute stage printed as "0.0h" beside a 0.1h total.
  */
 export function formatDurationShort(ms: number): string {
   // A negative span is real (ship evidence predating its task row) but not a
-  // duration: clamping it printed "0.0h", which reads as a measured zero.
+  // duration: clamping it would print "0m", which reads as a measured zero.
   if (!Number.isFinite(ms) || ms < 0) return NO_DATA;
   const hours = ms / HOUR_MS;
   if (hours >= 48) return `${(hours / 24).toFixed(1)}d`;
   if (hours >= 10) return `${Math.round(hours)}h`;
-  return `${hours.toFixed(1)}h`;
+  if (ms > 0 && ms < MINUTE_MS) return '<1m';
+  const minutes = Math.round(ms / MINUTE_MS);
+  if (minutes < 60) return `${minutes}m`;
+  const rest = minutes % 60;
+  return rest === 0 ? `${Math.floor(minutes / 60)}h` : `${Math.floor(minutes / 60)}h ${rest}m`;
 }
 
 export function formatCountValue(value: number): string {
