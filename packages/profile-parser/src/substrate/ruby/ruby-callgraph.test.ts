@@ -1010,7 +1010,7 @@ describe('indexRubyDefs — association readers', () => {
     filePath,
     line,
   });
-  /** Index + resolve with an association map, the way parseRubyRepo wires the entity pass in. */
+  /** Index + resolve with an association map, the way the Ruby substrate wires the entity pass in. */
   async function runAssoc(
     sources: Record<string, string>,
     associations: Record<string, Array<ReturnType<typeof assoc>>>,

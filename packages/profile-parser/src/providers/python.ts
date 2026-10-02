@@ -1,11 +1,11 @@
 import { pythonScipPrereqs } from '../substrate/python/scip-tool.js';
-import type { ParsedRepo } from '@coredoc/core/types';
 import { pythonSourceSignals } from '../scoring/python-signals.js';
 import type { ScoreContext, SourceSignals } from '../scoring/score-core.js';
-import { discoverPythonFileScope, PY_SOURCE_EXTENSIONS } from '../substrate/python/python-cst.js';
-import { parsePythonRepo, toFullParsedRepo } from '../substrate/python/python-parser.js';
+import { PY_SOURCE_EXTENSIONS } from '../substrate/python/python-cst.js';
+import { pythonSubstrate } from '../substrate/python/python-parser.js';
+import { parseSubstrate } from '../substrate/parse-substrate.js';
 import type { PythonProfile } from '../types/python-profile.js';
-import type { LanguageProvider, ParseOptions } from './types.js';
+import type { LanguageProvider } from './types.js';
 
 /** A Python extraction profile: has parserId+substrate and language 'python'. */
 function isPythonProfile(v: unknown): v is PythonProfile {
@@ -22,24 +22,8 @@ export const pythonProvider: LanguageProvider<PythonProfile> = {
   },
   isProfile: isPythonProfile,
 
-  sourceFiles(profile: PythonProfile, repoRoot: string) {
-    return discoverPythonFileScope(
-      repoRoot,
-      profile.substrate.include,
-      profile.substrate.exclude ?? [],
-      profile.substrate.excludeDefaults,
-    );
-  },
-
-  async parse(profile: PythonProfile, opts: ParseOptions): Promise<ParsedRepo> {
-    const py = await parsePythonRepo(
-      opts.repoRoot,
-      opts.repoName,
-      { httpPrefix: opts.httpPrefix, repoKey: opts.repoKey, cacheDir: opts.cacheDir, scipOutDir: opts.scipOutDir },
-      profile,
-    );
-    return toFullParsedRepo(py, opts.repoRoot, profile.parserId, new Date().toISOString());
-  },
+  sourceFiles: (profile, repoRoot) => pythonSubstrate.scope(profile, repoRoot),
+  parse: (profile, opts) => parseSubstrate(pythonSubstrate, profile, opts),
 
   sourceSignals(ctx: ScoreContext): SourceSignals {
     return pythonSourceSignals(ctx.repoRoot, ctx.profile as PythonProfile, ctx.sourceFiles);

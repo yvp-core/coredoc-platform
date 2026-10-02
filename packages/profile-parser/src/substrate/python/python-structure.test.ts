@@ -4,12 +4,13 @@
  * right" is what shipped before, so every assertion recomputes the reference from the emitted
  * node set rather than from a literal.
  */
+import { pythonProvider } from '../../providers/python.js';
+import type { ParsedRepo } from '@coredoc/core';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PythonProfile } from '../../types.js';
-import { type PythonParsedRepo, parsePythonRepo, toFullParsedRepo } from './python-parser.js';
 
 const FILES: Record<string, string> = {
   'pyproject.toml': '[project]\nname = "demo"\n',
@@ -61,7 +62,7 @@ const PROFILE: PythonProfile = {
 
 describe('python substrate — structure nodes (G1)', () => {
   let root: string;
-  let repo: PythonParsedRepo;
+  let repo: ParsedRepo;
 
   beforeAll(async () => {
     root = mkdtempSync(join(tmpdir(), 'py-structure-'));
@@ -70,12 +71,12 @@ describe('python substrate — structure nodes (G1)', () => {
       mkdirSync(dirname(abs), { recursive: true });
       writeFileSync(abs, src);
     }
-    repo = await parsePythonRepo(root, 'struct', {}, PROFILE);
+    repo = await pythonProvider.parse(PROFILE, { repoRoot: root, repoName: 'struct' });
   });
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 
   it('emits one FileNode per parsed file, matching stats.parsedFiles', () => {
-    expect(repo.files.length).toBe(repo.parseStats.parsedFiles);
+    expect(repo.files.length).toBe(repo.stats.parsedFiles);
     expect(repo.files.map((f) => f.path).sort()).toEqual([
       'app/__init__.py',
       'app/helpers.py',
@@ -157,7 +158,7 @@ describe('python substrate — structure nodes (G1)', () => {
     // An external module resolves to no file rather than to a fabricated one.
     expect(edges.find((e) => e.moduleSpecifier === 'json')?.targetFileId).toBeUndefined();
     // stats agree with what was emitted.
-    expect(repo.parseStats.totalImports).toBe(repo.imports.length);
+    expect(repo.stats.totalImports).toBe(repo.imports.length);
   });
 
   it('records annotation TEXT on return types and parameters', () => {
@@ -179,20 +180,12 @@ describe('python substrate — structure nodes (G1)', () => {
     expect(declared?.returnType?.text).toBe('str');
   });
 
-  it('toFullParsedRepo carries structure through and reports honest stats', () => {
-    const full = toFullParsedRepo(repo, root, 'struct', new Date().toISOString());
-    expect(full.files.length).toBe(repo.files.length);
-    expect(full.packages.length).toBe(repo.packages.length);
-    expect(full.classes.length).toBe(repo.classes.length);
-    expect(full.imports.length).toBe(repo.imports.length);
-    expect(full.stats.parsedFiles).toBe(full.files.length);
-    expect(full.stats.totalClasses).toBe(full.classes.length);
-    expect(full.stats.totalImports).toBe(full.imports.length);
+  it('reports honest stats and no extracted variables', () => {
+    expect(repo.stats.totalClasses).toBe(repo.classes.length);
     // Variables are NOT extracted by any python lane — the empty array is the honest report.
-    expect(full.variables).toEqual([]);
-    // BR-4: the db-op resolution record reaches `ParseStats` from this assembly site.
-    expect(full.stats.dbOpResolution).toEqual(repo.parseStats.dbOpResolution);
-    const db = full.stats.dbOpResolution;
+    expect(repo.variables).toEqual([]);
+    // BR-4: the db-op resolution record reaches `ParseStats`.
+    const db = repo.stats.dbOpResolution;
     if (!db) throw new Error('expected stats.dbOpResolution');
     expect(db.boundDbOps + db.outOfScopeDbOps).toBeLessThanOrEqual(db.dbOpSites);
   });

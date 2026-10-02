@@ -15,7 +15,7 @@ import { createRequire } from 'module';
 let runtime: Promise<typeof import('web-tree-sitter')> | undefined;
 const getRuntime = () => (runtime ??= import('web-tree-sitter'));
 
-type SupportedLanguage =
+export type SupportedLanguage =
   | 'typescript'
   | 'tsx'
   | 'python'

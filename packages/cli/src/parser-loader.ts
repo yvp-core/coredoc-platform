@@ -344,7 +344,7 @@ async function loadParserFromPath(parserPath: string, options: ParserOptions): P
  * to the `LanguageProvider` whose `substrate.language` matches it (TS/JS → SCIP engine,
  * Ruby → Ruby substrate) and is run via `provider.parse`; a multi-target composite export
  * is run via `parseMultiTarget`, which fans out to one provider per target and merges the
- * results. SCIP preflight and the Ruby `toFullParsedRepo` adaptation live inside the providers.
+ * results. SCIP preflight and the per-language adaptation live inside the providers.
  */
 async function loadProfileFromPath(profilePath: string, options: ParserOptions): Promise<Parser> {
   const module = await import(pathToFileURL(profilePath).href);

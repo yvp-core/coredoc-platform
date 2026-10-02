@@ -1,20 +1,10 @@
+import { swiftProvider } from '../../providers/swift.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type {
-  ClassNode,
-  DbOperation,
-  EntityNode,
-  Entrypoint,
-  ExternalCallEdge,
-  FileNode,
-  FunctionNode,
-  Package,
-} from '@coredoc/core';
 import { checkReferentialIntegrity } from '../../integrity/referential-integrity.js';
 import { providerForExport } from '../../providers/index.js';
 import type { SwiftProfile } from '../../types/swift-profile.js';
-import { type SwiftParsedRepo, parseSwiftRepo, toFullParsedRepo } from './swift-parser.js';
 
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__', 'mini-ios');
 
@@ -28,70 +18,16 @@ const profile: SwiftProfile = {
   di: { containerAccessor: 'DI.shared' },
 };
 
-/** `toFullParsedRepo` adapts SwiftParsedRepo → ParsedRepo without dropping structural joins. */
-describe('toFullParsedRepo', () => {
-  const ep = { id: 's:ep', type: 'event' } as unknown as Entrypoint;
-  const entity = { id: 's:entity:BookingDB', name: 'BookingDB', kind: 'entity' } as unknown as EntityNode;
-  const dbop = { id: 's:dbop', entityName: 'BookingDB', operation: 'read' } as unknown as DbOperation;
-  const fn = {
-    id: 's:fn',
-    name: 'run',
-    kind: 'method',
-    fileId: 's:file:App.swift',
-    classId: 's:class:App.swift:App',
-  } as unknown as FunctionNode;
-  const ec = { id: 's:ec', method: 'GET' } as unknown as ExternalCallEdge;
-  const pkg = { id: 's:package:.', name: 'ios', path: '.' } as Package;
-  const file = {
-    id: 's:file:App.swift',
-    path: 'App.swift',
-    packageId: pkg.id,
-    language: 'swift',
-  } as FileNode;
-  const cls = { id: 's:class:App.swift:App', name: 'App', fileId: file.id, methods: [fn.id] } as ClassNode;
-
-  const swift: SwiftParsedRepo = {
-    id: 'repo:ios',
-    name: 'ios',
-    entrypoints: [ep],
-    externalCalls: [ec],
-    functions: [fn],
-    calls: [],
-    type: 'mobile',
-    entities: [entity],
-    dbOperations: [dbop],
-    packages: [pkg],
-    files: [file],
-    classes: [cls],
-    parseStats: { totalFiles: 1, parsedFiles: 1, skippedFiles: 0, parseTimeMs: 7 },
-  };
-
-  it('carries Swift facts and structure, type mobile, parserVersion swift', () => {
-    const full = toFullParsedRepo(swift, '/repo/path', 'ios-v1', '2026-07-22T00:00:00Z');
-    expect(full.type).toBe('mobile');
-    expect(full.parserVersion).toBe('1.2.0-swift');
-    expect(full.entities).toHaveLength(1);
-    expect(full.dbOperations).toHaveLength(1);
-    expect(full.externalCalls).toHaveLength(1);
-    expect(full.packages).toEqual([pkg]);
-    expect(full.files).toEqual([file]);
-    expect(full.classes).toEqual([cls]);
-    expect(full.imports).toEqual([]);
-    expect(full.stats.parsedFiles).toBe(1);
-    expect(full.stats.totalClasses).toBe(1);
-    expect(full.stats.parseTimeMs).toBe(7);
-    expect(full.stats.totalEntities).toBe(1);
-    expect(full.stats.totalExternalCalls).toBe(1);
-    expect('httpPrefix' in full).toBe(false);
-  });
-});
-
 /** [S4] structural extraction + two-ID integrity, end-to-end against a fixture repo. */
-describe('[S4/S5/S6/S7] parseSwiftRepo against a fixture repo', () => {
+describe('[S4/S5/S6/S7] swiftProvider.parse against a fixture repo', () => {
   it('extracts functions, entities, db-ops, egress, and Tier-B calls with canonical two-IDs', async () => {
-    const repo = await parseSwiftRepo(FIXTURE, 'mini-ios', { repoKey: 'mini-ios' }, profile);
+    const repo = await swiftProvider.parse(profile, { repoRoot: FIXTURE, repoName: 'mini-ios', repoKey: 'mini-ios' });
     const repoHash = repo.id;
-    const full = toFullParsedRepo(repo, FIXTURE, profile.parserId, '2026-08-26T00:00:00Z');
+    expect(repo.type).toBe('mobile');
+    expect(repo.parserVersion).toBe('1.2.1-swift');
+    expect(repo.imports).toEqual([]);
+    expect(repo.errors).toEqual([]);
+    expect('httpPrefix' in repo).toBe(false);
 
     // structural floor: a FunctionNode per method
     expect(repo.functions.map((f) => f.name).sort()).toEqual(['fetchAll', 'start', 'stop', 'sync']);
@@ -121,22 +57,22 @@ describe('[S4/S5/S6/S7] parseSwiftRepo against a fixture repo', () => {
 
     // Structure joins are part of the real full-output path: every function must resolve to
     // the FileNode and (for methods) ClassNode minted by the same StableIdGenerator.
-    const integrity = checkReferentialIntegrity(full);
+    const integrity = checkReferentialIntegrity(repo);
     expect(integrity.violations.map((v) => `${v.ref}:${v.count}`)).toEqual([]);
     expect(integrity.danglingRefs).toBe(0);
-    expect(full.functions.some((fn) => fn.classId !== undefined)).toBe(true);
-    expect(full.files.map((file) => file.path).sort()).toEqual([
+    expect(repo.functions.some((fn) => fn.classId !== undefined)).toBe(true);
+    expect(repo.files.map((file) => file.path).sort()).toEqual([
       'Api.swift',
       'BookingService.swift',
       'Extensions.swift',
       'Models.swift',
     ]);
-    expect(full.stats.parsedFiles).toBe(full.files.length);
+    expect(repo.stats.parsedFiles).toBe(repo.files.length);
   });
 
   it('versionedId flips when a function body changes but the stable id does not', async () => {
-    const a = await parseSwiftRepo(FIXTURE, 'mini-ios', { repoKey: 'mini-ios' }, profile);
-    const b = await parseSwiftRepo(FIXTURE, 'mini-ios', { repoKey: 'mini-ios' }, profile);
+    const a = await swiftProvider.parse(profile, { repoRoot: FIXTURE, repoName: 'mini-ios', repoKey: 'mini-ios' });
+    const b = await swiftProvider.parse(profile, { repoRoot: FIXTURE, repoName: 'mini-ios', repoKey: 'mini-ios' });
     // determinism: identical parse → identical versionedIds
     expect(a.functions.map((f) => f.versionedId).sort()).toEqual(b.functions.map((f) => f.versionedId).sort());
     // stable id ≠ versioned id (checksum present)
@@ -155,11 +91,10 @@ describe('[S2] provider dispatch', () => {
 });
 
 /** [S7] in-repo call resolution is measured over the enumerated Tier-B sites (BR-1/BR-2, LIM-6). */
-describe('parseSwiftRepo — call-site measurement', () => {
+describe('swiftProvider.parse — call-site measurement', () => {
   it('counts enumerated sites, the platform calls out of scope, and only shipped edges as resolved', async () => {
-    const repo = await parseSwiftRepo(FIXTURE, 'mini-ios', { repoKey: 'mini-ios' }, profile);
-    const full = toFullParsedRepo(repo, FIXTURE, profile.parserId, '2026-08-26T00:00:00Z');
-    const cr = full.stats.callResolution;
+    const repo = await swiftProvider.parse(profile, { repoRoot: FIXTURE, repoName: 'mini-ios', repoKey: 'mini-ios' });
+    const cr = repo.stats.callResolution;
     if (!cr) throw new Error('expected stats.callResolution');
 
     expect(cr.resolvedCalls).toBe(repo.calls.length); // every shipped edge is a counted site
@@ -171,10 +106,8 @@ describe('parseSwiftRepo — call-site measurement', () => {
   });
 
   it('carries the db-op resolution record into ParseStats (BR-4)', async () => {
-    const repo = await parseSwiftRepo(FIXTURE, 'mini-ios', { repoKey: 'mini-ios' }, profile);
-    const full = toFullParsedRepo(repo, FIXTURE, profile.parserId, '2026-08-26T00:00:00Z');
-    expect(full.stats.dbOpResolution).toEqual(repo.parseStats.dbOpResolution);
-    const db = full.stats.dbOpResolution;
+    const repo = await swiftProvider.parse(profile, { repoRoot: FIXTURE, repoName: 'mini-ios', repoKey: 'mini-ios' });
+    const db = repo.stats.dbOpResolution;
     if (!db) throw new Error('expected stats.dbOpResolution');
     // The exact triple for `__fixtures__/mini-ios`: every enumerated op site resolves its entity.
     expect(db).toEqual({ dbOpSites: 3, boundDbOps: 3, outOfScopeDbOps: 0 });

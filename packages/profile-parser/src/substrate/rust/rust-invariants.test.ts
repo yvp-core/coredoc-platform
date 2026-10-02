@@ -8,13 +8,14 @@
  * name used with underscores in code, a host-only egress URL beside a real one, an Anchor
  * `#[program]` mod, and a diesel `table!` describing the same table as a derive struct.
  */
+import { rustProvider } from '../../providers/rust.js';
+import type { ParsedRepo } from '@coredoc/core';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { FunctionNode, QueueEntrypointDetails } from '@coredoc/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { RustProfile } from '../../types.js';
-import { type RustParsedRepo, parseRustRepo } from './rust-parser.js';
 
 const FILES: Record<string, string> = {
   'Cargo.toml': '[workspace]\nmembers = ["crates/api", "crates/program"]\n',
@@ -147,12 +148,12 @@ function writeFixture(): string {
 
 describe('rust substrate — graph-wide invariants', () => {
   let root: string;
-  let repo: RustParsedRepo;
+  let repo: ParsedRepo;
   let fnById: Map<string, FunctionNode>;
 
   beforeAll(async () => {
     root = writeFixture();
-    repo = await parseRustRepo(root, 'inv', {}, PROFILE);
+    repo = await rustProvider.parse(PROFILE, { repoRoot: root, repoName: 'inv' });
     fnById = new Map((repo.functions ?? []).map((f) => [f.id, f]));
   });
   afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -252,14 +253,17 @@ describe('rust substrate — graph-wide invariants', () => {
  */
 describe('rust substrate — a bare profile uses defaults, not opt-out', () => {
   let root: string;
-  let bare: RustParsedRepo;
+  let bare: ParsedRepo;
 
   beforeAll(async () => {
     root = writeFixture();
-    bare = await parseRustRepo(root, 'bare', {}, {
-      parserId: 'bare',
-      substrate: { language: 'rust', include: ['**/*.rs'] },
-    } as RustProfile);
+    bare = await rustProvider.parse(
+      {
+        parserId: 'bare',
+        substrate: { language: 'rust', include: ['**/*.rs'] },
+      } as RustProfile,
+      { repoRoot: root, repoName: 'bare' },
+    );
   });
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 

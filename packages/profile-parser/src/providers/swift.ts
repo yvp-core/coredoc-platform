@@ -1,16 +1,16 @@
 // =============================================================================
 // Swift LanguageProvider.
 //
-// A thin wrapper over `parseSwiftRepo` + `toFullParsedRepo` (the bespoke tree-sitter-CST
-// substrate, Ruby-style). No SCIP: Swift has no wired semantic-index prerequisite, so
+// A thin wrapper over `swiftSubstrate` run through `parseSubstrate` (the bespoke
+// tree-sitter-CST substrate, Ruby-style). No SCIP: Swift has no wired semantic-index prerequisite, so
 // `discovery` omits `scipPrereqs` and the parse never throws on a missing index.
 // =============================================================================
-import type { ParsedRepo } from '@coredoc/core/types';
 import { swiftSourceSignals } from '../scoring/swift-signals.js';
 import type { ScoreContext, SourceSignals } from '../scoring/score-core.js';
-import { discoverSwiftFileScope, parseSwiftRepo, toFullParsedRepo } from '../substrate/swift/swift-parser.js';
+import { parseSubstrate } from '../substrate/parse-substrate.js';
+import { swiftSubstrate } from '../substrate/swift/swift-parser.js';
 import type { SwiftProfile } from '../types/swift-profile.js';
-import type { LanguageProvider, ParseOptions } from './types.js';
+import type { LanguageProvider } from './types.js';
 
 /** A Swift extraction profile: has parserId+substrate and language 'swift'. */
 function isSwiftProfile(v: unknown): v is SwiftProfile {
@@ -29,19 +29,8 @@ export const swiftProvider: LanguageProvider<SwiftProfile> = {
   },
   isProfile: isSwiftProfile,
 
-  sourceFiles(profile: SwiftProfile, repoRoot: string) {
-    return discoverSwiftFileScope(repoRoot, profile.substrate.include, profile.substrate.exclude ?? []);
-  },
-
-  async parse(profile: SwiftProfile, opts: ParseOptions): Promise<ParsedRepo> {
-    const swift = await parseSwiftRepo(
-      opts.repoRoot,
-      opts.repoName,
-      { httpPrefix: opts.httpPrefix, repoKey: opts.repoKey, cacheDir: opts.cacheDir },
-      profile,
-    );
-    return toFullParsedRepo(swift, opts.repoRoot, profile.parserId, new Date().toISOString());
-  },
+  sourceFiles: (profile, repoRoot) => swiftSubstrate.scope(profile, repoRoot),
+  parse: (profile, opts) => parseSubstrate(swiftSubstrate, profile, opts),
 
   sourceSignals(ctx: ScoreContext): SourceSignals {
     return swiftSourceSignals(ctx.repoRoot, ctx.profile as SwiftProfile, ctx.sourceFiles);

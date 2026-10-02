@@ -6,10 +6,10 @@
  *
  * The def index (`indexRubyDefs`) + the tier-ordered, provenance-tagged
  * resolver (`resolveRubyCalls`) are MEASURED (tests + scripts/_measure-ruby-calls.ts)
- * but their edges are NOT wired into parseRubyRepo (`calls: []`) until the >=0.90 tiers ship.
+ * but their edges are NOT wired into the Ruby substrate (`calls: []`) until the >=0.90 tiers ship.
  *
  * Ids are canonical via StableIdGenerator (idGen.methodId), so a def's node id matches
- * the same def's db-op performer id — the two are merged by id in parseRubyRepo.
+ * the same def's db-op performer id — the two are merged by id in the Ruby substrate.
  */
 import type {
   CallEdge,
@@ -828,7 +828,7 @@ export async function indexRubyDefs(
  * The provenance tiers whose measured precision cleared the >=0.90 gate on real code
  * and are therefore SHIPPED as resolved graph edges:
  * rb-const (~0.95) + rb-self (~0.93). rb-unique (~0.55 — gem/stdlib var/chain receivers
- * + builtin-shadowing) is deliberately EXCLUDED; parseRubyRepo drops non-shippable edges
+ * + builtin-shadowing) is deliberately EXCLUDED; the Ruby substrate drops non-shippable edges
  * so they never reach the graph. Revisit when a receiver-type model raises rb-unique.
  */
 /**
@@ -899,7 +899,7 @@ export const SHIPPABLE_PROVENANCE = new Set<CallProvenance>(['rb-const', 'rb-sel
  * Resolve every in-`def` call site through the precision-ordered tiers (Tier 0 builtin
  * filter → rb-const → rb-self → rb-unique), first-match-wins, with a calleeTail name
  * check. Returns a CallEdge per site (resolved → calleeId+provenance; otherwise a bare
- * unresolved edge). The full set is for MEASUREMENT; parseRubyRepo ships only
+ * unresolved edge). The full set is for MEASUREMENT; the Ruby substrate ships only
  * SHIPPABLE_PROVENANCE.
  */
 export async function resolveRubyCalls(
@@ -1006,7 +1006,7 @@ export async function resolveRubyCalls(
           }
         }
 
-        // Clause (i) of LIM-7, decided per SITE with exactly parseRubyRepo's shipping predicate:
+        // Clause (i) of LIM-7, decided per SITE with exactly the Ruby substrate's shipping predicate:
         // this edge ships, so the site is resolved whatever the scip union later de-duplicates.
         // Only the sites tier B did not ship carry a key into clause (ii).
         if (measurement && inRepoDefs > 0) {

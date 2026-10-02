@@ -1,5 +1,5 @@
 /**
- * Swift/iOS repo parser — assembles a linker-ready `ParsedRepoLike` plus the intra-repo
+ * Swift/iOS substrate — extracts the intra-repo
  * `entities`/`dbOperations`/`calls` facts from the generic Swift extractors. All extraction
  * is generic Swift; per-repo TUNING comes from an optional SwiftProfile (globs, ORM base
  * classes, the API-protocol names, the DI container accessor). The cross-repo linker reads
@@ -9,7 +9,6 @@
  * none for Swift). Frontend concepts (SwiftUI components/routes/stateStores) and iOS
  * entrypoints are a deferred follow-up increment — `entrypoints` is empty here.
  */
-import { readFileSync } from 'node:fs';
 import {
   type CallEdge,
   type CallResolutionStats,
@@ -22,49 +21,16 @@ import {
   type FileNode,
   type FunctionNode,
   type Package,
-  type ParsedRepo,
-  type ParsedRepoLike,
-  type RepoType,
-  StableIdGenerator,
+  type StableIdGenerator,
 } from '@coredoc/core';
-import { releaseParsedTrees } from '../../tree-sitter/tree-release.js';
 import type { SwiftProfile } from '../../types.js';
 import { makeFileScopeDiscoverer } from '../cst-kit/file-scope.js';
 import { type SwiftFile, indexSwiftDefs, parseDiContainer, resolveSwiftCalls } from './swift-callgraph.js';
-import { PROTOCOL_DECL, TYPE_CONTAINERS, type TsNode, declKind, parseSwift, typeName } from './swift-cst.js';
+import { PROTOCOL_DECL, TYPE_CONTAINERS, type TsNode, declKind, typeName } from './swift-cst.js';
 import { extractSwiftDbOps } from './swift-dbops.js';
 import { extractSwiftEgress } from './swift-egress.js';
 import { extractSwiftEntities } from './swift-entities.js';
-import { toParsedRepo } from '../to-parsed-repo.js';
-
-export interface ParseSwiftRepoOptions {
-  /** Gateway prefix from RepoConfig.httpPrefix, propagated to the linker for prefix-aware matching. */
-  httpPrefix?: string;
-  /** Path-independent hash seed for StableIdGenerator (repoHash = hash(repoKey ?? name)); matches the TS/Ruby paths. */
-  repoKey?: string;
-  /** Unused today (no incremental cache for Swift yet); accepted for ParseOptions parity. */
-  cacheDir?: string;
-}
-
-/** The Swift parser's full output — the linker reads only the ParsedRepoLike subset. */
-export interface SwiftParsedRepo extends ParsedRepoLike {
-  entities: EntityNode[];
-  dbOperations: DbOperation[];
-  calls: CallEdge[];
-  packages: Package[];
-  files: FileNode[];
-  classes: ClassNode[];
-  parseStats: {
-    totalFiles: number;
-    parsedFiles: number;
-    skippedFiles: number;
-    parseTimeMs: number;
-    /** In-repo call resolution over the enumerated Tier-B sites (BR-2, LIM-6). */
-    callResolution?: CallResolutionStats;
-    /** In-repo db-op resolution over the enumerated op sites (BR-4). Absent = lane not run. */
-    dbOpResolution?: DbOpResolutionStats;
-  };
-}
+import type { Substrate } from '../parse-substrate.js';
 
 /** One Swift source file, owned by the shared repo-root package. */
 function toSwiftFileNode(file: SwiftFile, packageId: string, idGen: StableIdGenerator): FileNode {
@@ -161,11 +127,6 @@ function extractSwiftClasses(files: SwiftFile[], functions: FunctionNode[], idGe
   });
 }
 
-/** Enumerate `.swift` sources in scope: gitignore-honoring walk + the profile's include/exclude globs. */
-export function discoverSwiftFiles(root: string, include: string[], exclude: string[] = []): string[] {
-  return discoverSwiftFileScope(root, include, exclude).included;
-}
-
 /**
  * The scorer-facing source scope, derived by the same discovery policy as the parser.
  *
@@ -178,151 +139,69 @@ export const discoverSwiftFileScope = makeFileScopeDiscoverer({
 });
 
 /**
- * Parse a Swift/iOS repo on disk into a `SwiftParsedRepo`. Entity/db-op extraction runs when
- * the profile declares `entities` (the ORM base classes); egress + call graph always run.
+ * The Swift substrate. Entity/db-op extraction runs when the profile declares `entities` (the ORM
+ * base classes); egress + call graph always run. No SCIP: Tier-B only.
  */
-export async function parseSwiftRepo(
-  root: string,
-  name: string,
-  opts: ParseSwiftRepoOptions = {},
-  profile?: SwiftProfile,
-): Promise<SwiftParsedRepo> {
-  const start = Date.now();
-  // One id generator for the whole repo — seeded exactly like the TS/Ruby paths
-  // (repoHash = hash(repoKey ?? name)) so Swift IDs are canonical + cross-repo-consistent.
-  const idGen = new StableIdGenerator(root, opts.repoKey ?? name);
+export const swiftSubstrate: Substrate<SwiftProfile, SwiftFile> = {
+  language: 'swift',
+  parserVersion: '1.2.1-swift',
+  grammar: 'swift',
+  scope: (profile, root) =>
+    discoverSwiftFileScope(root, profile.substrate.include ?? [], profile.substrate.exclude ?? []),
 
-  const include = profile?.substrate.include ?? ['**/*.swift'];
-  const exclude = profile?.substrate.exclude ?? [];
-  const relPaths = discoverSwiftFiles(root, include, exclude);
+  async extract({ name, profile, idGen, files }) {
+    // DI-accessor resolution runs only when the profile declares its container (no hardcoded default).
+    const di = parseDiContainer(profile.di?.containerAccessor);
+    const index = indexSwiftDefs(files, idGen, di?.root);
 
-  // Parse each file exactly once; every extractor reuses the shared root node.
-  const files: SwiftFile[] = [];
-  let skippedFiles = 0;
-  for (const relPath of relPaths) {
-    let source: string;
-    try {
-      source = readFileSync(`${root}/${relPath}`, 'utf-8');
-    } catch {
-      skippedFiles++;
-      continue;
+    // Egress — the cross-repo win.
+    const externalCalls: ExternalCallEdge[] = extractSwiftEgress(files, idGen, {
+      targetTypeProtocols: profile.egress?.targetTypeProtocols,
+    });
+
+    // Intra-repo data facts. Emit db-ops whenever entities are emitted (else the language-neutral
+    // entities-but-0-dbops red flag would force a FAIL).
+    let entities: EntityNode[] = [];
+    let dbOperations: DbOperation[] = [];
+    let dbOpResolution: DbOpResolutionStats | undefined;
+    if (profile.entities) {
+      const res = extractSwiftEntities(files, {
+        idGen,
+        baseClasses: profile.entities.baseClasses ?? ['Object'],
+        orm: profile.entities.orm,
+      });
+      entities = res.entities;
+      const dbRes = extractSwiftDbOps(files, res.entityIdByName, idGen, {
+        opMap: profile.dbOperations?.opMap,
+        entityTypealias: profile.dbOperations?.entityTypealias,
+      });
+      dbOperations = dbRes.dbOperations;
+      dbOpResolution = dbRes.stats;
     }
-    files.push({ relPath, source, root: await parseSwift(source) });
-  }
 
-  // DI-accessor resolution runs only when the profile declares its container (no hardcoded default).
-  const di = parseDiContainer(profile?.di?.containerAccessor);
-  const index = indexSwiftDefs(files, idGen, di?.root);
+    // Tier-B call graph (resolved, high-precision idioms only).
+    const callResolution: CallResolutionStats = { callSites: 0, resolvedCalls: 0, outOfScopeCalls: 0 };
+    const calls: CallEdge[] = resolveSwiftCalls(files, index, idGen, di, callResolution);
 
-  // Egress — the cross-repo win.
-  const externalCalls: ExternalCallEdge[] = extractSwiftEgress(files, idGen, {
-    targetTypeProtocols: profile?.egress?.targetTypeProtocols,
-  });
+    const functions: FunctionNode[] = [...index.byId.values()];
+    const rootPackageId = idGen.packageId('.');
+    const packages: Package[] = [{ id: rootPackageId, name, path: '.' }];
+    const fileNodes = files.map((file) => toSwiftFileNode(file, rootPackageId, idGen));
+    const classes = extractSwiftClasses(files, functions, idGen);
+    const entrypoints: Entrypoint[] = []; // deferred to the follow-up increment (step 10)
 
-  // Intra-repo data facts. Emit db-ops whenever entities are emitted (else the language-neutral
-  // entities-but-0-dbops red flag would force a FAIL).
-  let entities: EntityNode[] = [];
-  let dbOperations: DbOperation[] = [];
-  let dbOpResolution: DbOpResolutionStats | undefined;
-  if (profile?.entities) {
-    const res = extractSwiftEntities(files, {
-      idGen,
-      baseClasses: profile.entities.baseClasses ?? ['Object'],
-      orm: profile.entities.orm,
-    });
-    entities = res.entities;
-    const dbRes = extractSwiftDbOps(files, res.entityIdByName, idGen, {
-      opMap: profile.dbOperations?.opMap,
-      entityTypealias: profile.dbOperations?.entityTypealias,
-    });
-    dbOperations = dbRes.dbOperations;
-    dbOpResolution = dbRes.stats;
-  }
-
-  // Tier-B call graph (resolved, high-precision idioms only).
-  const callResolution: CallResolutionStats = { callSites: 0, resolvedCalls: 0, outOfScopeCalls: 0 };
-  const calls: CallEdge[] = resolveSwiftCalls(files, index, idGen, di, callResolution);
-
-  const functions: FunctionNode[] = [...index.byId.values()];
-  const rootPackageId = idGen.packageId('.');
-  const packages: Package[] = [{ id: rootPackageId, name, path: '.' }];
-  const fileNodes = files.map((file) => toSwiftFileNode(file, rootPackageId, idGen));
-  const classes = extractSwiftClasses(files, functions, idGen);
-  const entrypoints: Entrypoint[] = []; // deferred to the follow-up increment (step 10)
-
-  // Free the WASM-side trees: every lane has run and the returned repo holds only plain data.
-  // web-tree-sitter never garbage-collects trees and its heap is hard-capped at 2GB.
-  releaseParsedTrees(files);
-
-  return {
-    id: idGen.getRepoHash(),
-    name,
-    entrypoints,
-    externalCalls,
-    functions,
-    calls,
-    type: 'mobile',
-    httpPrefix: opts.httpPrefix,
-    entities,
-    dbOperations,
-    packages,
-    files: fileNodes,
-    classes,
-    parseStats: {
-      totalFiles: relPaths.length,
-      parsedFiles: fileNodes.length,
-      skippedFiles,
-      parseTimeMs: Date.now() - start,
-      callResolution,
-      dbOpResolution,
-    },
-  };
-}
-
-/**
- * Adapt a `SwiftParsedRepo` to a full `ParsedRepo` for the CLI parse → push → DB flow. The
- * Swift parser extracts the cross-repo + data-layer facts + the Tier-B call graph and carries
- * its package/file/class structure through so every function reference remains joinable.
- * `httpPrefix` is dropped (not a `ParsedRepo` field; applied at link time).
- */
-export function toFullParsedRepo(
-  swift: SwiftParsedRepo,
-  repoPath: string,
-  parserId: string,
-  parsedAt: string,
-  parserVersion = '1.2.0-swift',
-): ParsedRepo {
-  const functions = swift.functions ?? [];
-  const calls = swift.calls ?? [];
-  const classes = swift.classes;
-  const stats = swift.parseStats;
-  return toParsedRepo(
-    {
-      id: swift.id,
-      name: swift.name,
-      path: repoPath,
-      type: (swift.type as RepoType | undefined) ?? 'mobile',
-      parsedAt,
-      parserId,
-      packages: swift.packages,
-      files: swift.files,
+    return {
+      type: 'mobile',
+      packages,
+      files: fileNodes,
       functions,
       classes,
-      entrypoints: swift.entrypoints,
-      entities: swift.entities,
-      dbOperations: swift.dbOperations,
+      entrypoints,
+      entities,
+      dbOperations,
       calls,
-      externalCalls: swift.externalCalls,
-      stats: {
-        totalFiles: stats.totalFiles,
-        parsedFiles: stats.parsedFiles,
-        skippedFiles: stats.skippedFiles,
-        totalImports: 0,
-        parseTimeMs: stats.parseTimeMs,
-        callResolution: stats.callResolution,
-        dbOpResolution: stats.dbOpResolution,
-      },
-    },
-    { parserVersion },
-  );
-}
+      externalCalls,
+      stats: { totalImports: 0, callResolution, dbOpResolution },
+    };
+  },
+};

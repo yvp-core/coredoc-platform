@@ -1,67 +1,61 @@
 /**
- * Integration test for the Tier-A dispatch in parseRubyRepo — the prereq→run→loadScip→hooks→
- * toEdges→union path that the unit tests don't cover end-to-end. Deterministic: it injects a
- * `runScip` that returns a checked-in fixture index.scip (real scip-ruby output, see
- * __fixtures__/sample-app), so it runs everywhere with no Ruby toolchain. The live-toolchain
- * counterpart is ruby-scip.e2e.test.ts (CI only).
+ * Integration test for the Ruby Tier-A dispatch — the host→loadScip→hooks→toEdges→union path
+ * that the unit tests don't cover end-to-end. Deterministic: the optional-index host hands back a
+ * checked-in fixture index.scip (real scip-ruby output, see __fixtures__/sample-app), so it runs
+ * everywhere with no Ruby toolchain. The live-toolchain counterpart is ruby-scip.e2e.test.ts (CI only).
  */
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
-import { parseRubyRepo, toFullParsedRepo } from './ruby-parser.js';
+import { rubyProvider } from '../../providers/ruby.js';
+import type { RubyProfile } from '../../types/ruby-profile.js';
 import { withOptionalIndexHost } from '../../facts/scip/index-host.js';
 
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__/sample-app');
+const PROFILE: RubyProfile = { parserId: 'ruby-test', substrate: { language: 'ruby', include: [] } };
+const OPTS = { repoRoot: FIXTURE, repoName: 'sample-app', repoKey: 'sample-app' };
+const parse = (profile: RubyProfile = PROFILE) => rubyProvider.parse(profile, OPTS);
 
-describe('parseRubyRepo Tier-A dispatch (integration)', () => {
+describe('ruby Tier-A dispatch (integration)', () => {
   it('basic never requests tools and the host decision controls enhanced parsing', async () => {
     const prepare = vi.fn().mockResolvedValue({ path: join(FIXTURE, 'index.scip') });
     await withOptionalIndexHost(prepare, () =>
-      parseRubyRepo(
-        FIXTURE,
-        'sample-app',
-        {},
-        {
-          parserId: 'basic',
-          substrate: { language: 'ruby', include: ['**/*.rb'], analysis: { mode: 'basic' } },
-        },
-      ),
+      parse({ parserId: 'basic', substrate: { language: 'ruby', include: ['**/*.rb'], analysis: { mode: 'basic' } } }),
     );
     expect(prepare).not.toHaveBeenCalled();
-    const result = await withOptionalIndexHost(prepare, () => parseRubyRepo(FIXTURE, 'sample-app'));
+    const result = await withOptionalIndexHost(prepare, () => parse());
     expect(prepare).toHaveBeenCalledWith({ language: 'ruby', fallback: true });
-    expect(result.parseStats.analysis?.mode).toBe('enhanced');
+    expect(result.stats.analysis?.[0]?.mode).toBe('enhanced');
     prepare.mockResolvedValueOnce({ basic: true });
-    const basic = await withOptionalIndexHost(prepare, () => parseRubyRepo(FIXTURE, 'sample-app'));
-    expect(basic.parseStats.analysis?.mode).toBe('basic');
+    const basic = await withOptionalIndexHost(prepare, () => parse());
+    expect(basic.stats.analysis?.[0]?.mode).toBe('basic');
   });
 
   it('strict enhanced rejects a missing tool and cancellation never falls back', async () => {
     await expect(
-      parseRubyRepo(
-        FIXTURE,
-        'sample-app',
-        { runScip: () => ({ ok: false, degradeReason: 'missing tool' }) },
-        {
-          parserId: 'strict',
-          substrate: { language: 'ruby', include: ['**/*.rb'], analysis: { fallback: false } },
-        },
+      withOptionalIndexHost(
+        () => Promise.reject(new Error('missing tool')),
+        () =>
+          parse({
+            parserId: 'strict',
+            substrate: { language: 'ruby', include: ['**/*.rb'], analysis: { fallback: false } },
+          }),
       ),
     ).rejects.toThrow('missing tool');
     await expect(
       withOptionalIndexHost(
         () => Promise.reject(new DOMException('cancelled', 'AbortError')),
-        () => parseRubyRepo(FIXTURE, 'sample-app'),
+        () => parse(),
       ),
     ).rejects.toMatchObject({ name: 'AbortError' });
   });
   it('unions scip-provenance edges from the injected index into calls', async () => {
-    const ruby = await parseRubyRepo(FIXTURE, 'sample-app', {
-      repoKey: 'sample-app',
-      runScip: () => ({ ok: true, scipPath: join(FIXTURE, 'index.scip') }),
-    });
+    const ruby = await withOptionalIndexHost(
+      async () => ({ path: join(FIXTURE, 'index.scip') }),
+      () => parse(),
+    );
 
-    expect(toFullParsedRepo(ruby, FIXTURE, 'ruby-test', new Date().toISOString()).stats.analysis).toEqual([
+    expect(ruby.stats.analysis).toEqual([
       { language: 'ruby', mode: 'enhanced', compilerReceiverTypes: false, fallback: false },
     ]);
     const nameById = new Map(ruby.functions.map((f) => [f.id, f.name]));
@@ -82,11 +76,11 @@ describe('parseRubyRepo Tier-A dispatch (integration)', () => {
 
   it('falls back to Tier-B with no throw and no scip edges when the indexer degrades', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const ruby = await parseRubyRepo(FIXTURE, 'sample-app', {
-      repoKey: 'sample-app',
-      runScip: () => ({ ok: false, degradeReason: 'simulated: scip-ruby unavailable' }),
-    });
-    expect(toFullParsedRepo(ruby, FIXTURE, 'ruby-test', new Date().toISOString()).stats.analysis).toEqual([
+    const ruby = await withOptionalIndexHost(
+      () => Promise.reject(new Error('simulated: scip-ruby unavailable')),
+      () => parse(),
+    );
+    expect(ruby.stats.analysis).toEqual([
       { language: 'ruby', mode: 'basic', compilerReceiverTypes: false, fallback: true },
     ]);
     expect(ruby.calls.some((e) => e.provenance === 'scip')).toBe(false);

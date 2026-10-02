@@ -1,44 +1,26 @@
 /**
- * Kotlin/Android repo parser — the one place every Kotlin lane meets.
+ * Kotlin/Android substrate — the one place every Kotlin lane meets.
  *
  * Order is forced by the lanes' inputs: discover → one parse+walk per file (no lane re-walks a
  * tree) → the FQCN index → the Gradle layout (module roots, manifests, navigation, layouts) →
  * imports → calls → egress → entities/db-ops (both gated on `profile.entities`, the Swift rule)
- * → entrypoints → components/routes. Only then are the trees released: web-tree-sitter never
- * collects a tree and its heap is capped at 2 GB, but a lane reading a released tree is a
- * use-after-free, so the release is the LAST thing that touches them (in a `finally`, so a
- * throwing lane cannot strand a repo's trees in that heap).
+ * → entrypoints → components/routes. The shared parse and the tree release belong to
+ * `parseSubstrate`.
  *
- * A file that cannot be read is counted in `skippedFiles` and skipped; a file whose tree has
- * `ERROR` nodes is still walked and everything outside the error subtree survives.
+ * A file whose tree has `ERROR` nodes is still walked and everything outside the error subtree
+ * survives.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  type CallEdge,
-  type ClassNode,
-  type ComponentNode,
   type DbOpResolutionStats,
   type DbOperation,
   type EntityNode,
-  type Entrypoint,
-  type EnumNode,
-  type ExternalCallEdge,
-  type FileNode,
-  type FunctionNode,
-  type ImportEdge,
-  type InterfaceNode,
   type KotlinParseStats,
   type Package,
   type ParseError,
-  type ParsedRepo,
-  type RepoType,
-  type RouteNode,
-  StableIdGenerator,
-  type TypeAliasNode,
-  type VariableNode,
+  type StableIdGenerator,
 } from '@coredoc/core';
-import { releaseParsedTrees } from '../../tree-sitter/tree-release.js';
 import { enumerateRepoFiles } from '../../facts/discovery/discover.js';
 import type { KotlinProfile } from '../../types/kotlin-profile.js';
 import { toFileNodes } from '../file-nodes.js';
@@ -46,7 +28,7 @@ import { type SourceFileScope, applySourceFileScope } from '../source-file-scope
 import { resolveKotlinCalls } from './kotlin-callgraph.js';
 import { extractKotlinComponents } from './kotlin-components.js';
 import { extractKotlinDbOps } from './kotlin-dbops.js';
-import { type KotlinFile, type KotlinFileFacts, extractKotlinFileFacts, toKotlinFile } from './kotlin-declarations.js';
+import { type KotlinFile, type KotlinFileFacts, extractKotlinFileFacts } from './kotlin-declarations.js';
 import { extractKotlinEgress } from './kotlin-egress.js';
 import { extractKotlinEntities } from './kotlin-entities.js';
 import { extractKotlinEntrypoints, resolveAndroidBases } from './kotlin-entrypoints.js';
@@ -54,49 +36,7 @@ import { discoverGradleLayout, findSettingsFile, moduleBuildFile } from './kotli
 import { buildKotlinImportEdges } from './kotlin-imports.js';
 import { type AndroidManifestFacts, type NavGraphFacts, readManifest, readNavigationGraph } from './kotlin-xml.js';
 import { KotlinTypeIndex } from './kotlin-resolve.js';
-import { toParsedRepo } from '../to-parsed-repo.js';
-
-export interface ParseKotlinRepoOptions {
-  /** Gateway prefix from RepoConfig.httpPrefix, propagated to the linker for prefix-aware matching. */
-  httpPrefix?: string;
-  /** Path-independent hash seed for StableIdGenerator (repoHash = hash(repoKey ?? name)). */
-  repoKey?: string;
-}
-
-/** The Kotlin parser's output: every `ParsedRepo` collection plus the parse-time counters. */
-export interface KotlinParsedRepo {
-  id: string;
-  name: string;
-  type: RepoType;
-  /** Gateway prefix for the cross-repo linker; not a `ParsedRepo` field (dropped below). */
-  httpPrefix?: string;
-  packages: Package[];
-  files: FileNode[];
-  functions: FunctionNode[];
-  classes: ClassNode[];
-  interfaces: InterfaceNode[];
-  enums: EnumNode[];
-  variables: VariableNode[];
-  typeAliases: TypeAliasNode[];
-  imports: ImportEdge[];
-  calls: CallEdge[];
-  entrypoints: Entrypoint[];
-  entities: EntityNode[];
-  dbOperations: DbOperation[];
-  externalCalls: ExternalCallEdge[];
-  components: ComponentNode[];
-  routes: RouteNode[];
-  /** Resource files (manifests, navigation graphs) that could not be read or parsed. */
-  errors: ParseError[];
-  parseStats: {
-    totalFiles: number;
-    parsedFiles: number;
-    skippedFiles: number;
-    parseTimeMs: number;
-    dbOpResolution?: DbOpResolutionStats;
-  };
-  kotlinStats: KotlinParseStats;
-}
+import type { Substrate } from '../parse-substrate.js';
 
 /** The scorer- and parser-facing source scope: git-aware discovery + the profile's globs. */
 export function discoverKotlinFileScope(root: string, include: string[], exclude: string[] = []): SourceFileScope {
@@ -210,40 +150,27 @@ function readXml<T>(
   return out;
 }
 
-/** Parse a Kotlin/Android repo on disk into a `KotlinParsedRepo`. */
-export async function parseKotlinRepo(
-  root: string,
-  name: string,
-  opts: ParseKotlinRepoOptions = {},
-  profile?: KotlinProfile,
-): Promise<KotlinParsedRepo> {
-  const start = Date.now();
-  const idGen = new StableIdGenerator(root, opts.repoKey ?? name);
+/** The Kotlin/Android substrate. No SCIP: every collection comes from the tree-sitter CST. */
+export const kotlinSubstrate: Substrate<KotlinProfile, KotlinFile> = {
+  language: 'kotlin',
+  parserVersion: '1.1.1-kotlin',
+  grammar: 'kotlin',
+  scope: (profile, root) =>
+    discoverKotlinFileScope(root, profile.substrate.include ?? [], profile.substrate.exclude ?? []),
 
-  const allFiles = enumerateRepoFiles(root);
-  const scope = kotlinScope(allFiles, profile?.substrate.include ?? [], profile?.substrate.exclude ?? []);
+  async extract({ root, name, profile, idGen, files: trees }) {
+    // The Gradle layout reads build files, manifests and resources outside the `.kt` scope.
+    const allFiles = enumerateRepoFiles(root);
+    const scope = kotlinScope(allFiles, profile.substrate.include ?? [], profile.substrate.exclude ?? []);
 
-  const trees: KotlinFile[] = [];
-  const errors: ParseError[] = [];
-  // A parser message is repo-controlled text that reaches a terminal and a stored snapshot:
-  // control characters are stripped so it cannot move a cursor or inject an escape sequence.
-  const warn = (file: string, message: string) =>
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: intentionally matching C0/C1 to strip them.
-    errors.push({ file, message: message.replace(/[\x00-\x1f\x7f-\x9f]/g, ' '), severity: 'warning' });
-  let skippedFiles = 0;
-  try {
-    for (const relPath of scope.included) {
-      let source: string;
-      try {
-        source = readFileSync(join(root, relPath), 'utf-8');
-      } catch {
-        skippedFiles++;
-        continue;
-      }
-      trees.push(await toKotlinFile(relPath, source));
-    }
+    const errors: ParseError[] = [];
+    // A parser message is repo-controlled text that reaches a terminal and a stored snapshot:
+    // control characters are stripped so it cannot move a cursor or inject an escape sequence.
+    const warn = (file: string, message: string) =>
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: intentionally matching C0/C1 to strip them.
+      errors.push({ file, message: message.replace(/[\x00-\x1f\x7f-\x9f]/g, ' '), severity: 'warning' });
 
-    const koinAccessors = profile?.di?.koin?.accessors;
+    const koinAccessors = profile.di?.koin?.accessors;
     const facts = trees.map((tree) => extractKotlinFileFacts(tree, idGen, { koinAccessors }));
     const index = new KotlinTypeIndex(facts);
 
@@ -268,7 +195,7 @@ export async function parseKotlinRepo(
 
     const imports = buildKotlinImportEdges(facts, index, idGen);
     const calls = resolveKotlinCalls(facts, index, idGen);
-    const egress = extractKotlinEgress(facts, index, idGen, { verbAnnotations: profile?.egress?.verbAnnotations });
+    const egress = extractKotlinEgress(facts, index, idGen, { verbAnnotations: profile.egress?.verbAnnotations });
 
     // Entities and db-ops are gated together on the profile's `entities` block (the Swift rule):
     // emitting entities without operations would trip the language-neutral red flag.
@@ -277,7 +204,7 @@ export async function parseKotlinRepo(
     let unparsedDaoQueries = 0;
     // Absent = not measured: with no `entities` block neither db-op lane ran.
     let dbOpResolution: DbOpResolutionStats | undefined;
-    if (profile?.entities) {
+    if (profile.entities) {
       const extracted = extractKotlinEntities(facts, index, idGen, profile.entities);
       entities = extracted.entities;
       const ops = extractKotlinDbOps(facts, index, extracted.entityIdByName, idGen, {
@@ -290,7 +217,7 @@ export async function parseKotlinRepo(
       dbOpResolution = ops.stats;
     }
 
-    const bases = resolveAndroidBases(profile?.android);
+    const bases = resolveAndroidBases(profile.android);
     const entrypoints = extractKotlinEntrypoints({ facts, index, bases, manifests, idGen });
     const components = extractKotlinComponents({
       facts,
@@ -301,7 +228,6 @@ export async function parseKotlinRepo(
       layoutFiles: layout.layoutFiles,
     });
 
-    // Last read of a tree source; every lane above has taken what it needs.
     const packageIdByFile = new Map(facts.map((f) => [f.relPath, idGen.packageId(`kt:${f.packageName}`)]));
     const rootPackageId = idGen.packageId('.');
     const files = toFileNodes(trees, idGen, {
@@ -322,10 +248,7 @@ export async function parseKotlinRepo(
     };
 
     return {
-      id: idGen.getRepoHash(),
-      name,
-      type: profile?.repoType ?? 'mobile',
-      httpPrefix: opts.httpPrefix,
+      type: profile.repoType ?? 'mobile',
       packages: emitPackages(facts, layout.moduleRoots, allFiles, manifests, name, idGen),
       files,
       functions: flat((f) => f.functions),
@@ -343,76 +266,17 @@ export async function parseKotlinRepo(
       components: components.components,
       routes: components.routes,
       errors,
-      parseStats: {
-        totalFiles: scope.included.length,
-        parsedFiles: files.length,
-        skippedFiles,
-        parseTimeMs: Date.now() - start,
-        ...(dbOpResolution ? { dbOpResolution } : {}),
-      },
-      kotlinStats,
-    };
-  } finally {
-    // Every exit path frees the trees, including a throw from a lane.
-    releaseParsedTrees(trees);
-  }
-}
-
-/**
- * Adapt a `KotlinParsedRepo` to the full `ParsedRepo` the CLI parse → push → DB flow consumes.
- * Every `total*` is the length of the collection it counts; `httpPrefix` is dropped here (not a
- * `ParsedRepo` field — it is applied at link time), exactly as the Swift path does.
- */
-export function toFullParsedRepo(
-  kotlin: KotlinParsedRepo,
-  repoPath: string,
-  parserId: string,
-  parsedAt: string,
-  parserVersion = '1.1.0-kotlin',
-): ParsedRepo {
-  const stats = kotlin.parseStats;
-  return toParsedRepo(
-    {
-      id: kotlin.id,
-      name: kotlin.name,
-      path: repoPath,
-      type: kotlin.type,
-      parsedAt,
-      parserId,
-      packages: kotlin.packages,
-      files: kotlin.files,
-      functions: kotlin.functions,
-      classes: kotlin.classes,
-      interfaces: kotlin.interfaces,
-      typeAliases: kotlin.typeAliases,
-      enums: kotlin.enums,
-      variables: kotlin.variables,
-      entrypoints: kotlin.entrypoints,
-      entities: kotlin.entities,
-      dbOperations: kotlin.dbOperations,
-      calls: kotlin.calls,
-      imports: kotlin.imports,
-      externalCalls: kotlin.externalCalls,
-      components: kotlin.components,
-      routes: kotlin.routes,
-      errors: kotlin.errors,
       stats: {
-        totalFiles: stats.totalFiles,
-        parsedFiles: stats.parsedFiles,
-        skippedFiles: stats.skippedFiles,
-        totalImports: kotlin.imports.length,
-        parseTimeMs: stats.parseTimeMs,
-        kotlin: kotlin.kotlinStats,
+        kotlin: kotlinStats,
         // Same three values as the Kotlin record, in the language-neutral shape every
         // downstream consumer reads (spec D-7: both representations, one computation).
-        ...(kotlin.parseStats.dbOpResolution ? { dbOpResolution: kotlin.parseStats.dbOpResolution } : {}),
+        ...(dbOpResolution ? { dbOpResolution } : {}),
         callResolution: {
-          callSites: kotlin.kotlinStats.callSites,
-          resolvedCalls: kotlin.kotlinStats.resolvedCalls,
-          outOfScopeCalls: kotlin.kotlinStats.outOfScopeCalls,
+          callSites: kotlinStats.callSites,
+          resolvedCalls: kotlinStats.resolvedCalls,
+          outOfScopeCalls: kotlinStats.outOfScopeCalls,
         },
       },
-    },
-    { parserVersion },
-  );
-}
+    };
+  },
+};

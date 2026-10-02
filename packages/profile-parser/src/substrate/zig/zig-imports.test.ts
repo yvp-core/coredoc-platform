@@ -20,7 +20,7 @@ import { type ZigImportIndex, buildZigImportTables, emitZigImports, resolveBindi
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__', 'mini-zig-graph');
 const REL_PATHS = ['src/main.zig', 'src/hub.zig', 'src/net/Client.zig', 'src/Store.zig', 'src/util.zig'];
 
-/** Mirrors `zig-parser.ts`'s read → parse → walk, without `parseZigRepo` (it wires no lanes yet). */
+/** Mirrors `zig-parser.ts`'s read → parse → walk, without the substrate (it wires no lanes yet). */
 async function loadGraphFixture(idGen: StableIdGenerator): Promise<{
   files: ZigFileEntry[];
   trees: ZigFile[];

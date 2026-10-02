@@ -13,12 +13,16 @@
  */
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { StableIdGenerator } from '@coredoc/core';
+import { type KotlinParseStats, type ParsedRepo, StableIdGenerator } from '@coredoc/core';
 import type { MobileEntrypointDetails } from '@coredoc/core/types';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { checkReferentialIntegrity } from '../../integrity/referential-integrity.js';
+import { kotlinProvider } from '../../providers/kotlin.js';
 import type { KotlinProfile } from '../../types/kotlin-profile.js';
-import { type KotlinParsedRepo, parseKotlinRepo, toFullParsedRepo } from './kotlin-parser.js';
+
+/** The Kotlin substrate always emits these; `ParsedRepo` types them optional. */
+type KotlinRepo = ParsedRepo &
+  Required<Pick<ParsedRepo, 'components' | 'routes'>> & { stats: { kotlin: KotlinParseStats } };
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__/mini-android');
 const REPO_KEY = 'mini-android';
@@ -44,11 +48,15 @@ const REALM_PROFILE: KotlinProfile = {
 const UI = 'app/src/main/kotlin/app/ui';
 const DATA = 'core/src/main/kotlin/core/data';
 
-let repo: KotlinParsedRepo;
+let repo: KotlinRepo;
 let byId: Map<string, { name: string }>;
 
 beforeAll(async () => {
-  repo = await parseKotlinRepo(ROOT, 'mini', { repoKey: REPO_KEY }, ROOM_PROFILE);
+  repo = (await kotlinProvider.parse(ROOM_PROFILE, {
+    repoRoot: ROOT,
+    repoName: 'mini',
+    repoKey: REPO_KEY,
+  })) as KotlinRepo;
   byId = new Map([...repo.functions, ...repo.classes, ...repo.interfaces, ...repo.components].map((n) => [n.id, n]));
 }, 120_000);
 
@@ -195,7 +203,7 @@ describe('mini-android fixture — edges', () => {
     );
     // ANTI (AC-3 d): `flavored.ping()` names a duplicated FQCN — no edge, one ambiguous site.
     expect(repo.calls.some((c) => named(c.calleeId ?? '') === 'ping')).toBe(false);
-    expect(repo.kotlinStats.ambiguousCalls).toBe(1);
+    expect(repo.stats.kotlin.ambiguousCalls).toBe(1);
     expect(new Set(repo.calls.map((c) => c.id)).size).toBe(repo.calls.length);
   });
 
@@ -250,7 +258,7 @@ describe('mini-android fixture — Android surfaces', () => {
     expect(repo.entrypoints[0].handlerId).toBe(idGen.methodId(`${UI}/HomeActivity.kt`, 'HomeActivity', 'onCreate'));
     // ANTI (AC-3 a, s): the filter-less activity and the handler-less receiver emit nothing.
     expect(repo.entrypoints.map((e) => details(e).className)).not.toContain('DetailActivity');
-    expect(repo.kotlinStats.entrypointsWithoutHandler).toBe(1);
+    expect(repo.stats.kotlin.entrypointsWithoutHandler).toBe(1);
   });
 
   it('emits a component per screen with its layout and its outgoing screen usages', () => {
@@ -311,13 +319,17 @@ describe('mini-android fixture — persistence', () => {
     ]);
     // ANTI (AC-3 t, and the table-less query): neither emits an operation; the query is counted.
     expect(repo.dbOperations.map((o) => named(o.performerId))).not.toContain('both');
-    expect(repo.kotlinStats.unparsedDaoQueries).toBe(1);
+    expect(repo.stats.kotlin.unparsedDaoQueries).toBe(1);
     // ANTI (AC-3 b): the Retrofit `@Query` PARAMETER is not a DAO query.
     expect(repo.dbOperations.map((o) => named(o.performerId))).not.toContain('listThings');
   });
 
   it('reads the same fixture as Realm under a realm profile, in all three operation shapes', async () => {
-    const realm = await parseKotlinRepo(ROOT, 'mini', { repoKey: REPO_KEY }, REALM_PROFILE);
+    const realm = (await kotlinProvider.parse(REALM_PROFILE, {
+      repoRoot: ROOT,
+      repoName: 'mini',
+      repoKey: REPO_KEY,
+    })) as KotlinRepo;
     expect(realm.entities.map((e) => [e.tableName, e.ormType, e.id])).toEqual([
       ['Note', 'realm', idGen.entityId(`${DATA}/Notes.kt`, 'Note')],
       ['Tag', 'realm', idGen.entityId(`${DATA}/Notes.kt`, 'Tag')],
@@ -339,8 +351,7 @@ describe('mini-android fixture — persistence', () => {
 
 describe('mini-android fixture — the assembled ParsedRepo', () => {
   it('passes referential integrity with zero dangling references', () => {
-    const full = toFullParsedRepo(repo, ROOT, ROOM_PROFILE.parserId, new Date(0).toISOString());
-    const report = checkReferentialIntegrity(full);
+    const report = checkReferentialIntegrity(repo);
     expect({ danglingRefs: report.danglingRefs, violations: report.violations }).toEqual({
       danglingRefs: 0,
       violations: [],
@@ -348,7 +359,7 @@ describe('mini-android fixture — the assembled ParsedRepo', () => {
   });
 
   it('reports honest counters, including the one file this grammar cannot parse', () => {
-    expect(repo.kotlinStats).toEqual({
+    expect(repo.stats.kotlin).toEqual({
       filesParsed: 17,
       // `Callback.kt`: the bundled grammar does not accept `fun interface`, so its tree carries
       // an ERROR node. Everything OUTSIDE that subtree survives (`noop` is emitted above), and
@@ -374,7 +385,7 @@ describe('mini-android fixture — the assembled ParsedRepo', () => {
       entrypointsWithoutHandler: 1,
       unparsedDaoQueries: 1,
     });
-    expect(repo.parseStats).toMatchObject({ totalFiles: 17, parsedFiles: 17, skippedFiles: 0 });
+    expect(repo.stats).toMatchObject({ totalFiles: 17, parsedFiles: 17, skippedFiles: 0 });
   });
 
   it('mints every id uniquely, under this repo hash', () => {

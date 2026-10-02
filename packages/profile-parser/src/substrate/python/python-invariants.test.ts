@@ -9,13 +9,14 @@
  * regression of ANY of those classes fabricates a violation here, not just on the specific fixture
  * a point test happens to cover.
  */
+import { pythonProvider } from '../../providers/python.js';
+import type { ParsedRepo } from '@coredoc/core';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { FunctionNode, HttpEntrypointDetails } from '@coredoc/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PythonProfile } from '../../types.js';
-import { type PythonParsedRepo, parsePythonRepo } from './python-parser.js';
 
 const FILES: Record<string, string> = {
   'app_a/__init__.py': '',
@@ -67,7 +68,7 @@ const PROFILE: PythonProfile = {
 
 describe('python substrate — graph-wide invariants (ADR-20260724)', () => {
   let root: string;
-  let repo: PythonParsedRepo;
+  let repo: ParsedRepo;
   let fnById: Map<string, FunctionNode>;
 
   beforeAll(async () => {
@@ -77,7 +78,7 @@ describe('python substrate — graph-wide invariants (ADR-20260724)', () => {
       mkdirSync(dirname(abs), { recursive: true });
       writeFileSync(abs, src);
     }
-    repo = await parsePythonRepo(root, 'inv', {}, PROFILE);
+    repo = await pythonProvider.parse(PROFILE, { repoRoot: root, repoName: 'inv' });
     fnById = new Map(repo.functions.map((f) => [f.id, f]));
   });
   afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -179,7 +180,7 @@ describe('python substrate — graph-wide invariants (ADR-20260724)', () => {
  */
 describe('python substrate — a bare profile uses defaults, not opt-out', () => {
   let root: string;
-  let bare: PythonParsedRepo;
+  let bare: ParsedRepo;
 
   beforeAll(async () => {
     root = mkdtempSync(join(tmpdir(), 'py-bare-'));
@@ -188,11 +189,14 @@ describe('python substrate — a bare profile uses defaults, not opt-out', () =>
       mkdirSync(dirname(abs), { recursive: true });
       writeFileSync(abs, src);
     }
-    bare = await parsePythonRepo(root, 'bare', {}, {
-      parserId: 'bare',
-      repoType: 'backend',
-      substrate: { language: 'python', include: ['**/*.py'] },
-    } as PythonProfile);
+    bare = await pythonProvider.parse(
+      {
+        parserId: 'bare',
+        repoType: 'backend',
+        substrate: { language: 'python', include: ['**/*.py'] },
+      } as PythonProfile,
+      { repoRoot: root, repoName: 'bare' },
+    );
   });
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 

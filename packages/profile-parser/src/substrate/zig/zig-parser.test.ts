@@ -11,11 +11,12 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type ClassNode, type EnumNode, type FunctionNode, StableIdGenerator } from '@coredoc/core';
+import { type ClassNode, type EnumNode, type FunctionNode, type ParsedRepo, StableIdGenerator } from '@coredoc/core';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { checkReferentialIntegrity } from '../../integrity/referential-integrity.js';
 import type { ZigProfile } from '../../types/zig-profile.js';
-import { type ZigParsedRepo, discoverZigFileScope, parseZigRepo, toFullParsedRepo } from './zig-parser.js';
+import { zigProvider } from '../../providers/zig.js';
+import { discoverZigFileScope } from './zig-parser.js';
 
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__', 'mini-zig');
 const REPO_NAME = 'mini-zig';
@@ -27,20 +28,21 @@ const profile: ZigProfile = {
   parserId: 'mini-zig-v1',
   substrate: { language: 'zig', include: ['**/*.zig'], exclude: ['vendor/**'] },
 };
+const BARE: ZigProfile = { parserId: 'mini-zig-v1', substrate: { language: 'zig' } };
 
 const idGen = new StableIdGenerator(FIXTURE, REPO_NAME);
 
-let repo: ZigParsedRepo;
+let repo: ParsedRepo;
 
 beforeAll(async () => {
-  repo = await parseZigRepo(FIXTURE, REPO_NAME, {}, profile);
+  repo = await zigProvider.parse(profile, { repoRoot: FIXTURE, repoName: REPO_NAME });
 });
 
 const classById = (id: string): ClassNode | undefined => repo.classes.find((c) => c.id === id);
 const enumById = (id: string): EnumNode | undefined => repo.enums.find((e) => e.id === id);
 const fnById = (id: string): FunctionNode | undefined => repo.functions.find((f) => f.id === id);
 
-describe('parseZigRepo — files, package and stats (BR-7)', () => {
+describe('zig substrate — files, package and stats (BR-7)', () => {
   it('emits one FileNode per in-scope file, owned by the single root package', () => {
     expect(repo.files.map((f) => f.path)).toEqual([CONFIG, RECOVERY, UTIL]);
     expect(repo.packages).toEqual([
@@ -61,9 +63,9 @@ describe('parseZigRepo — files, package and stats (BR-7)', () => {
     }
     expect(repo.id).toBe(idGen.getRepoHash());
     expect(repo.type).toBe('library');
-    expect(repo.parseStats.totalFiles).toBe(3);
-    expect(repo.parseStats.parsedFiles).toBe(3);
-    expect(repo.parseStats.skippedFiles).toBe(0);
+    expect(repo.stats.totalFiles).toBe(3);
+    expect(repo.stats.parsedFiles).toBe(3);
+    expect(repo.stats.skippedFiles).toBe(0);
   });
 
   it('reports the same scope through discoverZigFileScope', () => {
@@ -73,7 +75,7 @@ describe('parseZigRepo — files, package and stats (BR-7)', () => {
   });
 });
 
-describe('parseZigRepo — file-struct (BR-3)', () => {
+describe('zig substrate — file-struct (BR-3)', () => {
   const classId = () => idGen.classId(CONFIG, 'Config');
 
   it('emits a class named for the file, with its top-level fields as properties', () => {
@@ -130,7 +132,7 @@ describe('parseZigRepo — file-struct (BR-3)', () => {
   });
 });
 
-describe('parseZigRepo — containers and functions in a namespace file (BR-2, BR-4..BR-6)', () => {
+describe('zig substrate — containers and functions in a namespace file (BR-2, BR-4..BR-6)', () => {
   it('emits nested containers as a dotted chain', () => {
     const outer = classById(idGen.classId(UTIL, 'Outer'));
     const inner = classById(idGen.classId(UTIL, 'Outer.Inner'));
@@ -202,7 +204,7 @@ describe('parseZigRepo — containers and functions in a namespace file (BR-2, B
   });
 
   it('keeps every id, versionedId and name well-formed and referentially intact', () => {
-    const full = toFullParsedRepo(repo, FIXTURE, profile.parserId, '2026-09-10T00:00:00.000Z');
+    const full = repo;
     const report = checkReferentialIntegrity(full);
     expect(report.violations).toEqual([]);
     for (const node of [...repo.classes, ...repo.enums, ...repo.functions]) {
@@ -213,7 +215,7 @@ describe('parseZigRepo — containers and functions in a namespace file (BR-2, B
   });
 
   it('adapts to a full ParsedRepo with honest empty collections', () => {
-    const full = toFullParsedRepo(repo, FIXTURE, profile.parserId, '2026-09-10T00:00:00.000Z');
+    const full = repo;
     expect(full.type).toBe('library');
     expect(full.parserId).toBe('mini-zig-v1');
     // Empty because this fixture HAS none of them — `interfaces` is the only one empty by
@@ -232,7 +234,7 @@ describe('parseZigRepo — containers and functions in a namespace file (BR-2, B
   });
 });
 
-describe('parseZigRepo — anti-scenarios (AC-3)', () => {
+describe('zig substrate — anti-scenarios (AC-3)', () => {
   it('(a) a namespace file emits no synthetic class and no method', () => {
     expect(repo.classes.find((c) => c.name === 'util')).toBeUndefined();
     const add = fnById(idGen.functionId(UTIL, 'add'));
@@ -331,18 +333,18 @@ describe('parseZigRepo — anti-scenarios (AC-3)', () => {
 
 /**
  * Step 9 (BR-18): the lanes' own tests wire each lane by hand; this one asserts that
- * `parseZigRepo` wires ALL of them once, over the same two fixtures, and that the adapted
+ * `zigProvider.parse` wires ALL of them once, over the same two fixtures, and that the adapted
  * `ParsedRepo` carries every collection with stats that are the emitted lengths — the
  * failure this catches is a lane that works in isolation but is never called by the parser.
  */
-describe('parseZigRepo — full assembly (BR-18, AC-12)', () => {
+describe('zig substrate — full assembly (BR-18, AC-12)', () => {
   const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__');
-  let graph: ZigParsedRepo;
-  let data: ZigParsedRepo;
+  let graph: ParsedRepo;
+  let data: ParsedRepo;
 
   beforeAll(async () => {
-    graph = await parseZigRepo(join(FIXTURES, 'mini-zig-graph'), 'mini-zig-graph', {});
-    data = await parseZigRepo(join(FIXTURES, 'mini-zig-data'), 'mini-zig-data', {});
+    graph = await zigProvider.parse(BARE, { repoRoot: join(FIXTURES, 'mini-zig-graph'), repoName: 'mini-zig-graph' });
+    data = await zigProvider.parse(BARE, { repoRoot: join(FIXTURES, 'mini-zig-data'), repoName: 'mini-zig-data' });
   });
 
   it('fills the graph collections from mini-zig-graph', () => {
@@ -353,25 +355,13 @@ describe('parseZigRepo — full assembly (BR-18, AC-12)', () => {
     expect(new Set(graph.calls.map((c) => c.provenance))).toEqual(
       new Set(['zig-local', 'zig-self', 'zig-type', 'zig-import', 'zig-field']),
     );
-    expect(graph.callStats.resolved).toBe(graph.calls.length);
-    expect(graph.callStats.seen).toBeGreaterThanOrEqual(graph.callStats.resolved);
-    // `callStats.seen` counts every enumerated site (the invariant suite pins it); the neutral
-    // record's denominator counts only the NAMED ones (LIM-6) — equal here, this fixture has no
-    // nameless site.
-    expect(graph.callStats.seen).toBe(13);
+    // `seen` vs `callSites` (LIM-6) is pinned on `resolveZigCalls` itself in zig-callgraph.test.ts.
     // The language-neutral record the graph reports, from the same measurement (BR-1/BR-2).
-    expect(graph.callResolution).toEqual({ callSites: 13, resolvedCalls: 10, outOfScopeCalls: 2 });
-    expect(
-      toFullParsedRepo(graph, join(FIXTURES, 'mini-zig-graph'), 'mini-zig-graph-v1', '2026-09-14T00:00:00.000Z').stats
-        .callResolution,
-    ).toEqual(graph.callResolution);
+    expect(graph.stats.callResolution).toEqual({ callSites: 13, resolvedCalls: 10, outOfScopeCalls: 2 });
+    expect(graph.stats.callResolution?.resolvedCalls).toBe(graph.calls.length);
     expect(graph.entrypoints.map((e) => (e.details as { command: string }).command)).toEqual(['main']);
     // BR-4: the db-op record travels the same way (this fixture executes no SQL).
-    expect(graph.dbOpResolution).toEqual({ dbOpSites: 0, boundDbOps: 0, outOfScopeDbOps: 0 });
-    expect(
-      toFullParsedRepo(graph, join(FIXTURES, 'mini-zig-graph'), 'mini-zig-graph-v1', '2026-09-14T00:00:00.000Z').stats
-        .dbOpResolution,
-    ).toEqual(graph.dbOpResolution);
+    expect(graph.stats.dbOpResolution).toEqual({ dbOpSites: 0, boundDbOps: 0, outOfScopeDbOps: 0 });
   });
 
   it('classifies constants and aliases (AC-12)', () => {
@@ -416,7 +406,7 @@ describe('parseZigRepo — full assembly (BR-18, AC-12)', () => {
 
   it('reports stats that are the emitted lengths and stays referentially intact', () => {
     for (const repo of [graph, data]) {
-      const full = toFullParsedRepo(repo, FIXTURES, 'mini-zig-v1', '2026-09-14T00:00:00.000Z');
+      const full = repo;
       expect(full.stats).toMatchObject({
         totalFunctions: full.functions.length,
         totalClasses: full.classes.length,
@@ -481,7 +471,7 @@ describe('discoverZigFileScope — built-in excludes (D1)', () => {
       'src/uses.zig': 'const b = @import("../build.zig");\npub fn go() void {\n    b.build();\n}\n',
     });
 
-    const out = await parseZigRepo(root, 'zig-scope', {});
+    const out = await zigProvider.parse(BARE, { repoRoot: root, repoName: 'zig-scope' });
 
     expect(out.files.map((f) => f.path)).not.toContain('build.zig');
     expect(out.functions.map((f) => f.name)).not.toContain('build');
@@ -494,7 +484,7 @@ describe('discoverZigFileScope — built-in excludes (D1)', () => {
 // A broken SYMLINK cannot express this case: discovery `statSync`s every entry, so it throws
 // before the parser sees the file. An unreadable mode does, and is the same `readFileSync`
 // failure at the same place — except when the suite runs as root, where nothing is unreadable.
-describe.skipIf(process.getuid?.() === 0)('parseZigRepo — an unreadable file (BR-8)', () => {
+describe.skipIf(process.getuid?.() === 0)('zig substrate — an unreadable file (BR-8)', () => {
   it('counts it in skippedFiles and still parses its sibling', async () => {
     const root = mkdtempSync(join(tmpdir(), 'zig-unreadable-'));
     const locked = join(root, 'locked.zig');
@@ -503,9 +493,12 @@ describe.skipIf(process.getuid?.() === 0)('parseZigRepo — an unreadable file (
     chmodSync(locked, 0o000);
 
     try {
-      const out = await parseZigRepo(root, 'unreadable', {}, profile);
+      const out = await zigProvider.parse(profile, { repoRoot: root, repoName: 'unreadable' });
 
-      expect(out.parseStats).toMatchObject({ totalFiles: 2, parsedFiles: 1, skippedFiles: 1 });
+      expect(out.stats).toMatchObject({ totalFiles: 2, parsedFiles: 1, skippedFiles: 1 });
+      expect(out.errors).toEqual([
+        { file: 'locked.zig', message: 'zig: file could not be read or parsed', severity: 'error' },
+      ]);
       expect(out.functions.map((f) => f.name)).toEqual(['only']);
       expect(out.files.map((f) => f.path)).toEqual(['ok.zig']);
     } finally {

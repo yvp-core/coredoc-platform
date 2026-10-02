@@ -1,17 +1,17 @@
 // =============================================================================
 // Zig LanguageProvider.
 //
-// A thin wrapper over `parseZigRepo` + `toFullParsedRepo` (the bespoke tree-sitter-CST
+// A thin wrapper over `parseSubstrate(zigSubstrate)` (the bespoke tree-sitter-CST
 // substrate): types, functions, `@import` edges, Tier-B calls, `cli` entrypoints, egress,
 // raw-SQL entities/ops, constants and aliases. No SCIP: Zig has no wired semantic-index
 // prerequisite, so `discovery` omits `scipPrereqs` and the parse never throws on a missing index.
 // =============================================================================
-import type { ParsedRepo } from '@coredoc/core/types';
 import { zigSourceSignals } from '../scoring/zig-signals.js';
 import type { ScoreContext, SourceSignals } from '../scoring/score-core.js';
-import { discoverZigFileScope, parseZigRepo, toFullParsedRepo } from '../substrate/zig/zig-parser.js';
+import { parseSubstrate } from '../substrate/parse-substrate.js';
+import { zigSubstrate } from '../substrate/zig/zig-parser.js';
 import type { ZigProfile } from '../types/zig-profile.js';
-import type { LanguageProvider, ParseOptions } from './types.js';
+import type { LanguageProvider } from './types.js';
 
 /** A Zig extraction profile: has parserId+substrate and language 'zig'. */
 function isZigProfile(v: unknown): v is ZigProfile {
@@ -29,24 +29,8 @@ export const zigProvider: LanguageProvider<ZigProfile> = {
   },
   isProfile: isZigProfile,
 
-  sourceFiles(profile: ZigProfile, repoRoot: string) {
-    return discoverZigFileScope(
-      repoRoot,
-      profile.substrate.include ?? [],
-      profile.substrate.exclude ?? [],
-      profile.substrate.excludeDefaults,
-    );
-  },
-
-  async parse(profile: ZigProfile, opts: ParseOptions): Promise<ParsedRepo> {
-    const zig = await parseZigRepo(
-      opts.repoRoot,
-      opts.repoName,
-      { repoKey: opts.repoKey, cacheDir: opts.cacheDir },
-      profile,
-    );
-    return toFullParsedRepo(zig, opts.repoRoot, profile.parserId, new Date().toISOString());
-  },
+  sourceFiles: (profile, repoRoot) => zigSubstrate.scope(profile, repoRoot),
+  parse: (profile, opts) => parseSubstrate(zigSubstrate, profile, opts),
 
   sourceSignals(ctx: ScoreContext): SourceSignals {
     return zigSourceSignals(ctx);

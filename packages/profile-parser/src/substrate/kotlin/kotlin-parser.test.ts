@@ -9,8 +9,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { checkReferentialIntegrity } from '../../integrity/referential-integrity.js';
+import { kotlinProvider } from '../../providers/kotlin.js';
 import type { KotlinProfile } from '../../types/kotlin-profile.js';
-import { parseKotlinRepo, toFullParsedRepo } from './kotlin-parser.js';
 
 const FILES: Record<string, string> = {
   'settings.gradle.kts': `include(":app")\ninclude(":core")\n`,
@@ -144,12 +144,11 @@ beforeAll(() => {
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-describe('parseKotlinRepo assembly', () => {
+describe('kotlinProvider.parse assembly', () => {
   it('populates every ParsedRepo collection and passes referential integrity', async () => {
-    const kotlin = await parseKotlinRepo(root, 'demo', { repoKey: 'demo' }, profile);
-    const repo = toFullParsedRepo(kotlin, root, profile.parserId, new Date().toISOString());
+    const repo = await kotlinProvider.parse(profile, { repoRoot: root, repoName: 'demo', repoKey: 'demo' });
 
-    expect(repo.parserVersion).toBe('1.1.0-kotlin');
+    expect(repo.parserVersion).toBe('1.1.1-kotlin');
     expect(repo.type).toBe('mobile');
     for (const [name, collection] of Object.entries({
       packages: repo.packages,
@@ -185,7 +184,7 @@ describe('parseKotlinRepo assembly', () => {
   });
 
   it('mints distinct ids for a Kotlin package and a Gradle module directory of the same name', async () => {
-    const kotlin = await parseKotlinRepo(root, 'demo', { repoKey: 'demo' }, profile);
+    const kotlin = await kotlinProvider.parse(profile, { repoRoot: root, repoName: 'demo', repoKey: 'demo' });
 
     const kotlinPackage = kotlin.packages.find((p) => p.name === 'app' && p.manifestFile === undefined);
     const gradleModule = kotlin.packages.find((p) => p.name === 'app' && p.manifestFile !== undefined);
@@ -200,8 +199,7 @@ describe('parseKotlinRepo assembly', () => {
   });
 
   it('reports stats.kotlin counters that match the emitted collections', async () => {
-    const kotlin = await parseKotlinRepo(root, 'demo', { repoKey: 'demo' }, profile);
-    const repo = toFullParsedRepo(kotlin, root, profile.parserId, new Date().toISOString());
+    const repo = await kotlinProvider.parse(profile, { repoRoot: root, repoName: 'demo', repoKey: 'demo' });
     const stats = repo.stats.kotlin;
 
     expect(stats).toBeDefined();
@@ -244,7 +242,7 @@ describe('parseKotlinRepo assembly', () => {
 
   it('produces an identical id set on a second parse', async () => {
     const ids = async (): Promise<string[]> => {
-      const kotlin = await parseKotlinRepo(root, 'demo', { repoKey: 'demo' }, profile);
+      const kotlin = await kotlinProvider.parse(profile, { repoRoot: root, repoName: 'demo', repoKey: 'demo' });
       return [
         ...kotlin.packages,
         ...kotlin.files,
@@ -259,8 +257,8 @@ describe('parseKotlinRepo assembly', () => {
         ...kotlin.dbOperations,
         ...kotlin.calls,
         ...kotlin.externalCalls,
-        ...kotlin.components,
-        ...kotlin.routes,
+        ...(kotlin.components ?? []),
+        ...(kotlin.routes ?? []),
       ]
         .map((n) => n.id)
         .sort();
@@ -269,31 +267,35 @@ describe('parseKotlinRepo assembly', () => {
   });
 
   // Nothing is unreadable when the suite runs as root.
-  it.skipIf(process.getuid?.() === 0)('counts an unreadable file as skipped without emitting it', async () => {
-    const other = mkdtempSync(join(tmpdir(), 'kotlin-skip-'));
-    const locked = join(other, 'Locked.kt');
-    writeFileSync(join(other, 'Ok.kt'), 'package demo\n\nclass Ok\n');
-    writeFileSync(locked, 'package demo\n\nclass Locked\n');
-    chmodSync(locked, 0o000);
-    try {
-      const kotlin = await parseKotlinRepo(other, 'skip', { repoKey: 'skip' }, profile);
-      expect(kotlin.parseStats).toMatchObject({ totalFiles: 2, parsedFiles: 1, skippedFiles: 1 });
-      expect(kotlin.files.map((f) => f.path)).toEqual(['Ok.kt']);
-    } finally {
-      chmodSync(locked, 0o600);
-      rmSync(other, { recursive: true, force: true });
-    }
-  });
+  it.skipIf(process.getuid?.() === 0)(
+    'counts an unreadable file as skipped and reports it, without emitting it',
+    async () => {
+      const other = mkdtempSync(join(tmpdir(), 'kotlin-skip-'));
+      const locked = join(other, 'Locked.kt');
+      writeFileSync(join(other, 'Ok.kt'), 'package demo\n\nclass Ok\n');
+      writeFileSync(locked, 'package demo\n\nclass Locked\n');
+      chmodSync(locked, 0o000);
+      try {
+        const kotlin = await kotlinProvider.parse(profile, { repoRoot: other, repoName: 'skip', repoKey: 'skip' });
+        expect(kotlin.stats).toMatchObject({ totalFiles: 2, parsedFiles: 1, skippedFiles: 1 });
+        expect(kotlin.files.map((f) => f.path)).toEqual(['Ok.kt']);
+        expect(kotlin.errors).toEqual([
+          { file: 'Locked.kt', message: 'kotlin: file could not be read or parsed', severity: 'error' },
+        ]);
+      } finally {
+        chmodSync(locked, 0o600);
+        rmSync(other, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('emits no entities and no db operations when the profile declares no entities block', async () => {
-    const kotlin = await parseKotlinRepo(
-      root,
-      'demo',
-      { repoKey: 'demo' },
+    const kotlin = await kotlinProvider.parse(
       { parserId: 'kotlin-demo', substrate: { language: 'kotlin', include: ['**/*.kt'] } },
+      { repoRoot: root, repoName: 'demo', repoKey: 'demo' },
     );
     expect(kotlin.entities).toEqual([]);
     expect(kotlin.dbOperations).toEqual([]);
-    expect(kotlin.kotlinStats.unparsedDaoQueries).toBe(0);
+    expect(kotlin.stats.kotlin?.unparsedDaoQueries).toBe(0);
   });
 });
