@@ -34,7 +34,7 @@ export interface IntentAnchorRefreshOutcome {
 
 export interface IntentAnchorRowProps {
   anchor: IntentItemAnchor;
-  /** Admin/owner only; the server refuses anyone else whatever this renderer shows. */
+  /** Admin, owner or product (`hasIntentAccess`); the server re-checks every write. */
   canRefresh: boolean;
   /** This row's inline confirm is open (the panel holds the one open confirm). */
   confirming: boolean;
@@ -64,21 +64,21 @@ export function IntentAnchorRow({
       <div className="flex flex-wrap items-center gap-[7px]">
         {/* A node id is a path, and a path cut in the middle names nothing — it
             wraps instead of truncating. */}
-        <span className="break-all font-mono text-[11.5px] text-ink-2" title={anchor.capturedVersionedId}>
+        <span className="break-all font-mono text-[12.5px] text-ink-2" title={anchor.capturedVersionedId}>
           {anchor.repoKey} · {anchor.nodeId}
         </span>
-        <span className="rounded border border-border-soft px-1 text-[9.5px] text-ink-4">{anchor.nodeType}</span>
+        <span className="rounded border border-border-soft px-1 text-[10.5px] text-ink-4">{anchor.nodeType}</span>
         <Badge variant={anchorStatusVariant(anchor.status)}>{anchorStatusMark(anchor.status)}</Badge>
         <Badge variant={snapshotFreshnessVariant(anchor.snapshotFreshness)}>
           {snapshotFreshnessMark(anchor.snapshotFreshness)}
         </Badge>
       </div>
 
-      {anchor.mismatchReason && <p className="mt-0.5 text-[11px] text-ink-4">Mismatch: {anchor.mismatchReason}</p>}
-      {anchor.rationale && <p className="mt-0.5 text-[11px] text-ink-4">{anchor.rationale}</p>}
+      {anchor.mismatchReason && <p className="mt-0.5 text-[12px] text-ink-4">Mismatch: {anchor.mismatchReason}</p>}
+      {anchor.rationale && <p className="mt-0.5 text-[12px] text-ink-4">{anchor.rationale}</p>}
 
       {outcome && (
-        <p className="mt-1 font-mono text-[11px] text-ink-2">
+        <p className="mt-1 font-mono text-[12px] text-ink-2">
           {outcome.changed
             ? `baseline ${outcome.previousCapturedVersionedId} → ${outcome.capturedVersionedId}`
             : `baseline unchanged at ${outcome.capturedVersionedId}`}
@@ -93,10 +93,10 @@ export function IntentAnchorRow({
 
       {refreshable && confirming && (
         <div className="mt-1.5 flex flex-col gap-1 rounded-lg bg-surface-2 p-2">
-          <span className="text-[11.5px] text-ink-1">
+          <span className="text-[12.5px] text-ink-1">
             Refresh to current? The baseline this anchor is judged against moves.
           </span>
-          <span className="truncate font-mono text-[11px] text-ink-2">
+          <span className="truncate font-mono text-[12px] text-ink-2">
             {anchor.capturedVersionedId} → {anchor.currentVersionedId ?? 'current'}
           </span>
           <div className="flex flex-wrap items-center gap-1.5">
@@ -111,7 +111,7 @@ export function IntentAnchorRow({
       )}
 
       {errorMessage && (
-        <p className="mt-1.5 rounded-lg bg-warn-wash px-2.5 py-1.5 text-[11px] text-warn-text">{errorMessage}</p>
+        <p className="mt-1.5 rounded-lg bg-warn-wash px-2.5 py-1.5 text-[12px] text-warn-text">{errorMessage}</p>
       )}
     </li>
   );

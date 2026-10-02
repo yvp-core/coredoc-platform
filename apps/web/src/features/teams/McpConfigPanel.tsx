@@ -71,14 +71,14 @@ export function McpConfigPanel({ wsId }: { wsId: string }) {
             const url = mcpServerUrl(config);
             if (!url) {
               return (
-                <p className="text-[12px] text-danger-text">
+                <p className="text-[13px] text-danger-text">
                   This server did not return a usable MCP url — check MCP_SERVER_URL on the deployment.
                 </p>
               );
             }
             return (
               <>
-                <p className="text-[12px] text-ink-3">{snippet.hint}</p>
+                <p className="text-[13px] text-ink-3">{snippet.hint}</p>
                 <CopyBlock value={snippet.build(url)} label={`Copy ${snippet.filename}`} filename={snippet.filename} />
               </>
             );

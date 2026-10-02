@@ -16,7 +16,7 @@ export function QueryBoundary<T>({ query, children }: { query: UseQueryResult<T>
   if (query.isError) {
     return (
       <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-card">
-        <div className="min-w-0 text-[12.5px] text-danger-text">
+        <div className="min-w-0 text-[13.5px] text-danger-text">
           {query.error instanceof Error ? query.error.message : 'Request failed'}
         </div>
         <Button variant="outline" size="sm" onClick={() => void query.refetch()}>

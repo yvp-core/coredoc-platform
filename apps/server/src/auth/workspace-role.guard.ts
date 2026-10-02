@@ -6,6 +6,8 @@ import { ControlPlaneService } from '../database/control-plane.service.js';
 
 const ROLE_HIERARCHY: Record<string, number> = {
   member: 1,
+  // Same rank as member: the role differs only in what the intent UI offers it.
+  product: 1,
   admin: 2,
   owner: 3,
 };

@@ -239,6 +239,7 @@ export function TeamMcpInviteStep({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={WorkspaceMemberRole.Admin}>Admin</SelectItem>
+            <SelectItem value={WorkspaceMemberRole.Product}>Product</SelectItem>
             <SelectItem value={WorkspaceMemberRole.Member}>Member</SelectItem>
           </SelectContent>
         </Select>
@@ -318,6 +319,7 @@ function MemberRow({ row, onRoleChange, onRemove, onResend, onRevoke }: MemberRo
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={WorkspaceMemberRole.Admin}>Admin</SelectItem>
+            <SelectItem value={WorkspaceMemberRole.Product}>Product</SelectItem>
             <SelectItem value={WorkspaceMemberRole.Member}>Member</SelectItem>
           </SelectContent>
         </Select>

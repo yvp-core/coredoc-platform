@@ -21,7 +21,7 @@ import { TokenPermission } from '../../auth/token-permissions.js';
 import { WorkspaceRoleValue } from '../../auth/decorators/workspace-role-value.decorator.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
-import { WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js';
+import { isWorkspaceManagerRole, type WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js';
 import { ArtifactRevisionBodySchema, type ArtifactRevisionBody } from './canonical-artifact.contract.js';
 import {
   CoredocShipEvidenceSchema,
@@ -65,7 +65,7 @@ function resolveDeliveryUserId(
   }
   if (mine === 'true') return user.id;
   if (requested === undefined) return null;
-  if (role === WorkspaceMemberRole.Member && requested !== user.id) {
+  if (role !== undefined && !isWorkspaceManagerRole(role) && requested !== user.id) {
     throw new ForbiddenException('Members may only filter delivery reads by their own id');
   }
   return requested;

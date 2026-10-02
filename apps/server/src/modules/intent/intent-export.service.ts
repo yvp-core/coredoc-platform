@@ -43,6 +43,8 @@ import {
 import { intentStateError } from './intent-state-errors.js';
 import { treeConditionsOf } from './intent-tree.service.js';
 import { IntentErrorCode } from './contract/index.js';
+import { readWorkspaceDocument } from './intent-workspace-export.js';
+import type { CloudIntentWorkspaceDocumentV1 } from './intent-workspace-import.js';
 
 /**
  * Per-collection row ceiling. Well above any reviewed knowledge base — the
@@ -65,6 +67,11 @@ export class IntentExportService {
       contentHash: hashExportContent(content),
       content,
     };
+  }
+
+  /** The content as the workspace-import document; see `intent-workspace-export.ts`. */
+  async exportWorkspace(workspaceId: string): Promise<CloudIntentWorkspaceDocumentV1> {
+    return readWorkspaceDocument(this.prisma, workspaceId);
   }
 
   private async readContent(workspaceId: string): Promise<CloudIntentExportContent> {
@@ -120,6 +127,7 @@ export class IntentExportService {
             title: row.title,
             statement: row.statement,
             appliesWhen: treeConditionsOf(row.appliesWhen),
+            layout: row.layout ?? undefined,
             archived: row.archived,
             createdAt: iso(row.createdAt),
             updatedAt: iso(row.updatedAt),
@@ -129,9 +137,11 @@ export class IntentExportService {
           (row): CloudIntentExportFeature => ({
             id: row.id,
             domainId: row.domainId,
+            ...(row.parentFeatureId ? { parentFeatureId: row.parentFeatureId } : {}),
             title: row.title,
             statement: row.statement,
             appliesWhen: treeConditionsOf(row.appliesWhen),
+            layout: row.layout ?? undefined,
             archived: row.archived,
             createdAt: iso(row.createdAt),
             updatedAt: iso(row.updatedAt),
@@ -172,6 +182,7 @@ export class IntentExportService {
           payload: row.payload ?? null,
           appliesWhen: Array.isArray(row.appliesWhen) && row.appliesWhen.length ? row.appliesWhen : undefined,
           rationale: row.rationale,
+          body: row.body ?? undefined,
           authority: row.authority,
           proposedSuccessorOfId: row.proposedSuccessorOfId,
           supersededById: row.supersededById,

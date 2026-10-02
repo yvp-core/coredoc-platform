@@ -26,7 +26,7 @@ function tooltipDate(iso: string): string {
 }
 
 const TH =
-  'sticky top-0 bg-surface-2 px-3 py-1.5 text-[11px] font-normal uppercase tracking-[0.04em] text-ink-4 text-left';
+  'sticky top-0 bg-surface-2 px-3 py-1.5 text-[12px] font-normal uppercase tracking-[0.04em] text-ink-4 text-left';
 
 export function TimeseriesCard({ usage }: { usage: WorkspaceUsageAnalytics }) {
   const [metric, setMetric] = useState<UsageMetric>('calls');
@@ -73,7 +73,7 @@ export function TimeseriesCard({ usage }: { usage: WorkspaceUsageAnalytics }) {
       <CardBody>
         {asTable ? (
           <div className="max-h-64 overflow-auto rounded-lg border border-border-soft">
-            <table className="num w-full text-[12px]">
+            <table className="num w-full text-[13px]">
               <thead>
                 <tr>
                   <th className={TH}>Date</th>
@@ -115,7 +115,7 @@ export function TimeseriesCard({ usage }: { usage: WorkspaceUsageAnalytics }) {
               )}
             />
             {metric === 'spend' && spendCaption !== null ? (
-              <p className="text-[11.5px] text-ink-4">{spendCaption}</p>
+              <p className="text-[12.5px] text-ink-4">{spendCaption}</p>
             ) : null}
           </div>
         )}

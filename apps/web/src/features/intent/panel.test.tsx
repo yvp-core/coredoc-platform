@@ -3,7 +3,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { IntentPanel } from './panel.js';
-import { IntentPanelTab } from './intent-panel-state.js';
 
 const rows = Array.from({ length: 225 }, (_, i) => ({
   id: `br-rule-${i}`,
@@ -71,6 +70,18 @@ beforeEach(() => {
           JSON.stringify({ sources: [{ kind: 'spec', ref: 'spec/uploads', title: 'Uploads spec' }], truncated: false }),
         );
       if (u.pathname.endsWith('/tree')) return new Response(JSON.stringify({ domains: treeDomains, nextCursor: null }));
+      if (u.pathname.endsWith('/review-queue/nodes')) return new Response(JSON.stringify({ nodes: [] }));
+      if (u.pathname.endsWith('/document'))
+        return new Response(
+          JSON.stringify({
+            node: { kind: 'root', id: null, title: 'Product root', domainId: null },
+            sections: [],
+            related: [],
+            features: [],
+            delivery: { effective: 0, planned: 0, unrecorded: 0 },
+            truncated: false,
+          }),
+        );
       if (u.pathname.endsWith('/dimensions')) return new Response(JSON.stringify({ dimensions: DIMENSIONS }));
       if (u.pathname.endsWith('/context') && u.searchParams.get('mode') !== 'list')
         return new Response(JSON.stringify({ mode: 'context', matches: [], graph: null }));
@@ -114,27 +125,22 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-function mount() {
+/** The browse cases exercise the catalogue list, so they switch the centre column to it. */
+async function mount() {
   function Wrapper() {
     const [id, setId] = useState<string | null>(null);
-    return (
-      <IntentPanel
-        workspaceId="test-ws"
-        role={String('admin')}
-        tab={IntentPanelTab.Browse}
-        selectedItemId={id}
-        onSelectItem={setId}
-      />
-    );
+    return <IntentPanel workspaceId="test-ws" role={String('admin')} selectedItemId={id} onSelectItem={setId} />;
   }
-  return render(
+  const view = render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <Wrapper />
     </QueryClientProvider>,
   );
+  fireEvent.click(await screen.findByRole('button', { name: 'List' }));
+  return view;
 }
 it('keeps selected rules when the catalogue filter hides them and clears them from the basket', async () => {
-  mount();
+  await mount();
   fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' }));
   fireEvent.click(screen.getByRole('checkbox', { name: 'Select Rule 1 for delivery' }));
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Rule 99' } });
@@ -146,7 +152,7 @@ it('keeps selected rules when the catalogue filter hides them and clears them fr
   expect(await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' })).not.toBeChecked();
 });
 it('selects loaded results explicitly and enforces the 200-rule confirmation bound across pages', async () => {
-  mount();
+  await mount();
   fireEvent.click(await screen.findByRole('button', { name: 'Select visible rules (up to 200 more)' }));
   expect(screen.getByText('100 rules selected')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Load more items' }));
@@ -156,10 +162,11 @@ it('selects loaded results explicitly and enforces the 200-rule confirmation bou
   fireEvent.click(screen.getByRole('button', { name: 'Load more items' }));
   await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Select Rule 224 for delivery' })).toBeDisabled());
   expect(screen.getByRole('checkbox', { name: 'Select Rule 0 for delivery' })).toBeEnabled();
-});
+  // Pages through 200+ rules; under a full parallel `pnpm test` the default 15s is not enough.
+}, 30_000);
 
 it('searches beyond loaded pages and selects the complete matching set', async () => {
-  mount();
+  await mount();
   await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Rule 22' } });
   await screen.findByRole('checkbox', { name: 'Select Rule 224 for delivery' });
@@ -167,7 +174,7 @@ it('searches beyond loaded pages and selects the complete matching set', async (
   await screen.findByText('6 rules selected');
 });
 it('refuses oversized matching sets without partially changing the basket', async () => {
-  mount();
+  await mount();
   fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' }));
   fireEvent.click(screen.getByRole('button', { name: 'Select all matching rules' }));
   await screen.findByText(/More than 200 rules match/);
@@ -175,7 +182,7 @@ it('refuses oversized matching sets without partially changing the basket', asyn
 });
 
 it('filters production states before paging and keeps the filter for bulk selection', async () => {
-  mount();
+  await mount();
   await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
   fireEvent.keyDown(screen.getByRole('combobox', { name: 'Production status' }), { key: 'ArrowDown' });
   fireEvent.click(await screen.findByRole('option', { name: 'Planned' }));
@@ -189,7 +196,7 @@ it('filters production states before paging and keeps the filter for bulk select
   expect(screen.getByText('5 rules selected')).toBeInTheDocument();
 });
 it('selects an exact source and applies it to the catalogue and bulk selection', async () => {
-  mount();
+  await mount();
   fireEvent.click(await screen.findByRole('button', { name: 'Choose spec or issue' }));
   fireEvent.click(await screen.findByRole('button', { name: /Uploads spec/ }));
   await screen.findByRole('checkbox', { name: 'Select Rule 224 for delivery' });
@@ -201,14 +208,14 @@ it('selects an exact source and applies it to the catalogue and bulk selection',
 });
 
 it('shows condition chips on browse rows', async () => {
-  mount();
+  await mount();
   await screen.findByRole('checkbox', { name: 'Select Rule 2 for delivery' });
   expect(screen.getByText('not Brazil')).toBeInTheDocument();
   expect(screen.getByText('2 variants')).toBeInTheDocument();
 });
 
 it('previews the list as a reader context through the context read, and clears back', async () => {
-  mount();
+  await mount();
   await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
   fireEvent.keyDown(await screen.findByRole('combobox', { name: 'Country' }), { key: 'ArrowDown' });
   fireEvent.click(await screen.findByRole('option', { name: 'Brazil' }));
@@ -239,7 +246,7 @@ const contextListUrls = () =>
     .filter((u) => u.pathname.endsWith('/context') && u.searchParams.get('mode') === 'list');
 
 it('previews a multi dimension as "none of these" with an explicit empty list', async () => {
-  mount();
+  await mount();
   await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
   fireEvent.click(await screen.findByRole('button', { name: 'None' }));
 
@@ -256,7 +263,7 @@ it('previews a multi dimension as "none of these" with an explicit empty list', 
 });
 
 it('previews every selected kind through the context read, not a browser-side filter', async () => {
-  mount();
+  await mount();
   await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
   fireEvent.click(screen.getByRole('button', { name: 'Use case' }));
   fireEvent.click(screen.getByRole('button', { name: 'Business rule' }));
@@ -268,7 +275,7 @@ it('previews every selected kind through the context read, not a browser-side fi
 });
 
 it('labels the hidden count as a lower bound once a second preview page has loaded', async () => {
-  mount();
+  await mount();
   await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
   fireEvent.keyDown(await screen.findByRole('combobox', { name: 'Country' }), { key: 'ArrowDown' });
   fireEvent.click(await screen.findByRole('option', { name: 'Brazil' }));
@@ -285,7 +292,7 @@ it('labels the hidden count as a lower bound once a second preview page has load
 });
 
 it('disables "select all matching" while a context preview is active, so hidden rules cannot land in the basket', async () => {
-  mount();
+  await mount();
   await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
   const selectAllButton = screen.getByRole('button', { name: 'Select all matching rules' });
   expect(selectAllButton).toBeEnabled();
@@ -316,7 +323,7 @@ it('opens the node panel for a selected domain, and returns to it from a rule', 
       featuresTruncated: false,
     },
   ];
-  mount();
+  await mount();
   fireEvent.click(await screen.findByRole('button', { name: /^Billing/ }));
   expect(await screen.findByText('Invoices and payments.')).toBeInTheDocument();
   expect(screen.getByText('country not in br')).toBeInTheDocument();

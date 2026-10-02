@@ -24,7 +24,7 @@ function rating(value: number | null): string {
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="mt-2 first:mt-0">
-      <h5 className="text-[10.5px] uppercase tracking-[0.04em] text-ink-4">{title}</h5>
+      <h5 className="text-[11.5px] uppercase tracking-[0.04em] text-ink-4">{title}</h5>
       <ul className="mt-1 flex flex-col gap-1">{children}</ul>
     </div>
   );
@@ -56,20 +56,20 @@ export function FeedbackRecordRow({
         onClick={onToggle}
         className="flex w-full flex-wrap items-center gap-x-2.5 gap-y-1 px-1 py-2 text-left hover:bg-surface-2"
       >
-        <span className="num shrink-0 text-[11.5px] text-ink-4">{formatUtcMinute(record.createdAt)}</span>
-        <span className="max-w-[160px] shrink-0 truncate text-[12px] text-ink-2">{who}</span>
-        <span className="num shrink-0 whitespace-nowrap text-[11.5px] text-ink-3">
+        <span className="num shrink-0 text-[12.5px] text-ink-4">{formatUtcMinute(record.createdAt)}</span>
+        <span className="max-w-[160px] shrink-0 truncate text-[13px] text-ink-2">{who}</span>
+        <span className="num shrink-0 whitespace-nowrap text-[12.5px] text-ink-3">
           agent {rating(record.overallRating)} → user {rating(record.userRating)}
         </span>
         <Badge variant={REVIEW_VARIANT[record.reviewStatus]}>{record.reviewStatus}</Badge>
-        <span className="min-w-0 flex-1 truncate text-[12px] text-ink-2">{record.summary ?? 'No summary'}</span>
+        <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">{record.summary ?? 'No summary'}</span>
         {chips.map((chip) => (
           <Chip key={chip}>{chip}</Chip>
         ))}
       </button>
 
       {expanded ? (
-        <div className="px-1 pb-3 text-[11.5px] text-ink-2">
+        <div className="px-1 pb-3 text-[12.5px] text-ink-2">
           {record.perToolIssues.length > 0 ? (
             <Section title="Tool issues">
               {record.perToolIssues.map((issue) => (

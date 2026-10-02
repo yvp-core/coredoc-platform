@@ -40,6 +40,29 @@ import {
 /** Every mutation is idempotency-keyed (spec §7). */
 const mutation = { idempotencyKey };
 
+/** One Markdown line. Empty lines are kept: they separate paragraphs and list items. */
+const markdownLine = z.string().max(INTENT_CONTRACT_LIMITS.text);
+
+/**
+ * A node as a document, in order: headings, prose lines, and slots that place
+ * an item. The node read renders it verbatim; an item with no slot is
+ * appended under its kind's section. `style: heading` renders an item as
+ * `### <id>` (use cases, flows), `style: prose` as plain paragraphs (a node's
+ * overview), and the default is a `- **<id>** — ` bullet.
+ */
+export const IntentNodeLayoutSchema = z
+  .array(
+    z.union([
+      z.object({ heading: text(INTENT_CONTRACT_LIMITS.title), level: z.union([z.literal(2), z.literal(3)]) }).strict(),
+      z.object({ lines: z.array(markdownLine).min(1).max(INTENT_CONTRACT_LIMITS.layoutLines) }).strict(),
+      z.object({ item: slugId(), style: z.enum(['bullet', 'heading', 'prose']).optional() }).strict(),
+    ]),
+  )
+  .max(INTENT_CONTRACT_LIMITS.layoutBlocks);
+
+/** Lines under an item's statement: use-case bullets, flow steps, a diagram. */
+export const IntentItemBodySchema = z.array(markdownLine).min(1).max(INTENT_CONTRACT_LIMITS.layoutLines);
+
 /* ------------------------------------------------------------------ tree --- */
 
 export const CreateIntentDomainSchema = z
@@ -49,6 +72,7 @@ export const CreateIntentDomainSchema = z
     title: text(INTENT_CONTRACT_LIMITS.title),
     statement: text(INTENT_CONTRACT_LIMITS.statement).optional(),
     appliesWhen: TreeConditionsSchema.optional(),
+    layout: IntentNodeLayoutSchema.optional(),
   })
   .strict();
 
@@ -65,11 +89,17 @@ export const UpdateIntentDomainSchema = z
     statement: text(INTENT_CONTRACT_LIMITS.statement).optional(),
     /** Replaces the node's conditions; `[]` clears them. */
     appliesWhen: TreeConditionsSchema.optional(),
+    /** Replaces the node's layout; `[]` clears it. */
+    layout: IntentNodeLayoutSchema.optional(),
   })
   .strict()
   .refine(
-    (value) => value.title !== undefined || value.statement !== undefined || value.appliesWhen !== undefined,
-    'an update must change at least one of title, statement or appliesWhen',
+    (value) =>
+      value.title !== undefined ||
+      value.statement !== undefined ||
+      value.appliesWhen !== undefined ||
+      value.layout !== undefined,
+    'an update must change at least one of title, statement, appliesWhen or layout',
   );
 
 /** Archiving is an explicit flag, both ways: un-archiving is the same operation. */
@@ -80,9 +110,12 @@ export const CreateIntentFeatureSchema = z
     ...mutation,
     id: slugId(),
     domainId: slugId(),
+    /** A feature of the same domain this one sits under; absent = top level. */
+    parentFeatureId: slugId().optional(),
     title: text(INTENT_CONTRACT_LIMITS.title),
     statement: text(INTENT_CONTRACT_LIMITS.statement).optional(),
     appliesWhen: TreeConditionsSchema.optional(),
+    layout: IntentNodeLayoutSchema.optional(),
   })
   .strict();
 
@@ -94,11 +127,20 @@ export const UpdateIntentFeatureSchema = z
     statement: text(INTENT_CONTRACT_LIMITS.statement).optional(),
     /** Replaces the node's conditions; `[]` clears them. */
     appliesWhen: TreeConditionsSchema.optional(),
+    /** Replaces the node's layout; `[]` clears it. */
+    layout: IntentNodeLayoutSchema.optional(),
+    /** Moves the feature under another feature of its domain; `null` moves it to the top level. */
+    parentFeatureId: slugId().nullable().optional(),
   })
   .strict()
   .refine(
-    (value) => value.title !== undefined || value.statement !== undefined || value.appliesWhen !== undefined,
-    'an update must change at least one of title, statement or appliesWhen',
+    (value) =>
+      value.title !== undefined ||
+      value.statement !== undefined ||
+      value.appliesWhen !== undefined ||
+      value.layout !== undefined ||
+      value.parentFeatureId !== undefined,
+    'an update must change at least one of title, statement, appliesWhen, layout or parentFeatureId',
   );
 
 export const ArchiveIntentFeatureSchema = z.object({ ...mutation, id: slugId(), archived: z.boolean() }).strict();
@@ -119,6 +161,34 @@ export const PutIntentFeatureSeedSchema = z
 
 export const DeleteIntentFeatureSeedSchema = z
   .object({ ...mutation, featureId: slugId(), repoKey, nodeId: graphNodeId })
+  .strict();
+
+/* ------------------------------------------------------- node relations --- */
+
+/** A tree node by kind and id. Domain and feature ids live in separate tables, so the kind is part of the identity. */
+export const IntentNodeRefSchema = z
+  .object({
+    kind: z.enum(['domain', 'feature']).describe("'domain' or 'feature'"),
+    id: slugId(),
+  })
+  .strict();
+
+/**
+ * "See also" between two nodes, with the reason a reader should follow it.
+ * Like `seed.put`, a put both declares a relation and re-words its reason:
+ * the identity is the unordered pair of endpoints.
+ */
+export const PutIntentNodeRelationSchema = z
+  .object({
+    ...mutation,
+    from: IntentNodeRefSchema,
+    to: IntentNodeRefSchema,
+    why: text(INTENT_CONTRACT_LIMITS.relationWhy),
+  })
+  .strict();
+
+export const DeleteIntentNodeRelationSchema = z
+  .object({ ...mutation, from: IntentNodeRefSchema, to: IntentNodeRefSchema })
   .strict();
 
 /* ------------------------------------------------------------ dimensions --- */
@@ -184,9 +254,14 @@ export const ProposedIntentItemSchema = z
     id: slugId().optional(),
     kind: z.enum(IntentKind),
     title: text(INTENT_CONTRACT_LIMITS.title),
-    /** Mandatory and self-contained: the item must state its rule without its payload (D9). */
+    /**
+     * Mandatory and self-contained: one sentence that states the rule (or who wants
+     * what) without its body or payload (D9). Longer text belongs in `body`.
+     */
     statement: text(INTENT_CONTRACT_LIMITS.statement),
     rationale: text(INTENT_CONTRACT_LIMITS.text).optional(),
+    /** Markdown lines under the statement; absent keeps what is stored. */
+    body: IntentItemBodySchema.optional(),
     /**
      * OPTIONAL structured payload (D9), validated by the refinement below
      * through core's own per-kind payload validation — so a payload the cloud
@@ -384,6 +459,9 @@ export type UpdateIntentFeatureInput = z.infer<typeof UpdateIntentFeatureSchema>
 export type ArchiveIntentFeatureInput = z.infer<typeof ArchiveIntentFeatureSchema>;
 export type PutIntentFeatureSeedInput = z.infer<typeof PutIntentFeatureSeedSchema>;
 export type DeleteIntentFeatureSeedInput = z.infer<typeof DeleteIntentFeatureSeedSchema>;
+export type IntentNodeRefInput = z.infer<typeof IntentNodeRefSchema>;
+export type PutIntentNodeRelationInput = z.infer<typeof PutIntentNodeRelationSchema>;
+export type DeleteIntentNodeRelationInput = z.infer<typeof DeleteIntentNodeRelationSchema>;
 export type CreateIntentDimensionInput = z.infer<typeof CreateIntentDimensionSchema>;
 export type UpdateIntentDimensionInput = z.infer<typeof UpdateIntentDimensionSchema>;
 export type ArchiveIntentDimensionInput = z.infer<typeof ArchiveIntentDimensionSchema>;

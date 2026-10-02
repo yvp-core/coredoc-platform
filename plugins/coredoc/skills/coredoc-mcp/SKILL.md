@@ -68,11 +68,11 @@ Indexed siblings remain usable for cross-repo questions.
 | Reads/writes entity Y | `find_entity_usage` (ORM) |
 | DB schema | `describe_db_schema` (`scope` = one repo, `entityName` = full table) |
 | Cross-service calls, publishers of Y | `trace_cross_repo_call`, `list_service_dependencies` |
-| Accepted product rules, non-goals | `get_intent_context` if present |
+| Product rules, non-goals | `intent_read` if present |
 | Ad-hoc graph query | `run_cypher_query` if present |
 
-`get_intent_context` reads reviewed rules: one task call with
-`files`/`intentIds`; `mode: "list"` is browsing only.
+`intent_read`: `tree`, then `node`, then `search`. Rules for code you
+change: `get_intent_context` with `files`/`intentIds`.
 
 Release effectivity: see `workflows.md`.
 

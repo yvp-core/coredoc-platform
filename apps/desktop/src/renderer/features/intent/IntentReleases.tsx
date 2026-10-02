@@ -554,6 +554,9 @@ export function IntentReleases({
                   </span>
                 </summary>
                 <p>{p.content.statement}</p>
+                {p.content.body && p.content.body.length > 0 && (
+                  <p className="whitespace-pre-wrap text-content-secondary">{p.content.body.join('\n')}</p>
+                )}
                 {p.content.rationale && <p className="text-content-tertiary">{p.content.rationale}</p>}
                 <div className="space-y-2 pt-2">
                   <h4 className="text-xs uppercase tracking-wide text-content-quaternary">Details</h4>

@@ -194,14 +194,17 @@ const TABLE: Case[] = [
     'POST',
     `${API}/workspaces/${WORKSPACE_ID}/members/invites`,
     { email: 'not-an-email', role: 'owner' },
-    { statusCode: 400, message: 'email must be an email; role must be one of the following values: admin, member' },
+    {
+      statusCode: 400,
+      message: 'email must be an email; role must be one of the following values: admin, product, member',
+    },
   ],
   [
     'member role update with an unassignable role',
     'PATCH',
     `${API}/workspaces/${WORKSPACE_ID}/members/user-1`,
     { role: 'superuser' },
-    { statusCode: 400, message: 'role must be one of: admin, member' },
+    { statusCode: 400, message: 'role must be one of: admin, product, member' },
   ],
   // jobs
   [

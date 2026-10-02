@@ -40,7 +40,7 @@ export function IntentContextPreview({
   return (
     <div className="flex flex-col gap-1.5 border-b border-border-soft px-3.5 py-2.5">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] text-ink-4">Preview as</span>
+        <span className="text-[12px] text-ink-4">Preview as</span>
         {dimensions.map((dimension) => {
           const chosen = value[dimension.id];
           if (dimension.multi) {
@@ -49,7 +49,7 @@ export function IntentContextPreview({
             const none = Array.isArray(chosen) && chosen.length === 0;
             return (
               <fieldset key={dimension.id} aria-label={dimension.title} className="flex flex-wrap gap-1">
-                <span className="text-[11px] text-ink-3">{dimension.title}:</span>
+                <span className="text-[12px] text-ink-3">{dimension.title}:</span>
                 <Chip pressed={none} label="None" onClick={() => set(dimension.id, none ? null : [])} />
                 {dimension.values.map((option) => (
                   <Chip
@@ -98,7 +98,7 @@ export function IntentContextPreview({
         )}
       </div>
       {hiddenCount !== null && (
-        <p className="text-[11px] text-ink-3">
+        <p className="text-[12px] text-ink-3">
           {hiddenCountIsLowerBound
             ? `at least ${hiddenCount} rule${hiddenCount === 1 ? '' : 's'} hidden`
             : hiddenCount === 1
@@ -108,7 +108,7 @@ export function IntentContextPreview({
         </p>
       )}
       {hiddenCount !== null && ignoredFilters.length > 0 && (
-        <p className="text-[11px] text-ink-4">Not applied in preview: {ignoredFilters.join(', ')}.</p>
+        <p className="text-[12px] text-ink-4">Not applied in preview: {ignoredFilters.join(', ')}.</p>
       )}
     </div>
   );

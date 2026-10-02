@@ -17,7 +17,15 @@ export interface IntentReleasePreview {
   authority: IntentAuthority;
   version: number;
   contentHash: string;
-  content: { kind: string; title: string; statement: string; rationale: string | null; payload: unknown };
+  content: {
+    kind: string;
+    title: string;
+    statement: string;
+    rationale: string | null;
+    payload: unknown;
+    /** The item's lines under the statement; part of the content hash. */
+    body?: string[];
+  };
   effectivity: IntentEffectivity;
   planState: IntentPlanState;
   sources: { kind: string; ref: string; localId: string }[];

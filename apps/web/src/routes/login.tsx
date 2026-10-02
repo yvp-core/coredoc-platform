@@ -39,9 +39,9 @@ export function LoginPage() {
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-8 shadow-card">
         <div className="flex items-center gap-2.5">
           <BrandMark className="size-7 shrink-0" />
-          <h1 className="text-[14px] font-normal tracking-[-0.01em]">CoreDoc</h1>
+          <h1 className="text-[15px] font-medium tracking-[-0.01em]">CoreDoc</h1>
         </div>
-        <p className="mt-4 text-[12.5px] text-ink-3">Sign in to continue to your workspaces.</p>
+        <p className="mt-4 text-[13.5px] text-ink-3">Sign in to continue to your workspaces.</p>
         <a href={buildLoginHref(returnTo)} className={cn(buttonVariants(), 'mt-6 w-full')}>
           Sign in
         </a>

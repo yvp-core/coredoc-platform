@@ -43,6 +43,8 @@ export enum IntentOperation {
   DimensionDelete = 'dimension.delete',
   SeedPut = 'seed.put',
   SeedDelete = 'seed.delete',
+  RelationPut = 'relation.put',
+  RelationDelete = 'relation.delete',
   ItemsPropose = 'items.propose',
   ItemsReview = 'items.review',
   AnchorAdd = 'anchor.add',
@@ -54,6 +56,8 @@ export enum IntentOperation {
    * read, and a read spends no key.
    */
   OverlayImport = 'overlay.import',
+  /** Whole-workspace import of a `CloudIntentWorkspaceDocumentV1`. */
+  WorkspaceImport = 'workspace.import',
 }
 
 /** What an audit row says happened to one entity. */

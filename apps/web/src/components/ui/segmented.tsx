@@ -22,7 +22,7 @@ export function Segmented<T extends string>({
             aria-pressed={active}
             onClick={() => onChange(item.value)}
             className={cn(
-              'rounded-md px-3 py-1 text-[12px] font-normal transition-colors',
+              'rounded-md px-3 py-1 text-[13px] font-medium transition-colors',
               active ? 'bg-surface-2 text-ink-1 ring-1 ring-inset ring-border' : 'text-ink-3 hover:text-ink-1',
             )}
           >

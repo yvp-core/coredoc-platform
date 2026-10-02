@@ -39,7 +39,7 @@ const AUTHORIZATION_NOTICE = 'Delivery analytics are not available to this accou
 function Notice({ children, onRetry }: { children: string; onRetry?: () => void }) {
   return (
     <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-surface px-4 py-6 text-center shadow-card">
-      <p className="text-[12.5px] text-ink-2">{children}</p>
+      <p className="text-[13.5px] text-ink-2">{children}</p>
       {onRetry === undefined ? null : (
         <Button type="button" variant="outline" size="sm" onClick={onRetry}>
           Retry
@@ -123,7 +123,7 @@ export function DeliveryView({
           Only my tasks
         </Label>
       )}
-      <span className="ml-auto text-[11.5px] text-ink-4">{populationCaption(analyticsWindow, lifecycle, scope)}</span>
+      <span className="ml-auto text-[12.5px] text-ink-4">{populationCaption(analyticsWindow, lifecycle, scope)}</span>
     </div>
   );
 
@@ -171,7 +171,7 @@ export function DeliveryView({
               />
               <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
                 {selectedTaskId === null ? (
-                  <p className="py-6 text-center text-[12px] text-ink-4">
+                  <p className="py-6 text-center text-[13px] text-ink-4">
                     Pick a task on the left to see its full trace.
                   </p>
                 ) : (

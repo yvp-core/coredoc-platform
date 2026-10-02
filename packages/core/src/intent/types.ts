@@ -103,6 +103,8 @@ export enum IntentRelationType {
  * choice it describes is proposed or accepted.
  */
 export enum DecisionStatus {
+  /** The question is recorded and nobody has chosen yet; `choice` is absent. */
+  Open = 'open',
   Proposed = 'proposed',
   Accepted = 'accepted',
 }
@@ -266,7 +268,8 @@ export interface LimitationPayload {
 export interface DecisionPayload {
   /** Question and context the decision answers. */
   question: string;
-  choice: string;
+  /** Absent exactly when `choiceStatus` is `open`. */
+  choice?: string;
   choiceStatus: DecisionStatus;
   rationale: string;
   alternatives: string[];

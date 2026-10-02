@@ -73,6 +73,18 @@ describe('WorkspaceRoleGuard', () => {
     expect(result).toBe(true);
   });
 
+  it('ranks product with member: admitted to member routes, refused admin ones', async () => {
+    vi.spyOn(reflector, 'getAllAndOverride').mockReturnValue('member');
+    await expect(
+      new WorkspaceRoleGuard(reflector, createMockControlPlane('product')).canActivate(createMockContext()),
+    ).resolves.toBe(true);
+
+    vi.spyOn(reflector, 'getAllAndOverride').mockReturnValue('admin');
+    await expect(
+      new WorkspaceRoleGuard(reflector, createMockControlPlane('product')).canActivate(createMockContext()),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
   it('denies member when admin role required', async () => {
     vi.spyOn(reflector, 'getAllAndOverride').mockReturnValue('admin');
     const guard = new WorkspaceRoleGuard(reflector, createMockControlPlane('member'));

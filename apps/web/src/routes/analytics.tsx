@@ -53,7 +53,7 @@ export function WorkspaceAnalytics() {
             { value: 'delivery', label: 'Delivery' },
           ]}
         />
-        <span className="text-[11.5px] text-ink-4">{VIEW_NOTE[view]}</span>
+        <span className="text-[12.5px] text-ink-4">{VIEW_NOTE[view]}</span>
       </div>
 
       {view === 'usage' ? (

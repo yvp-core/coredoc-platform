@@ -20,7 +20,7 @@ const GRID = 'grid grid-cols-[minmax(190px,1.4fr)_2fr_max-content_max-content_ma
  * so an `auto` track resolves per row and the error column drifts between rows.
  */
 const PILL_SLOTS = 'grid grid-cols-[76px_84px] items-center justify-items-end gap-1.5';
-const HEADER_CELL = 'border-b border-border-soft pb-1.5 text-[10.5px] uppercase tracking-[0.04em] text-ink-4';
+const HEADER_CELL = 'border-b border-border-soft pb-1.5 text-[11.5px] uppercase tracking-[0.04em] text-ink-4';
 
 const PILL_TONE = {
   danger: 'bg-danger-wash text-danger-text',
@@ -29,7 +29,7 @@ const PILL_TONE = {
 } as const;
 
 function Pill({ tone, text }: { tone: 'danger' | 'warn' | 'ok'; text: string }) {
-  return <span className={`num inline-block rounded-full px-[7px] text-[10.5px] ${PILL_TONE[tone]}`}>{text}</span>;
+  return <span className={`num inline-block rounded-full px-[7px] text-[11.5px] ${PILL_TONE[tone]}`}>{text}</span>;
 }
 
 function ToolRow({ row, max, last }: { row: UsageToolRow; max: number; last: boolean }) {
@@ -37,14 +37,14 @@ function ToolRow({ row, max, last }: { row: UsageToolRow; max: number; last: boo
   const cell = `min-w-0 py-1.5${last ? '' : ' border-b border-border-soft'}`;
   return (
     <>
-      <div className={`${cell} truncate font-mono text-[11.5px] text-ink-2`} title={row.toolName}>
+      <div className={`${cell} truncate font-mono text-[12.5px] text-ink-2`} title={row.toolName}>
         {row.toolName}
       </div>
       <div className={cell}>
         <MagnitudeBar value={row.calls} max={max} tone="brand" />
       </div>
-      <div className={`${cell} num text-right text-[12px] font-normal text-ink-1`}>{formatNumber(row.calls)}</div>
-      <div className={`${cell} num text-right text-[12px] text-ink-2`}>{formatMs(row.avgMs)}</div>
+      <div className={`${cell} num text-right text-[13px] font-medium text-ink-1`}>{formatNumber(row.calls)}</div>
+      <div className={`${cell} num text-right text-[13px] text-ink-2`}>{formatMs(row.avgMs)}</div>
       <div className={`${cell} ${PILL_SLOTS}`}>
         <Pill tone={pills.error.tone} text={pills.error.text} />
         <span>{pills.empty.tone === 'absent' ? null : <Pill tone={pills.empty.tone} text={pills.empty.text} />}</span>
@@ -63,7 +63,7 @@ export function ToolUsageCard({ tools }: { tools: ReadonlyArray<UsageToolRow> })
       <CardHead title="MCP tool usage" sub="Calls, latency and result quality by tool" />
       <CardBody>
         {tools.length === 0 ? (
-          <p className="py-6 text-center text-[12.5px] text-ink-4">No MCP tool calls observed in this window.</p>
+          <p className="py-6 text-center text-[13.5px] text-ink-4">No MCP tool calls observed in this window.</p>
         ) : (
           <>
             <div className={GRID}>
@@ -79,7 +79,7 @@ export function ToolUsageCard({ tools }: { tools: ReadonlyArray<UsageToolRow> })
               ))}
             </div>
             <div className="flex items-center justify-between gap-3 pt-2.5">
-              <span className="text-[11px] text-ink-4">
+              <span className="text-[12px] text-ink-4">
                 {shown.length} of {tools.length} tools · “empty” = calls returning zero results
               </span>
               {tools.length > TOP_N ? (

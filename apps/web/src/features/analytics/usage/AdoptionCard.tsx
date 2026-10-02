@@ -17,7 +17,7 @@ export function AdoptionCard({ adoption }: { adoption: UsageAdoption }) {
       <CardHead title="Adoption" sub="Server-observed MCP calls · session medians from host telemetry" />
       <CardBody>
         <div className="mb-1.5 flex items-baseline justify-between gap-3">
-          <span className="text-[12.5px] text-ink-2">Developers using Coredoc</span>
+          <span className="text-[13.5px] text-ink-2">Developers using Coredoc</span>
           <span className="num text-[18px] font-medium tracking-[-0.01em] text-ink-1">{meter.text}</span>
         </div>
         <div className="h-1.5 overflow-hidden rounded-full bg-track" aria-hidden="true">
@@ -29,8 +29,8 @@ export function AdoptionCard({ adoption }: { adoption: UsageAdoption }) {
               key={fact.label}
               className="flex items-baseline justify-between gap-3 border-t border-border-soft py-1.5 first:border-t-0"
             >
-              <dt className="text-[12px] text-ink-3">{fact.label}</dt>
-              <dd className="num whitespace-nowrap text-[12.5px] font-normal text-ink-1">{fact.value}</dd>
+              <dt className="text-[13px] text-ink-3">{fact.label}</dt>
+              <dd className="num whitespace-nowrap text-[13.5px] font-medium text-ink-1">{fact.value}</dd>
             </div>
           ))}
         </dl>

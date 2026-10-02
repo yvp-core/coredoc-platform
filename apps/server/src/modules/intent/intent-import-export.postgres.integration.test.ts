@@ -43,6 +43,7 @@ import { IntentExportController } from './intent-export.controller.js';
 import { IntentExportService } from './intent-export.service.js';
 import { IntentImportController } from './intent-import.controller.js';
 import { IntentImportService } from './intent-import.service.js';
+import { IntentWorkspaceImportService } from './intent-workspace-import.js';
 import { IntentImportSkipReason, type CloudIntentImportResultV1 } from './intent-import.operations.js';
 
 const TEST_DATABASE_URL = process.env.INTENT_TRANSFER_TEST_DATABASE_URL ?? '';
@@ -277,6 +278,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent import and export (PostgreSQL integr
         // The REAL `WorkspaceRoleGuard` reads membership through this.
         ControlPlaneService,
         IntentImportService,
+        IntentWorkspaceImportService,
         IntentExportService,
       ],
     })

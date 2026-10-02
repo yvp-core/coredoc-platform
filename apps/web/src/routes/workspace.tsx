@@ -8,12 +8,24 @@ import {
   LayoutGrid,
   LogOut,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings,
   Users,
   X,
   type LucideIcon,
 } from 'lucide-react';
 import { useState } from 'react';
+
+const RAIL_COLLAPSED_KEY = 'coredoc.rail.collapsed';
+
+function readRailCollapsed(): boolean {
+  try {
+    return localStorage.getItem(RAIL_COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 import { request } from '../api/client.js';
 import { meQueryOptions } from '../api/queries/me.js';
 import { reposQueryOptions } from '../api/queries/repos.js';
@@ -103,11 +115,13 @@ function RailLink({
   item,
   slug,
   badge,
+  collapsed,
   onNavigate,
 }: {
   item: NavItem;
   slug: string;
   badge?: number;
+  collapsed: boolean;
   onNavigate: () => void;
 }) {
   const Icon = item.icon;
@@ -118,17 +132,19 @@ function RailLink({
       activeOptions={item.exact ? { exact: true } : undefined}
       onClick={onNavigate}
       className="block"
+      title={collapsed ? item.label : undefined}
+      aria-label={collapsed ? item.label : undefined}
     >
       {({ isActive }) => (
         <span
-          className={`flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[12.5px] transition-colors ${
-            isActive ? 'bg-brand-wash font-normal text-brand-text' : 'text-ink-2 hover:bg-surface-2 hover:text-ink-1'
+          className={`flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13.5px] transition-colors ${
+            isActive ? 'bg-brand-wash font-medium text-brand-text' : 'text-ink-2 hover:bg-surface-2 hover:text-ink-1'
           }`}
         >
           <Icon className="size-4 shrink-0" aria-hidden="true" />
-          <span className="truncate">{item.label}</span>
-          {badge !== undefined ? (
-            <span className="num ml-auto rounded-full bg-surface-2 px-1.5 text-[10.5px] text-ink-4">{badge}</span>
+          {collapsed ? null : <span className="truncate">{item.label}</span>}
+          {badge !== undefined && !collapsed ? (
+            <span className="num ml-auto rounded-full bg-surface-2 px-1.5 text-[11.5px] text-ink-4">{badge}</span>
           ) : null}
         </span>
       )}
@@ -141,6 +157,18 @@ export function WorkspaceShell() {
   const { data: me } = useSuspenseQuery(meQueryOptions);
   const navigate = useNavigate();
   const [navOpen, setNavOpen] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(readRailCollapsed);
+  const toggleRail = () =>
+    setRailCollapsed((collapsed) => {
+      try {
+        localStorage.setItem(RAIL_COLLAPSED_KEY, collapsed ? '0' : '1');
+      } catch {
+        // Storage may be unavailable; the toggle still works for this visit.
+      }
+      return !collapsed;
+    });
+  // The mobile drawer always shows labels; collapsing applies to the docked rail.
+  const collapsed = railCollapsed && !navOpen;
 
   // Rail count badges ride queries the pages already issue, so this is
   // usually a cache hit. Unknown slug renders nothing — the guard redirects.
@@ -170,7 +198,7 @@ export function WorkspaceShell() {
 
         <div className="flex items-center gap-2 pr-1">
           <BrandMark className="size-6 shrink-0" />
-          <span className="text-[13.5px] font-normal tracking-[-0.01em]">CoreDoc</span>
+          <span className="text-[14.5px] font-medium tracking-[-0.01em]">CoreDoc</span>
         </div>
 
         <Select value={slug} onValueChange={(value) => navigate({ to: '/w/$slug', params: { slug: value } })}>
@@ -192,12 +220,12 @@ export function WorkspaceShell() {
         <span
           title={me.user.email}
           aria-hidden="true"
-          className="grid size-7 shrink-0 place-items-center rounded-full text-[11px] font-medium text-white"
+          className="grid size-7 shrink-0 place-items-center rounded-full text-[12px] font-medium text-white"
           style={{ background: 'linear-gradient(135deg, var(--accent-a), var(--accent-b))' }}
         >
           {initials(me.user)}
         </span>
-        <span className="hidden text-[12px] text-ink-3 lg:block">{me.user.email}</span>
+        <span className="hidden text-[13px] text-ink-3 lg:block">{me.user.email}</span>
         <button
           type="button"
           aria-label="Log out"
@@ -212,7 +240,7 @@ export function WorkspaceShell() {
       <div className="relative flex min-h-0 flex-1">
         <nav
           aria-label="Workspace sections"
-          className={`${navOpen ? 'absolute inset-y-0 left-0 z-30 flex bg-ground shadow-card' : 'hidden'} w-[220px] shrink-0 flex-col gap-0.5 overflow-y-auto p-3 md:static md:flex md:bg-ground md:shadow-none`}
+          className={`${navOpen ? 'absolute inset-y-0 left-0 z-30 flex bg-ground shadow-card' : 'hidden'} ${collapsed ? 'w-[56px]' : 'w-[220px]'} shrink-0 flex-col gap-0.5 overflow-y-auto p-3 md:static md:flex md:bg-ground md:shadow-none`}
         >
           {nav.map((item) => (
             <RailLink
@@ -220,13 +248,30 @@ export function WorkspaceShell() {
               item={item}
               slug={slug}
               badge={item.badge ? badges[item.badge] : undefined}
+              collapsed={collapsed}
               onNavigate={() => setNavOpen(false)}
             />
           ))}
+          <button
+            type="button"
+            onClick={toggleRail}
+            aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+            title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+            className="mt-auto hidden h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13.5px] text-ink-4 transition-colors hover:bg-surface-2 hover:text-ink-1 md:flex"
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="size-4 shrink-0" aria-hidden="true" />
+            ) : (
+              <>
+                <PanelLeftClose className="size-4 shrink-0" aria-hidden="true" />
+                <span>Collapse</span>
+              </>
+            )}
+          </button>
         </nav>
 
         <main className="min-w-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex max-w-[1400px] flex-col gap-4 p-6">
+          <div className="mx-auto flex flex-col gap-4 p-6">
             <Outlet />
           </div>
         </main>

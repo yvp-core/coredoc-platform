@@ -23,7 +23,7 @@ import { hasAdminAccess } from '@/lib/roles';
 import { formatRelativeTime } from '@/lib/time';
 import { findWorkspace } from './workspace';
 
-const TH = 'border-b border-border-soft pb-[7px] px-3 text-[10.5px] font-normal uppercase tracking-[0.04em] text-ink-4';
+const TH = 'border-b border-border-soft pb-[7px] px-3 text-[11.5px] font-normal uppercase tracking-[0.04em] text-ink-4';
 const TD = 'border-b border-border-soft px-3 py-2 text-ink-2';
 
 const NUM = new Intl.NumberFormat('en-US');
@@ -51,13 +51,13 @@ function RepoRow({
   return (
     <tr className="hover:bg-surface-2">
       <td className={`${TD} pl-0`}>
-        <div className="font-normal text-ink-1">{repo.repoName}</div>
-        <div className="truncate font-mono text-[11px] text-ink-4">{repo.gitUrl ?? repo.repoKey}</div>
+        <div className="font-medium text-ink-1">{repo.repoName}</div>
+        <div className="truncate font-mono text-[12px] text-ink-4">{repo.gitUrl ?? repo.repoKey}</div>
       </td>
       <td className={`${TD} num text-right`}>{fmt(repo.nodeCount)}</td>
       <td className={`${TD} num text-right`}>{fmt(repo.edgeCount)}</td>
       <td className={`${TD} text-right text-ink-4`}>{formatRelativeTime(repo.lastPushedAt)}</td>
-      <td className={`${TD} text-right font-mono text-[11px]`}>{state.data?.currentSummaryVersion ?? '—'}</td>
+      <td className={`${TD} text-right font-mono text-[12px]`}>{state.data?.currentSummaryVersion ?? '—'}</td>
       {canManage ? (
         <td className={`${TD} pr-0 text-right`}>
           <Button variant="ghost" size="sm" onClick={onRemove}>
@@ -103,7 +103,7 @@ function RemoveRepoDialog({ wsId, repo, onClose }: { wsId: string; repo: Workspa
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-2">
-          <label htmlFor="confirm-repo" className="text-[11.5px] text-ink-3">
+          <label htmlFor="confirm-repo" className="text-[12.5px] text-ink-3">
             Type <span className="font-mono text-ink-1">{repo?.repoName}</span> to confirm
           </label>
           <Input
@@ -113,7 +113,7 @@ function RemoveRepoDialog({ wsId, repo, onClose }: { wsId: string; repo: Workspa
             onChange={(event) => setConfirm(event.target.value)}
           />
           {remove.isError ? (
-            <div className="text-[11.5px] text-danger-text">
+            <div className="text-[12.5px] text-danger-text">
               {remove.error instanceof Error ? remove.error.message : 'Removal failed'}
             </div>
           ) : null}
@@ -159,7 +159,7 @@ function ReposContent({ wsId, canManage }: { wsId: string; canManage: boolean })
                   Push a repository from the CLI: <span className="font-mono text-ink-2">{PUSH_HINT}</span>
                 </EmptyNote>
               ) : (
-                <table className="w-full min-w-[680px] border-collapse text-[12.5px]">
+                <table className="w-full min-w-[680px] border-collapse text-[13.5px]">
                   <thead>
                     <tr>
                       <th className={`${TH} pl-0 text-left`}>Repository</th>

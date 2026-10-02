@@ -34,13 +34,17 @@ import {
 } from './contract/index.js';
 import type { IntentActor } from './intent-idempotency.js';
 import { IntentImportService } from './intent-import.service.js';
+import { ImportIntentWorkspaceSchema, IntentWorkspaceImportService } from './intent-workspace-import.js';
 import { IntentActorRole } from '../../mcp/intent-auth.js';
 
 @Controller('workspaces/:workspaceId/intent')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, IntentEnabledGuard)
 @UseFilters(IntentExceptionFilter)
 export class IntentImportController {
-  constructor(private readonly imports: IntentImportService) {}
+  constructor(
+    private readonly imports: IntentImportService,
+    private readonly workspaceImports: IntentWorkspaceImportService,
+  ) {}
 
   @Post('import')
   @UseGuards(UserSessionGuard)
@@ -58,6 +62,29 @@ export class IntentImportController {
   ) {
     const actor: IntentActor = { id: user.id, role: role ?? IntentActorRole.ServiceToken };
     return this.imports.import(workspaceId, actor, input);
+  }
+
+  /**
+   * `POST …/intent/import/workspace` — a whole knowledge base (tree, relations,
+   * items, delivery status) into an empty workspace. Same gate and content
+   * budget as the overlay import: it lands accepted items and release evidence.
+   */
+  @Post('import/workspace')
+  @UseGuards(UserSessionGuard)
+  @WorkspaceRole('member')
+  async importWorkspace(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: AuthUser,
+    @WorkspaceRoleValue() role: WorkspaceMemberRole | undefined,
+    @Body(
+      intentContractPipe(ImportIntentWorkspaceSchema, {
+        maxStructureNodes: INTENT_CONTENT_LIMITS.maxImportStructureNodes,
+      }),
+    )
+    input: z.infer<typeof ImportIntentWorkspaceSchema>,
+  ) {
+    const actor: IntentActor = { id: user.id, role: role ?? IntentActorRole.ServiceToken };
+    return this.workspaceImports.import(workspaceId, actor, input);
   }
 
   /**

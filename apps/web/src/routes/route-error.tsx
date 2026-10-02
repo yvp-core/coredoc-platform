@@ -13,8 +13,8 @@ export function RouteErrorCard({ error }: ErrorComponentProps) {
   return (
     <div className="flex min-h-[50vh] items-center justify-center p-6">
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 text-center shadow-card">
-        <h2 className="text-[14px] font-medium text-ink-1">{status ? `Error ${status}` : 'Something went wrong'}</h2>
-        <p className="mt-2 text-[12.5px] text-ink-3">{message}</p>
+        <h2 className="text-[15px] font-medium text-ink-1">{status ? `Error ${status}` : 'Something went wrong'}</h2>
+        <p className="mt-2 text-[13.5px] text-ink-3">{message}</p>
         <Button
           type="button"
           variant="outline"

@@ -10,6 +10,7 @@
     "find_entity_usage",
     "get_extraction_coverage",
     "get_intent_context",
+    "intent_read",
     "list_entrypoints",
     "list_file_symbols",
     "list_service_dependencies",

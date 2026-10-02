@@ -50,7 +50,7 @@ function TaskRow({
         selected ? 'bg-brand-wash shadow-[inset_2px_0_0_var(--color-brand)]' : 'hover:bg-surface-2',
       )}
     >
-      <span className="text-[12.5px] font-normal leading-[1.35] text-ink-1">{task.title ?? task.id}</span>
+      <span className="text-[13.5px] font-medium leading-[1.35] text-ink-1">{task.title ?? task.id}</span>
       <span className="flex flex-wrap items-center gap-1.5">
         <Chip tone={lifecycleTone(task.lifecycle)}>{task.lifecycle}</Chip>
         {authority === null ? null : (
@@ -61,7 +61,7 @@ function TaskRow({
         {task.shipState === 'partial' ? <Chip tone="partial">{partialShipLabel(task)}</Chip> : null}
         {task.counts.reworkSignals > 0 ? <Chip tone="rework">{`${task.counts.reworkSignals} rework`}</Chip> : null}
       </span>
-      <span className="num flex gap-2.5 text-[11px] text-ink-4">
+      <span className="num flex gap-2.5 text-[12px] text-ink-4">
         <span
           title={
             lead !== null && lead < 0
@@ -74,13 +74,13 @@ function TaskRow({
           ) : (
             <>
               {'lead '}
-              <strong className="font-normal text-ink-2">{formatDurationShort(lead)}</strong>
+              <strong className="font-medium text-ink-2">{formatDurationShort(lead)}</strong>
             </>
           )}
         </span>
         <span>
           {'runs '}
-          <strong className="font-normal text-ink-2">{task.counts.workflowRuns}</strong>
+          <strong className="font-medium text-ink-2">{task.counts.workflowRuns}</strong>
         </span>
       </span>
     </button>
@@ -136,7 +136,7 @@ export function TaskList({
           onChange={(event) => onQueryChange(event.target.value)}
           placeholder="Filter loaded tasks by title, key…"
           aria-label="Filter loaded tasks"
-          className="h-7 py-0 text-[12px]"
+          className="h-7 py-0 text-[13px]"
         />
       </div>
 
@@ -146,13 +146,13 @@ export function TaskList({
         </div>
       ) : tasksQuery.isError ? (
         <div className="flex flex-col items-center gap-2 py-6 text-center">
-          <p className="text-[12px] text-ink-2">Couldn't load the task list.</p>
+          <p className="text-[13px] text-ink-2">Couldn't load the task list.</p>
           <Button type="button" variant="outline" size="sm" onClick={() => void tasksQuery.refetch()}>
             Retry
           </Button>
         </div>
       ) : visible.length === 0 ? (
-        <div className="px-4 py-6 text-center text-[12px] text-ink-4">
+        <div className="px-4 py-6 text-center text-[13px] text-ink-4">
           {loaded.length === 0
             ? `Nothing matched "${lifecycleLabel(lifecycle)}" ${windowLabel(analyticsWindow)}${scope === null ? '' : ` in ${scope}`}.`
             : `No loaded task matches "${query}" under "${lifecycleLabel(lifecycle)}".`}

@@ -26,7 +26,7 @@ function serviceReq(permissions: string[], role: string = WorkspaceMemberRole.Ow
   });
 }
 
-const ROLES = [WorkspaceMemberRole.Owner, WorkspaceMemberRole.Admin, WorkspaceMemberRole.Member] as const;
+const ROLES = Object.values(WorkspaceMemberRole);
 
 describe('trusted context', () => {
   it.each([
@@ -83,6 +83,7 @@ describe('authorizeHumanReviewer', () => {
     expect(INTENT_REVIEWER_ROLES).toEqual([
       WorkspaceMemberRole.Owner,
       WorkspaceMemberRole.Admin,
+      WorkspaceMemberRole.Product,
       WorkspaceMemberRole.Member,
     ]);
   });

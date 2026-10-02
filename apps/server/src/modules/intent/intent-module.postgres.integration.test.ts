@@ -16,6 +16,7 @@ import { IntentItemService } from './intent-item.service.js';
 import { updateItemWithVersion } from './intent-optimistic.js';
 import { IntentAnchorTargetService } from './intent-anchor-target.js';
 import { IntentProposeService } from './intent-propose.service.js';
+import { IntentReadService } from './intent-read.service.js';
 import { releaseContentHash } from './intent-release.service.js';
 import { IntentReviewService } from './intent-review.service.js';
 
@@ -107,6 +108,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
         IntentTreeService,
         IntentItemService,
         IntentProposeService,
+        IntentReadService,
         // Propose resolves anchor suggestions server-side (issue 05). The
         // resolver is REAL — its identity gate and its degradation mapping are
         // what these tests assert; only the snapshot lease is stubbed, standing

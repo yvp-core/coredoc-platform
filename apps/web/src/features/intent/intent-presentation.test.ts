@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  stripSourceRefs,
   authoringHintText,
   canonicalPreviewContext,
   conditionChips,
@@ -308,5 +309,26 @@ describe('preview-as helpers', () => {
         REGISTRY,
       ),
     ).toEqual([{ id: 'country', title: 'Country', values: ['BR', 'US'] }]);
+  });
+});
+
+describe('stripSourceRefs', () => {
+  it('drops ref groups with dates, across a line break, and keeps other parentheses', () => {
+    expect(stripSourceRefs('Pay out. *(jira:ACME-304,\njira:ACME-305, 2025-05-07)*')).toBe('Pay out.');
+    expect(stripSourceRefs('Opt in? *(jira:ACME-307, 2022-01-27; confluence:1000002, 2025-05-07)*')).toBe('Opt in?');
+    expect(stripSourceRefs('Retries (Android up to 5 times) (br-limit).')).toBe(
+      'Retries (Android up to 5 times) (br-limit).',
+    );
+  });
+
+  it('drops a ref with locators, and keeps URLs, link targets and code fences', () => {
+    expect(stripSourceRefs('Above pay rates. *(jira:ACME-306 Step 7, Visibility gate)* Next.')).toBe(
+      'Above pay rates. Next.',
+    );
+    expect(stripSourceRefs('See [docs](https://wiki.example/x) (https://wiki.example/y).')).toBe(
+      'See [docs](https://wiki.example/x) (https://wiki.example/y).',
+    );
+    const fenced = '```mermaid\nA --> B(db:read)\n```';
+    expect(stripSourceRefs(`Flow *(jira:PROD-1)*\n${fenced}`)).toBe(`Flow\n${fenced}`);
   });
 });

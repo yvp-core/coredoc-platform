@@ -42,6 +42,8 @@ export interface CloudIntentExportDomain {
   statement: string;
   /** Tree conditions; absent when the node has none. */
   appliesWhen?: unknown;
+  /** The node's document layout; absent when it has none. */
+  layout?: unknown;
   archived: boolean;
   createdAt: string;
   updatedAt: string;
@@ -49,6 +51,8 @@ export interface CloudIntentExportDomain {
 
 export interface CloudIntentExportFeature extends CloudIntentExportDomain {
   domainId: string;
+  /** Absent at the top level, so exports without nesting keep their bytes. */
+  parentFeatureId?: string;
 }
 
 export interface CloudIntentExportSeed {
@@ -70,6 +74,8 @@ export interface CloudIntentExportItem {
   /** Context conditions; absent when unconditioned, so pre-dimensions exports keep their bytes. */
   appliesWhen?: unknown;
   rationale: string | null;
+  /** Lines under the statement; absent when there are none. */
+  body?: unknown;
   authority: string;
   proposedSuccessorOfId: string | null;
   supersededById: string | null;

@@ -16,11 +16,13 @@
  *   that says "3" for a scope holding thirty is worse than no count at all.
  */
 
+import { stagedCard, type IntentStagedCard } from './intent-review-request.js';
 import {
   IntentAuthority,
-  type IntentContextMatch,
+  IntentReviewAction,
   type IntentFeatureView,
   type IntentItemSummary,
+  type IntentNodeDocument,
   type IntentTreeDomain,
 } from './types.js';
 
@@ -32,18 +34,6 @@ export interface IntentTreeSelection {
 
 /** Nothing selected — the product root, whose items are the whole workspace's. */
 export const INTENT_ROOT_SELECTION: IntentTreeSelection = { domainId: null, featureId: null };
-
-/** The two surfaces of the knowledge base. */
-export enum IntentPanelTab {
-  Browse = 'browse',
-  Review = 'review',
-}
-
-/**
- * The surface the tab opens on. Browse, because reading the knowledge base is
- * what every role can do and reviewing is what one role sometimes has to.
- */
-export const DEFAULT_INTENT_PANEL_TAB = IntentPanelTab.Browse;
 
 /** What the browse surface is showing right now. */
 export enum IntentBrowseState {
@@ -71,32 +61,6 @@ export function intentBrowseState(input: IntentBrowseStateInput): IntentBrowseSt
   // so its count — and only then — decides between the invitation and the items.
   if (input.rootItemCount === null) return IntentBrowseState.Loading;
   return input.rootItemCount === 0 ? IntentBrowseState.Empty : IntentBrowseState.Ready;
-}
-
-/**
- * Current version per accepted item, so a supersession can carry the
- * predecessor's expected version alongside the successor's (spec §5).
- */
-export function versionsById(items: readonly { id: string; version: number }[]): Record<string, number> {
-  const versions: Record<string, number> = {};
-  for (const item of items) versions[item.id] = item.version;
-  return versions;
-}
-
-/**
- * Full records keyed by id, for the surfaces that hold a set of them: the review
- * card's statement and sources, and both halves of the supersede diff.
- *
- * An id the read did not answer for is simply ABSENT — the consumers degrade to
- * "not loaded" rather than render an empty record as if it were the content, so
- * a missing key must stay missing here.
- */
-export function intentMatchesById(
-  matches: readonly IntentContextMatch[] | undefined,
-): Record<string, IntentContextMatch> {
-  const byId: Record<string, IntentContextMatch> = {};
-  for (const match of matches ?? []) byId[match.id] = match;
-  return byId;
 }
 
 /** Display names for the tree nodes the review surface labels rows with. */
@@ -359,4 +323,53 @@ export function authorityShare(count: number, total: number): number {
 /** One anchor's identity inside the detail pane — anchors have no surrogate id. */
 export function intentAnchorKey(anchor: { repoKey: string; nodeId: string }): string {
   return `${anchor.repoKey}\n${anchor.nodeId}`;
+}
+
+/** Waiting candidates by tree node; a domain counts its features' candidates too. */
+export interface IntentPendingCounts {
+  root: number;
+  domains: Readonly<Record<string, number>>;
+  features: Readonly<Record<string, number>>;
+}
+
+export function intentPendingCounts(
+  nodes: readonly { domainId: string | null; featureId: string | null; waiting: number }[],
+): IntentPendingCounts {
+  let root = 0;
+  const domains: Record<string, number> = {};
+  const features: Record<string, number> = {};
+  for (const node of nodes) {
+    if (node.domainId === null) root += node.waiting;
+    else domains[node.domainId] = (domains[node.domainId] ?? 0) + node.waiting;
+    if (node.featureId !== null) features[node.featureId] = (features[node.featureId] ?? 0) + node.waiting;
+  }
+  return { root, domains, features };
+}
+
+/**
+ * Every waiting proposal a node document shows, as review cards: standalone
+ * candidates and the candidates riding on the item they would replace, with
+ * the versions a supersede must check on both sides.
+ */
+export function intentDocumentProposals(document: IntentNodeDocument): {
+  cards: IntentStagedCard[];
+  predecessorVersions: Record<string, number>;
+} {
+  const cards: IntentStagedCard[] = [];
+  const predecessorVersions: Record<string, number> = {};
+  const card = (id: string, version: number, title: string, proposedSuccessorOfId: string | null) =>
+    cards.push(stagedCard({ id, version, title, proposedSuccessorOfId }, IntentReviewAction.Accept));
+  for (const section of document.sections) {
+    for (const block of section.blocks) {
+      if (block.type !== 'item') continue;
+      const { item } = block;
+      if (item.authority === IntentAuthority.Candidate)
+        card(item.id, item.version, item.title, item.proposedSuccessorOfId);
+      if (item.pendingSuccessor) {
+        predecessorVersions[item.id] = item.version;
+        card(item.pendingSuccessor.id, item.pendingSuccessor.version, item.pendingSuccessor.title, item.id);
+      }
+    }
+  }
+  return { cards, predecessorVersions };
 }

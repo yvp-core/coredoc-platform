@@ -38,7 +38,7 @@ export function WorkspaceTeams() {
         title="Teams"
         sub={
           <>
-            <span className="font-mono text-[11.5px]">{workspace.slug}</span>
+            <span className="font-mono text-[12.5px]">{workspace.slug}</span>
             <RoleBadge role={workspace.role} />
           </>
         }

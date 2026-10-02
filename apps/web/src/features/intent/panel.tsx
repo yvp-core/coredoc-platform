@@ -9,9 +9,9 @@ import { Input } from '@/components/ui/input';
  * controls own their versioned previews and writes. Two boundaries are deliberate:
  *
  * - **Role.** `role` comes from the workspace row and gates the decision batch
- *   and the tree editor. It is a UI affordance, not a security boundary: the
- *   server refuses both for anyone but an admin/owner on a user session,
- *   whatever this renderer shows.
+ *   and the tree editor (`hasIntentAccess`: admin, owner, product). It is a UI
+ *   affordance, not a security boundary: the server re-checks every write
+ *   (any member role on a user session), whatever this renderer shows.
  * - **Reads follow the tree, not the click.** A feature's items are read at the
  *   DOMAIN's scope, once, because the items route filters by exactly one node
  *   and a feature's applicable set includes what the domain above it declares.
@@ -22,9 +22,9 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
-import { hasAdminAccess } from '@/lib/roles';
+import { hasIntentAccess } from '@/lib/roles';
 import { cn } from '@/lib/utils';
-import { useInfiniteQuery, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -41,25 +41,24 @@ import {
   intentFeatureSeedsQueryOptions,
   intentItemContextQueryOptions,
   intentItemTransitionsQueryOptions,
-  intentItemsByIdQueryOptions,
   intentItemsQueryOptions,
   selectMatchingIntentItems,
-  intentPredecessorsQueryOptions,
-  intentReviewQueueQueryOptions,
   intentTreeQueryOptions,
   putIntentSeed,
   refreshIntentAnchor,
-  submitIntentReview,
   updateIntentDomain,
   updateIntentFeature,
 } from '@/api/queries/intent';
+import { IntentDocumentView } from './document-view.js';
 import { IntentEmptyState } from './empty-state.js';
+import { IntentItemAskAgent } from './item-ask-agent.js';
+import { IntentItemReview } from './item-review.js';
 import { IntentItemDetail } from './item-detail.js';
-import { IntentItemsList } from './items-list.js';
+import { Chip, IntentItemsList } from './items-list.js';
+import { useDocumentReview } from './use-document-review.js';
 import { IntentContextPreview } from './context-preview.js';
 import { IntentNodePanel } from './node-panel.js';
 import { IntentReleases, type ReleaseSelectionItem } from './releases.js';
-import { IntentReviewQueue } from './review-queue.js';
 import { IntentTreeBrowser } from './tree-browser.js';
 import { IntentTreeEditor } from './tree-editor.js';
 import type { IntentAnchorRefreshOutcome } from './anchor-row.js';
@@ -72,30 +71,23 @@ import {
   intentBrowseState,
   intentItemsInScope,
   intentKnownCount,
-  intentMatchesById,
   intentScopeCounts,
   intentTreeNames,
-  versionsById,
-  IntentPanelTab,
   type IntentItemFilter,
   type IntentTreeSelection,
 } from './intent-panel-state.js';
 import { canonicalPreviewContext, formatIntentTimestamp } from './intent-presentation.js';
-import { buildReviewRequest, type IntentDraftDecision, type IntentProvenanceForm } from './intent-review-request.js';
-import type {
-  DimensionValueSelection,
-  IntentItemAnchor,
-  IntentItemKind,
-  IntentItemSummary,
-  IntentReviewDecisionResult,
+import {
+  IntentAuthority,
+  type DimensionValueSelection,
+  type IntentItemAnchor,
+  type IntentItemKind,
+  type IntentItemSummary,
 } from './types.js';
 
 export interface IntentPanelProps {
   workspaceId: string;
   role: string;
-  tab: IntentPanelTab;
-  /** The signed-in user's handle, for the review batch's "Manual decision" preset. */
-  reviewerHandle?: string;
   selectedItemId: string | null;
   onSelectItem: (id: string | null) => void;
 }
@@ -106,13 +98,11 @@ const messageOf = (error: unknown): string | undefined =>
 export function IntentPanel({
   workspaceId: id,
   role,
-  tab,
-  reviewerHandle,
   selectedItemId,
   onSelectItem: setSelectedItemId,
 }: IntentPanelProps) {
   const queryClient = useQueryClient();
-  const canEdit = hasAdminAccess(role);
+  const canEdit = hasIntentAccess(role);
 
   const [includeArchived, setIncludeArchived] = useState(false);
   const [selection, setSelection] = useState<IntentTreeSelection>(INTENT_ROOT_SELECTION);
@@ -122,6 +112,9 @@ export function IntentPanel({
   const [expandedDomainId, setExpandedDomainId] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [filter, setFilter] = useState<IntentItemFilter>(DEFAULT_INTENT_ITEM_FILTER);
+  const [centerView, setCenterView] = useState<'document' | 'list'>('document');
+  const [treeCollapsed, setTreeCollapsed] = useState(false);
+  const [onlyPending, setOnlyPending] = useState(false);
   const [effectivity, setEffectivity] = useState<IntentEffectivity | ''>('');
   const [source, setSource] = useState<IntentSourceOption | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
@@ -140,11 +133,8 @@ export function IntentPanel({
     const timer = setTimeout(() => setSearch(filter.search.trim()), 250);
     return () => clearTimeout(timer);
   }, [filter.search]);
-  const [reviewResults, setReviewResults] = useState<IntentReviewDecisionResult[] | null>(null);
-  const [submitting, setSubmitting] = useState(false);
   const [treeWriteBusy, setTreeWriteBusy] = useState(false);
   const [treeWriteError, setTreeWriteError] = useState<unknown>(null);
-  const [submitError, setSubmitError] = useState<unknown>(null);
 
   // Anchor refresh: which confirm is open, which write is in flight, what each
   // landed refresh moved, and the one refusal on screen.
@@ -278,54 +268,6 @@ export function IntentPanel({
   const seedsQuery = useQuery(intentFeatureSeedsQueryOptions(id, selection.featureId));
   const domainFeaturesQuery = useQuery(intentDomainFeaturesQueryOptions(id, expandedDomainId));
 
-  // Review reads the server's queue route: entering the tab costs its summary
-  // plus one page, and the size of the backlog arrives with them.
-  const queueQuery = useInfiniteQuery({
-    ...intentReviewQueueQueryOptions(id),
-    enabled: tab === IntentPanelTab.Review,
-  });
-  const queuePages = useMemo(() => queueQuery.data?.pages ?? [], [queueQuery.data]);
-  const candidates = useMemo(
-    () => (queueQuery.data === undefined ? null : queuePages.flatMap((page) => page.items)),
-    [queueQuery.data, queuePages],
-  );
-
-  /**
-   * Two context reads PER LOADED PAGE, both by exact id: the candidates' own
-   * records (the queue row is the server's payload-free projection, and a
-   * statement is what a reviewer decides on) and the predecessors those rows
-   * name (a supersession checks the version on BOTH items, and that version must
-   * be the CURRENT one). Per page, because a context read answers at most
-   * `INTENT_CONTEXT_ITEM_LIMIT` items and refuses a bigger `limit` outright.
-   */
-  const candidateRecordQueries = useQueries({
-    queries: queuePages.map((page) =>
-      intentItemsByIdQueryOptions(
-        id,
-        page.items.map((row) => row.id),
-      ),
-    ),
-  });
-  const predecessorQueries = useQueries({
-    queries: queuePages.map((page) =>
-      intentPredecessorsQueryOptions(
-        id,
-        page.items.map((row) => row.proposedSuccessorOfId).filter((value): value is string => value !== null),
-      ),
-    ),
-  });
-
-  const candidateItems = intentMatchesById(candidateRecordQueries.flatMap((query) => query.data?.matches ?? []));
-  const predecessorMatches = predecessorQueries.flatMap((query) => query.data?.matches ?? []);
-  const predecessorItems = intentMatchesById(predecessorMatches);
-  const predecessorVersions = versionsById(predecessorMatches);
-  const predecessorTitles = Object.fromEntries(predecessorMatches.map((row) => [row.id, row.title]));
-  const predecessorIds = new Set(
-    (candidates ?? []).map((row) => row.proposedSuccessorOfId).filter((value): value is string => value !== null),
-  );
-  /** A record that has not arrived is not a record that could not be read. */
-  const predecessorsLoading = predecessorQueries.some((query) => query.isLoading);
-
   // Product-root items keep a domain-less workspace out of the onboarding state.
   // The root scope is what an empty tree can only be showing, so the item pages
   // already in hand carry the count — no extra read.
@@ -398,7 +340,20 @@ export function IntentPanel({
         : `${selectedDomain?.title ?? selection.domainId} · ${featureTitles[selection.featureId] ?? selection.featureId}`;
 
   const detailMatch = detailQuery.data?.matches[0] ?? null;
-
+  const review = useDocumentReview({
+    workspaceId: id,
+    selection,
+    selectedItemId,
+    enabled: centerView === 'document',
+    detailMatch,
+    writeInFlight,
+    attemptKeys,
+    invalidateIntent: () => queryClient.invalidateQueries({ queryKey: ['intent'] }),
+    onOpen: (next, itemId) => {
+      setSelection(next);
+      setSelectedItemId(itemId);
+    },
+  });
   // A selected domain/feature with no rule open gets the node panel in the third column.
   const nodeCount =
     selection.featureId !== null
@@ -487,49 +442,14 @@ export function IntentPanel({
     }
   };
 
-  const onSubmitReview = async (drafts: IntentDraftDecision[], provenance: IntentProvenanceForm) => {
-    if (writeInFlight.current) return;
-    // One key per batch attempt: unchanged decisions retry under the same key
-    // (the server replays its answer), while a corrected batch is a new attempt
-    // and gets a new key — the ledger keys on (key, request hash).
-    const key = attemptKeys.current.keyFor(IntentWriteForm.ReviewBatch, { drafts, provenance });
-    const built = buildReviewRequest(provenance, drafts, key);
-    if (!built.ok) return;
-    writeInFlight.current = true;
-    setSubmitting(true);
-    setSubmitError(null);
-    try {
-      const response = await submitIntentReview(id, built.request);
-      setReviewResults(response.decisions);
-      attemptKeys.current.settle(IntentWriteForm.ReviewBatch);
-      await invalidateIntent();
-    } catch (error) {
-      // Rendered BESIDE the queue: the reviewer's typed decisions stay on screen.
-      setSubmitError(error);
-    } finally {
-      writeInFlight.current = false;
-      setSubmitting(false);
-    }
-  };
-
-  /**
-   * Re-fetch exactly the ids a stale-version refusal named — nothing wider, and
-   * no automatic re-submission: the reviewer sees the current state and decides
-   * again (spec §5).
-   */
-  const onRefetchConflicts = (itemIds: string[]) => {
-    // The versions the cards are judged against live in exactly two caches: the
-    // queue page (the candidate's own version) and the by-id reads.
-    void queryClient.invalidateQueries({ queryKey: ['intent', 'review-queue', id] });
-    void queryClient.invalidateQueries({ queryKey: ['intent', 'items-by-id', id] });
-    for (const itemId of itemIds) {
-      void queryClient.invalidateQueries({ queryKey: ['intent', 'item-context', id, itemId] });
-    }
-    setReviewResults((current) =>
-      // Keep the refusals on screen (they carry the current versions) but drop
-      // any decision the reviewer no longer has to act on.
-      current === null ? null : current.filter((result) => itemIds.includes(result.itemId)),
-    );
+  const onOpenNode = (kind: 'domain' | 'feature', nodeId: string) => {
+    if (kind === 'domain') return onSelect({ domainId: nodeId, featureId: null });
+    const features = [
+      ...(domains ?? []).flatMap((domain) => domain.features),
+      ...(domainFeaturesQuery.data?.rows ?? []),
+    ];
+    const feature = features.find((candidate) => candidate.id === nodeId);
+    if (feature) onSelect({ domainId: feature.domainId, featureId: feature.id });
   };
 
   const onSelect = (next: IntentTreeSelection) => {
@@ -545,39 +465,6 @@ export function IntentPanel({
 
   /* -------------------------------------------------------------- render --- */
 
-  if (tab === IntentPanelTab.Review) {
-    return (
-      <IntentReviewQueue
-        candidates={candidates}
-        predecessorVersions={predecessorVersions}
-        predecessorTitles={predecessorTitles}
-        predecessorItems={predecessorItems}
-        candidateItems={candidateItems}
-        domainNames={treeNames.domains}
-        featureNames={treeNames.features}
-        // Compared against the DISTINCT ids that came back: two pages naming the
-        // same predecessor return it twice, and counting rows would let a
-        // duplicate stand in for a predecessor that never arrived.
-        predecessorsLoading={predecessorsLoading}
-        predecessorsTruncated={predecessorIds.size > Object.keys(predecessorItems).length}
-        candidatesTruncated={queueQuery.hasNextPage}
-        {...(queueQuery.hasNextPage ? { onLoadMore: () => void queueQuery.fetchNextPage() } : {})}
-        loading={queueQuery.isLoading}
-        canReview={canEdit}
-        submitting={submitting}
-        {...(reviewerHandle === undefined ? {} : { reviewerHandle })}
-        results={reviewResults}
-        // Only a failed QUEUE READ replaces the surface; a failed submit is
-        // rendered inside it, so the typed decisions survive.
-        errorMessage={messageOf(queueQuery.error)}
-        submitErrorMessage={messageOf(submitError)}
-        onSubmit={(drafts, provenance) => void onSubmitReview(drafts, provenance)}
-        onRefetchConflicts={onRefetchConflicts}
-        onRetry={() => void queueQuery.refetch()}
-      />
-    );
-  }
-
   if (browseState === IntentBrowseState.Loading) {
     return (
       <Card className="flex min-h-[240px] items-center justify-center">
@@ -589,8 +476,8 @@ export function IntentPanel({
   if (browseState === IntentBrowseState.Error) {
     return (
       <Card className="flex flex-col items-center gap-3 px-6 py-14 text-center">
-        <p className="text-[12.5px] text-ink-2">Couldn't load the intent tree.</p>
-        {messageOf(treeQuery.error) && <p className="max-w-md text-[11px] text-ink-4">{messageOf(treeQuery.error)}</p>}
+        <p className="text-[13.5px] text-ink-2">Couldn't load the intent tree.</p>
+        {messageOf(treeQuery.error) && <p className="max-w-md text-[12px] text-ink-4">{messageOf(treeQuery.error)}</p>}
         <Button variant="outline" size="sm" onClick={() => void treeQuery.refetch()}>
           Retry
         </Button>
@@ -650,204 +537,281 @@ export function IntentPanel({
 
   return (
     <div className="space-y-3">
-      <div className="rounded-xl border border-border-soft bg-surface p-4">
-        <h2 className="font-medium text-ink-1">Your product rules, from decision to production</h2>
-        <p className="mt-1 text-sm text-ink-3">
-          Open a rule to see its intent, code links and production state together. Select rules below to confirm a
-          delivery, or choose “Already in production” to establish your starting point.
-        </p>
-      </div>
-      <div className="sticky top-2 z-20">
-        <IntentReleases
-          workspaceId={id}
-          role={role}
-          view="selection"
-          selection={deliverySelection}
-          onSelectionChange={setDeliverySelection}
-          onOpenItem={setSelectedItemId}
-        />
-      </div>
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1 text-xs text-ink-3">
-          <span className="block">Production status</span>
-          <Select
-            value={effectivity || 'all'}
-            onValueChange={(value) => setEffectivity(value === 'all' ? '' : (value as IntentEffectivity))}
-          >
-            <SelectTrigger aria-label="Production status" className="w-[220px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All production states</SelectItem>
-              {Object.entries(effectivityLabels).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <Button variant="outline" size="default" onClick={() => setSourceOpen(!sourceOpen)}>
-          {source ? `Source: ${source.title || source.ref}` : 'Choose spec or issue'}
-        </Button>
-        {source && (
-          <Button variant="ghost" size="default" onClick={() => setSource(null)}>
-            Clear source filter
-          </Button>
-        )}
-      </div>
-      {sourceOpen && (
-        <Card className="space-y-2 p-3">
-          <Input
-            type="search"
-            aria-label="Find source"
-            placeholder="Find a spec, issue or ADR by title or reference…"
-            maxLength={200}
-            value={sourceSearch}
-            onChange={(e) => setSourceSearch(e.target.value)}
-          />
-          {sourcesQuery.isFetching || sourceSearch.trim() !== sourceTerm ? (
-            <p className="text-xs text-ink-3">Finding sources…</p>
-          ) : sourcesQuery.error ? (
-            <p role="alert">{messageOf(sourcesQuery.error)}</p>
-          ) : (
-            <>
-              <div className="max-h-60 space-y-1 overflow-y-auto">
-                {sourcesQuery.data?.sources.map((option) => (
-                  <button
-                    type="button"
-                    key={`${option.kind}:${option.ref}`}
-                    className="block w-full rounded p-2 text-left text-sm text-ink-1 hover:bg-surface-2"
-                    onClick={() => {
-                      setSource(option);
-                      setSourceOpen(false);
-                    }}
-                  >
-                    <span className="block">{option.title || option.ref}</span>
-                    <span className="block break-all text-xs text-ink-3">
-                      {option.kind} · {option.ref}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              {sourcesQuery.data?.sources.length === 0 && <p className="text-xs text-ink-3">No matching sources.</p>}
-              {sourcesQuery.data?.truncated && (
-                <p className="text-xs text-ink-3">Showing 50 sources. Narrow the search to find more.</p>
+      {/* Delivery selection and catalogue filters act on the list; the document view shows the node whole. */}
+      {centerView === 'list' && (
+        <>
+          <div className="rounded-xl border border-border-soft bg-surface p-4">
+            <h2 className="font-medium text-ink-1">Your product rules, from decision to production</h2>
+            <p className="mt-1 text-sm text-ink-3">
+              Open a rule to see its intent, code links and production state together. Select rules below to confirm a
+              delivery, or choose “Already in production” to establish your starting point.
+            </p>
+          </div>
+          <div className="sticky top-2 z-20">
+            <IntentReleases
+              workspaceId={id}
+              role={role}
+              view="selection"
+              selection={deliverySelection}
+              onSelectionChange={setDeliverySelection}
+              onOpenItem={setSelectedItemId}
+            />
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1 text-xs text-ink-3">
+              <span className="block">Production status</span>
+              <Select
+                value={effectivity || 'all'}
+                onValueChange={(value) => setEffectivity(value === 'all' ? '' : (value as IntentEffectivity))}
+              >
+                <SelectTrigger aria-label="Production status" className="w-[220px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All production states</SelectItem>
+                  {Object.entries(effectivityLabels).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button variant="outline" size="default" onClick={() => setSourceOpen(!sourceOpen)}>
+              {source ? `Source: ${source.title || source.ref}` : 'Choose spec or issue'}
+            </Button>
+            {source && (
+              <Button variant="ghost" size="default" onClick={() => setSource(null)}>
+                Clear source filter
+              </Button>
+            )}
+          </div>
+          {sourceOpen && (
+            <Card className="space-y-2 p-3">
+              <Input
+                type="search"
+                aria-label="Find source"
+                placeholder="Find a spec, issue or ADR by title or reference…"
+                maxLength={200}
+                value={sourceSearch}
+                onChange={(e) => setSourceSearch(e.target.value)}
+              />
+              {sourcesQuery.isFetching || sourceSearch.trim() !== sourceTerm ? (
+                <p className="text-xs text-ink-3">Finding sources…</p>
+              ) : sourcesQuery.error ? (
+                <p role="alert">{messageOf(sourcesQuery.error)}</p>
+              ) : (
+                <>
+                  <div className="max-h-60 space-y-1 overflow-y-auto">
+                    {sourcesQuery.data?.sources.map((option) => (
+                      <button
+                        type="button"
+                        key={`${option.kind}:${option.ref}`}
+                        className="block w-full rounded p-2 text-left text-sm text-ink-1 hover:bg-surface-2"
+                        onClick={() => {
+                          setSource(option);
+                          setSourceOpen(false);
+                        }}
+                      >
+                        <span className="block">{option.title || option.ref}</span>
+                        <span className="block break-all text-xs text-ink-3">
+                          {option.kind} · {option.ref}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  {sourcesQuery.data?.sources.length === 0 && (
+                    <p className="text-xs text-ink-3">No matching sources.</p>
+                  )}
+                  {sourcesQuery.data?.truncated && (
+                    <p className="text-xs text-ink-3">Showing 50 sources. Narrow the search to find more.</p>
+                  )}
+                </>
               )}
-            </>
+            </Card>
           )}
-        </Card>
+          <p className="text-xs text-ink-3">
+            Production status reflects recorded evidence. Approval alone does not mean a rule is in production.
+          </p>
+          {selectionError && (
+            <p role="alert" className="text-sm text-danger-text">
+              {selectionError}
+            </p>
+          )}
+          {listQuery.error && (
+            <p role="alert" className="text-sm text-danger-text">
+              {messageOf(listQuery.error)}
+            </p>
+          )}
+        </>
       )}
-      <p className="text-xs text-ink-3">
-        Production status reflects recorded evidence. Approval alone does not mean a rule is in production.
-      </p>
-      {selectionError && (
-        <p role="alert" className="text-sm text-danger-text">
-          {selectionError}
-        </p>
-      )}
-      {listQuery.error && (
-        <p role="alert" className="text-sm text-danger-text">
-          {messageOf(listQuery.error)}
-        </p>
-      )}
-      <Card className="grid min-h-[640px] grid-cols-[220px_minmax(0,1fr)] min-[1100px]:grid-cols-[250px_minmax(300px,1fr)_minmax(360px,1.15fr)]">
-        <div className="flex min-w-0 flex-col">
-          <ColHead title="Structure" />
-          <IntentTreeBrowser
-            domains={domains}
-            dimensions={dimensionsQuery.data?.dimensions ?? null}
-            counts={counts}
-            featureExpansion={{
-              domainId: expandedDomainId,
-              features: domainFeaturesQuery.data?.rows ?? null,
-              loading: domainFeaturesQuery.isFetching,
-              truncated: domainFeaturesQuery.data?.truncated ?? false,
-              errorMessage: messageOf(domainFeaturesQuery.error),
-            }}
-            selection={selection}
-            includeArchived={includeArchived}
-            canEdit={canEdit}
-            hasMoreDomains={treeQuery.hasNextPage}
-            loadingMoreDomains={treeQuery.isFetchingNextPage}
-            onSelect={onSelect}
-            onToggleArchived={() => setIncludeArchived((value) => !value)}
-            onEditTree={() => setEditorOpen(true)}
-            onLoadMoreDomains={() => void treeQuery.fetchNextPage()}
-            onShowAllFeatures={setExpandedDomainId}
-          />
-        </div>
+      <Card
+        className={cn(
+          // From 1100px the card is one viewport tall (shell header + page padding = 100px) and each
+          // column scrolls on its own, so the tree and the details stay in reach of a long document.
+          'grid min-h-[640px] min-[1100px]:h-[calc(100dvh-100px)] min-[1100px]:grid-rows-[minmax(0,1fr)]',
+          // Structure, document and details share the width 1 : 3 : 2, each with a floor.
+          treeCollapsed
+            ? 'grid-cols-[40px_minmax(0,1fr)] min-[1100px]:grid-cols-[40px_minmax(0,3fr)_minmax(320px,2fr)]'
+            : 'grid-cols-[minmax(200px,1fr)_minmax(0,3fr)] min-[1100px]:grid-cols-[minmax(220px,1fr)_minmax(0,3fr)_minmax(320px,2fr)]',
+        )}
+      >
+        {treeCollapsed ? (
+          <button
+            type="button"
+            title="Show structure"
+            aria-label="Show structure"
+            onClick={() => setTreeCollapsed(false)}
+            className="flex min-w-0 flex-col items-center gap-3 pt-3 text-ink-4 hover:bg-surface-2 hover:text-ink-1"
+          >
+            <span aria-hidden="true">»</span>
+            <span className="text-[12px] uppercase tracking-[0.04em] [writing-mode:vertical-rl]">Structure</span>
+          </button>
+        ) : (
+          <div className="flex min-h-0 min-w-0 flex-col">
+            <ColHead
+              title="Structure"
+              right={
+                <button
+                  type="button"
+                  title="Hide structure"
+                  aria-label="Hide structure"
+                  onClick={() => setTreeCollapsed(true)}
+                  className="rounded px-1 text-[14px] text-ink-4 hover:bg-surface-2 hover:text-ink-1"
+                >
+                  «
+                </button>
+              }
+            />
+            <IntentTreeBrowser
+              domains={domains}
+              dimensions={dimensionsQuery.data?.dimensions ?? null}
+              counts={counts}
+              featureExpansion={{
+                domainId: expandedDomainId,
+                features: domainFeaturesQuery.data?.rows ?? null,
+                loading: domainFeaturesQuery.isFetching,
+                truncated: domainFeaturesQuery.data?.truncated ?? false,
+                errorMessage: messageOf(domainFeaturesQuery.error),
+              }}
+              selection={selection}
+              includeArchived={includeArchived}
+              canEdit={canEdit}
+              hasMoreDomains={treeQuery.hasNextPage}
+              loadingMoreDomains={treeQuery.isFetchingNextPage}
+              onSelect={onSelect}
+              onToggleArchived={() => setIncludeArchived((value) => !value)}
+              onEditTree={() => setEditorOpen(true)}
+              onLoadMoreDomains={() => void treeQuery.fetchNextPage()}
+              onShowAllFeatures={setExpandedDomainId}
+              pending={review.pendingCounts}
+              onlyPending={onlyPending}
+              onToggleOnlyPending={() => setOnlyPending((value) => !value)}
+            />
+          </div>
+        )}
 
         <div
           className={cn(
-            'flex min-w-0 flex-col border-l border-border-soft',
+            'flex min-h-0 min-w-0 flex-col border-l border-border-soft',
             thirdColumn ? '' : 'min-[1100px]:col-span-2',
           )}
         >
-          <ColHead title={itemsTitle} right={`${shownItems.length} of ${scopedItems.length} loaded`} />
-          <IntentContextPreview
-            dimensions={dimensionsQuery.data?.dimensions ?? null}
-            value={preview}
-            onChange={setPreview}
-            hiddenCount={previewing ? previewHidden : null}
-            hiddenCountIsLowerBound={previewing && previewHiddenIsLowerBound}
-            ignoredFilters={previewIgnored}
+          <ColHead
+            title={itemsTitle}
+            right={
+              <span className="flex items-center gap-1">
+                {centerView === 'list' && `${shownItems.length} of ${scopedItems.length} loaded`}
+                <Chip pressed={centerView === 'document'} label="Document" onClick={() => setCenterView('document')} />
+                <Chip pressed={centerView === 'list'} label="List" onClick={() => setCenterView('list')} />
+              </span>
+            }
           />
-          <IntentItemsList
-            items={shownItems}
-            deliverySelection={deliverySelection.map((item) => item.id)}
-            canSelectForDelivery={canEdit}
-            selectingAll={selectingAll || searching}
-            onSelectAllMatching={() => void selectAllMatching()}
-            selectAllMatchingDisabledReason={
-              previewing
-                ? 'Clear the context preview to select all matching rules — it cannot honor the preview.'
-                : null
-            }
-            onToggleDelivery={(item) =>
-              setDeliverySelection((current) =>
-                current.some((row) => row.id === item.id)
-                  ? current.filter((row) => row.id !== item.id)
-                  : [...current, { id: item.id, title: item.title }],
-              )
-            }
-            onSelectVisible={() =>
-              setDeliverySelection((current) => {
-                const remaining = shownItems.filter(
-                  (item) =>
-                    (item.authority === 'accepted' || item.authority === 'superseded') &&
-                    !current.some((row) => row.id === item.id),
-                );
-                return [
-                  ...current,
-                  ...remaining
-                    .slice(0, Math.max(0, 200 - current.length))
-                    .map((item) => ({ id: item.id, title: item.title })),
-                ];
-              })
-            }
-            scopedCount={scopedItems.length}
-            filter={filter}
-            selection={selection}
-            featureTitles={featureTitles}
-            dimensions={dimensionsQuery.data?.dimensions ?? null}
-            selectedItemId={selectedItemId}
-            loading={listQuery.isLoading || search !== filter.search.trim()}
-            hasMore={listQuery.hasNextPage}
-            loadingMore={listQuery.isFetchingNextPage}
-            onSearch={(search) => setFilter((current) => ({ ...current, search }))}
-            onToggleKind={toggleKind}
-            onToggleCandidates={() =>
-              setFilter((current) => ({ ...current, includeCandidates: !current.includeCandidates }))
-            }
-            onToggleResolved={() => setFilter((current) => ({ ...current, includeResolved: !current.includeResolved }))}
-            onSelectItem={setSelectedItemId}
-            onLoadMore={() => void listQuery.fetchNextPage()}
-          />
+          {centerView === 'document' ? (
+            <IntentDocumentView
+              document={review.documentQuery.data ?? null}
+              loading={review.documentQuery.isLoading}
+              errorMessage={messageOf(review.documentQuery.error)}
+              includeCandidates={review.includeCandidates}
+              selectedItemId={selectedItemId}
+              onToggleCandidates={review.setIncludeCandidates}
+              onSelectItem={setSelectedItemId}
+              onOpenNode={onOpenNode}
+              onRetry={() => void review.documentQuery.refetch()}
+              waiting={review.waiting}
+              onNextProposal={() => void review.nextProposal()}
+              proposalCount={review.proposalCount}
+              approveAll={{ canReview: canEdit, busy: review.submitting, onApprove: review.approveAll }}
+            />
+          ) : (
+            <>
+              <IntentContextPreview
+                dimensions={dimensionsQuery.data?.dimensions ?? null}
+                value={preview}
+                onChange={setPreview}
+                hiddenCount={previewing ? previewHidden : null}
+                hiddenCountIsLowerBound={previewing && previewHiddenIsLowerBound}
+                ignoredFilters={previewIgnored}
+              />
+              <IntentItemsList
+                items={shownItems}
+                deliverySelection={deliverySelection.map((item) => item.id)}
+                canSelectForDelivery={canEdit}
+                selectingAll={selectingAll || searching}
+                onSelectAllMatching={() => void selectAllMatching()}
+                selectAllMatchingDisabledReason={
+                  previewing
+                    ? 'Clear the context preview to select all matching rules — it cannot honor the preview.'
+                    : null
+                }
+                onToggleDelivery={(item) =>
+                  setDeliverySelection((current) =>
+                    current.some((row) => row.id === item.id)
+                      ? current.filter((row) => row.id !== item.id)
+                      : [...current, { id: item.id, title: item.title }],
+                  )
+                }
+                onSelectVisible={() =>
+                  setDeliverySelection((current) => {
+                    const remaining = shownItems.filter(
+                      (item) =>
+                        (item.authority === 'accepted' || item.authority === 'superseded') &&
+                        !current.some((row) => row.id === item.id),
+                    );
+                    return [
+                      ...current,
+                      ...remaining
+                        .slice(0, Math.max(0, 200 - current.length))
+                        .map((item) => ({ id: item.id, title: item.title })),
+                    ];
+                  })
+                }
+                scopedCount={scopedItems.length}
+                filter={filter}
+                selection={selection}
+                featureTitles={featureTitles}
+                dimensions={dimensionsQuery.data?.dimensions ?? null}
+                selectedItemId={selectedItemId}
+                loading={listQuery.isLoading || search !== filter.search.trim()}
+                hasMore={listQuery.hasNextPage}
+                loadingMore={listQuery.isFetchingNextPage}
+                onSearch={(search) => setFilter((current) => ({ ...current, search }))}
+                onToggleKind={toggleKind}
+                onToggleCandidates={() =>
+                  setFilter((current) => ({ ...current, includeCandidates: !current.includeCandidates }))
+                }
+                onToggleResolved={() =>
+                  setFilter((current) => ({ ...current, includeResolved: !current.includeResolved }))
+                }
+                onSelectItem={setSelectedItemId}
+                onLoadMore={() => void listQuery.fetchNextPage()}
+              />
+            </>
+          )}
         </div>
 
         {selectedItemId === null && showNodePanel && selectedDomain && (
-          <div className="col-span-2 flex min-w-0 flex-col border-t border-border-soft min-[1100px]:col-span-1 min-[1100px]:border-l min-[1100px]:border-t-0">
+          <div className="col-span-2 flex min-h-0 min-w-0 flex-col border-t border-border-soft min-[1100px]:col-span-1 min-[1100px]:border-l min-[1100px]:border-t-0">
             <ColHead title={nodeFeature ? 'Feature' : 'Domain'} />
             <div className="min-h-0 flex-1 overflow-y-auto">
               <IntentNodePanel
@@ -863,7 +827,7 @@ export function IntentPanel({
         )}
 
         {selectedItemId !== null && (
-          <div className="col-span-2 flex min-w-0 flex-col border-t border-border-soft min-[1100px]:col-span-1 min-[1100px]:border-l min-[1100px]:border-t-0">
+          <div className="col-span-2 flex min-h-0 min-w-0 flex-col border-t border-border-soft min-[1100px]:col-span-1 min-[1100px]:border-l min-[1100px]:border-t-0">
             <ColHead
               title="Item"
               right={
@@ -883,6 +847,20 @@ export function IntentPanel({
               </Button>
             )}
             <div className="min-h-0 flex-1 overflow-y-auto">
+              {detailMatch?.authority === IntentAuthority.Candidate && (
+                <IntentItemReview
+                  key={`${detailMatch.id}:${detailMatch.version}`}
+                  match={detailMatch}
+                  {...(review.predecessor ? { predecessor: review.predecessor } : {})}
+                  predecessorLoading={review.predecessorLoading}
+                  canReview={canEdit}
+                  submitting={review.submitting}
+                  results={review.results}
+                  {...(review.submitErrorMessage ? { errorMessage: review.submitErrorMessage } : {})}
+                  onDecide={review.decideOne}
+                />
+              )}
+              {detailMatch && <IntentItemAskAgent key={detailMatch.id} match={detailMatch} />}
               <IntentItemDetail
                 productionState={
                   <IntentReleases
@@ -930,8 +908,8 @@ export function IntentPanel({
 function ColHead({ title, right }: { title: string; right?: ReactNode }) {
   return (
     <div className="flex min-h-[42px] items-center justify-between gap-2 border-b border-border-soft px-3.5 pb-2 pt-2.5">
-      <span className="truncate text-[11px] uppercase tracking-[0.04em] text-ink-4">{title}</span>
-      {right ? <span className="num shrink-0 text-[10.5px] text-ink-4">{right}</span> : null}
+      <span className="truncate text-[12px] uppercase tracking-[0.04em] text-ink-4">{title}</span>
+      {right ? <span className="num shrink-0 text-[11.5px] text-ink-4">{right}</span> : null}
     </div>
   );
 }

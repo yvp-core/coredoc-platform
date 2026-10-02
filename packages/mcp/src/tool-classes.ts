@@ -48,6 +48,7 @@ export const COREDOC_TOOL_CLASSES: Readonly<Record<string, ToolClass>> = {
   find_entity_usage: ToolAccess.Read,
   get_extraction_coverage: ToolAccess.Read,
   get_intent_context: ToolAccess.Read,
+  intent_read: ToolAccess.Read,
   list_entrypoints: ToolAccess.Read,
   list_file_symbols: ToolAccess.Read,
   list_service_dependencies: ToolAccess.Read,

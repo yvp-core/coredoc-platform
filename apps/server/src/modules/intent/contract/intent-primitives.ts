@@ -71,6 +71,11 @@ export const INTENT_CONTRACT_LIMITS = {
    * automatically inside the column just because `nodeId` is.
    */
   capturedVersionedId: 500,
+  /** `intent_node_relations.why` VARCHAR(500): one sentence on why a reader should follow the link. */
+  relationWhy: 500,
+  /** Blocks in one node layout, and lines in one prose block or item body. */
+  layoutBlocks: 1_000,
+  layoutLines: 400,
   /**
    * Items per propose batch and decisions per review batch. The archive's bound;
    * a review batch is a human ceremony and a bootstrap packet is scoped to one

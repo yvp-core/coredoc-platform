@@ -169,15 +169,15 @@ export function IntentItemsList({
             <Spinner className="text-ink-4" />
           </div>
         ) : scopedCount === 0 ? (
-          <p className="px-4 py-6 text-center text-[12px] text-ink-4">No intent items apply here yet.</p>
+          <p className="px-4 py-6 text-center text-[13px] text-ink-4">No intent items apply here yet.</p>
         ) : items.length === 0 ? (
-          <p className="px-4 py-6 text-center text-[12px] text-ink-4">
+          <p className="px-4 py-6 text-center text-[13px] text-ink-4">
             No item matches the current filters. {scopedCount} in scope.
           </p>
         ) : (
           groups.map((group) => (
             <section key={group.kind}>
-              <h4 className="px-3.5 pb-1 pt-2.5 text-[10.5px] uppercase tracking-[0.04em] text-ink-4">
+              <h4 className="px-3.5 pb-1 pt-2.5 text-[11.5px] uppercase tracking-[0.04em] text-ink-4">
                 {kindLabel(group.kind as IntentItemKind)}
               </h4>
               {group.items.map((item) => (
@@ -227,7 +227,7 @@ export function Chip({ pressed, label, onClick }: { pressed: boolean; label: str
       aria-pressed={pressed}
       onClick={onClick}
       className={cn(
-        'num rounded-full border px-[9px] py-0.5 text-[11px] transition-colors',
+        'num rounded-full border px-[9px] py-0.5 text-[12px] transition-colors',
         pressed
           ? 'border-border bg-surface-2 text-ink-1'
           : 'border-border-soft text-ink-3 hover:border-border hover:text-ink-1',
@@ -282,7 +282,7 @@ export function ItemRow({
       {candidate && (
         <span aria-hidden="true" className="absolute bottom-[9px] left-[7px] top-[9px] w-[3px] rounded-sm bg-blue" />
       )}
-      <span className="block text-[12.5px] leading-[1.35] text-ink-1">{item.title}</span>
+      <span className="block text-[13.5px] leading-[1.35] text-ink-1">{item.title}</span>
       <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
         <Badge variant={authorityVariant(item.authority)}>{authorityLabel(item.authority)}</Badge>
         {item.effectivity && (
@@ -296,7 +296,7 @@ export function ItemRow({
           </Badge>
         ))}
         {contextChip && <Badge variant="warn">{contextChip}</Badge>}
-        <span className="truncate font-mono text-[10.5px] text-ink-4">{item.id}</span>
+        <span className="truncate font-mono text-[11.5px] text-ink-4">{item.id}</span>
       </span>
     </button>
   );

@@ -7,6 +7,8 @@ export enum WorkspaceMemberRole {
   Owner = 'owner',
   Admin = 'admin',
   Member = 'member',
+  /** Member-level access plus the intent controls in the cloud web UI. */
+  Product = 'product',
 }
 
 const KNOWN_ROLES: readonly string[] = Object.values(WorkspaceMemberRole);

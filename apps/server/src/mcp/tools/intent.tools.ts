@@ -70,7 +70,7 @@ import { Tool, ToolGuards } from '@rekog/mcp-nest';
 import type { Context } from '@rekog/mcp-nest';
 import type { Request } from 'express';
 import { z } from 'zod';
-import { IntentContextSchema, IntentKind } from '@coredoc/core';
+import { INTENT_CONTEXT_LIMITS, IntentContextSchema, IntentKind } from '@coredoc/core';
 
 import { TokenPermission } from '../../auth/token-permissions.js';
 import type { WorkspaceMemberRole } from '../../modules/members/dto/workspace-role.enum.js';
@@ -86,11 +86,13 @@ import {
   CreateIntentFeatureSchema,
   DeleteIntentDimensionSchema,
   DeleteIntentFeatureSeedSchema,
+  DeleteIntentNodeRelationSchema,
   IntentErrorCode,
   INTENT_CONTRACT_LIMITS,
   INTENT_PUBLIC_ERROR_LIMITS,
   ProposeIntentItemsSchema,
   PutIntentFeatureSeedSchema,
+  PutIntentNodeRelationSchema,
   RefreshIntentAnchorSchema,
   RemoveIntentAnchorSchema,
   ReviewIntentItemsSchema,
@@ -115,6 +117,8 @@ import {
   type IntentContextQuery,
 } from '../../modules/intent/intent-context.operations.js';
 import { IntentContextService } from '../../modules/intent/intent-context.service.js';
+import { INTENT_PAGE_LIMITS } from '../../modules/intent/intent-cursor.js';
+import { INTENT_READ_LIMITS, IntentReadService } from '../../modules/intent/intent-read.service.js';
 import { IntentItemService } from '../../modules/intent/intent-item.service.js';
 import type { IntentActor } from '../../modules/intent/intent-idempotency.js';
 import { DeleteIntentDomainSchema, DeleteIntentFeatureSchema } from '../../modules/intent/intent-module-operations.js';
@@ -186,6 +190,8 @@ export enum IntentTreeAction {
   DimensionUpdate = 'dimension.update',
   DimensionArchive = 'dimension.archive',
   DimensionDelete = 'dimension.delete',
+  RelationPut = 'relation.put',
+  RelationDelete = 'relation.delete',
 }
 
 /** Tree actions that do not require existing intent content. */
@@ -310,9 +316,13 @@ const GetIntentContextSchema = z
       .int()
       .optional()
       .describe(
-        'Items per answer (context mode) or per page (list mode). Omitted alongside intentIds it covers every id you named',
+        `Items per answer: context mode 1-${INTENT_CONTEXT_LIMITS.max} (default ${INTENT_CONTEXT_LIMITS.default}), list mode ` +
+          `1-${INTENT_PAGE_LIMITS.max} per page (default ${INTENT_PAGE_LIMITS.default}). Omitted alongside intentIds it covers every id you named`,
       ),
-    cursor: z.string().optional().describe('List mode only: the nextCursor from the previous page'),
+    cursor: z
+      .string()
+      .optional()
+      .describe('List mode only: the nextCursor from the previous page. A non-null nextCursor means more pages exist'),
     observed: z
       .array(z.string())
       .max(INTENT_CONTEXT_READ_LIMITS.observed)
@@ -348,10 +358,61 @@ const IntentAnchorToolSchema = z
 
 type IntentAnchorToolInput = z.infer<typeof IntentAnchorToolSchema>;
 
+/** The three file-like reads: list the tree, open one node whole, search item text. */
+export enum IntentReadAction {
+  Tree = 'tree',
+  Node = 'node',
+  Search = 'search',
+}
+
+const IntentReadToolSchema = z
+  .object({
+    action: z.enum(IntentReadAction).describe("'tree' lists nodes, 'node' opens one whole, 'search' finds items"),
+    domain: slugId().optional().describe('node: the domain to open. search: only items attached to this domain'),
+    feature: slugId().optional().describe('node: the feature to open. search: only items attached to this feature'),
+    kind: z
+      .array(z.string())
+      .min(1)
+      .max(Object.values(IntentKind).length)
+      .optional()
+      .describe(`node/search: only these kinds (${Object.values(IntentKind).join(', ')})`),
+    query: z
+      .string()
+      .max(INTENT_CONTEXT_READ_LIMITS.query)
+      .optional()
+      .describe(`search only: words that must ALL appear (at most ${INTENT_READ_LIMITS.searchTokens})`),
+    includeCandidates: z.boolean().optional().describe('node/search: include unreviewed candidates. Default false'),
+    refs: z
+      .boolean()
+      .optional()
+      .describe('node/search: keep source references (Jira, Confluence, code) in the text. Default false: bare facts'),
+    limit: z
+      .number()
+      .int()
+      .optional()
+      .describe(
+        `search only: matches per answer, 1 to ${INTENT_READ_LIMITS.searchMax}, default ${INTENT_READ_LIMITS.searchDefault}`,
+      ),
+    after: slugId().optional().describe('node/search: the last item id of a TRUNCATED answer, to continue after it'),
+  })
+  .strict();
+
+type IntentReadToolInput = z.infer<typeof IntentReadToolSchema>;
+
+/** Fields each action accepts beyond `action`. Any other field is refused, never ignored. */
+const INTENT_READ_FIELDS: Record<IntentReadAction, readonly (keyof IntentReadToolInput)[]> = {
+  [IntentReadAction.Tree]: [],
+  [IntentReadAction.Node]: ['domain', 'feature', 'kind', 'includeCandidates', 'refs', 'after'],
+  [IntentReadAction.Search]: ['query', 'domain', 'feature', 'kind', 'includeCandidates', 'refs', 'limit', 'after'],
+};
+
 /* ---------------------------------------------------------- descriptions --- */
 
 const GET_INTENT_CONTEXT_DESCRIPTION =
-  'Read the rules needed BEFORE editing code. Prefer task (task text), files ({repoKey,path}) or known nodeIds, ' +
+  'Read the rules that apply to code you are about to edit or review: by files/nodeIds (anchors and graph ' +
+  'applicability), by the source a rule came from (sourceRefs), by exact intentIds (also rejected or superseded ones), ' +
+  'or for a specific customer context. It is not the tool for product questions: to learn what a domain or feature ' +
+  'does, what is open or what else it affects, use intent_read, which returns nodes whole. Prefer task (task text), files ({repoKey,path}) or known nodeIds, ' +
   'known intentIds and an optional domain/feature in ONE call. The server fuses text, stored anchors and graph ' +
   'applicability, deduplicates and ranks before bounding the answer. No index walk or local parser is required. ' +
   'Refresh when the task expands to new code. Exact-id reads fetch missing payloads; list mode is for browsing, ' +
@@ -370,8 +431,22 @@ const GET_INTENT_CONTEXT_DESCRIPTION =
   'names the dropped items you asked for by intentIds or sourceRefs. contextNotSupplied ' +
   '{conditionedItems, dimensions} means conditioned rules were returned unfiltered, every variant included.';
 
+const INTENT_READ_DESCRIPTION =
+  'Read the product intent the way you read a folder of Markdown files. ' +
+  'tree: the domains and their features, as ids and titles, nested; "(empty)" marks a node with no items. Call it ' +
+  'first instead of guessing ids. node {domain | feature | neither for the product root, refs?, kind?, ' +
+  'includeCandidates?}: one node as its document: prose, rules, use cases, flows, decisions, limitations and open ' +
+  'questions, each item under its id. Below a --- line: the related nodes with the reason to read them, its features, ' +
+  'what is in production or planned, and how many domain-level items also apply. Follow Related for impact questions. ' +
+  'refs: false (default) gives the bare facts; refs: true keeps the Jira, Confluence and code references, for when ' +
+  'you must cite or check a source. search {query, domain?, feature?, kind?, refs?, limit?, after?}: items whose ' +
+  'text, body, payload or source refs contain every word, ordered by id, with the total, then the nodes whose prose (overview, How it works) contains them. An answer that stops short ' +
+  'says TRUNCATED and how to get the rest. Requires the intent:read permission.';
+
 const INTENT_PROPOSE_DESCRIPTION =
-  'Propose intent CANDIDATES in this workspace: create new ones, or update a candidate by naming its id. Proposing ' +
+  'Propose intent CANDIDATES in this workspace: create new ones, or update a candidate by naming its id. `statement` is ' +
+  'one sentence that stands alone (the rule, or who wants what); everything else the item says goes in `body` as ' +
+  'Markdown lines (use-case bullets, numbered flow steps, a diagram). Proposing ' +
   'never accepts intent and never touches an accepted item. An explicit human approval of a specification section ' +
   'can authorize a separate intent_review for its unchanged verbatim items. Each item states its rule in `statement` so it stands without its payload, ' +
   'names at least one source (where the intent came from), attaches to the product root or to one domain or one ' +
@@ -411,12 +486,16 @@ const INTENT_TREE_DESCRIPTION =
   'placement needs and reports what it created, while domain/feature archive and delete follow an explicit ' +
   'maintainer instruction naming the node. Bodies by action: ' +
   'domain.create {id, title, statement?, appliesWhen?}; domain.update {id, title?, statement?, appliesWhen?}; ' +
-  'domain.archive {id, archived}; domain.delete {id}; feature.create {id, domainId, title, statement?, appliesWhen?}; ' +
-  'feature.update {id, title?, statement?, appliesWhen?}; ' +
+  'domain.archive {id, archived}; domain.delete {id}; ' +
+  'feature.create {id, domainId, parentFeatureId?, title, statement?, appliesWhen?} (parentFeatureId nests it under ' +
+  'another feature of the same domain); feature.update {id, title?, statement?, appliesWhen?, parentFeatureId?} ' +
+  '(null moves it to the top level); ' +
   'feature.archive {id, archived}; feature.delete {id}; seed.put {featureId, repoKey, nodeId, note?}; ' +
   'seed.delete {featureId, repoKey, nodeId}; dimension.create {id, title, values: [{id, title, aliases?}], multi?}; ' +
   'dimension.update {id, title?, values?, multi?} (values replaces the list); dimension.archive {id, archived}; ' +
-  'dimension.delete {id}. Dimension archive and delete follow an explicit maintainer instruction too; archive, ' +
+  'dimension.delete {id}; relation.put {from: {kind: domain|feature, id}, to: {kind, id}, why} links two nodes a ' +
+  'reader of one should also read, with the reason in one sentence (unordered; a put on an existing pair re-words ' +
+  'why); relation.delete {from, to}. Deleting a node removes its relations. Dimension archive and delete follow an explicit maintainer instruction too; archive, ' +
   'delete, or dropping a value is refused with dimension_in_use, naming the blockers, while a domain, a feature, ' +
   'or a candidate or accepted item still references it. A domain or feature appliesWhen holds dimension clauses ' +
   'only ({dimension, in} | {dimension, notIn}); every item under the node inherits it (AND), [] clears it. Set ' +
@@ -637,6 +716,7 @@ export class IntentTools {
     private readonly releases: IntentReleaseService,
     private readonly handoffs: IntentHandoffService,
     private readonly items: IntentItemService,
+    private readonly reads: IntentReadService,
   ) {
     this.treeDispatch = {
       [IntentTreeAction.DomainCreate]: (ws, actor, body) =>
@@ -667,6 +747,10 @@ export class IntentTools {
         this.tree.archiveDimension(ws, actor, parseContract(ArchiveIntentDimensionSchema, body)),
       [IntentTreeAction.DimensionDelete]: (ws, actor, body) =>
         this.tree.deleteDimension(ws, actor, parseContract(DeleteIntentDimensionSchema, body)),
+      [IntentTreeAction.RelationPut]: (ws, actor, body) =>
+        this.tree.putRelation(ws, actor, parseContract(PutIntentNodeRelationSchema, body)),
+      [IntentTreeAction.RelationDelete]: (ws, actor, body) =>
+        this.tree.deleteRelation(ws, actor, parseContract(DeleteIntentNodeRelationSchema, body)),
     };
 
     this.anchorDispatch = {
@@ -702,6 +786,44 @@ export class IntentTools {
       const resultCount = contextResultCount(data);
       if (resultCount === 0 && !(await this.hasIntentContent(auth.workspaceId))) return notConfigured();
       return { data, success: true, resultCount };
+    });
+  }
+
+  @ToolGuards([IntentEnabledToolGuard])
+  @Tool({
+    name: 'intent_read',
+    annotations: toolAnnotations('intent_read'),
+    description: INTENT_READ_DESCRIPTION,
+    parameters: IntentReadToolSchema,
+  })
+  async intentRead(args: unknown, _context: Context, request: Request) {
+    return this.respond('intent_read', request, async () => {
+      const auth = this.permissionGate(request, TokenPermission.IntentRead);
+      if ('status' in auth) return auth.answer;
+
+      const input = parseContract(IntentReadToolSchema, args);
+      const allowed = new Set<string>(['action', ...INTENT_READ_FIELDS[input.action]]);
+      const extra = Object.keys(input).filter((key) => !allowed.has(key));
+      if (extra.length > 0) {
+        throw intentContractViolation(
+          IntentErrorCode.SchemaViolation,
+          `action '${input.action}' does not take ${extra.join(', ')}`,
+          [extra[0] as string],
+        );
+      }
+      if (input.action === IntentReadAction.Search && input.query === undefined) {
+        throw intentContractViolation(IntentErrorCode.SchemaViolation, "action 'search' needs query", ['query']);
+      }
+      if (!(await this.hasIntentContent(auth.workspaceId))) return notConfigured();
+
+      const ws = auth.workspaceId;
+      const data =
+        input.action === IntentReadAction.Tree
+          ? await this.reads.tree(ws)
+          : input.action === IntentReadAction.Node
+            ? await this.reads.node(ws, input)
+            : await this.reads.search(ws, { ...input, query: input.query as string });
+      return { data, success: true };
     });
   }
 
@@ -1005,6 +1127,8 @@ export class IntentTools {
         });
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(answer.data, null, 2) }] };
+    // A text answer (the file-like reads) is already the document the reader sees.
+    const text = typeof answer.data === 'string' ? answer.data : JSON.stringify(answer.data, null, 2);
+    return { content: [{ type: 'text', text }] };
   }
 }

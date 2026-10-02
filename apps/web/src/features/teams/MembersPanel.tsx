@@ -33,10 +33,10 @@ import { Table, Td, Th, Tr } from './table';
 
 // Mirrors ASSIGNABLE_ROLES on the server — 'owner' is never assignable, so it
 // is never an option.
-const ASSIGNABLE_ROLES = ['admin', 'member'] as const;
+const ASSIGNABLE_ROLES = ['admin', 'product', 'member'] as const;
 type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
 
-const ERROR_CLASS = 'text-[12px] text-danger-text';
+const ERROR_CLASS = 'text-[13px] text-danger-text';
 
 const title = (role: string) => role.charAt(0).toUpperCase() + role.slice(1);
 
@@ -58,7 +58,7 @@ function Avatar({ member }: { member: { displayName: string | null; email: strin
   return (
     <span
       aria-hidden="true"
-      className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-track text-[9.5px] font-normal tracking-[0.02em] text-ink-2"
+      className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-track text-[10.5px] font-normal tracking-[0.02em] text-ink-2"
     >
       {initials(member)}
     </span>
@@ -154,7 +154,7 @@ function MemberRow({
                 {isSelf && <span className="ml-1 text-ink-4">(you)</span>}
               </div>
               {member.displayName && (
-                <div className="truncate text-[11px] leading-tight text-ink-4">{member.email}</div>
+                <div className="truncate text-[12px] leading-tight text-ink-4">{member.email}</div>
               )}
             </div>
           </div>
@@ -246,7 +246,7 @@ function InviteRow({ invite, wsId, canManage }: { invite: PendingInvite; wsId: s
             <Avatar member={{ displayName: null, email: invite.email }} />
             <div className="min-w-0">
               <div className="truncate leading-tight text-ink-1">{invite.email}</div>
-              <div className="truncate text-[11px] leading-tight text-ink-4">
+              <div className="truncate text-[12px] leading-tight text-ink-4">
                 {invite.emailSent ? 'email sent' : 'email not sent'}
               </div>
             </div>
@@ -292,7 +292,7 @@ function InviteRow({ invite, wsId, canManage }: { invite: PendingInvite; wsId: s
             {error && <p className={ERROR_CLASS}>{error}</p>}
             {signInUrl && (
               <div className="mt-1">
-                <p className="mb-1.5 text-[11.5px] text-ink-4">
+                <p className="mb-1.5 text-[12.5px] text-ink-4">
                   No email provider is configured — share this sign-in link instead.
                 </p>
                 <CopyBlock value={signInUrl} label="Copy sign-in link" filename="sign-in link" />
@@ -371,7 +371,7 @@ function InviteForm({ wsId }: { wsId: string }) {
         {error && <p className={`mt-2 ${ERROR_CLASS}`}>{error}</p>}
         {signInUrl && (
           <div className="mt-3">
-            <p className="mb-1.5 text-[11.5px] text-ink-4">
+            <p className="mb-1.5 text-[12.5px] text-ink-4">
               Access was created, but no email was sent. Share this sign-in link — access activates once they sign in
               with the same verified email.
             </p>

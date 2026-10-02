@@ -16,8 +16,8 @@ export function StageBars({ entries, ariaLabel }: { entries: ReadonlyArray<Stage
     <section aria-label={ariaLabel} className="flex flex-col gap-2">
       {entries.map((entry) => (
         <div key={entry.key} className="grid grid-cols-[96px_1fr_max-content] items-center gap-3">
-          <div className="truncate text-right text-[12px] text-ink-2">
-            <span className={entry.mono ? 'font-mono text-[11.5px]' : undefined} title={entry.name}>
+          <div className="truncate text-right text-[13px] text-ink-2">
+            <span className={entry.mono ? 'font-mono text-[12.5px]' : undefined} title={entry.name}>
               {entry.name}
             </span>
           </div>
@@ -28,8 +28,8 @@ export function StageBars({ entries, ariaLabel }: { entries: ReadonlyArray<Stage
             />
           </div>
           <div className="min-w-[44px] text-right">
-            <div className="num text-[12px] text-ink-1">{entry.text}</div>
-            {entry.caption === null ? null : <div className="text-[10px] text-ink-4">{entry.caption}</div>}
+            <div className="num text-[13px] text-ink-1">{entry.text}</div>
+            {entry.caption === null ? null : <div className="text-[11px] text-ink-4">{entry.caption}</div>}
           </div>
         </div>
       ))}

@@ -116,7 +116,7 @@ function RatingLine({ trend }: { trend: ReadonlyArray<FeedbackRatingTrendPoint> 
 function Column({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="border-t border-border-soft pt-3 first:border-t-0 first:pt-0 lg:border-l lg:border-t-0 lg:px-[18px] lg:pt-0 lg:first:border-l-0 lg:first:pl-0 lg:last:pr-0">
-      <h4 className="mb-2 text-[11px] uppercase tracking-[0.04em] text-ink-4">{title}</h4>
+      <h4 className="mb-2 text-[12px] uppercase tracking-[0.04em] text-ink-4">{title}</h4>
       {children}
     </div>
   );
@@ -129,7 +129,7 @@ const FEEDBACK_SUB = (
 );
 
 function Empty({ children }: { children: ReactNode }) {
-  return <p className="py-4 text-[12px] text-ink-4">{children}</p>;
+  return <p className="py-4 text-[13px] text-ink-4">{children}</p>;
 }
 
 /** The pre-records roadmap, unchanged — now folded away under the records list. */
@@ -157,8 +157,8 @@ function Aggregates({ feedback }: { feedback: FeedbackRoadmap }) {
                 className="flex items-center gap-2.5 border-t border-border-soft py-1.5 first:border-t-0"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-mono text-[11.5px] text-ink-1">{issue.tool}</span>
-                  <span className="block text-[11px] text-ink-4">{humanizeIssueType(issue.issueType)}</span>
+                  <span className="block truncate font-mono text-[12.5px] text-ink-1">{issue.tool}</span>
+                  <span className="block text-[12px] text-ink-4">{humanizeIssueType(issue.issueType)}</span>
                 </span>
                 <MagnitudeBar
                   value={issue.severityScore}
@@ -167,7 +167,7 @@ function Aggregates({ feedback }: { feedback: FeedbackRoadmap }) {
                   height={5}
                   className="w-14 shrink-0"
                 />
-                <span className="num shrink-0 whitespace-nowrap text-[12px] text-ink-2">
+                <span className="num shrink-0 whitespace-nowrap text-[13px] text-ink-2">
                   {formatNumber(issue.count)} reports
                 </span>
               </li>
@@ -187,8 +187,8 @@ function Aggregates({ feedback }: { feedback: FeedbackRoadmap }) {
                 className="flex items-center gap-2.5 border-t border-border-soft py-1.5 first:border-t-0"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-mono text-[11.5px] text-ink-1">{issue.area}</span>
-                  <span className="block text-[11px] text-ink-4">{humanizeIssueType(issue.issueType)}</span>
+                  <span className="block truncate font-mono text-[12.5px] text-ink-1">{issue.area}</span>
+                  <span className="block text-[12px] text-ink-4">{humanizeIssueType(issue.issueType)}</span>
                 </span>
                 <MagnitudeBar
                   value={issue.severityScore}
@@ -197,7 +197,7 @@ function Aggregates({ feedback }: { feedback: FeedbackRoadmap }) {
                   height={5}
                   className="w-14 shrink-0"
                 />
-                <span className="num shrink-0 whitespace-nowrap text-[12px] text-ink-2">
+                <span className="num shrink-0 whitespace-nowrap text-[13px] text-ink-2">
                   {formatNumber(issue.count)} reports
                 </span>
               </li>
@@ -216,8 +216,8 @@ function Aggregates({ feedback }: { feedback: FeedbackRoadmap }) {
                 key={need.need}
                 className="flex items-baseline justify-between gap-2.5 border-t border-border-soft py-1.5 first:border-t-0"
               >
-                <span className="min-w-0 text-[12px] text-ink-2">{need.need}</span>
-                <span className="num shrink-0 whitespace-nowrap text-[11.5px] text-ink-4">
+                <span className="min-w-0 text-[13px] text-ink-2">{need.need}</span>
+                <span className="num shrink-0 whitespace-nowrap text-[12.5px] text-ink-4">
                   {formatNumber(need.count)} asks
                 </span>
               </li>
@@ -236,11 +236,11 @@ function Aggregates({ feedback }: { feedback: FeedbackRoadmap }) {
                 <span className="num text-[24px] font-medium tracking-[-0.02em] text-ink-1">
                   {latest.avgRating.toFixed(1)}
                 </span>
-                <span className="text-[12px] text-ink-4">/ 5 · agent · trailing {latest.month}</span>
+                <span className="text-[13px] text-ink-4">/ 5 · agent · trailing {latest.month}</span>
               </div>
             )}
             {latest.avgUserRating !== null ? (
-              <p className="num text-[12px] text-ink-2">
+              <p className="num text-[13px] text-ink-2">
                 {latest.avgUserRating.toFixed(1)} / 5 · user
                 {gap !== null ? (
                   <span className="text-ink-4">
@@ -251,7 +251,7 @@ function Aggregates({ feedback }: { feedback: FeedbackRoadmap }) {
                 ) : null}
               </p>
             ) : null}
-            <p className="text-[11px] text-ink-4">
+            <p className="text-[12px] text-ink-4">
               {formatNumber(reviewed)} of {formatNumber(feedback.feedbackCount)} reviewed by a user
             </p>
             <RatingLine trend={trend} />
@@ -420,7 +420,7 @@ export function FeedbackCard({
     <Card>
       <CardHead title="Session feedback" sub={FEEDBACK_SUB} />
       <CardBody className="flex flex-col gap-3">
-        <p className="num text-[12px] text-ink-2">{feedbackStrip(feedback)}</p>
+        <p className="num text-[13px] text-ink-2">{feedbackStrip(feedback)}</p>
 
         {filters}
 
@@ -430,7 +430,7 @@ export function FeedbackCard({
           </div>
         ) : recordsQuery.isError ? (
           <div className="flex items-center justify-between gap-3 py-3">
-            <span className="text-[12.5px] text-danger-text">
+            <span className="text-[13.5px] text-danger-text">
               {recordsQuery.error instanceof Error ? recordsQuery.error.message : 'Request failed'}
             </span>
             <Button variant="outline" size="sm" onClick={() => void recordsQuery.refetch()}>
@@ -463,7 +463,7 @@ export function FeedbackCard({
         )}
 
         <div className="flex items-center justify-between gap-3 border-t border-border-soft pt-2.5">
-          <span className="num text-[11.5px] text-ink-4">
+          <span className="num text-[12.5px] text-ink-4">
             {first}–{last} of {formatNumber(total)}
           </span>
           <span className="flex items-center gap-2">
@@ -487,7 +487,7 @@ export function FeedbackCard({
         </div>
 
         <details className="border-t border-border-soft pt-2.5">
-          <summary className="cursor-pointer text-[11.5px] text-ink-3">Aggregates</summary>
+          <summary className="cursor-pointer text-[12.5px] text-ink-3">Aggregates</summary>
           <div className="pt-3">
             <Aggregates feedback={feedback} />
           </div>

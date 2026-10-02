@@ -1478,7 +1478,7 @@ describe('MCP Server', () => {
     it('is absent from the tool list when the env var is unset (fail-closed)', async () => {
       delete process.env.ENABLE_SEMANTIC_SEARCH;
       const names = await listToolNames();
-      expect(names).toHaveLength(14);
+      expect(names).toHaveLength(15);
       expect(names).not.toContain('semantic_search');
       expect(names).not.toContain('list_topics');
       expect(names).not.toContain('trace_topic');

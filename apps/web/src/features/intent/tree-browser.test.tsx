@@ -84,6 +84,7 @@ describe('IntentTreeBrowser tree conditions (intent-dimensions-inheritance UC-3)
             {
               id: 'overtime',
               domainId: 'shifts',
+              parentFeatureId: null,
               title: 'Overtime',
               statement: 'Overtime rules.',
               archived: false,
@@ -103,5 +104,81 @@ describe('IntentTreeBrowser tree conditions (intent-dimensions-inheritance UC-3)
       'Applies when product in shifts',
     );
     expect(screen.getByRole('img', { name: 'Applies when country in de, pl' })).toBeInTheDocument();
+  });
+});
+
+describe('IntentTreeBrowser nested features', () => {
+  it('lists a sub-feature under its parent, and an orphan at the top level', () => {
+    const feature = (id: string, parentFeatureId: string | null) => ({
+      id,
+      domainId: 'bank',
+      parentFeatureId,
+      title: id,
+      statement: '',
+      archived: false,
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+    });
+    renderBrowser({
+      domains: [
+        {
+          id: 'bank',
+          title: 'Hours bank',
+          statement: '',
+          archived: false,
+          createdAt: '2026-09-01T00:00:00.000Z',
+          updatedAt: '2026-09-01T00:00:00.000Z',
+          featuresTruncated: false,
+          features: [feature('payout', null), feature('limits', 'payout'), feature('orphan', 'archived-parent')],
+        },
+      ],
+    });
+
+    const payout = screen.getByRole('button', { name: 'payout' }).closest('li');
+    expect(payout?.querySelector('ul')?.textContent).toContain('limits');
+    expect(screen.getByRole('button', { name: 'orphan' }).closest('ul')?.parentElement?.textContent).toContain(
+      'Hours bank',
+    );
+  });
+});
+
+describe('IntentTreeBrowser pending proposals', () => {
+  it('shows server counts and, filtered, only the nodes with proposals at or below them', () => {
+    const feature = (id: string, parentFeatureId: string | null) => ({
+      id,
+      domainId: 'bank',
+      parentFeatureId,
+      title: id,
+      statement: '',
+      archived: false,
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+    });
+    const domain = (id: string, features: ReturnType<typeof feature>[]) => ({
+      id,
+      title: id,
+      statement: '',
+      archived: false,
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+      featuresTruncated: false,
+      features,
+    });
+    renderBrowser({
+      domains: [
+        domain('bank', [feature('payout', null), feature('limits', 'payout'), feature('report', null)]),
+        domain('quiet', []),
+      ],
+      pending: { root: 0, domains: { bank: 2 }, features: { limits: 2 } },
+      onlyPending: true,
+      onToggleOnlyPending: () => undefined,
+    });
+
+    // The domain, the parent feature (rolled up from its sub-feature) and the sub-feature itself.
+    expect(screen.getAllByTitle('2 waiting for review')).toHaveLength(3);
+    expect(screen.getByRole('button', { name: /payout/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /limits/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /report/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /quiet/ })).not.toBeInTheDocument();
   });
 });

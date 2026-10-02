@@ -292,6 +292,7 @@ export class IntentProposeService {
           title: proposal.title,
           statement: proposal.statement,
           rationale: proposal.rationale ?? null,
+          body: (proposal.body as Prisma.InputJsonValue | undefined) ?? Prisma.DbNull,
           payload: (proposal.payload as Prisma.InputJsonValue) ?? Prisma.DbNull,
           // `[]` means "no conditions", stored as NULL like an absent field.
           appliesWhen: proposal.appliesWhen?.length ? (proposal.appliesWhen as Prisma.InputJsonValue) : Prisma.DbNull,
@@ -355,6 +356,7 @@ export class IntentProposeService {
         // Absent optional fields PRESERVE the stored value; see the merge note
         // at the top of this file.
         ...(proposal.rationale !== undefined ? { rationale: proposal.rationale } : {}),
+        ...(proposal.body !== undefined ? { body: proposal.body as Prisma.InputJsonValue } : {}),
         ...(proposal.payload !== undefined ? { payload: proposal.payload as Prisma.InputJsonValue } : {}),
         // `appliesWhen: []` CLEARS the stored conditions (the one way to remove them).
         ...(proposal.appliesWhen !== undefined

@@ -257,7 +257,7 @@
   }
 
   body {
-    @apply bg-ground text-ink-1 font-sans text-[13px] leading-normal font-light antialiased;
+    @apply bg-ground text-ink-1 font-sans text-[14px] leading-normal font-normal antialiased;
     font-feature-settings: 'rlig' 1, 'calt' 1;
   }
 

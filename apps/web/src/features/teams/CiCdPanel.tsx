@@ -37,7 +37,7 @@ import { formatRelativeTime } from '@/lib/time';
 import { CopyBlock } from './copy-block';
 import { Table, Td, Th, Tr } from './table';
 
-const ERROR_CLASS = 'text-[12px] text-danger-text';
+const ERROR_CLASS = 'text-[13px] text-danger-text';
 
 const TRIGGERS = [IntentReleaseTrigger.Manual, IntentReleaseTrigger.Merge, IntentReleaseTrigger.Deploy];
 
@@ -56,7 +56,7 @@ function PermissionTags({ permissions }: { permissions: string[] }) {
       {permissions.map((permission) => (
         <span
           key={permission}
-          className="rounded-md border border-border-soft bg-surface-2 px-[7px] font-mono text-[11px] text-ink-2"
+          className="rounded-md border border-border-soft bg-surface-2 px-[7px] font-mono text-[12px] text-ink-2"
         >
           {permission}
         </span>
@@ -85,7 +85,7 @@ function TokenRow({ token, wsId, onRevoke }: { token: Token; wsId: string; onRev
       <Tr>
         <Td>
           <div className="leading-tight text-ink-1">{token.name}</div>
-          <div className="font-mono text-[11px] leading-tight text-ink-4">{token.tokenPrefix ?? 'no prefix'}</div>
+          <div className="font-mono text-[12px] leading-tight text-ink-4">{token.tokenPrefix ?? 'no prefix'}</div>
         </Td>
         <Td>
           <PermissionTags permissions={token.permissions} />
@@ -236,7 +236,7 @@ function CreateTokenDialog({
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[11.5px] text-ink-4">{SCOPES.find((s) => s.value === scope)?.hint}</p>
+                <p className="text-[12.5px] text-ink-4">{SCOPES.find((s) => s.value === scope)?.hint}</p>
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="token-expiry">Expires (optional)</Label>
@@ -379,10 +379,10 @@ function CiCdToggleCard({ wsId, canManage }: { wsId: string; canManage: boolean 
         }
       />
       <CardBody className="flex flex-col gap-2">
-        <p className="text-[12px] text-ink-3">
-          With CI/CD on, the <span className="font-mono text-[11.5px]">yvp-core/coredoc-platform</span> GitHub Action runs
-          parse → push on each trigger. It authenticates with a CI-scoped token from the table below, stored as the
-          repository secret <span className="font-mono text-[11.5px]">COREDOC_TOKEN</span>.
+        <p className="text-[13px] text-ink-3">
+          With CI/CD on, the <span className="font-mono text-[12.5px]">yvp-core/coredoc-platform</span> GitHub Action
+          runs parse → push on each trigger. It authenticates with a CI-scoped token from the table below, stored as the
+          repository secret <span className="font-mono text-[12.5px]">COREDOC_TOKEN</span>.
         </p>
         {mutation.error && (
           <p className={ERROR_CLASS}>{message(mutation.error, 'Failed to update the CI/CD setting')}</p>
@@ -415,7 +415,7 @@ function ProductionBranchRow({
   const [value, setValue] = useState(stored);
 
   return (
-    <div className="flex items-center gap-2 text-[12px] text-ink-2">
+    <div className="flex items-center gap-2 text-[13px] text-ink-2">
       <span className="min-w-0 flex-1 truncate">{repo.repoName}</span>
       <Select
         disabled={disabled}
@@ -526,12 +526,12 @@ function ReleaseTriggerCard({
         }
       />
       <CardBody className="flex flex-col gap-2">
-        <p className="text-[12px] text-ink-3">
+        <p className="text-[13px] text-ink-3">
           {triggerUnavailable ? 'Release trigger unavailable' : releaseTriggerExplain[trigger]}
         </p>
         {!triggerUnavailable && showRepoOverrides && (
           <div className="flex flex-col gap-2 pt-1">
-            <p className="text-[11.5px] uppercase tracking-[0.04em] text-ink-4">
+            <p className="text-[12.5px] uppercase tracking-[0.04em] text-ink-4">
               Repository overrides and production branches
             </p>
             {repos.data?.map((repo) => (

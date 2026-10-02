@@ -88,6 +88,7 @@ export function releaseContentHash(item: {
   rationale: string | null;
   payload: unknown;
   appliesWhen?: unknown;
+  body?: unknown;
 }): string {
   return createHash('sha256')
     .update(
@@ -99,6 +100,8 @@ export function releaseContentHash(item: {
         payload: item.payload,
         // Omitted (not null) when unconditioned, so pre-dimensions hashes stay valid (BR-8).
         appliesWhen: conditionsOf(item.appliesWhen),
+        // Same rule for body lines: a delivered flow's steps are part of what was delivered.
+        body: Array.isArray(item.body) && item.body.length > 0 ? item.body : undefined,
       }),
     )
     .digest('hex');
@@ -221,6 +224,8 @@ export class IntentReleaseService {
               rationale: item.rationale,
               payload: item.payload,
               appliesWhen: conditionsOf(item.appliesWhen),
+              // The body is hashed too, so the person approving the hash sees it.
+              ...(Array.isArray(item.body) && item.body.length > 0 ? { body: item.body as string[] } : {}),
             },
             effectivity: state.effectivity(itemId),
             planState: state.planState(itemId),

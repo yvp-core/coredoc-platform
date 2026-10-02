@@ -16,7 +16,7 @@
 import { Button } from '@/components/ui/button';
 
 export interface IntentEmptyStateProps {
-  /** Admin/owner only; a member sees the explanation without the button (spec §5). */
+  /** Admin, owner or product; a member sees the explanation without the button. */
   canEdit: boolean;
   /** Domains that exist but are archived, so the default read did not show them. */
   archivedDomainCount?: number;
@@ -32,8 +32,8 @@ export function IntentEmptyState({
 }: IntentEmptyStateProps) {
   return (
     <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
-      <h3 className="text-[14px] font-medium text-ink-1">Start the product knowledge base</h3>
-      <p className="max-w-lg text-[12.5px] leading-relaxed text-ink-2">
+      <h3 className="text-[15px] font-medium text-ink-1">Start the product knowledge base</h3>
+      <p className="max-w-lg text-[13.5px] leading-relaxed text-ink-2">
         Product intent is what this product promises — its capabilities, use cases, flows, rules, limitations and
         decisions — kept as reviewed statements that agents read before they change the code.
       </p>
@@ -42,18 +42,18 @@ export function IntentEmptyState({
           Create the first domain
         </Button>
       ) : (
-        <p className="max-w-lg text-[12px] text-ink-3">
+        <p className="max-w-lg text-[13px] text-ink-3">
           A workspace admin creates the first domain; after that anyone here can browse what is accepted.
         </p>
       )}
-      <p className="max-w-lg text-[11px] text-ink-4">
+      <p className="max-w-lg text-[12px] text-ink-4">
         Already have a repo overlay? <span className="font-mono text-ink-2">coredoc intent import</span> pushes{' '}
         <span className="font-mono text-ink-2">.coredoc/intent.json</span> into this workspace.
       </p>
 
       {archivedDomainCount > 0 && onShowArchived && (
         <div className="flex flex-col items-center gap-1 border-t border-border-soft pt-3">
-          <p className="num text-[11px] text-ink-3">
+          <p className="num text-[12px] text-ink-3">
             {archivedDomainCount} archived {archivedDomainCount === 1 ? 'domain is' : 'domains are'} hidden.
           </p>
           <Button variant="outline" size="sm" onClick={onShowArchived}>

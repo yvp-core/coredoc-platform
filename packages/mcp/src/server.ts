@@ -47,6 +47,7 @@ import { handleDescribeRepository } from './tools/discovery/describe-repository.
 import { handleDescribeDbSchema } from './tools/discovery/describe-db-schema.js';
 import { handleGetExtractionCoverage } from './tools/discovery/get-extraction-coverage.js';
 import { handleGetIntentContext } from './tools/intent/get-intent-context.js';
+import { handleIntentRead } from './tools/intent/intent-read.js';
 import { handleTraceCrossRepoCall } from './tools/cross-repo/trace-cross-repo-call.js';
 import { handleListServiceDependencies } from './tools/cross-repo/list-service-dependencies.js';
 
@@ -121,6 +122,18 @@ const SEMANTIC_SEARCH_TOOL = {
  * mechanism that keeps the pilot's product intent local (LIM-1, spec
  * "Contracts and consumers").
  */
+/**
+ * intent_read — listed locally only to refuse with a reason (see
+ * `tools/intent/intent-read.ts`); the cloud tool's real schema lives with the
+ * cloud server.
+ */
+const INTENT_READ_TOOL = {
+  name: 'intent_read',
+  description:
+    'Cloud workspace only. On a local project this answers with an explicit refusal and points to get_intent_context; on a project cut over to a cloud workspace, call intent_read on the workspace MCP.',
+  inputSchema: { type: 'object', properties: {}, additionalProperties: true },
+};
+
 const GET_INTENT_CONTEXT_TOOL = {
   name: 'get_intent_context',
   description:
@@ -250,6 +263,7 @@ const TOOLS = [
   sharedTool('list_service_dependencies'),
   // Local-only and permanent: no env gate, but absent from the shared registry.
   GET_INTENT_CONTEXT_TOOL,
+  INTENT_READ_TOOL,
   // Env-gated: listed only when ENABLE_SEMANTIC_SEARCH is on (module-load check).
   ...(semanticSearchEnabled() ? [SEMANTIC_SEARCH_TOOL] : []),
 ];
@@ -303,6 +317,7 @@ type GraphOptionalToolHandler = (
  */
 const GRAPH_OPTIONAL_HANDLERS: Record<string, GraphOptionalToolHandler> = {
   get_intent_context: handleGetIntentContext,
+  intent_read: handleIntentRead,
 };
 
 const GRAPH_OPTIONAL_TOOLS = new Set(Object.keys(GRAPH_OPTIONAL_HANDLERS));

@@ -321,13 +321,22 @@ const LimitationPayloadSchema = z
 const DecisionPayloadSchema = z
   .object({
     question: text(INTENT_LIMITS.text),
-    choice: text(INTENT_LIMITS.text),
+    choice: text(INTENT_LIMITS.text).optional(),
     choiceStatus: z.enum(DecisionStatus),
     rationale: text(INTENT_LIMITS.text),
     alternatives: textList(INTENT_LIMITS.listEntries),
     consequences: textList(INTENT_LIMITS.listEntries),
   })
-  .strict();
+  .strict()
+  .superRefine((payload, ctx) => {
+    const open = payload.choiceStatus === DecisionStatus.Open;
+    if (open && payload.choice !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['choice'], message: 'An open decision has no choice yet' });
+    }
+    if (!open && payload.choice === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['choice'], message: `A ${payload.choiceStatus} decision needs a choice` });
+    }
+  });
 
 const itemBase = {
   id: text(INTENT_LIMITS.itemId),

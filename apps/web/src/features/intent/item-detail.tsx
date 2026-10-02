@@ -1,5 +1,6 @@
 import { IntentDetails } from './intent-details.js';
 import { IntentSourceLabel } from './source-label.js';
+import { IntentMarkdown } from './intent-markdown.js';
 /**
  * The item detail pane: statement, per-kind details, sources, code anchors and
  * the decision history.
@@ -17,6 +18,7 @@ import { IntentSourceLabel } from './source-label.js';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { isOpenQuestion } from './intent-agent-prompt.js';
 import { Spinner } from '@/components/ui/spinner';
 import type { ReactNode } from 'react';
 import { IntentAnchorRow, type IntentAnchorRefreshOutcome } from './anchor-row.js';
@@ -30,12 +32,13 @@ import {
   intentFlowSteps,
   intentPayloadVariants,
   kindLabel,
+  stripSourceRefs,
 } from './intent-presentation.js';
 import type { IntentContextMatch, IntentGraphEvidence, IntentItemAnchor, IntentTransition } from './types.js';
 
 /** Everything the anchor rows need from the panel, in one prop rather than five. */
 export interface IntentAnchorRefreshState {
-  /** Admin/owner only; the server refuses anyone else whatever this renderer shows. */
+  /** Admin, owner or product (`hasIntentAccess`); the server re-checks every write. */
   canRefresh: boolean;
   /** The one anchor whose inline confirm is open, keyed by `intentAnchorKey`. */
   confirmingKey: string | null;
@@ -89,14 +92,14 @@ export function IntentItemDetail({
     return (
       <div className="flex flex-col gap-2 px-4 py-4">
         <h3 className="text-[16px] font-medium leading-tight tracking-[-0.01em] text-ink-1">{scope.title}</h3>
-        <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-ink-2">{scope.statement}</p>
-        <p className="text-[12px] text-ink-4">Select an item.</p>
+        <p className="whitespace-pre-wrap text-[14.5px] leading-relaxed text-ink-2">{scope.statement}</p>
+        <p className="text-[13px] text-ink-4">Select an item.</p>
       </div>
     );
   }
 
   if (itemId === null) {
-    return <p className="px-4 py-6 text-center text-[12px] text-ink-4">Select an item.</p>;
+    return <p className="px-4 py-6 text-center text-[13px] text-ink-4">Select an item.</p>;
   }
 
   if (loading) {
@@ -110,8 +113,8 @@ export function IntentItemDetail({
   if (errorMessage || match === null) {
     return (
       <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-        <p className="text-[12.5px] text-ink-2">Couldn't load this item.</p>
-        {errorMessage && <p className="text-[11px] text-ink-4">{errorMessage}</p>}
+        <p className="text-[13.5px] text-ink-2">Couldn't load this item.</p>
+        {errorMessage && <p className="text-[12px] text-ink-4">{errorMessage}</p>}
         <Button variant="outline" size="sm" onClick={onRetry}>
           Retry
         </Button>
@@ -136,21 +139,26 @@ export function IntentItemDetail({
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant={authorityVariant(match.authority)}>{authorityLabel(match.authority)}</Badge>
           <Badge variant="reason">{kindLabel(match.kind)}</Badge>
+          {isOpenQuestion(match) && <Badge variant="warn">Open question</Badge>}
           {match.proposedSuccessorOfId && (
             <Badge variant="replace">proposes to replace {match.proposedSuccessorOfId}</Badge>
           )}
           {match.supersededById && <Badge variant="superseded">superseded by {match.supersededById}</Badge>}
         </div>
         <h3 className="text-[16px] font-medium leading-tight tracking-[-0.01em] text-ink-1">{match.title}</h3>
-        <p className="truncate font-mono text-[10.5px] text-ink-4" title={match.id}>
+        <p className="truncate font-mono text-[11.5px] text-ink-4" title={match.id}>
           {match.id}
         </p>
       </div>
 
       {productionState}
-      <Section title="Statement">
-        <p className="text-[13.5px] leading-relaxed text-ink-1">{match.statement}</p>
-        {match.rationale && <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-2">{match.rationale}</p>}
+      <Section title="Text">
+        {/* The item as written: its statement and the lines under it. Sources are listed below. */}
+        <IntentMarkdown
+          text={stripSourceRefs([match.statement, ...(match.body ?? [])].join('\n'))}
+          className="text-[14.5px] leading-relaxed text-ink-1"
+        />
+        {match.rationale && <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-2">{match.rationale}</p>}
       </Section>
 
       {(fields.length > 0 || steps !== null || variants !== null || rawPayload || hasConditions) && (
@@ -167,11 +175,11 @@ export function IntentItemDetail({
 
       <Section title="Sources">
         {match.sources.length === 0 ? (
-          <p className="text-[11px] text-ink-4">No provenance rows.</p>
+          <p className="text-[12px] text-ink-4">No provenance rows.</p>
         ) : (
           match.sources.map((source) => (
-            <div key={`${source.ref}\n${source.localId}`} className="flex items-baseline gap-2 py-1 text-[12px]">
-              <span className="rounded border border-border-soft px-[5px] text-[10px] uppercase tracking-[0.03em] text-ink-4">
+            <div key={`${source.ref}\n${source.localId}`} className="flex items-baseline gap-2 py-1 text-[13px]">
+              <span className="rounded border border-border-soft px-[5px] text-[11px] uppercase tracking-[0.03em] text-ink-4">
                 {source.kind}
               </span>
               <IntentSourceLabel source={source} />
@@ -182,7 +190,7 @@ export function IntentItemDetail({
 
       <Section title="Code anchors">
         {match.anchors.length === 0 ? (
-          <p className="text-[11px] text-ink-4">No code anchors.</p>
+          <p className="text-[12px] text-ink-4">No code anchors.</p>
         ) : (
           <ul>
             {match.anchors.map((anchor) => {
@@ -204,12 +212,12 @@ export function IntentItemDetail({
             })}
           </ul>
         )}
-        {anchorWarning && <p className="mt-2 text-[11px] text-ink-4">{anchorWarning}</p>}
+        {anchorWarning && <p className="mt-2 text-[12px] text-ink-4">{anchorWarning}</p>}
         {graph?.degradation && (
           <div className="mt-2 rounded-lg bg-warn-wash px-2.5 py-2">
-            <p className="text-[11.5px] text-warn-text">Graph unavailable ({graph.degradation.code})</p>
-            <p className="mt-1 text-[11px] text-ink-2">{graph.degradation.remediation}</p>
-            <p className="mt-1 text-[11px] text-ink-4">
+            <p className="text-[12.5px] text-warn-text">Graph unavailable ({graph.degradation.code})</p>
+            <p className="mt-1 text-[12px] text-ink-2">{graph.degradation.remediation}</p>
+            <p className="mt-1 text-[12px] text-ink-4">
               Intent itself is unaffected — only anchor status and freshness are missing until a snapshot is readable.
             </p>
           </div>
@@ -220,14 +228,14 @@ export function IntentItemDetail({
         {transitions === null ? (
           <Spinner className="text-ink-4" />
         ) : transitions.length === 0 ? (
-          <p className="text-[11px] text-ink-4">No transitions recorded.</p>
+          <p className="text-[12px] text-ink-4">No transitions recorded.</p>
         ) : (
           transitions.map((transition) => (
             <div
               key={transition.id}
-              className="flex gap-2.5 border-b border-dashed border-border-soft py-1.5 text-[11.5px] last:border-b-0"
+              className="flex gap-2.5 border-b border-dashed border-border-soft py-1.5 text-[12.5px] last:border-b-0"
             >
-              <span className="num shrink-0 pt-px text-[10.5px] text-ink-4">
+              <span className="num shrink-0 pt-px text-[11.5px] text-ink-4">
                 {formatIntentTimestamp(transition.createdAt)}
               </span>
               <span className="min-w-0 flex-1">
@@ -236,7 +244,7 @@ export function IntentItemDetail({
                   {transition.from === null ? `Arrived as ${transition.to}` : `${transition.from} → ${transition.to}`} ·{' '}
                   {transition.actorRole}
                 </span>
-                <span className="block text-[11px] text-ink-3">
+                <span className="block text-[12px] text-ink-3">
                   {transition.reason} · {transition.authorizingSource.kind}:{transition.authorizingSource.ref}
                 </span>
               </span>
@@ -256,7 +264,7 @@ export function IntentItemDetail({
         )}
       </Section>
 
-      <p className="pt-3 text-[10.5px] leading-4 text-ink-4">
+      <p className="pt-3 text-[11.5px] leading-4 text-ink-4">
         Intent describes intended behavior. Anchors are navigation evidence, not proof of implementation; anchor state
         and snapshot freshness are independent.
       </p>
@@ -267,7 +275,7 @@ export function IntentItemDetail({
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="border-b border-border-soft py-3 last:border-b-0">
-      <h4 className="mb-1.5 text-[10.5px] uppercase tracking-[0.04em] text-ink-4">{title}</h4>
+      <h4 className="mb-1.5 text-[11.5px] uppercase tracking-[0.04em] text-ink-4">{title}</h4>
       {children}
     </section>
   );

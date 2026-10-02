@@ -1,4 +1,4 @@
-import { WorkspaceMemberRole } from '../modules/members/dto/workspace-role.enum.js';
+import { isWorkspaceManagerRole, type WorkspaceMemberRole } from '../modules/members/dto/workspace-role.enum.js';
 import type { AuthUser } from './decorators/current-user.decorator.js';
 
 /**
@@ -16,11 +16,11 @@ export interface SelfScope {
 }
 
 /**
- * The self-scope for a scoped analytics read: only a plain `member` sees just
- * their own data. Admin/owner keep workspace-wide visibility, and service tokens
+ * The self-scope for a scoped analytics read: every member role below admin
+ * (`member`, `product`) sees just their own data. Admin/owner keep workspace-wide visibility, and service tokens
  * arrive with `role === undefined` (see `@WorkspaceRoleValue`) so they are never
  * self-scoped — a service token is a workspace-level credential.
  */
 export function selfScopeFor(user: AuthUser, role: WorkspaceMemberRole | undefined): SelfScope | undefined {
-  return role === WorkspaceMemberRole.Member ? { userId: user.id } : undefined;
+  return role !== undefined && !isWorkspaceManagerRole(role) ? { userId: user.id } : undefined;
 }

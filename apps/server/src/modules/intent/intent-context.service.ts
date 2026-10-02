@@ -88,6 +88,7 @@ import {
 import { readIntentPendingReview } from './intent-review-queue.service.js';
 import { IntentErrorCode } from './contract/index.js';
 import { intentStateError } from './intent-state-errors.js';
+import { INTENT_NODE_SCAN, unknownNodeError } from './intent-node-suggest.js';
 
 /** Effectivity plus every per-repo delivery (BR-5); `deliveries` is omitted when there are none. */
 function releaseFacts(release: ReleaseSnapshot, id: string) {
@@ -117,6 +118,7 @@ interface HydratedItem {
   title: string;
   statement: string;
   rationale: string | null;
+  body: unknown;
   payload: unknown;
   appliesWhen: unknown;
   domain: { appliesWhen: unknown } | null;
@@ -429,17 +431,11 @@ export class IntentContextService {
       if (!feature) {
         const declared = await this.prisma.intentFeature.findMany({
           where: { workspaceId, archived: false },
-          select: { id: true },
+          select: { id: true, title: true },
           orderBy: { id: 'asc' },
-          take: INTENT_CONTEXT_READ_LIMITS.namedValues,
+          take: INTENT_NODE_SCAN,
         });
-        throw intentStateError(
-          IntentErrorCode.FeatureNotFound,
-          `intent feature '${request.feature}' is not declared in this workspace; declared features: ${
-            declared.map((row) => row.id).join(', ') || '<none declared>'
-          }`,
-          ['feature'],
-        );
+        throw unknownNodeError('feature', request.feature, declared, ['feature']);
       }
       // Both given: they must agree. Preferring one would make the same request
       // mean two different things depending on which the reader looked at.
@@ -461,17 +457,11 @@ export class IntentContextService {
     if (!domain) {
       const declared = await this.prisma.intentDomain.findMany({
         where: { workspaceId, archived: false },
-        select: { id: true },
+        select: { id: true, title: true },
         orderBy: { id: 'asc' },
-        take: INTENT_CONTEXT_READ_LIMITS.namedValues,
+        take: INTENT_NODE_SCAN,
       });
-      throw intentStateError(
-        IntentErrorCode.DomainNotFound,
-        `intent domain '${domainId}' is not declared in this workspace; declared domains: ${
-          declared.map((row) => row.id).join(', ') || '<none declared>'
-        }`,
-        ['domain'],
-      );
+      throw unknownNodeError('domain', domainId, declared, ['domain']);
     }
     return { domainId, featureId: null };
   }
@@ -1389,13 +1379,49 @@ export class IntentContextService {
         ? encodeIntentCursor(IntentCursorScope.Context, [String(last.authorityRank), last.id], binding)
         : null;
     const matches = [...exactPage, ...page.map((row) => ({ ...row, reason }))];
+    let truncated = more || exact.length > exactPage.length;
+
+    // The whole answer's size, on the first page, where it is one COUNT over the
+    // same predicate. A context filter is applied after the read and the
+    // fallback ranks by hits, so neither has a countable total.
+    // Counted even when exact ids filled the page, so a page they fill never reads as complete.
+    let totalMatched: number | undefined;
+    if (!cursor && !filter && !fallback) {
+      const discoveredWhere =
+        tokens.length > 0
+          ? [...where, ...tokens.map((token) => this.tokenPredicate(token))]
+          : scope !== undefined || !hasSelector(request)
+            ? where
+            : undefined;
+      const [row] = discoveredWhere
+        ? await this.prisma.$queryRaw<{ total: bigint }[]>`
+            SELECT count(*) AS total FROM intent_items i WHERE ${Prisma.join(discoveredWhere, ' AND ')}`
+        : [{ total: 0n }];
+      const discovered = Number(row?.total ?? 0);
+      // No conjunctive match on a multi-word query means a real page would take the
+      // any-word fallback, whose size this count does not give.
+      if (!(take === 0 && tokens.length > 1 && discovered === 0)) totalMatched = exact.length + discovered;
+    }
+    if (totalMatched !== undefined && totalMatched > matches.length) truncated = true;
 
     return {
       mode: IntentContextMode.List,
       limit,
       entries: await this.listEntries(workspaceId, matches, scope, filter),
       nextCursor,
-      truncated: (fallback && more) || exact.length > exactPage.length,
+      // True whenever this page is not the whole answer: a caller told to check
+      // `truncated` must not read page one of many as complete.
+      truncated,
+      ...(totalMatched !== undefined ? { totalMatched, omittedCount: Math.max(0, totalMatched - matches.length) } : {}),
+      ...(truncated
+        ? {
+            remedy: nextCursor
+              ? 'More entries follow: pass nextCursor as cursor to read the next page.'
+              : take === 0
+                ? 'The exact intentIds filled this page: raise limit or pass fewer ids to see the other matches.'
+                : 'This page is all one read returns for this query: narrow it with more words, a domain or a kind.',
+          }
+        : {}),
       ...(cursor ? {} : { unknownIntentIds: this.unknownIntentIds(request, allExact) }),
     };
   }
@@ -1429,12 +1455,16 @@ export class IntentContextService {
     const ordered = [...exact, ...discovered];
     const page = ordered.slice(0, limit);
 
+    const truncated = ordered.length > page.length || (selected?.scanTruncated ?? false);
     return {
       mode: IntentContextMode.List,
       limit,
       entries: await this.listEntries(workspaceId, page, scope, filter),
       nextCursor: null,
-      truncated: ordered.length > page.length || (selected?.scanTruncated ?? false),
+      truncated,
+      ...(truncated
+        ? { remedy: 'A node-id selection is one bounded page: pass fewer node ids, a domain or a kind.' }
+        : {}),
       unknownIntentIds: this.unknownIntentIds(request, allExact),
       unresolvedNodeIds: selected?.unresolvedNodeIds ?? [],
       matchedFeatureIds: selected?.matchedFeatureIds ?? [],
@@ -1465,6 +1495,7 @@ export class IntentContextService {
         title: true,
         statement: true,
         rationale: true,
+        body: true,
         payload: true,
         appliesWhen: true,
         authority: true,
@@ -1523,6 +1554,8 @@ export class IntentContextService {
       title: item.title,
       statement: item.statement,
       rationale: item.rationale,
+      // The lines under the statement; absent when there are none, so older readers see the same bytes.
+      ...(Array.isArray(item.body) && item.body.length > 0 ? { body: item.body as string[] } : {}),
       payload: item.payload,
       // Absent, not null, on an unconditioned item: a pre-dimensions reader sees the same bytes.
       ...(item.appliesWhen ? { appliesWhen: item.appliesWhen } : {}),

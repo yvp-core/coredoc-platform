@@ -5,6 +5,7 @@ interface WelcomeStepProps {
 
 function roleLabel(role?: string): string {
   if (role === 'admin') return 'Admin';
+  if (role === 'product') return 'Product';
   return 'Member';
 }
 

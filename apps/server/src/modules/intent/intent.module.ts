@@ -35,6 +35,8 @@ import { IntentDerivationModule } from './derivation/intent-derivation.module.js
 import { IntentAnchorModule } from './intent-anchor.module.js';
 import { IntentContextController } from './intent-context.controller.js';
 import { IntentContextService } from './intent-context.service.js';
+import { IntentReadService } from './intent-read.service.js';
+import { IntentWorkspaceImportService } from './intent-workspace-import.js';
 import { IntentController } from './intent.controller.js';
 import { IntentExportController } from './intent-export.controller.js';
 import { IntentExportService } from './intent-export.service.js';
@@ -76,7 +78,9 @@ import { IntentTreeService } from './intent-tree.service.js';
     IntentReviewQueueService,
     IntentTransitionsService,
     IntentContextService,
+    IntentReadService,
     IntentImportService,
+    IntentWorkspaceImportService,
     IntentExportService,
   ],
   exports: [
@@ -93,6 +97,7 @@ import { IntentTreeService } from './intent-tree.service.js';
     // Exported for the MCP tool surface (issue 08), which serves the same
     // selectors over the same service rather than a second implementation.
     IntentContextService,
+    IntentReadService,
   ],
 })
 export class IntentModule {}

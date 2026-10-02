@@ -40,10 +40,10 @@ const COLUMNS: ReadonlyArray<{ key: MemberSortKey | 'topTool' | 'lastActive'; la
 ];
 
 const TH =
-  'border-b border-border-soft px-3 pb-1.5 text-right text-[10.5px] uppercase tracking-[0.04em] text-ink-4 whitespace-nowrap first:pl-0 first:text-left';
+  'border-b border-border-soft px-3 pb-1.5 text-right text-[11.5px] uppercase tracking-[0.04em] text-ink-4 whitespace-nowrap first:pl-0 first:text-left';
 // Form controls do not inherit `text-transform`, so a sort button has to carry the
 // label recipe itself or the sortable headers read as sentence case beside the static ones.
-const TH_BUTTON = 'cursor-pointer rounded-sm px-1 py-0.5 text-[10.5px] uppercase tracking-[0.04em]';
+const TH_BUTTON = 'cursor-pointer rounded-sm px-1 py-0.5 text-[11.5px] uppercase tracking-[0.04em]';
 const TD = 'border-b border-border-soft px-3 py-2 text-right text-ink-2 whitespace-nowrap first:pl-0 first:text-left';
 
 function SpendCell({ row }: { row: UsageMemberRow }) {
@@ -77,10 +77,10 @@ export function MembersTable({
       <CardHead title="Usage by member" sub={sub} />
       <CardBody>
         {rows.length === 0 ? (
-          <p className="py-6 text-center text-[12.5px] text-ink-4">No attributed activity in this window.</p>
+          <p className="py-6 text-center text-[13.5px] text-ink-4">No attributed activity in this window.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="num w-full min-w-[780px] border-collapse text-[12.5px]">
+            <table className="num w-full min-w-[780px] border-collapse text-[13.5px]">
               <thead>
                 <tr>
                   {COLUMNS.map((column) => {
@@ -126,14 +126,14 @@ export function MembersTable({
                         <div className="flex min-w-0 items-center gap-2.5">
                           <span
                             aria-hidden="true"
-                            className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-track text-[9.5px] tracking-[0.02em] text-ink-2"
+                            className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-track text-[10.5px] tracking-[0.02em] text-ink-2"
                           >
                             {memberInitials(row)}
                           </span>
                           <span className="min-w-0">
                             <span className="block truncate leading-[1.3] text-ink-1">{memberDisplayName(row)}</span>
                             {row.userEmail ? (
-                              <span className="block truncate text-[11px] leading-[1.3] text-ink-4">
+                              <span className="block truncate text-[12px] leading-[1.3] text-ink-4">
                                 {row.userEmail}
                               </span>
                             ) : null}
@@ -159,7 +159,7 @@ export function MembersTable({
                       </td>
                       <td className={TD}>
                         {row.topTool ? (
-                          <span className="rounded-md border border-border-soft bg-surface-2 px-[7px] font-mono text-[11px] text-ink-2">
+                          <span className="rounded-md border border-border-soft bg-surface-2 px-[7px] font-mono text-[12px] text-ink-2">
                             {row.topTool}
                           </span>
                         ) : (

@@ -117,7 +117,7 @@ export function IntentSupersedeDiff({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="mt-2 rounded-lg bg-surface-2 px-2.5 py-2 text-[11.5px]" data-intent-supersede-diff={predecessorId}>
+    <div className="mt-2 rounded-lg bg-surface-2 px-2.5 py-2 text-[12.5px]" data-intent-supersede-diff={predecessorId}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-ink-2">
           Proposes to replace <span className="font-mono text-ink-1">{predecessorId}</span>
@@ -127,7 +127,7 @@ export function IntentSupersedeDiff({
           type="button"
           aria-expanded={open}
           onClick={() => setOpen(!open)}
-          className="rounded-md px-2 py-0.5 text-[11.5px] text-ink-3 transition-colors hover:bg-surface hover:text-ink-1"
+          className="rounded-md px-2 py-0.5 text-[12.5px] text-ink-3 transition-colors hover:bg-surface hover:text-ink-1"
         >
           {open ? 'Hide diff' : 'Show diff'}
         </button>
@@ -151,7 +151,7 @@ function SupersedeDiffBody({
 }) {
   if (predecessor === undefined) {
     return (
-      <p className="mt-2 text-[11px] text-ink-4">
+      <p className="mt-2 text-[12px] text-ink-4">
         {predecessorLoading
           ? 'Reading the predecessor…'
           : 'Predecessor not loaded — its current content could not be read, so this swap cannot be compared here.'}
@@ -160,7 +160,7 @@ function SupersedeDiffBody({
   }
   if (successor === undefined) {
     return (
-      <p className="mt-2 text-[11px] text-ink-4">
+      <p className="mt-2 text-[12px] text-ink-4">
         Successor detail not loaded — the queue row carries no statement or payload to compare.
       </p>
     );
@@ -171,15 +171,15 @@ function SupersedeDiffBody({
   const unchanged = rows.length - changed.length;
 
   return (
-    <div className="mt-[7px] flex flex-col gap-[5px] text-[12px]">
+    <div className="mt-[7px] flex flex-col gap-[5px] text-[13px]">
       {changed.length === 0 ? (
-        <p className="text-[11px] text-ink-4">
+        <p className="text-[12px] text-ink-4">
           Nothing changes between the two — the successor restates the predecessor.
         </p>
       ) : (
         changed.map((row) => (
           <div key={row.label} className="flex flex-col gap-[5px]">
-            <span className="font-mono text-[10.5px] text-ink-4">{row.label}</span>
+            <span className="font-mono text-[11.5px] text-ink-4">{row.label}</span>
             <span className="whitespace-pre-wrap rounded-md bg-danger-wash px-[9px] py-[5px] text-ink-2 line-through decoration-danger-text">
               {row.before === '' ? '—' : row.before}
             </span>
@@ -190,7 +190,7 @@ function SupersedeDiffBody({
         ))
       )}
       {unchanged > 0 && (
-        <p className="num text-[10.5px] text-ink-4">
+        <p className="num text-[11.5px] text-ink-4">
           {unchanged} unchanged {unchanged === 1 ? 'field' : 'fields'}
         </p>
       )}

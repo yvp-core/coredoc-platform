@@ -28,7 +28,7 @@ export function IntentSourceLabel({ source }: { source: IntentItemSource }) {
       ) : (
         <span className="break-words text-ink-2">{name}</span>
       )}
-      <span className="break-all font-mono text-[10.5px] text-ink-4">
+      <span className="break-all font-mono text-[11.5px] text-ink-4">
         {source.ref}#{source.localId}
         {source.revision ? ` @ ${source.revision}` : ''}
       </span>
