@@ -40,8 +40,11 @@ export interface SwiftProfile extends BaseProfile {
    * `entityTypealias` names a per-service model-binding typealias (e.g. 'DBObject' for a
    * `DataService { associatedtype DBObject }` convention) used to attribute an op's entity when
    * no explicit `X.self` argument is present — CONFIGURABLE, never a hardcoded client name.
+   * `receiverPattern` is a regex the call's receiver text must match for a verb to count
+   * (e.g. `'^(context|container\\.context)$'` for Core Data), so a same-named method on another
+   * type (`EmployeesSync.fetch()`, `image.save(to:)`) is not reported as a db operation.
    */
-  dbOperations?: { opMap?: Record<string, string>; entityTypealias?: string };
+  dbOperations?: { opMap?: Record<string, string>; entityTypealias?: string; receiverPattern?: string };
   /**
    * Dependency-injection resolution for the Tier-B call graph. `containerAccessor` is the
    * receiver chain that fronts service accessors (e.g. 'DI.shared'); the substrate indexes that

@@ -234,6 +234,7 @@ export async function parseSwiftRepo(
     const dbRes = extractSwiftDbOps(files, res.entityIdByName, idGen, {
       opMap: profile.dbOperations?.opMap,
       entityTypealias: profile.dbOperations?.entityTypealias,
+      receiverPattern: profile.dbOperations?.receiverPattern,
     });
     dbOperations = dbRes.dbOperations;
     dbOpResolution = dbRes.stats;
