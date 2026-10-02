@@ -20,7 +20,9 @@ import {
   TYPE_DECL,
   type TsNode,
   declKind,
+  enclosingTypeName,
   inheritedTypes,
+  isStaticDecl,
   nearestAncestor,
   propertyName,
   stringTemplateWithParams,
@@ -31,6 +33,8 @@ import type { SwiftFile } from './swift-callgraph.js';
 
 const DEFAULT_TARGET_PROTOCOLS = ['TargetType'];
 const HTTP_METHODS = new Set<HttpMethod>(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
+/** Members that only re-encode a value as a path segment (`id.uuidString` is still `{id}`). */
+const STRING_TRANSFORMS = new Set(['lowercased', 'uppercased', 'description', 'uuidString', 'rawValue', 'stringValue']);
 
 interface Endpoint {
   method: HttpMethod;
@@ -161,6 +165,26 @@ function renderPathExpr(node: TsNode | undefined): string {
     }
     case 'simple_identifier':
       return `{${node.text}}`; // a path-prefix getter (resolved later) or a param
+    case 'tuple_expression': {
+      const inner = firstNamed(node);
+      return inner && node.namedChildCount === 1 ? renderPathExpr(inner) : `{param}`;
+    }
+    case NAV_EXPR: {
+      // tree-sitter-swift binds `.member` looser than `+`, so `"a/" + id.lowercased` arrives as
+      // `("a/" + id).lowercased`: render the concatenation. A member applied to a parenthesized
+      // value or a string transform names no segment of its own either.
+      const target = node.childForFieldName?.('target');
+      const member = navSuffixName(node);
+      if (
+        target &&
+        (target.type === 'additive_expression' ||
+          target.type === 'tuple_expression' ||
+          STRING_TRANSFORMS.has(member ?? ''))
+      ) {
+        return renderPathExpr(target);
+      }
+      return `{${member ?? 'param'}}`;
+    }
     default: {
       const lits = node.descendantsOfType?.('line_string_literal') as TsNode[] | undefined;
       if (lits?.length) return lits.map((l) => stringTemplateWithParams(l)).join('');
@@ -202,7 +226,9 @@ function buildPrefixTemplates(files: SwiftFile[]): Map<string, string> {
       const body = prop.childForFieldName?.('computed_value');
       if (!name || !body || rendered.has(name)) continue;
       const stmts = firstNamed(body);
-      const expr = stmts?.type === 'statements' ? firstNamed(stmts) : stmts;
+      let expr = stmts?.type === 'statements' ? firstNamed(stmts) : stmts;
+      // `{ return "companies/" + id + "/" }` — the same single expression behind an explicit return.
+      if (expr?.type === 'control_transfer_statement') expr = expr.childForFieldName?.('result');
       if (!expr || (expr.type !== 'line_string_literal' && expr.type !== 'additive_expression')) continue;
       const tmpl = renderPathExpr(expr);
       if (tmpl.includes('/')) rendered.set(name, tmpl);
@@ -276,9 +302,59 @@ function collectApiEnums(
 }
 
 /**
+ * Member names an implicit `.name` could refer to OUTSIDE the API enums: cases of every other
+ * enum and every static property/function in the repo. An implicit member whose name is in
+ * this set is ambiguous without a type checker, so it is never attributed to an API.
+ */
+function nonApiMemberNames(files: SwiftFile[], apis: Map<string, ApiEnum>): Set<string> {
+  const out = new Set<string>();
+  for (const { root } of files) {
+    for (const tnode of root.descendantsOfType(TYPE_DECL) as TsNode[]) {
+      const name = typeName(tnode);
+      if (declKind(tnode) === 'enum' && name && !apis.has(name)) for (const cn of directEnumCases(tnode)) out.add(cn);
+    }
+    for (const type of [PROPERTY_DECL, FUNC_DECL]) {
+      for (const decl of root.descendantsOfType(type) as TsNode[]) {
+        if (!isStaticDecl(decl)) continue;
+        const name = type === PROPERTY_DECL ? propertyName(decl) : (decl.childForFieldName?.('name')?.text as string);
+        if (name) out.add(name);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The API case an implicit member expression (`.authenticate(…)` / `.employees`) refers to, or
+ * undefined. Only an argument position counts — that is where a request wrapper
+ * (`NetworkRequestParams<Api, …>(.authenticate(…))`) takes the endpoint. The name must belong to
+ * exactly one API enum and to no other enum or static member, and a site inside the API's own
+ * declarations (its `switch self` arms, comparisons) is never a request.
+ */
+function implicitApiCase(
+  prefix: TsNode,
+  apiByCase: Map<string, ApiEnum[]>,
+  ambiguous: Set<string>,
+): { api: ApiEnum; caseName: string } | undefined {
+  if (prefix.childForFieldName?.('operation')?.text !== '.') return undefined;
+  const target = prefix.childForFieldName?.('target');
+  if (target?.type !== 'simple_identifier') return undefined;
+  const caseName = target.text as string;
+  const owners = apiByCase.get(caseName);
+  if (owners?.length !== 1 || ambiguous.has(caseName)) return undefined;
+  const api = owners[0];
+
+  const parent = prefix.parent;
+  const expr = parent?.type === 'call_expression' && parent.child(0)?.id === prefix.id ? parent : prefix;
+  if (expr.parent?.type !== 'value_argument') return undefined;
+  if (nearestAncestor(prefix, new Set(['switch_pattern']))) return undefined;
+  if (enclosingTypeName(prefix) === api.name) return undefined;
+  return { api, caseName };
+}
+
+/**
  * Extract egress edges: one `ExternalCallEdge` per `<ApiEnum>.<case>` reference site across
- * all files. Bare `.case` sites (implicit enum type from a generic wrapper) are a documented
- * Tier-B gap — only the explicit enum-qualified form is captured here.
+ * all files, plus implicit `.case` arguments whose enum is unambiguous (see `implicitApiCase`).
  */
 export function extractSwiftEgress(
   files: SwiftFile[],
@@ -289,7 +365,30 @@ export function extractSwiftEgress(
   const apis = collectApiEnums(files, cfg.targetTypeProtocols ?? DEFAULT_TARGET_PROTOCOLS, prefixes);
   if (apis.size === 0) return [];
 
+  const apiByCase = new Map<string, ApiEnum[]>();
+  for (const api of apis.values()) for (const cn of api.cases) apiByCase.set(cn, [...(apiByCase.get(cn) ?? []), api]);
+  const ambiguous = nonApiMemberNames(files, apis);
+
   const edges: ExternalCallEdge[] = [];
+  const emit = (relPath: string, site: TsNode, api: ApiEnum, caseName: string) => {
+    const endpoint = api.endpoints.get(caseName) ?? { method: 'GET' as HttpMethod, path: '/' };
+    const line = site.startPosition.row + 1;
+    const func = nearestAncestor(site, new Set([FUNC_DECL]));
+    const callerId = func ? swiftMethodId(idGen, relPath, func) : idGen.functionId(relPath, `egress@${line}`);
+    const id = idGen.externalCallId(callerId, '', endpoint.method, `${relPath}:${line}:${api.name}.${caseName}`);
+    edges.push({
+      id,
+      versionedId: idGen.versionedId(id, `${endpoint.method} ${endpoint.path}`),
+      callerId,
+      // Empty — never the transport literal (see file header). Linker recovers the target
+      // service from the route prefix.
+      serviceName: '',
+      method: endpoint.method,
+      targetDescriptor: { protocol: 'http', http: { method: endpoint.method, pathTemplate: endpoint.path } },
+      location: { filePath: relPath, startLine: line, endLine: site.endPosition.row + 1 },
+    });
+  };
+
   for (const { relPath, root } of files) {
     for (const nav of root.descendantsOfType(NAV_EXPR) as TsNode[]) {
       const target = nav.childForFieldName?.('target');
@@ -298,23 +397,11 @@ export function extractSwiftEgress(
       if (!api) continue;
       const suffix = navSuffixName(nav);
       if (!suffix || !api.cases.has(suffix)) continue;
-
-      const endpoint = api.endpoints.get(suffix) ?? { method: 'GET' as HttpMethod, path: '/' };
-      const line = nav.startPosition.row + 1;
-      const func = nearestAncestor(nav, new Set([FUNC_DECL]));
-      const callerId = func ? swiftMethodId(idGen, relPath, func) : idGen.functionId(relPath, `egress@${line}`);
-      const id = idGen.externalCallId(callerId, '', endpoint.method, `${relPath}:${line}:${api.name}.${suffix}`);
-      edges.push({
-        id,
-        versionedId: idGen.versionedId(id, `${endpoint.method} ${endpoint.path}`),
-        callerId,
-        // Empty — never the transport literal (see file header). Linker recovers the target
-        // service from the route prefix.
-        serviceName: '',
-        method: endpoint.method,
-        targetDescriptor: { protocol: 'http', http: { method: endpoint.method, pathTemplate: endpoint.path } },
-        location: { filePath: relPath, startLine: line, endLine: nav.endPosition.row + 1 },
-      });
+      emit(relPath, nav, api, suffix);
+    }
+    for (const prefix of root.descendantsOfType('prefix_expression') as TsNode[]) {
+      const hit = implicitApiCase(prefix, apiByCase, ambiguous);
+      if (hit) emit(relPath, prefix, hit.api, hit.caseName);
     }
   }
   return edges;

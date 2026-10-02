@@ -90,10 +90,13 @@ export function extractSwiftDbOps(
   files: SwiftFile[],
   entityIdByName: Map<string, string>,
   idGen: StableIdGenerator,
-  cfg: { opMap?: Record<string, string>; entityTypealias?: string } = {},
+  cfg: { opMap?: Record<string, string>; entityTypealias?: string; receiverPattern?: string } = {},
 ): { dbOperations: DbOperation[]; stats: DbOpResolutionStats } {
-  const opMap: Record<string, DbOperationType> = { ...DEFAULT_OP_MAP };
-  for (const [k, v] of Object.entries(cfg.opMap ?? {})) opMap[k] = v as DbOperationType;
+  // A Map, not an object literal: a Swift method named `toString` or `constructor` must not
+  // look up an `Object.prototype` member and emit an op with an undefined kind.
+  const opMap = new Map<string, DbOperationType>(Object.entries(DEFAULT_OP_MAP));
+  for (const [k, v] of Object.entries(cfg.opMap ?? {})) opMap.set(k, v as DbOperationType);
+  const receiverRe = cfg.receiverPattern ? new RegExp(cfg.receiverPattern) : undefined;
   const dbObjectByType = buildDbObjectMap(files, cfg.entityTypealias);
 
   const out: DbOperation[] = [];
@@ -104,8 +107,14 @@ export function extractSwiftDbOps(
     for (const call of root.descendantsOfType(CALL_EXPR) as TsNode[]) {
       const method = callMethodName(call);
       if (!method) continue;
-      const operation = opMap[method];
+      const operation = opMap.get(method);
       if (!operation) continue;
+      if (receiverRe) {
+        // Verbs like `fetch`/`save`/`filter` are common outside the ORM, so a profile may require
+        // the receiver to name the ORM handle (`context.fetch`, not `EmployeesSync.fetch`).
+        const receiver = callReceiver(call)?.text as string | undefined;
+        if (!receiver || !receiverRe.test(receiver)) continue;
+      }
 
       const func = nearestAncestor(call, new Set([FUNC_DECL]));
       if (!func) continue; // no performer → skip (never a synthetic performer)
