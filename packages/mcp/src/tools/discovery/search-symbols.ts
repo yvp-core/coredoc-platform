@@ -7,7 +7,7 @@
 import { type IGraphReadRepository } from '@coredoc/db';
 // NodeType enum (runtime value) — imported from @coredoc/core (the canonical
 // source) rather than @coredoc/db so it survives `vi.mock('@coredoc/db')` in tests.
-import { NodeType } from '@coredoc/core';
+import { NodeType, normalizePath } from '@coredoc/core';
 import { allowSourcesInGraph } from '@coredoc/core/utils';
 import { formatCodeElementList, createMetadata } from '../../response-formatter.js';
 import { crossRepoLookupHashes } from '../../scope-resolver.js';
@@ -34,14 +34,11 @@ function looksLikeHttpPath(query: string): boolean {
   return /^[A-Z]{3,7}\s+\//.test(q) || /\/[a-zA-Z][\w-]*\/[a-zA-Z{]/.test(q);
 }
 
-// Strip method prefix, querystring, and placeholder names so we can substring-
-// match against pathTemplates that may use different placeholder spellings.
+// Strip the method prefix, then the linker's own normalizer (`@coredoc/core`
+// `normalizePath`) so placeholder spellings (`{x}` / `${x}` / `:x`) agree with
+// the RESOLVES_TO edges. Lowercased on top to tolerate agent-side spelling.
 function normalizeHttpPath(p: string): string {
-  return p
-    .replace(new RegExp(`^(?:${HTTP_METHOD_ALTERNATION})\\s+`, 'i'), '')
-    .replace(/\?.*$/, '')
-    .replace(/\{[^}]+\}/g, '{}')
-    .toLowerCase();
+  return normalizePath(p.replace(new RegExp(`^(?:${HTTP_METHOD_ALTERNATION})\\s+`, 'i'), '')).toLowerCase();
 }
 
 /**

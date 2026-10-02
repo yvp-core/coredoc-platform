@@ -12,7 +12,7 @@ import { type IGraphReadRepository } from '@coredoc/db';
 import type { ExternalCallInfo, EntrypointInfo as DbEntrypointInfo } from '@coredoc/db';
 // NodeType is a runtime value — imported from @coredoc/core (the canonical
 // source) so it survives `vi.mock('@coredoc/db')` in the tool tests.
-import { NodeType } from '@coredoc/core';
+import { NodeType, normalizePath } from '@coredoc/core';
 import { createMetadata, formatStalenessHeader } from '../../response-formatter.js';
 import { crossRepoLookupHashes } from '../../scope-resolver.js';
 import { debug, debugResult } from '../../debug-logger.js';
@@ -62,25 +62,14 @@ function buildCallPattern(call: ExternalCallInfo): string {
   }
 }
 
-// Normalise an HTTP path for fuzzy matching: drop querystrings, lowercase, and
-// replace every `{placeholder}` with a single token. Lets `…/{companyUuid}/…`
-// match `…/{company_uuid}/…` (parser-side vs agent-side naming drift).
-//
-// The trailing-placeholder strip is not cosmetic. A client that builds its URL
-// as `` `/companies/${uuid}/superbooking_groups${paramStr}` `` is stored with
-// pathTemplate `/companies/{companyUUID}/superbooking_groups{paramStr}` — the
-// query-string builder becomes a placeholder GLUED to the last segment. Without
-// the strip the normalized form is `…/superbooking_groups{}`, which is neither
-// equal to nor a segment-boundary suffix of the endpoint's
-// `/companies/{}/superbooking_groups`, so the real resolved call never matched
-// the path an agent (or the entrypoint itself) would write. A placeholder that
-// IS its own segment (`/foo/{id}`) is a genuine path parameter and is kept.
+// The linker's own normalizer (`@coredoc/core` `normalizePath`), so this tool
+// compares paths exactly the way the RESOLVES_TO edges it explains were built:
+// `{x}` / `${x}` / `:x` collapse to one token, a placeholder glued to a segment
+// (`…/superbooking_groups{paramStr}`, a query-string builder) is dropped with
+// everything after it, and the result always has a leading slash. Lowercased on
+// top only to tolerate agent-side spelling.
 function normalizeHttpPath(p: string): string {
-  return p
-    .replace(/\?.*$/, '')
-    .replace(/\{[^}]+\}/g, '{}')
-    .replace(/(?<=[^/{])\{\}$/, '')
-    .toLowerCase();
+  return normalizePath(p).toLowerCase();
 }
 
 // Parse "POST /api/foo" into { method, path }. Method is optional and the path
@@ -600,10 +589,12 @@ export async function handleTraceCrossRepoCall(
             // shorter side to be at least 2 segments long ("/x/y") to avoid the
             // degenerate "/" matches anything bug.
             if (!hasMinSegments(np, 2) && !hasMinSegments(normalizedPattern, 2)) return false;
+            // Both sides start with `/`, so a plain suffix test is segment-aligned.
+            // A 1-segment pattern never suffix-matches a longer call (`/users`
+            // would claim every `…/users`).
+            if (!np || !normalizedPattern) return false;
             return (
-              normalizedPattern.endsWith(`/${np}`) ||
-              (normalizedPattern.endsWith(np) && (np.startsWith('/') || normalizedPattern.endsWith(`/${np}`))) ||
-              np.endsWith(`/${normalizedPattern}`)
+              normalizedPattern.endsWith(np) || (hasMinSegments(normalizedPattern, 2) && np.endsWith(normalizedPattern))
             );
           })
           // Rank: exact match first, then by descending normalized-path length
