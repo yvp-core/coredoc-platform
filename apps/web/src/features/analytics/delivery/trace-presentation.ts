@@ -288,7 +288,7 @@ export function taskStageEntries(
   const span = taskWindow === null ? 0 : taskWindow.end - taskWindow.start;
   // A task row created after the evidence it points at (a connector projecting history)
   // has no measurable span, so there is no remainder to call unclaimed: stating
-  // "claimed 0.1h of 0.0h" would be arithmetic on an unavailable fact (explicit-degrade ADR).
+  // "claimed 6m of 0m" would be arithmetic on an unavailable fact (explicit-degrade ADR).
   const spanMeasurable = span > 0 && claimed.total <= span;
   const unclaimed = spanMeasurable ? span - claimed.total : 0;
 

@@ -233,7 +233,7 @@ describe('buildGanttLanes', () => {
       'tracker:PROJ-7',
       'run:implement run · 1 verification failures',
       'run:review run',
-      'pr:PR #42 · wait 6.0h',
+      'pr:PR #42 · wait 6h',
       'artifact:spec artifact',
       'ship:ship',
     ]);
@@ -332,6 +332,44 @@ describe('claimedByStage / taskStageEntries', () => {
     expect(entries.map((entry) => entry.key)).toEqual(['spec', 'implement', 'review']);
     expect(footnote).toBe(
       'Claimed 34h across recorded stages; the task span is unavailable (task record created after its evidence).',
+    );
+  });
+
+  it('reads minute-scale stages in minutes that agree with the journey rows', () => {
+    // A short task: a 5-minute investigate and three spec attempts of 2m, 0m and 3m.
+    const min = (minutes: number) => new Date(T0 + minutes * 60_000).toISOString();
+    const occurrence = (
+      occurrenceId: string,
+      stageId: string,
+      attempt: number,
+      start: number,
+      end: number,
+    ): CanonicalStageOccurrenceItem => ({
+      occurrenceId,
+      runId: occurrenceId.startsWith('i') ? 'run-diagnose' : 'run-spec',
+      stageId,
+      attempt,
+      startedAt: min(start),
+      finishedAt: min(end),
+      outcome: 'success',
+    });
+    const occurrences = [
+      occurrence('i1', 'investigate', 1, 0, 5),
+      occurrence('s1', 'spec', 1, 24, 26),
+      occurrence('s2', 'spec', 2, 27, 27),
+      occurrence('s3', 'spec', 3, 29, 32),
+    ];
+    const task = { ...fixture().task, createdAt: min(0), updatedAt: min(60), lastShippedAt: null };
+
+    const { entries, footnote } = taskStageEntries(task, claimedByStage(occurrences), ['investigate', 'spec']);
+
+    expect(entries.map((entry) => [entry.key, entry.text])).toEqual([
+      ['investigate', '5m'],
+      ['spec', '5m'],
+      ['unclaimed', '50m'],
+    ]);
+    expect(footnote).toBe(
+      'Claimed 10m of 1h total span. Gaps between recorded intervals are unclaimed, not attributed.',
     );
   });
 

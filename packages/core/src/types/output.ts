@@ -1016,6 +1016,21 @@ export type CallProvenance =
    *  is NOT followed, and an inferred, generic, platform or duplicated-FQCN receiver abstains,
    *  so the failure mode is a missing edge rather than a wrong one. */
   | 'kt-type'
+  /** Swift heuristic: bare `m()` or `self.m()` inside a type, resolved to a method of that type
+   *  (any of its declarations and extensions), then of its syntactic supertypes and conformed
+   *  protocols — so a protocol-extension default implementation is reached. */
+  | 'swift-member'
+  /** Swift heuristic: `r.m()` where `r`'s type is read from a declaration — a parameter or
+   *  property annotation, a local initialised by construction (`Foo()`), a container lookup
+   *  (`resolve(Foo.self)`), or a typed static singleton (`Foo.shared`). The callee is `m` on that
+   *  type or its supertypes. WEAKER THAN `scip`: the declared type is the compile-time type. */
+  | 'swift-type'
+  /** Swift heuristic: `Foo.m()` where `Foo` is an in-repo type and `m` one of its static/class
+   *  methods (or a protocol-extension static it inherits). */
+  | 'swift-static'
+  /** Swift heuristic: bare `f()` resolved to a free function in the SAME file, else to the
+   *  uniquely named free function in the repo. */
+  | 'swift-local'
   /** C# method selected on the enclosing type or an explicitly named base. */
   | 'cs-lexical'
   /** C# method selected through a declared receiver type and project visibility. */

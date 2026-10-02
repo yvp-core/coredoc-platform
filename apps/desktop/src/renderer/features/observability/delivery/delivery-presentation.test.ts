@@ -22,7 +22,8 @@ import {
 } from './delivery-presentation';
 import { NO_DATA } from '../observability-format';
 
-const HOUR = 60 * 60 * 1000;
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
 
 function summary(overrides: Partial<CanonicalDeliverySummary> = {}): CanonicalDeliverySummary {
   return {
@@ -84,14 +85,23 @@ function task(overrides: Partial<CanonicalTaskSummary> = {}): CanonicalTaskSumma
 }
 
 describe('formatDurationShort', () => {
-  it('reads days at 48h and above, whole hours at 10h and above, one decimal below', () => {
+  it('reads days at 48h and above, whole hours at 10h and above, hours and minutes below', () => {
     expect(formatDurationShort(72 * HOUR)).toBe('3.0d');
     expect(formatDurationShort(48 * HOUR)).toBe('2.0d');
     expect(formatDurationShort(47.9 * HOUR)).toBe('48h');
     expect(formatDurationShort(14 * HOUR)).toBe('14h');
     expect(formatDurationShort(10 * HOUR)).toBe('10h');
-    expect(formatDurationShort(3.5 * HOUR)).toBe('3.5h');
-    expect(formatDurationShort(0)).toBe('0.0h');
+    expect(formatDurationShort(3.5 * HOUR)).toBe('3h 30m');
+    expect(formatDurationShort(2 * HOUR)).toBe('2h');
+    expect(formatDurationShort(59.7 * MINUTE)).toBe('1h');
+  });
+
+  it('reads sub-hour durations in whole minutes, never a fraction of an hour', () => {
+    expect(formatDurationShort(6 * MINUTE)).toBe('6m');
+    expect(formatDurationShort(5 * MINUTE + 10_000)).toBe('5m');
+    expect(formatDurationShort(2 * MINUTE)).toBe('2m');
+    expect(formatDurationShort(20_000)).toBe('<1m');
+    expect(formatDurationShort(0)).toBe('0m');
   });
 
   it('dashes a negative or non-finite span instead of printing a measured zero', () => {
@@ -107,11 +117,11 @@ describe('sampledMedianText', () => {
 
   it('marks a small sample directional and says nothing about a healthy one', () => {
     expect(sampledMedianText({ value: 5 * HOUR, sampleSize: DIRECTIONAL_SAMPLE_MAX }, 12)).toEqual({
-      text: '5.0h',
+      text: '5h',
       caption: 'directional',
     });
     expect(sampledMedianText({ value: 5 * HOUR, sampleSize: DIRECTIONAL_SAMPLE_MAX + 1 }, 12)).toEqual({
-      text: '5.0h',
+      text: '5h',
       caption: null,
     });
   });
@@ -167,7 +177,7 @@ describe('stageBarEntries', () => {
       'var(--color-chart-stage-3)',
       'var(--color-chart-axis)',
     ]);
-    expect(entries.map((entry) => entry.text)).toEqual(['5.0h', '12h', '30h']);
+    expect(entries.map((entry) => entry.text)).toEqual(['5h', '12h', '30h']);
   });
 });
 
