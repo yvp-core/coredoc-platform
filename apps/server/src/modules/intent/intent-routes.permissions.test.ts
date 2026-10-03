@@ -18,6 +18,7 @@ import { WORKSPACE_ROLE_KEY } from '../../auth/decorators/workspace-role.decorat
 import { PERMISSION_KEY } from '../../auth/decorators/require-permission.decorator.js';
 import { TokenPermission } from '../../auth/token-permissions.js';
 import { UserSessionGuard } from '../../auth/user-session.guard.js';
+import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { IntentAnchorController } from './intent-anchor.controller.js';
 import { IntentContextController } from './intent-context.controller.js';
 import { IntentExportController } from './intent-export.controller.js';
@@ -26,6 +27,7 @@ import { IntentReleaseController } from './intent-release.controller.js';
 import { IntentReviewQueueController } from './intent-review-queue.controller.js';
 import { IntentReviewController } from './intent-review.controller.js';
 import { IntentController } from './intent.controller.js';
+import { IntentEnabledGuard } from './intent-enabled.guard.js';
 
 const CONTROLLERS = [
   IntentController,
@@ -44,6 +46,8 @@ interface Route {
   role: unknown;
   session: boolean;
   permission: string[] | undefined;
+  /** Class guards then handler guards — the order Nest runs them in. */
+  guards: unknown[];
 }
 
 function routes(): Route[] {
@@ -67,6 +71,7 @@ function routes(): Route[] {
             Reflect.getMetadata(WORKSPACE_ROLE_KEY, controller),
           session: guards.includes(UserSessionGuard),
           permission: Reflect.getMetadata(PERMISSION_KEY, handler as object) as string[] | undefined,
+          guards,
         };
       }),
   );
@@ -90,6 +95,15 @@ describe('intent REST guard matrix', () => {
 
   it.each(all.map((r) => [r.name, r] as const))('%s asks for no more than a member', (_name, route) => {
     expect(route.role).toBe('member');
+  });
+
+  // The intent gate — workspace flag plus the temporary INTENT_ROLES list — reads
+  // the role WorkspaceRoleGuard resolved, so it must run on every route, after it.
+  it.each(all.map((r) => [r.name, r] as const))('%s is behind IntentEnabledGuard, after the role', (_name, route) => {
+    const gate = route.guards.indexOf(IntentEnabledGuard);
+    expect(gate).toBeGreaterThan(-1);
+    expect(gate).toBeGreaterThan(route.guards.indexOf(WorkspaceRoleGuard));
+    expect(route.guards.indexOf(WorkspaceRoleGuard)).toBeGreaterThan(-1);
   });
 
   const writes = all.filter(

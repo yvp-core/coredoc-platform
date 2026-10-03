@@ -9,10 +9,11 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { AuthGuard } from '../../auth/auth.guard.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { PermissionsGuard, TokenPermission } from '../../auth/permissions.guard.js';
@@ -62,8 +63,13 @@ export class WorkspacesController {
 
   @Get(':workspaceId')
   @WorkspaceRole('member')
-  async getWorkspace(@Param('workspaceId') workspaceId: string) {
-    return this.workspacesService.getWorkspace(workspaceId);
+  async getWorkspace(
+    @Param('workspaceId') workspaceId: string,
+    @Req() request: Request & { userWorkspaceRole?: string },
+  ) {
+    // WorkspaceRoleGuard's resolution — for a service token, its creator's role,
+    // the same one the intent gates read.
+    return this.workspacesService.getWorkspace(workspaceId, request.userWorkspaceRole);
   }
 
   // Workspace settings are control-plane administration: the body carries

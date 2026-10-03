@@ -1,15 +1,22 @@
-import { CanActivate, type ExecutionContext, HttpStatus, Injectable } from '@nestjs/common';
+import { CanActivate, type ExecutionContext, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import { INTENT_CONFIG, intentConfigFromEnv, type IntentConfig } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { IntentErrorCode } from './contract/index.js';
+import { intentEnabledForActor } from './intent-rollout.js';
 import { intentStateError } from './intent-state-errors.js';
 
-/** The one "is intent on for this workspace" read; a missing workspace answers false. */
-export async function isIntentEnabled(prisma: Pick<PrismaService, 'workspace'>, workspaceId: string): Promise<boolean> {
+/** The one "is intent on for this actor in this workspace" read; a missing workspace answers false. */
+export async function isIntentEnabled(
+  prisma: Pick<PrismaService, 'workspace'>,
+  workspaceId: string,
+  actorRole: string | undefined,
+  intent: IntentConfig,
+): Promise<boolean> {
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
     select: { intentEnabled: true },
   });
-  return workspace?.intentEnabled === true;
+  return intentEnabledForActor(workspace?.intentEnabled === true, actorRole, intent);
 }
 
 /**
@@ -26,18 +33,26 @@ export async function isIntentEnabled(prisma: Pick<PrismaService, 'workspace'>, 
  * controller's `IntentExceptionFilter`.
  *
  * Composed after `AuthGuard`/`WorkspaceRoleGuard`, so `params.workspaceId` is
- * already known to be a workspace the caller may address.
+ * already known to be a workspace the caller may address and
+ * `userWorkspaceRole` is the caller's role there. An actor outside the
+ * TEMPORARY `INTENT_ROLES` list gets this same `intent_disabled` answer: to
+ * them intent is simply off, not a new kind of refusal.
  */
 @Injectable()
 export class IntentEnabledGuard implements CanActivate {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() @Inject(INTENT_CONFIG) private readonly intent: IntentConfig = intentConfigFromEnv(),
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<{ params: { workspaceId?: string } }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<{ params: { workspaceId?: string }; userWorkspaceRole?: string }>();
     const workspaceId = request.params?.workspaceId;
     if (!workspaceId) return true; // no workspace to check — a later guard/handler owns that refusal
 
-    if (!(await isIntentEnabled(this.prisma, workspaceId))) {
+    if (!(await isIntentEnabled(this.prisma, workspaceId, request.userWorkspaceRole, this.intent))) {
       throw intentStateError(
         IntentErrorCode.IntentDisabled,
         'Intent is not enabled for this workspace',

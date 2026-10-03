@@ -4,6 +4,7 @@ import {
   type AppConfig,
   AUTH_CONFIG,
   CONNECTORS_CONFIG,
+  INTENT_CONFIG,
   loadAppConfig,
   MISC_CONFIG,
   STORAGE_CONFIG,
@@ -47,6 +48,7 @@ export class AppConfigModule {
         { provide: TELEMETRY_CONFIG, useValue: config.telemetry },
         { provide: TURSO_CONFIG, useValue: config.turso },
         { provide: MISC_CONFIG, useValue: config.misc },
+        { provide: INTENT_CONFIG, useValue: config.intent },
       ],
       exports: [
         APP_CONFIG,
@@ -57,6 +59,7 @@ export class AppConfigModule {
         TELEMETRY_CONFIG,
         TURSO_CONFIG,
         MISC_CONFIG,
+        INTENT_CONFIG,
       ],
     };
   }

@@ -27,6 +27,7 @@
  */
 
 import { z } from 'zod';
+import { WorkspaceMemberRole } from '../modules/members/dto/workspace-role.enum.js';
 import { parseProcessRole, type ProcessRole } from '../process-role.js';
 
 export type { ProcessRole };
@@ -47,6 +48,8 @@ export const TELEMETRY_CONFIG = 'TELEMETRY_CONFIG';
 export const TURSO_CONFIG = 'TURSO_CONFIG';
 /** DI token for the misc/bootstrap group. */
 export const MISC_CONFIG = 'MISC_CONFIG';
+/** DI token for the TEMPORARY intent-rollout group. */
+export const INTENT_CONFIG = 'INTENT_CONFIG';
 
 /** Thrown with one line per bad or missing variable, each naming the variable. */
 export class AppConfigError extends Error {
@@ -57,6 +60,20 @@ export class AppConfigError extends Error {
 }
 
 const optionalString = z.string().optional();
+
+const MEMBER_ROLES = Object.values(WorkspaceMemberRole) as string[];
+
+/** `INTENT_ROLES` entries: comma-separated, trimmed, blanks dropped, duplicates kept once. */
+function intentRoleEntries(value: string | undefined): string[] {
+  return [
+    ...new Set(
+      (value ?? '')
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
 
 /**
  * Raw shape. Tuning knobs that their owning module already parses and
@@ -140,6 +157,19 @@ const RawEnvSchema = z.object({
   ENABLE_CLI_BUNDLE: optionalString,
   ENABLE_SOURCE_MODULE: optionalString,
   COREDOC_LICENSE_FILE: optionalString,
+
+  // intent rollout — TEMPORARY, see IntentConfig
+  INTENT_ROLES: optionalString.superRefine((value, ctx) => {
+    const unknown = intentRoleEntries(value).filter((entry) => !MEMBER_ROLES.includes(entry));
+    if (unknown.length > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          `unknown workspace role ${unknown.map((entry) => `'${entry}'`).join(', ')}; ` +
+          `expected a comma-separated list of ${MEMBER_ROLES.join(', ')}`,
+      });
+    }
+  }),
 });
 
 export interface R2Config {
@@ -320,6 +350,21 @@ export interface MiscConfig {
   licenseFile?: string;
 }
 
+/**
+ * TEMPORARY role-limited intent rollout (`INTENT_ROLES`): product roles fill in
+ * and verify intent before developers see it. Once intent is on for every role,
+ * delete this group, the variable and `modules/intent/intent-rollout.ts`, which
+ * holds the rule.
+ *
+ * `rolloutRoles` unset (the variable unset or blank) is today's behaviour: the
+ * workspace's `intentEnabled` alone decides. Set, intent counts as enabled for
+ * an actor only when the workspace has it on AND the actor's role in that
+ * workspace is listed. An unknown role name fails boot.
+ */
+export interface IntentConfig {
+  rolloutRoles?: readonly WorkspaceMemberRole[];
+}
+
 export interface AppConfig {
   role: ProcessRole;
   storage: StorageConfig;
@@ -329,6 +374,13 @@ export interface AppConfig {
   telemetry: TelemetryConfig;
   turso: TursoLegacyConfig;
   misc: MiscConfig;
+  intent: IntentConfig;
+}
+
+function toIntent(raw: z.infer<typeof RawEnvSchema>): IntentConfig {
+  // Already validated by the schema: every entry is a member role.
+  const roles = intentRoleEntries(raw.INTENT_ROLES) as WorkspaceMemberRole[];
+  return roles.length > 0 ? { rolloutRoles: roles } : {};
 }
 
 function toMisc(raw: z.infer<typeof RawEnvSchema>): MiscConfig {
@@ -429,6 +481,7 @@ export function loadAppConfig(
     telemetry: { posthogKey: raw.COREDOC_POSTHOG_KEY, posthogHost: raw.COREDOC_POSTHOG_HOST },
     turso: { org: raw.TURSO_ORG, orgToken: raw.TURSO_ORG_TOKEN },
     misc: toMisc(raw),
+    intent: toIntent(raw),
   };
 }
 
@@ -492,4 +545,9 @@ export function assertAppConfigValid(role: ProcessRole): void {
 /** The misc/bootstrap group read from the ambient environment. */
 export function miscConfigFromEnv(): MiscConfig {
   return loadAppConfig(process.env, 'worker').misc;
+}
+
+/** The TEMPORARY intent-rollout group read from the ambient environment. */
+export function intentConfigFromEnv(): IntentConfig {
+  return loadAppConfig(process.env, 'worker').intent;
 }

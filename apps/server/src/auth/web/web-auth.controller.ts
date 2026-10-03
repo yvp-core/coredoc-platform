@@ -11,6 +11,8 @@ import {
   Get,
   Header,
   HttpCode,
+  Inject,
+  Optional,
   Post,
   Query,
   Req,
@@ -22,6 +24,8 @@ import type { Request, Response } from 'express';
 import { AuthGuard } from '../auth.guard.js';
 import { CurrentUser, type AuthUser } from '../decorators/current-user.decorator.js';
 import { ControlPlaneService } from '../../database/control-plane.service.js';
+import { INTENT_CONFIG, intentConfigFromEnv, type IntentConfig } from '../../config/app-config.js';
+import { intentEnabledForActor } from '../../modules/intent/intent-rollout.js';
 import {
   CSRF_HEADER,
   CSRF_HEADER_VALUE,
@@ -47,6 +51,7 @@ export class WebAuthController {
   constructor(
     private readonly webAuth: WebAuthService,
     private readonly controlPlane: ControlPlaneService,
+    @Optional() @Inject(INTENT_CONFIG) private readonly intent: IntentConfig = intentConfigFromEnv(),
   ) {}
 
   /**
@@ -272,7 +277,9 @@ export class WebAuthController {
         name: w.name,
         slug: w.slug,
         role: w.role,
-        intentEnabled: w.intentEnabled,
+        // Per actor: the web gates the Intent nav and route on this, so a role
+        // outside the TEMPORARY `INTENT_ROLES` list sees intent as off.
+        intentEnabled: intentEnabledForActor(w.intentEnabled, w.role, this.intent),
       })),
     };
   }
