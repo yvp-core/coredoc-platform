@@ -16,13 +16,18 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { StableIdGenerator } from '@coredoc/core';
+import { type KotlinParseStats, type ParsedRepo, StableIdGenerator } from '@coredoc/core';
 import type { MobileEntrypointDetails } from '@coredoc/core/types';
 import { TreeSitterLoader } from '../../tree-sitter/tree-sitter-loader.js';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { checkReferentialIntegrity } from '../../integrity/referential-integrity.js';
+import { kotlinProvider } from '../../providers/kotlin.js';
 import type { KotlinProfile } from '../../types/kotlin-profile.js';
-import { type KotlinParsedRepo, discoverKotlinFileScope, parseKotlinRepo, toFullParsedRepo } from './kotlin-parser.js';
+import { discoverKotlinFileScope } from './kotlin-parser.js';
+
+/** The Kotlin substrate always emits these; `ParsedRepo` types them optional. */
+type KotlinRepo = ParsedRepo &
+  Required<Pick<ParsedRepo, 'components' | 'routes'>> & { stats: { kotlin: KotlinParseStats } };
 
 const CONFIGURED = (process.env.COREDOC_KOTLIN_FIXTURE_REPO ?? '')
   .split(',')
@@ -65,7 +70,7 @@ describe.skipIf(REPOS.length === 0)('kotlin substrate — whole-output invariant
   for (const root of REPOS) {
     describe(root, () => {
       const idGen = new StableIdGenerator(root, REPO_NAME);
-      let repo: KotlinParsedRepo;
+      let repo: KotlinRepo;
       let heapMb = 0;
 
       // The parse belongs to `beforeAll`, not to the first `it`: every assertion below reads
@@ -73,14 +78,18 @@ describe.skipIf(REPOS.length === 0)('kotlin substrate — whole-output invariant
       // would otherwise fail on an undefined repository rather than on what it asserts.
       beforeAll(async () => {
         const started = Date.now();
-        repo = await parseKotlinRepo(root, REPO_NAME, { repoKey: REPO_NAME }, profile);
+        repo = (await kotlinProvider.parse(profile, {
+          repoRoot: root,
+          repoName: REPO_NAME,
+          repoKey: REPO_NAME,
+        })) as KotlinRepo;
         heapMb = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
         console.info(
           `[kotlin-invariants] ${root}: files=${repo.files.length} packages=${repo.packages.length} ` +
             `classes=${repo.classes.length} functions=${repo.functions.length} calls=${repo.calls.length} ` +
             `entrypoints=${repo.entrypoints.length} components=${repo.components.length} routes=${repo.routes.length} ` +
             `entities=${repo.entities.length} dbOps=${repo.dbOperations.length} egress=${repo.externalCalls.length} ` +
-            `skipped=${repo.parseStats.skippedFiles} wallMs=${Date.now() - started} heapMb=${heapMb}`,
+            `skipped=${repo.stats.skippedFiles} wallMs=${Date.now() - started} heapMb=${heapMb}`,
         );
       }, 900_000);
 
@@ -182,21 +191,22 @@ describe.skipIf(REPOS.length === 0)('kotlin substrate — whole-output invariant
       });
 
       it('reports stats that match the collections they count', () => {
-        const full = toFullParsedRepo(repo, root, profile.parserId, new Date(0).toISOString());
-        expect(full.stats.parsedFiles).toBe(full.files.length);
-        expect(repo.kotlinStats.filesParsed).toBe(repo.files.length);
-        expect(repo.kotlinStats.resolvedCalls).toBe(repo.calls.length);
-        expect(repo.kotlinStats.callSites).toBeGreaterThanOrEqual(
-          repo.kotlinStats.resolvedCalls + repo.kotlinStats.ambiguousCalls,
+        expect(repo.stats.parsedFiles).toBe(repo.files.length);
+        expect(repo.stats.kotlin.filesParsed).toBe(repo.files.length);
+        expect(repo.stats.kotlin.resolvedCalls).toBe(repo.calls.length);
+        expect(repo.stats.kotlin.callSites).toBeGreaterThanOrEqual(
+          repo.stats.kotlin.resolvedCalls + repo.stats.kotlin.ambiguousCalls,
         );
         // The FULL invariant: a resolved site and an out-of-scope one are both SITES, so the two
         // partitions together can never exceed the denominator. The `>= resolved + ambiguous`
         // form alone stayed green while one site per chained call was being erased from it.
-        expect(repo.kotlinStats.callSites).toBeGreaterThanOrEqual(
-          repo.kotlinStats.resolvedCalls + repo.kotlinStats.outOfScopeCalls,
+        expect(repo.stats.kotlin.callSites).toBeGreaterThanOrEqual(
+          repo.stats.kotlin.resolvedCalls + repo.stats.kotlin.outOfScopeCalls,
         );
-        expect(Object.values(repo.kotlinStats.byTier).reduce((a, b) => a + b, 0)).toBe(repo.kotlinStats.resolvedCalls);
-        expect(repo.kotlinStats.egressCallSites).toBe(repo.externalCalls.length);
+        expect(Object.values(repo.stats.kotlin.byTier).reduce((a, b) => a + b, 0)).toBe(
+          repo.stats.kotlin.resolvedCalls,
+        );
+        expect(repo.stats.kotlin.egressCallSites).toBe(repo.externalCalls.length);
       });
 
       it('labels every call edge with one of the five Kotlin provenances', () => {
@@ -235,15 +245,18 @@ describe.skipIf(REPOS.length === 0)('kotlin substrate — whole-output invariant
       });
 
       it('passes referential integrity as a full ParsedRepo', () => {
-        const full = toFullParsedRepo(repo, root, profile.parserId, new Date(0).toISOString());
-        const report = checkReferentialIntegrity(full);
+        const report = checkReferentialIntegrity(repo);
         expect(report.violations).toEqual([]);
         expect(report.danglingRefs).toBe(0);
       });
 
       it('is deterministic: a second parse yields the identical id set', async () => {
-        const again = await parseKotlinRepo(root, REPO_NAME, { repoKey: REPO_NAME }, profile);
-        const idsOf = (r: KotlinParsedRepo) =>
+        const again = (await kotlinProvider.parse(profile, {
+          repoRoot: root,
+          repoName: REPO_NAME,
+          repoKey: REPO_NAME,
+        })) as KotlinRepo;
+        const idsOf = (r: KotlinRepo) =>
           [
             ...r.packages,
             ...r.files,
@@ -269,16 +282,16 @@ describe.skipIf(REPOS.length === 0)('kotlin substrate — whole-output invariant
       }, 900_000);
 
       it('records (does not gate) the resolution rate and the per-tier histogram', () => {
-        const { callSites, resolvedCalls, ambiguousCalls, byTier } = repo.kotlinStats;
+        const { callSites, resolvedCalls, ambiguousCalls, byTier } = repo.stats.kotlin;
         console.info(
           `[kotlin-invariants] calls: sites=${callSites} resolved=${resolvedCalls} ambiguous=${ambiguousCalls} ` +
             `rate=${((resolvedCalls / Math.max(callSites, 1)) * 100).toFixed(1)}% byTier=${JSON.stringify(byTier)}`,
         );
         console.info(
-          `[kotlin-invariants] egress: endpointsDefined=${repo.kotlinStats.endpointsDefined} ` +
-            `callSites=${repo.kotlinStats.egressCallSites} ` +
-            `entrypointsWithoutHandler=${repo.kotlinStats.entrypointsWithoutHandler} ` +
-            `unparsedDaoQueries=${repo.kotlinStats.unparsedDaoQueries}`,
+          `[kotlin-invariants] egress: endpointsDefined=${repo.stats.kotlin.endpointsDefined} ` +
+            `callSites=${repo.stats.kotlin.egressCallSites} ` +
+            `entrypointsWithoutHandler=${repo.stats.kotlin.entrypointsWithoutHandler} ` +
+            `unparsedDaoQueries=${repo.stats.kotlin.unparsedDaoQueries}`,
         );
         expect(resolvedCalls).toBe(repo.calls.length);
       });
@@ -302,7 +315,7 @@ describe.skipIf(REPOS.length === 0)('kotlin substrate — whole-output invariant
           `[kotlin-invariants] grammar: ${withErrors.length}/${scope.included.length} files contain an ERROR node` +
             (withErrors.length > 0 ? `\n[kotlin-invariants] ERROR files: ${withErrors.join('\n  ')}` : ''),
         );
-        expect(repo.kotlinStats.filesWithSyntaxErrors).toBeLessThanOrEqual(scope.included.length);
+        expect(repo.stats.kotlin.filesWithSyntaxErrors).toBeLessThanOrEqual(scope.included.length);
       }, 900_000);
     });
   }

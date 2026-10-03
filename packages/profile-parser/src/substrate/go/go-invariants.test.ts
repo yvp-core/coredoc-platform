@@ -18,12 +18,12 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { type EdgeIdKind, type FunctionNode, type NodeIdKind, StableIdGenerator } from '@coredoc/core';
+import { type EdgeIdKind, type FunctionNode, type NodeIdKind, type ParsedRepo, StableIdGenerator } from '@coredoc/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { goProvider } from '../../providers/go.js';
 import type { GoProfile } from '../../types.js';
 import { type GoFile, parseGo } from './go-cst.js';
 import { buildImportTable } from './go-imports.js';
-import { type GoParsedRepo, parseGoRepo } from './go-parser.js';
 
 const FILES: Record<string, string> = {
   'go.mod': [
@@ -251,13 +251,13 @@ function writeFixture(): string {
 
 describe('go substrate — graph-wide invariants', () => {
   let root: string;
-  let repo: GoParsedRepo;
+  let repo: ParsedRepo;
   let fnById: Map<string, FunctionNode>;
   let idGen: StableIdGenerator;
 
   beforeAll(async () => {
     root = writeFixture();
-    repo = await parseGoRepo(root, 'inv', {}, PROFILE);
+    repo = await goProvider.parse(PROFILE, { repoRoot: root, repoName: 'inv' });
     fnById = new Map((repo.functions ?? []).map((f) => [f.id, f]));
     idGen = new StableIdGenerator(root, 'inv');
   });
@@ -477,14 +477,17 @@ describe('go substrate — graph-wide invariants', () => {
  */
 describe('go substrate — a bare profile uses defaults, not opt-out', () => {
   let root: string;
-  let bare: GoParsedRepo;
+  let bare: ParsedRepo;
 
   beforeAll(async () => {
     root = writeFixture();
-    bare = await parseGoRepo(root, 'bare', {}, {
-      parserId: 'bare',
-      substrate: { language: 'go', include: ['**/*.go'] },
-    } as GoProfile);
+    bare = await goProvider.parse(
+      {
+        parserId: 'bare',
+        substrate: { language: 'go', include: ['**/*.go'] },
+      } as GoProfile,
+      { repoRoot: root, repoName: 'bare' },
+    );
   });
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -502,7 +505,7 @@ describe('go substrate — a bare profile uses defaults, not opt-out', () => {
     // The EXACT triple of this fixture: one sqlc site (`s.q.ListUsers(ctx)`), bound to the
     // `users` entity the .sql file declares, nothing out of scope. A `> 0` assertion would still
     // pass with a lost counter or a site counted in the wrong sub-lane.
-    expect(bare.parseStats.dbOpResolution).toEqual({ dbOpSites: 1, boundDbOps: 1, outOfScopeDbOps: 0 });
+    expect(bare.stats.dbOpResolution).toEqual({ dbOpSites: 1, boundDbOps: 1, outOfScopeDbOps: 0 });
   });
 
   it('yields entities, db-ops, entrypoints and calls with no knobs declared', () => {

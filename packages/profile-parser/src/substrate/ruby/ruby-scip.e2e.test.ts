@@ -2,15 +2,18 @@
  * Live standalone scip-ruby + full parse, including explicit installation and source isolation.
  * Opt-in because it downloads a release and invokes the OS sandbox.
  */
+import { rubyProvider } from '../../providers/ruby.js';
 import { cpSync, mkdtempSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { parseRubyRepo } from './ruby-parser.js';
+import type { RubyProfile } from '../../types/ruby-profile.js';
 import { installRubyTool } from './scip-tool.js';
 
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__/sample-app');
+const PROFILE: RubyProfile = { parserId: 'ruby-test', substrate: { language: 'ruby', include: [] } };
+
 const RUN = process.env.COREDOC_SCIP_RUBY_E2E === '1';
 const d = RUN ? describe : describe.skip;
 
@@ -39,7 +42,7 @@ d('scip-ruby live e2e (standalone, no Gemfile)', () => {
     const before = readdirSync(work, { recursive: true, withFileTypes: true })
       .filter((e) => e.isFile())
       .map((e) => [join(e.parentPath, e.name), readFileSync(join(e.parentPath, e.name))] as const);
-    const ruby = await parseRubyRepo(work, 'sample-app', { repoKey: 'sample-app' });
+    const ruby = await rubyProvider.parse(PROFILE, { repoRoot: work, repoName: 'sample-app', repoKey: 'sample-app' });
     const nameById = new Map(ruby.functions.map((f) => [f.id, f.name]));
     const scipEdges = ruby.calls.filter((e) => e.provenance === 'scip');
     const pairs = new Set(scipEdges.map((e) => `${nameById.get(e.callerId)}->${nameById.get(e.calleeId)}`));

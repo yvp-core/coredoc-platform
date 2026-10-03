@@ -1913,6 +1913,24 @@ describe('trace_cross_repo_call Tool Handler', () => {
       const data = result.data as CrossRepoCallResult;
       expect(data.caller.function.name).toBe('getSuperbookingGroupsData');
     });
+
+    // The linker collapses `{x}` / `${x}` / `:x` to one token; this tool must too,
+    // or an Express-spelled pattern misses the bridge the linker built.
+    it('matches an Express-style `:param` pattern against a `{param}` pathTemplate', async () => {
+      const mockRepo = bridgeRepository();
+
+      const result = await handleTraceCrossRepoCall(
+        { callPattern: 'GET /companies/:companyUuid/superbooking_groups' },
+        scopedElsewhere,
+        'raw',
+        'full',
+        defaultDetailConfig,
+        mockRepo,
+      );
+
+      const data = result.data as CrossRepoCallResult;
+      expect(data.caller.function.name).toBe('getSuperbookingGroupsData');
+    });
   });
 
   // Each of these covers a REFUSAL-or-hedge branch that shipped untested: the tool

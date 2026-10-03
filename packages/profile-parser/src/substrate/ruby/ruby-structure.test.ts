@@ -1,9 +1,11 @@
+import { rubyProvider } from '../../providers/ruby.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ClassNode, ParsedRepo } from '@coredoc/core';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { checkReferentialIntegrity } from '../../integrity/referential-integrity.js';
-import { discoverRubyFiles, parseRubyRepo, toFullParsedRepo } from './ruby-parser.js';
+import type { RubyProfile } from '../../types/ruby-profile.js';
+import { discoverRubyFiles } from './ruby-parser.js';
 
 /**
  * Structure nodes of the Ruby substrate: a FileNode per parsed source, a ClassNode per
@@ -11,14 +13,17 @@ import { discoverRubyFiles, parseRubyRepo, toFullParsedRepo } from './ruby-parse
  * Runs on a fixture app, with no Ruby toolchain (Tier-B only).
  */
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__/structure-app');
+const PROFILE: RubyProfile = { parserId: 'ruby-test', substrate: { language: 'ruby', include: [] } };
 
 describe('ruby substrate structure nodes', () => {
   let repo: ParsedRepo;
   let classByName: Map<string, ClassNode>;
 
   beforeAll(async () => {
-    const ruby = await parseRubyRepo(FIXTURE, 'structure-app', { repoKey: 'structure-app' });
-    repo = toFullParsedRepo(ruby, FIXTURE, 'structure-app-v1', '2026-08-29T00:00:00Z');
+    repo = await rubyProvider.parse(
+      { ...PROFILE, parserId: 'structure-app-v1' },
+      { repoRoot: FIXTURE, repoName: 'structure-app', repoKey: 'structure-app' },
+    );
     classByName = new Map(repo.classes.map((c) => [c.name, c]));
   }, 60_000);
 

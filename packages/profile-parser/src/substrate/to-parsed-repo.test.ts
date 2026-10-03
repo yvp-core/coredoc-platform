@@ -1,4 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { goSubstrate } from './go/go-parser.js';
+import { kotlinSubstrate } from './kotlin/kotlin-parser.js';
+import { pythonSubstrate } from './python/python-parser.js';
+import { rubySubstrate } from './ruby/ruby-parser.js';
+import { rustSubstrate } from './rust/rust-parser.js';
+import { swiftSubstrate } from './swift/swift-parser.js';
+import { zigSubstrate } from './zig/zig-parser.js';
 import { toParsedRepo } from './to-parsed-repo.js';
 
 const draft = {
@@ -82,15 +89,11 @@ describe('toParsedRepo', () => {
   // before messaging descriptors" and permanently drops the repo's messaging
   // sites, so no substrate may stamp below 1.1.0. Re-asserted here (and not by
   // importing the MCP predicate) because profile-parser must not depend on mcp.
-  it.each([
-    '1.2.0-go',
-    '1.2.0-python',
-    '1.2.0-rust',
-    '1.1.0-zig',
-    '1.1.0-kotlin',
-    '1.2.0-swift',
-    '1.4.0-ruby',
-  ])('substrate version %s is not pre-messaging', (version) => {
+  it.each(
+    [goSubstrate, pythonSubstrate, rustSubstrate, zigSubstrate, kotlinSubstrate, swiftSubstrate, rubySubstrate].map(
+      (substrate) => substrate.parserVersion,
+    ),
+  )('substrate version %s is not pre-messaging', (version) => {
     const core = toParsedRepo(draft, { parserVersion: version }).parserVersion.split('-')[0]!;
     const [major, minor] = core.split('.').map(Number) as [number, number];
     expect(major > 1 || (major === 1 && minor >= 1)).toBe(true);

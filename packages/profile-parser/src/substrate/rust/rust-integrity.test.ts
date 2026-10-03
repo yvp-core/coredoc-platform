@@ -9,6 +9,7 @@
  * This fixture reproduces every one of those shapes in miniature and asserts the validator — the
  * same one `run.ts` / `merge.ts` apply at write time — reports a CLEAN graph.
  */
+import { rustProvider } from '../../providers/rust.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -16,7 +17,6 @@ import type { ParsedRepo } from '@coredoc/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { checkReferentialIntegrity } from '../../integrity/referential-integrity.js';
 import type { RustProfile } from '../../types.js';
-import { parseRustRepo, toFullParsedRepo } from './rust-parser.js';
 
 const FILES: Record<string, string> = {
   'Cargo.toml': '[package]\nname = "app"\nversion = "0.1.0"\n',
@@ -119,8 +119,7 @@ describe('rust substrate — referential integrity', () => {
       mkdirSync(dirname(abs), { recursive: true });
       writeFileSync(abs, src);
     }
-    const parsed = await parseRustRepo(root, 'app', {}, PROFILE);
-    repo = toFullParsedRepo(parsed, root, PROFILE.parserId, new Date().toISOString());
+    repo = await rustProvider.parse(PROFILE, { repoRoot: root, repoName: 'app' });
   });
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 

@@ -144,8 +144,21 @@ export interface LanguageProvider<P extends BaseProfile = BaseProfile> {
 ```
 
 The provider does **not** expose the substrate — that's the internal contract between
-your `parse()` and the engine. `parse()` builds your substrate and runs the shared
-`SubstrateProfileEngine`.
+your `parse()` and the engine.
+
+A bespoke tree-sitter substrate (Go, Python, Rust, Ruby, Kotlin, Swift, Zig) declares a
+`Substrate` (`substrate/parse-substrate.ts`) — its `scope`, optional `grammar` and `scip`
+call index, and an `extract` that turns parsed files into facts — and the provider is two lines:
+
+```ts
+sourceFiles: (profile, repoRoot) => mySubstrate.scope(profile, repoRoot),
+parse: (profile, opts) => parseSubstrate(mySubstrate, profile, opts),
+```
+
+`parseSubstrate` owns the id seed, the read/parse-once loop, skipped-file `ParseError`s, the
+optional SCIP merge (`ctx.enhanceCalls`), WASM tree release on every exit path and the
+`ParsedRepo` stamp. `extract` returns plain data only — a tree-sitter node that outlives it is a
+use-after-free. Add your substrate to the conservation table in `parse-substrate.test.ts`.
 
 ## Step 4 — File discovery
 
@@ -204,7 +217,7 @@ Three rules make the numbers mean something:
   collapse to one operation must count once (`substrate/go/go-dbops.ts` and the Python, Swift and
   Zig lanes all derive it from their output array).
 
-Stamp `parserVersion` at **`>= 1.1.0-<lang>`** in your `toFullParsedRepo`. Anything with a `1.0.x`
+Stamp `parserVersion` at **`>= 1.1.0-<lang>`** on your `Substrate`. Anything with a `1.0.x`
 semver core is read as predating the messaging-descriptor schema
 (`MESSAGING_SCHEMA_VERSION` in `packages/mcp/src/tools/cross-repo/messaging-data.ts`), which
 permanently excludes every repo you parse from `trace_cross_repo_call`'s messaging graph and prints

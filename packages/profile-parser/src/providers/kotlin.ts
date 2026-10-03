@@ -1,18 +1,18 @@
 // =============================================================================
 // Kotlin/Android LanguageProvider.
 //
-// A thin wrapper over `parseKotlinRepo` + `toFullParsedRepo` (the bespoke tree-sitter-CST
+// A thin wrapper over `kotlinSubstrate` run through `parseSubstrate` (the bespoke tree-sitter-CST
 // substrate): declarations, `import` edges, Tier-B calls, Room/Realm entities and operations,
 // Retrofit egress, `mobile` entrypoints, Compose/Fragment/Activity components and navigation
 // routes. No SCIP — Kotlin has no wired semantic index, so `discovery` omits `scipPrereqs` and
 // the parse never throws on a missing one. `.kt` only: a Kotlin target never claims `.java`.
 // =============================================================================
-import type { ParsedRepo } from '@coredoc/core/types';
 import { kotlinSourceSignals } from '../scoring/kotlin-signals.js';
 import type { ScoreContext, SourceSignals } from '../scoring/score-core.js';
-import { discoverKotlinFileScope, parseKotlinRepo, toFullParsedRepo } from '../substrate/kotlin/kotlin-parser.js';
+import { kotlinSubstrate } from '../substrate/kotlin/kotlin-parser.js';
+import { parseSubstrate } from '../substrate/parse-substrate.js';
 import type { KotlinProfile } from '../types/kotlin-profile.js';
-import type { LanguageProvider, ParseOptions } from './types.js';
+import type { LanguageProvider } from './types.js';
 
 /** A Kotlin extraction profile: has parserId+substrate+include and language 'kotlin'. */
 function isKotlinProfile(v: unknown): v is KotlinProfile {
@@ -30,21 +30,8 @@ export const kotlinProvider: LanguageProvider<KotlinProfile> = {
   },
   isProfile: isKotlinProfile,
 
-  sourceFiles(profile: KotlinProfile, repoRoot: string) {
-    return discoverKotlinFileScope(repoRoot, profile.substrate.include ?? [], profile.substrate.exclude ?? []);
-  },
-
-  async parse(profile: KotlinProfile, opts: ParseOptions): Promise<ParsedRepo> {
-    const kotlin = await parseKotlinRepo(
-      opts.repoRoot,
-      opts.repoName,
-      // No `incremental`/`cacheDir`/`scipOutDir`: Kotlin has neither an incremental cache nor a
-      // SCIP indexer, so those `ParseOptions` fields are accepted here and go no further.
-      { repoKey: opts.repoKey, httpPrefix: opts.httpPrefix },
-      profile,
-    );
-    return toFullParsedRepo(kotlin, opts.repoRoot, profile.parserId, new Date().toISOString());
-  },
+  sourceFiles: (profile, repoRoot) => kotlinSubstrate.scope(profile, repoRoot),
+  parse: (profile, opts) => parseSubstrate(kotlinSubstrate, profile, opts),
 
   sourceSignals(ctx: ScoreContext): SourceSignals {
     return kotlinSourceSignals(ctx);

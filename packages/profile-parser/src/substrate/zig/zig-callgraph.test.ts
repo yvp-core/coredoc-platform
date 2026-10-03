@@ -28,7 +28,7 @@ let files: ZigFileEntry[];
 let calls: CallEdge[];
 let result: ReturnType<typeof resolveZigCalls>;
 
-/** `zig-parser.ts`'s read → parse → walk, run directly: `parseZigRepo` does not wire these lanes yet. */
+/** `zig-parser.ts`'s read → parse → walk, run directly: `zigSubstrate` does not wire these lanes yet. */
 beforeAll(async () => {
   trees = [];
   for (const relPath of REL_PATHS) {

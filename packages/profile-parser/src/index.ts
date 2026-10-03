@@ -51,10 +51,4 @@ export {
   type SdkSourceRepo,
   type GenerateResult,
 } from './sdk-mappings/generate.js';
-export {
-  parseRubyRepo,
-  toFullParsedRepo,
-  type ParseRubyRepoOptions,
-  type RubyParsedRepo,
-} from './substrate/ruby/ruby-parser.js';
 export type { RubyProfile } from './types.js';

@@ -14,11 +14,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { StableIdGenerator } from '@coredoc/core';
+import { type ParsedRepo, StableIdGenerator } from '@coredoc/core';
 import { TreeSitterLoader } from '../../tree-sitter/tree-sitter-loader.js';
 import { describe, expect, it } from 'vitest';
 import { checkReferentialIntegrity } from '../../integrity/referential-integrity.js';
-import { type ZigParsedRepo, discoverZigFileScope, parseZigRepo, toFullParsedRepo } from './zig-parser.js';
+import { zigProvider } from '../../providers/zig.js';
+import type { ZigProfile } from '../../types/zig-profile.js';
+import { discoverZigFileScope } from './zig-parser.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '../../../../..');
@@ -33,22 +35,23 @@ if (!AVAILABLE) {
 }
 
 const REPO_NAME = 'zig-fixture';
+const BARE: ZigProfile = { parserId: 'zig-fixture-v1', substrate: { language: 'zig' } };
 
 /** The five tiers BR-12 defines: a provenance outside them is another language's edge. */
 const ZIG_PROVENANCE = new Set(['zig-local', 'zig-self', 'zig-type', 'zig-import', 'zig-field']);
 
 describe.skipIf(!AVAILABLE)('zig substrate — whole-output invariants on a real repo', () => {
   const idGen = new StableIdGenerator(FIXTURE_REPO, REPO_NAME);
-  let repo: ZigParsedRepo;
+  let repo: ParsedRepo;
 
   it('parses the fixture repo and reports its shape', async () => {
     const started = Date.now();
-    repo = await parseZigRepo(FIXTURE_REPO, REPO_NAME, {});
+    repo = await zigProvider.parse(BARE, { repoRoot: FIXTURE_REPO, repoName: REPO_NAME });
     const elapsed = Date.now() - started;
     console.info(
       `[zig-invariants] ${FIXTURE_REPO}: files=${repo.files.length} classes=${repo.classes.length} ` +
         `enums=${repo.enums.length} functions=${repo.functions.length} ` +
-        `skipped=${repo.parseStats.skippedFiles} wallMs=${elapsed}`,
+        `skipped=${repo.stats.skippedFiles} wallMs=${elapsed}`,
     );
     expect(repo.files.length).toBeGreaterThan(50);
     expect(repo.classes.length).toBeGreaterThan(0);
@@ -108,22 +111,21 @@ describe.skipIf(!AVAILABLE)('zig substrate — whole-output invariants on a real
     for (const e of repo.enums) {
       for (const member of e.members) expect(member.name.trim().length, `${e.id}.${member.name}`).toBeGreaterThan(0);
     }
-    expect(repo.parseStats.parsedFiles).toBe(repo.files.length);
-    expect(repo.parseStats.totalFiles).toBe(repo.files.length + repo.parseStats.skippedFiles);
+    expect(repo.stats.parsedFiles).toBe(repo.files.length);
+    expect(repo.stats.totalFiles).toBe(repo.files.length + repo.stats.skippedFiles);
   });
 
   it('passes referential integrity as a full ParsedRepo', () => {
-    const full = toFullParsedRepo(repo, FIXTURE_REPO, 'zig-fixture-v1', new Date(0).toISOString());
-    const report = checkReferentialIntegrity(full);
+    const report = checkReferentialIntegrity(repo);
     expect(report.violations).toEqual([]);
     expect(report.danglingRefs).toBe(0);
   });
 
   it('is deterministic: a second parse yields the identical stable-id set', async () => {
-    const again = await parseZigRepo(FIXTURE_REPO, REPO_NAME, {});
+    const again = await zigProvider.parse(BARE, { repoRoot: FIXTURE_REPO, repoName: REPO_NAME });
     // Every collection, not just the slice-1 three: a resolver that iterates a Map in insertion
     // order is deterministic only as long as the walk that filled it is.
-    const idsOf = (r: ZigParsedRepo) =>
+    const idsOf = (r: ParsedRepo) =>
       [
         ...r.classes.map((c) => c.id),
         ...r.enums.map((e) => e.id),
@@ -261,7 +263,10 @@ describe.skipIf(!AVAILABLE)('zig substrate — whole-output invariants on a real
   });
 
   it('records the call-resolution rate (LIM-B)', () => {
-    const { seen, resolved, byTier } = repo.callStats;
+    // The LIM-6 denominator (named call sites); raw `seen` is pinned on `resolveZigCalls` itself.
+    const { callSites: seen = 0, resolvedCalls: resolved = 0 } = repo.stats.callResolution ?? {};
+    const byTier: Record<string, number> = {};
+    for (const c of repo.calls) byTier[c.provenance ?? '?'] = (byTier[c.provenance ?? '?'] ?? 0) + 1;
     console.info(
       `[zig-invariants] calls: seen=${seen} resolved=${resolved} ` +
         `rate=${((resolved / Math.max(seen, 1)) * 100).toFixed(1)}% byTier=${JSON.stringify(byTier)}`,

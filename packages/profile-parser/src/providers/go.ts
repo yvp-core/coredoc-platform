@@ -1,11 +1,10 @@
 import { goScipPrereqs } from '../substrate/go/scip-tool.js';
-import type { ParsedRepo } from '@coredoc/core/types';
 import { goSourceSignals } from '../scoring/go-signals.js';
 import type { ScoreContext, SourceSignals } from '../scoring/score-core.js';
-import { discoverGoFileScope } from '../substrate/go/go-cst.js';
-import { parseGoRepo, toFullParsedRepo } from '../substrate/go/go-parser.js';
+import { goSubstrate } from '../substrate/go/go-parser.js';
+import { parseSubstrate } from '../substrate/parse-substrate.js';
 import type { GoProfile } from '../types/go-profile.js';
-import type { LanguageProvider, ParseOptions } from './types.js';
+import type { LanguageProvider } from './types.js';
 
 /** A Go extraction profile: has parserId+substrate and language 'go'. */
 function isGoProfile(v: unknown): v is GoProfile {
@@ -22,24 +21,8 @@ export const goProvider: LanguageProvider<GoProfile> = {
   },
   isProfile: isGoProfile,
 
-  sourceFiles(profile: GoProfile, repoRoot: string) {
-    return discoverGoFileScope(
-      repoRoot,
-      profile.substrate.include,
-      profile.substrate.exclude ?? [],
-      profile.substrate.excludeDefaults,
-    );
-  },
-
-  async parse(profile: GoProfile, opts: ParseOptions): Promise<ParsedRepo> {
-    const gs = await parseGoRepo(
-      opts.repoRoot,
-      opts.repoName,
-      { httpPrefix: opts.httpPrefix, repoKey: opts.repoKey, cacheDir: opts.cacheDir, scipOutDir: opts.scipOutDir },
-      profile,
-    );
-    return toFullParsedRepo(gs, opts.repoRoot, profile.parserId, new Date().toISOString());
-  },
+  sourceFiles: (profile, repoRoot) => goSubstrate.scope(profile, repoRoot),
+  parse: (profile, opts) => parseSubstrate(goSubstrate, profile, opts),
 
   sourceSignals(ctx: ScoreContext): SourceSignals {
     return goSourceSignals(ctx.repoRoot, ctx.profile as GoProfile, ctx.parsed, ctx.sourceFiles);
