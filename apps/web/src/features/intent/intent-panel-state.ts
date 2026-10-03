@@ -146,10 +146,11 @@ export function intentItemsInScope(
 
 /* ---------------------------------------------------------------- counts --- */
 
-/** One tree node's live items (candidate or accepted) and the candidates among them. */
+/** One tree node's live items (candidate or accepted), the candidates and the open questions among them. */
 export interface IntentCountCell {
   items: number;
   pending: number;
+  open: number;
 }
 
 /**
@@ -172,15 +173,23 @@ export function intentTreeCounts(
 ): IntentTreeCounts {
   const domains: Record<string, IntentCountCell> = {};
   const features: Record<string, IntentCountCell> = {};
-  const cell = (node: IntentNodeCounts): IntentCountCell => ({ items: node.itemCount, pending: node.pendingCount });
+  const cell = (node: IntentNodeCounts): IntentCountCell => ({
+    items: node.itemCount,
+    pending: node.pendingCount,
+    open: node.openQuestionCount,
+  });
   for (const page of pages) {
     for (const domain of page.domains) {
-      domains[domain.id] = { items: domain.subtreeItemCount, pending: domain.subtreePendingCount };
+      domains[domain.id] = {
+        items: domain.subtreeItemCount,
+        pending: domain.subtreePendingCount,
+        open: domain.subtreeOpenQuestionCount,
+      };
       for (const feature of domain.features) features[feature.id] = cell(feature);
     }
   }
   for (const feature of moreFeatures) features[feature.id] = cell(feature);
-  return { root: cell(pages[0]?.root ?? { itemCount: 0, pendingCount: 0 }), domains, features };
+  return { root: cell(pages[0]?.root ?? { itemCount: 0, pendingCount: 0, openQuestionCount: 0 }), domains, features };
 }
 
 /* --------------------------------------------------------------- filters --- */
@@ -194,6 +203,12 @@ export interface IntentItemFilter {
   includeCandidates: boolean;
   /** Rejected and superseded items, which are hidden by default. */
   includeResolved: boolean;
+  /**
+   * Only decisions whose choice is still open. Shared with the structure
+   * column's "Only with open questions" toggle, so the tree and the list narrow
+   * together and clearing either clears both.
+   */
+  openQuestions: boolean;
 }
 
 export const DEFAULT_INTENT_ITEM_FILTER: IntentItemFilter = {
@@ -201,6 +216,7 @@ export const DEFAULT_INTENT_ITEM_FILTER: IntentItemFilter = {
   kinds: [],
   includeCandidates: true,
   includeResolved: false,
+  openQuestions: false,
 };
 
 /** Items grouped by kind, in the browse filter's kind order. */

@@ -142,37 +142,38 @@ describe('IntentTreeBrowser nested features', () => {
   });
 });
 
+const treeFeature = (id: string, parentFeatureId: string | null) => ({
+  id,
+  domainId: 'bank',
+  parentFeatureId,
+  title: id,
+  statement: '',
+  archived: false,
+  createdAt: '2026-09-01T00:00:00.000Z',
+  updatedAt: '2026-09-01T00:00:00.000Z',
+});
+const treeDomain = (id: string, features: ReturnType<typeof treeFeature>[]) => ({
+  id,
+  title: id,
+  statement: '',
+  archived: false,
+  createdAt: '2026-09-01T00:00:00.000Z',
+  updatedAt: '2026-09-01T00:00:00.000Z',
+  featuresTruncated: false,
+  features,
+});
+
 describe('IntentTreeBrowser pending proposals', () => {
   it('shows server counts and, filtered, only the nodes with proposals at or below them', () => {
-    const feature = (id: string, parentFeatureId: string | null) => ({
-      id,
-      domainId: 'bank',
-      parentFeatureId,
-      title: id,
-      statement: '',
-      archived: false,
-      createdAt: '2026-09-01T00:00:00.000Z',
-      updatedAt: '2026-09-01T00:00:00.000Z',
-    });
-    const domain = (id: string, features: ReturnType<typeof feature>[]) => ({
-      id,
-      title: id,
-      statement: '',
-      archived: false,
-      createdAt: '2026-09-01T00:00:00.000Z',
-      updatedAt: '2026-09-01T00:00:00.000Z',
-      featuresTruncated: false,
-      features,
-    });
     renderBrowser({
       domains: [
-        domain('bank', [feature('payout', null), feature('limits', 'payout'), feature('report', null)]),
-        domain('quiet', []),
+        treeDomain('bank', [treeFeature('payout', null), treeFeature('limits', 'payout'), treeFeature('report', null)]),
+        treeDomain('quiet', []),
       ],
       counts: {
-        root: { items: 0, pending: 0 },
-        domains: { bank: { items: 2, pending: 2 } },
-        features: { limits: { items: 2, pending: 2 } },
+        root: { items: 0, pending: 0, open: 0 },
+        domains: { bank: { items: 2, pending: 2, open: 0 } },
+        features: { limits: { items: 2, pending: 2, open: 0 } },
       },
       onlyPending: true,
       onToggleOnlyPending: () => undefined,
@@ -183,6 +184,62 @@ describe('IntentTreeBrowser pending proposals', () => {
     expect(screen.getByRole('button', { name: /payout/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /limits/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /report/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /quiet/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('IntentTreeBrowser open questions', () => {
+  const tree = {
+    domains: [
+      treeDomain('bank', [treeFeature('payout', null), treeFeature('limits', 'payout'), treeFeature('report', null)]),
+      treeDomain('quiet', []),
+    ],
+    counts: {
+      root: { items: 0, pending: 0, open: 0 },
+      domains: { bank: { items: 5, pending: 1, open: 2 }, quiet: { items: 1, pending: 1, open: 0 } },
+      features: {
+        limits: { items: 2, pending: 0, open: 1 },
+        report: { items: 3, pending: 1, open: 1 },
+      },
+    },
+  };
+
+  it('badges the open questions and, filtered, keeps only the nodes with one at or below them', () => {
+    const toggled: string[] = [];
+    renderBrowser({
+      ...tree,
+      onlyOpenQuestions: true,
+      onToggleOnlyOpenQuestions: () => toggled.push('open'),
+    });
+
+    // The domain (subtree), the parent feature (rolled up) and the two features holding one.
+    expect(screen.getByTitle('2 open questions')).toBeInTheDocument();
+    expect(screen.getAllByTitle('1 open question')).toHaveLength(3);
+    expect(screen.getByRole('button', { name: /payout/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /report/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /quiet/ })).not.toBeInTheDocument();
+
+    const toggle = screen.getByRole('button', { name: 'Only with open questions' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    toggle.click();
+    expect(toggled).toEqual(['open']);
+  });
+
+  it('combines with "Only with proposals": a node must hold both', () => {
+    renderBrowser({
+      ...tree,
+      onlyPending: true,
+      onToggleOnlyPending: () => undefined,
+      onlyOpenQuestions: true,
+      onToggleOnlyOpenQuestions: () => undefined,
+    });
+
+    expect(screen.getByRole('button', { name: /bank/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /report/ })).toBeInTheDocument();
+    // An open question but no proposal at or below it.
+    expect(screen.queryByRole('button', { name: /payout/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /limits/ })).not.toBeInTheDocument();
+    // A proposal but no open question.
     expect(screen.queryByRole('button', { name: /quiet/ })).not.toBeInTheDocument();
   });
 });

@@ -55,6 +55,7 @@ import type {
   UpdateIntentFeatureInput,
 } from './contract/index.js';
 import { INTENT_TREE_FEATURES_PER_DOMAIN, IntentCursorScope, decodeIntentCursor, paginate } from './intent-cursor.js';
+import { OPEN_QUESTION_WHERE } from './intent-item.service.js';
 import {
   IntentAuditOperation,
   IntentOperation,
@@ -99,10 +100,11 @@ export interface IntentTreeFeatureView extends IntentTreeDomainView {
   parentFeatureId: string | null;
 }
 
-/** A tree node's item counts; see `IntentTreeService.itemCounts`. */
+/** A tree node's item counts; see {@link readIntentNodeCounts}. */
 export interface IntentNodeCounts {
   itemCount: number;
   pendingCount: number;
+  openQuestionCount: number;
 }
 
 export interface IntentTreeDimensionView {
@@ -113,6 +115,80 @@ export interface IntentTreeDimensionView {
   archived: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * The intent tree's counts, shared by the tree read and the product root's
+ * document. `itemCount` is the live items (candidate or accepted; rejected
+ * and superseded are history) attached DIRECTLY to a node: an item
+ * attached to a feature counts for that feature only, not for its domain or
+ * its parent feature, and the product root counts the items attached to no
+ * node. `pendingCount` is the candidates among them, waiting for review, and
+ * `openQuestionCount` the decisions among them whose choice is still open
+ * ({@link OPEN_QUESTION_WHERE}).
+ * A domain's `subtree*` counts add every one of its features, archived ones
+ * and those past the per-domain page cap included.
+ */
+export async function readIntentNodeCounts(
+  prisma: Pick<PrismaService, 'intentItem'>,
+  workspaceId: string,
+  where: Prisma.IntentItemWhereInput,
+) {
+  // Two grouped reads, not one per node: `payload` is JSONB, which groupBy
+  // cannot key on, so the open questions are their own filtered grouping.
+  const [rows, openRows] = await Promise.all([
+    prisma.intentItem.groupBy({
+      by: ['domainId', 'featureId', 'authority'],
+      where: { workspaceId, authority: { in: ['candidate', 'accepted'] }, ...where },
+      _count: { _all: true },
+    }),
+    prisma.intentItem.groupBy({
+      by: ['domainId', 'featureId'],
+      where: { workspaceId, AND: [OPEN_QUESTION_WHERE, where] },
+      _count: { _all: true },
+    }),
+  ]);
+  const empty = (): IntentNodeCounts => ({ itemCount: 0, pendingCount: 0, openQuestionCount: 0 });
+  const byNode = new Map<string, IntentNodeCounts>();
+  const bySubtree = new Map<string, IntentNodeCounts>();
+  const add = (map: Map<string, IntentNodeCounts>, key: string, field: keyof IntentNodeCounts, count: number) => {
+    const node = map.get(key) ?? empty();
+    node[field] += count;
+    map.set(key, node);
+  };
+  const keyOf = (domainId: string | null, featureId: string | null) => `${domainId ?? ''}/${featureId ?? ''}`;
+  const tally = (
+    row: { domainId: string | null; featureId: string | null },
+    field: keyof IntentNodeCounts,
+    count: number,
+  ) => {
+    add(byNode, keyOf(row.domainId, row.featureId), field, count);
+    if (row.domainId !== null) add(bySubtree, row.domainId, field, count);
+  };
+  for (const row of rows) {
+    tally(row, 'itemCount', row._count._all);
+    if (row.authority === 'candidate') tally(row, 'pendingCount', row._count._all);
+  }
+  for (const row of openRows) tally(row, 'openQuestionCount', row._count._all);
+  return {
+    /** Every counted item in `where`, whatever it is attached to. */
+    total: (): IntentNodeCounts => {
+      const sum = empty();
+      for (const node of byNode.values())
+        for (const field of Object.keys(sum) as (keyof IntentNodeCounts)[]) sum[field] += node[field];
+      return sum;
+    },
+    of: (domainId: string | null, featureId: string | null): IntentNodeCounts =>
+      byNode.get(keyOf(domainId, featureId)) ?? empty(),
+    subtreeOf: (domainId: string) => {
+      const subtree = bySubtree.get(domainId) ?? empty();
+      return {
+        subtreeItemCount: subtree.itemCount,
+        subtreePendingCount: subtree.pendingCount,
+        subtreeOpenQuestionCount: subtree.openQuestionCount,
+      };
+    },
+  };
 }
 
 @Injectable()
@@ -155,7 +231,7 @@ export class IntentTreeService {
       },
     });
     const { page, nextCursor } = paginate(rows, limit, IntentCursorScope.TreeDomains, (row) => [row.id]);
-    const counts = await this.itemCounts(workspaceId, {
+    const counts = await readIntentNodeCounts(this.prisma, workspaceId, {
       OR: [{ domainId: { in: page.map((domain) => domain.id) } }, { domainId: null }],
     });
 
@@ -171,45 +247,6 @@ export class IntentTreeService {
         featuresTruncated: domain.features.length > INTENT_TREE_FEATURES_PER_DOMAIN,
       })),
       nextCursor,
-    };
-  }
-
-  /**
-   * The tree's counts. `itemCount` is the live items (candidate or accepted;
-   * rejected and superseded are history) attached DIRECTLY to a node: an item
-   * attached to a feature counts for that feature only, not for its domain or
-   * its parent feature, and the product root counts the items attached to no
-   * node. `pendingCount` is the candidates among them, waiting for review.
-   * A domain's `subtree*` counts add every one of its features, archived ones
-   * and those past the per-domain page cap included.
-   */
-  private async itemCounts(workspaceId: string, where: Prisma.IntentItemWhereInput) {
-    const rows = await this.prisma.intentItem.groupBy({
-      by: ['domainId', 'featureId', 'authority'],
-      where: { workspaceId, authority: { in: ['candidate', 'accepted'] }, ...where },
-      _count: { _all: true },
-    });
-    const byNode = new Map<string, IntentNodeCounts>();
-    const bySubtree = new Map<string, IntentNodeCounts>();
-    const add = (map: Map<string, IntentNodeCounts>, key: string, count: number, pending: boolean) => {
-      const node = map.get(key) ?? { itemCount: 0, pendingCount: 0 };
-      node.itemCount += count;
-      if (pending) node.pendingCount += count;
-      map.set(key, node);
-    };
-    const keyOf = (domainId: string | null, featureId: string | null) => `${domainId ?? ''}/${featureId ?? ''}`;
-    for (const row of rows) {
-      const pending = row.authority === 'candidate';
-      add(byNode, keyOf(row.domainId, row.featureId), row._count._all, pending);
-      if (row.domainId !== null) add(bySubtree, row.domainId, row._count._all, pending);
-    }
-    return {
-      of: (domainId: string | null, featureId: string | null): IntentNodeCounts =>
-        byNode.get(keyOf(domainId, featureId)) ?? { itemCount: 0, pendingCount: 0 },
-      subtreeOf: (domainId: string) => {
-        const subtree = bySubtree.get(domainId);
-        return { subtreeItemCount: subtree?.itemCount ?? 0, subtreePendingCount: subtree?.pendingCount ?? 0 };
-      },
     };
   }
 
@@ -249,7 +286,9 @@ export class IntentTreeService {
       take: limit + 1,
     });
     const { page, nextCursor } = paginate(rows, limit, IntentCursorScope.Features, (row) => [row.id]);
-    const counts = await this.itemCounts(workspaceId, { featureId: { in: page.map((feature) => feature.id) } });
+    const counts = await readIntentNodeCounts(this.prisma, workspaceId, {
+      featureId: { in: page.map((feature) => feature.id) },
+    });
     return {
       features: page.map((feature) => ({ ...featureView(feature), ...counts.of(feature.domainId, feature.id) })),
       nextCursor,

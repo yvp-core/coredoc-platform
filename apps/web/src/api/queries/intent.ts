@@ -189,6 +189,7 @@ export const intentItemsQueryOptions = (workspaceId: string, query: IntentItemsQ
       query.authorities ?? null,
       query.kinds ?? null,
       query.scopeFeatureId ?? null,
+      query.openQuestions ?? null,
     ] as const,
     queryFn: ({ pageParam }) =>
       get<IntentItemsResponse>(

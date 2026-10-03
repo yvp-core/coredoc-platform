@@ -45,6 +45,9 @@ const DOCUMENT: IntentNodeDocument = {
   ],
   related: [{ kind: 'feature', id: 'invoices', title: 'Invoices', why: 'Credit notes' }],
   features: [],
+  domains: [],
+  overview: null,
+  moreDomains: 0,
   delivery: { effective: 1, planned: 0, unrecorded: 1 },
   truncated: false,
 };
@@ -75,4 +78,56 @@ it('renders the node as a document, marks proposals in place and opens what is c
   expect(onSelectItem).toHaveBeenLastCalledWith('br-window');
   fireEvent.click(screen.getByRole('button', { name: 'Invoices' }));
   expect(onOpenNode).toHaveBeenCalledWith('feature', 'invoices');
+});
+
+it('reads the product root as the whole product: domains with counts open in the tree, delivery across everything', () => {
+  const onOpenNode = vi.fn();
+  render(
+    <IntentDocumentView
+      document={{
+        node: { kind: 'root', id: null, title: 'Product root', domainId: null },
+        sections: [],
+        related: [],
+        features: [],
+        domains: [
+          {
+            id: 'absence',
+            title: 'Absence Management',
+            itemCount: 44,
+            pendingCount: 3,
+            openQuestionCount: 2,
+            effective: 30,
+          },
+          { id: 'billing', title: 'Billing', itemCount: 1, pendingCount: 0, openQuestionCount: 0, effective: 1 },
+        ],
+        overview: { itemCount: 45, pendingCount: 3, openQuestionCount: 2 },
+        moreDomains: 0,
+        delivery: { effective: 31, planned: 2, unrecorded: 10 },
+        truncated: false,
+      }}
+      loading={false}
+      includeCandidates
+      selectedItemId={null}
+      onToggleCandidates={() => undefined}
+      onSelectItem={() => undefined}
+      onOpenNode={onOpenNode}
+      onRetry={() => undefined}
+    />,
+  );
+
+  expect(screen.getByText('The whole product: 2 domains, 45 items.')).toBeTruthy();
+  const absence = screen.getByRole('button', { name: /Absence Management/ });
+  expect(absence.textContent).toContain('44 items');
+  expect(absence.textContent).toContain('30 in production');
+  expect(screen.getByTitle('3 waiting for review')).toBeTruthy();
+  expect(screen.getByTitle('2 open questions')).toBeTruthy();
+  // No root-attached items: the domain list is the content, not an empty-node notice.
+  expect(screen.queryByText(/No items are attached here/)).toBeNull();
+  expect(screen.queryByText('Product-wide items')).toBeNull();
+  expect(
+    screen.getByText(/31 in production, 2 planned, 10 with no delivery record across the whole product/),
+  ).toBeTruthy();
+
+  fireEvent.click(absence);
+  expect(onOpenNode).toHaveBeenCalledWith('domain', 'absence');
 });

@@ -81,6 +81,9 @@ beforeEach(() => {
             sections: [],
             related: [],
             features: [],
+            domains: [],
+            overview: null,
+            moreDomains: 0,
             delivery: { effective: 0, planned: 0, unrecorded: 0 },
             truncated: false,
           }),
@@ -111,7 +114,8 @@ beforeEach(() => {
           (row) =>
             `${row.id} ${row.title}`.toLowerCase().includes(search) &&
             (!u.searchParams.get('effectivity') || row.effectivity === u.searchParams.get('effectivity')) &&
-            (!u.searchParams.get('sourceRef') || row.id === 'br-rule-224'),
+            (!u.searchParams.get('sourceRef') || row.id === 'br-rule-224') &&
+            (u.searchParams.get('openQuestions') !== 'true' || row.id === 'br-rule-7'),
         );
         return new Response(
           JSON.stringify({
@@ -208,6 +212,27 @@ it('selects an exact source and applies it to the catalogue and bulk selection',
   fireEvent.click(screen.getByRole('button', { name: 'Clear source filter' }));
   await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
   expect(screen.getByText('1 rule selected')).toBeInTheDocument();
+});
+
+it('narrows the list to open questions from the tree toggle, and clears both from the list chip', async () => {
+  await mount();
+  await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
+  const toggle = screen.getByRole('button', { name: 'Only with open questions' });
+  fireEvent.click(toggle);
+  await screen.findByRole('checkbox', { name: 'Select Rule 7 for delivery' });
+  await waitFor(() =>
+    expect(screen.queryByRole('checkbox', { name: 'Select Rule 0 for delivery' })).not.toBeInTheDocument(),
+  );
+  const chip = screen.getByRole('button', { name: 'Open questions only' });
+  expect(chip).toHaveAttribute('aria-pressed', 'true');
+  expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  // Bulk selection honours the same narrowed query.
+  fireEvent.click(screen.getByRole('button', { name: 'Select all matching rules' }));
+  await screen.findByText('1 rule selected');
+
+  fireEvent.click(chip);
+  await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
+  expect(screen.getByRole('button', { name: 'Only with open questions' })).toHaveAttribute('aria-pressed', 'false');
 });
 
 it('shows condition chips on browse rows', async () => {

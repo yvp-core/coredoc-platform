@@ -155,11 +155,13 @@ export interface IntentTreeDomain extends IntentDomainView {
 
 /**
  * Live items (candidate or accepted) attached directly to a tree node — a
- * feature's items count for the feature only — and the candidates among them.
+ * feature's items count for the feature only — the candidates among them, and
+ * the decisions among them whose choice is still open.
  */
 export interface IntentNodeCounts {
   itemCount: number;
   pendingCount: number;
+  openQuestionCount: number;
 }
 
 export type IntentCountedFeature = IntentFeatureView & IntentNodeCounts;
@@ -172,6 +174,7 @@ export interface IntentTreeResponse {
       /** The domain's own items plus every feature's, archived and unlisted ones included. */
       subtreeItemCount: number;
       subtreePendingCount: number;
+      subtreeOpenQuestionCount: number;
       features: IntentCountedFeature[];
     })[];
   nextCursor: string | null;
@@ -290,6 +293,8 @@ export interface IntentItemsQuery {
   authorities?: string;
   kinds?: string;
   scopeFeatureId?: string;
+  /** Only live decisions whose choice is still open. */
+  openQuestions?: 'true';
   authority?: IntentAuthority;
   kind?: IntentItemKind;
   domainId?: string;
@@ -398,8 +403,28 @@ export interface IntentNodeDocument {
   sections: { heading: string | null; blocks: IntentDocumentBlock[] }[];
   related: { kind: 'domain' | 'feature'; id: string; title: string; why: string }[];
   features: { id: string; title: string }[];
+  /** The product root only: its domains with their subtree counts, in tree order. */
+  domains: IntentDocumentDomain[];
+  /** The product root only: the whole product's live, waiting and open-question counts (archived domains left out). */
+  overview: { itemCount: number; pendingCount: number; openQuestionCount: number } | null;
+  /** The product root only: domains past the listing cap, not in `domains`. */
+  moreDomains: number;
+  /**
+   * The node's whole subtree: a feature with its sub-features, a domain with its
+   * features, the product root with every domain that is not archived.
+   */
   delivery: { effective: number; planned: number; unrecorded: number };
   truncated: boolean;
+}
+
+export interface IntentDocumentDomain {
+  id: string;
+  title: string;
+  itemCount: number;
+  pendingCount: number;
+  openQuestionCount: number;
+  /** Items below the domain that are in production. */
+  effective: number;
 }
 
 /* --------------------------------------------------------------- context --- */
