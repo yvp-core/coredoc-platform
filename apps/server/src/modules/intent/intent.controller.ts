@@ -67,6 +67,7 @@ import { IntentItemService } from './intent-item.service.js';
 import {
   DeleteIntentDomainSchema,
   DeleteIntentFeatureSchema,
+  IntentNodeDocumentQuerySchema,
   ListIntentFeatureSeedsQuerySchema,
   ListIntentFeaturesQuerySchema,
   ListIntentItemsQuerySchema,
@@ -74,6 +75,7 @@ import {
   ListIntentTreeQuerySchema,
 } from './intent-module-operations.js';
 import { IntentProposeService } from './intent-propose.service.js';
+import { IntentReadService } from './intent-read.service.js';
 import { assertPathMatchesBody } from './intent-state-errors.js';
 import { IntentTreeService } from './intent-tree.service.js';
 import { IntentActorRole } from '../../mcp/intent-auth.js';
@@ -96,6 +98,7 @@ export class IntentController {
     private readonly tree: IntentTreeService,
     private readonly items: IntentItemService,
     private readonly propose: IntentProposeService,
+    private readonly reads: IntentReadService,
   ) {}
 
   /* -------------------------------------------------------------- reads --- */
@@ -108,6 +111,20 @@ export class IntentController {
     @Query(intentContractPipe(ListIntentTreeQuerySchema)) parsed: z.infer<typeof ListIntentTreeQuerySchema>,
   ) {
     return this.tree.getTree(workspaceId, parsed, parseIntentPageLimit(parsed.limit));
+  }
+
+  @Get('document')
+  @WorkspaceRole('member')
+  @RequirePermission(TokenPermission.IntentRead)
+  async getDocument(
+    @Param('workspaceId') workspaceId: string,
+    @Query(intentContractPipe(IntentNodeDocumentQuerySchema)) parsed: z.infer<typeof IntentNodeDocumentQuerySchema>,
+  ) {
+    return this.reads.document(workspaceId, {
+      ...(parsed.domainId ? { domain: parsed.domainId } : {}),
+      ...(parsed.featureId ? { feature: parsed.featureId } : {}),
+      includeCandidates: parsed.includeCandidates === 'true',
+    });
   }
 
   @Get('features')

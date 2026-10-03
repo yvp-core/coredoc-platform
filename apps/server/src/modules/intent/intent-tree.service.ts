@@ -19,7 +19,7 @@
  */
 import { isDeepStrictEqual } from 'node:util';
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { IntentAuditEntityKind, Prisma } from '../../generated/prisma/client.js';
+import { IntentAuditEntityKind, IntentNodeKind, Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import {
   INTENT_LIMITS,
@@ -38,6 +38,9 @@ import type {
   CreateIntentFeatureInput,
   DeleteIntentDimensionInput,
   DeleteIntentFeatureSeedInput,
+  DeleteIntentNodeRelationInput,
+  IntentNodeRefInput,
+  PutIntentNodeRelationInput,
   ListIntentDimensionsQuery,
   PutIntentFeatureSeedInput,
   UpdateIntentDimensionInput,
@@ -65,6 +68,9 @@ import type {
 import { intentNotFound, intentStateError } from './intent-state-errors.js';
 import { INTENT_CONTRACT_LIMITS, IntentErrorCode } from './contract/index.js';
 
+/** How deep features may nest under one another. */
+export const INTENT_FEATURE_MAX_DEPTH = 8;
+
 /** The empty statement a node carries until someone writes one; the column is NOT NULL. */
 const EMPTY_STATEMENT = '';
 
@@ -81,6 +87,8 @@ export interface IntentTreeDomainView {
 
 export interface IntentTreeFeatureView extends IntentTreeDomainView {
   domainId: string;
+  /** The feature this one sits under, in the same domain; `null` at the top level. */
+  parentFeatureId: string | null;
 }
 
 export interface IntentTreeDimensionView {
@@ -237,6 +245,7 @@ export class IntentTreeService {
             title: input.title,
             statement: input.statement ?? EMPTY_STATEMENT,
             ...treeConditionsData(input.appliesWhen),
+            ...layoutData(input.layout),
             createdBy: actor.id,
             updatedBy: actor.id,
           },
@@ -278,6 +287,7 @@ export class IntentTreeService {
             ...(input.title !== undefined ? { title: input.title } : {}),
             ...(input.statement !== undefined ? { statement: input.statement } : {}),
             ...treeConditionsData(input.appliesWhen),
+            ...layoutData(input.layout),
             updatedBy: actor.id,
           },
         });
@@ -370,17 +380,19 @@ export class IntentTreeService {
           ...items.map((row) => `item ${row.id}`),
         ]);
 
+        const relationCount = await deleteNodeRelations(tx, workspaceId, { kind: 'domain', id: input.id });
         await withForeignKeyRefusal('Domain', input.id, () =>
           tx.intentDomain.delete({ where: { workspaceId_id: { workspaceId, id: input.id } } }),
         );
         return {
-          response: { deleted: { kind: 'domain', id: input.id } },
+          response: { deleted: { kind: 'domain', id: input.id, removedRelationCount: relationCount } },
           audits: [
             {
               entityKind: IntentAuditEntityKind.domain,
               entityId: input.id,
               operation: IntentAuditOperation.Delete,
               before: { title: before.title, archived: before.archived },
+              after: { removedRelationCount: relationCount },
             } satisfies IntentAuditRecord,
           ],
         };
@@ -402,6 +414,8 @@ export class IntentTreeService {
       },
       async (tx) => {
         await this.readDomain(tx, workspaceId, input.domainId, ['domainId']);
+        if (input.parentFeatureId !== undefined)
+          await this.assertParent(tx, workspaceId, input.id, input.domainId, input.parentFeatureId);
         await validateTreeConditions(tx, workspaceId, input.appliesWhen);
         const existing = await tx.intentFeature.findUnique({
           where: { workspaceId_id: { workspaceId, id: input.id } },
@@ -420,9 +434,11 @@ export class IntentTreeService {
             workspaceId,
             id: input.id,
             domainId: input.domainId,
+            ...(input.parentFeatureId !== undefined ? { parentFeatureId: input.parentFeatureId } : {}),
             title: input.title,
             statement: input.statement ?? EMPTY_STATEMENT,
             ...treeConditionsData(input.appliesWhen),
+            ...layoutData(input.layout),
             createdBy: actor.id,
             updatedBy: actor.id,
           },
@@ -439,6 +455,7 @@ export class IntentTreeService {
               operation: IntentAuditOperation.Create,
               after: {
                 domainId: created.domainId,
+                ...(created.parentFeatureId ? { parentFeatureId: created.parentFeatureId } : {}),
                 title: created.title,
                 archived: created.archived,
                 ...auditedConditions(created),
@@ -462,13 +479,17 @@ export class IntentTreeService {
       },
       async (tx) => {
         const before = await this.readFeature(tx, workspaceId, input.id, ['id']);
+        if (input.parentFeatureId)
+          await this.assertParent(tx, workspaceId, input.id, before.domainId, input.parentFeatureId);
         await validateTreeConditions(tx, workspaceId, input.appliesWhen);
         const updated = await tx.intentFeature.update({
           where: { workspaceId_id: { workspaceId, id: input.id } },
           data: {
             ...(input.title !== undefined ? { title: input.title } : {}),
+            ...(input.parentFeatureId !== undefined ? { parentFeatureId: input.parentFeatureId } : {}),
             ...(input.statement !== undefined ? { statement: input.statement } : {}),
             ...treeConditionsData(input.appliesWhen),
+            ...layoutData(input.layout),
             updatedBy: actor.id,
           },
         });
@@ -482,8 +503,16 @@ export class IntentTreeService {
               entityKind: IntentAuditEntityKind.feature,
               entityId: updated.id,
               operation: IntentAuditOperation.Update,
-              before: { title: before.title, ...(input.appliesWhen !== undefined ? auditedConditions(before) : {}) },
-              after: { title: updated.title, ...(input.appliesWhen !== undefined ? auditedConditions(updated) : {}) },
+              before: {
+                title: before.title,
+                ...(input.parentFeatureId !== undefined ? { parentFeatureId: before.parentFeatureId } : {}),
+                ...(input.appliesWhen !== undefined ? auditedConditions(before) : {}),
+              },
+              after: {
+                title: updated.title,
+                ...(input.parentFeatureId !== undefined ? { parentFeatureId: updated.parentFeatureId } : {}),
+                ...(input.appliesWhen !== undefined ? auditedConditions(updated) : {}),
+              },
             } satisfies IntentAuditRecord,
           ],
         };
@@ -543,31 +572,46 @@ export class IntentTreeService {
       },
       async (tx) => {
         const before = await this.readFeature(tx, workspaceId, input.id, ['id']);
-        const items = await tx.intentItem.findMany({
-          where: { workspaceId, featureId: input.id },
-          select: { id: true },
-          orderBy: { id: 'asc' },
-          take: 20,
-        });
-        assertEmpty(
-          'Feature',
-          input.id,
-          items.map((row) => `item ${row.id}`),
-        );
+        const [children, items] = await Promise.all([
+          tx.intentFeature.findMany({
+            where: { workspaceId, parentFeatureId: input.id },
+            select: { id: true },
+            orderBy: { id: 'asc' },
+            take: 20,
+          }),
+          tx.intentItem.findMany({
+            where: { workspaceId, featureId: input.id },
+            select: { id: true },
+            orderBy: { id: 'asc' },
+            take: 20,
+          }),
+        ]);
+        assertEmpty('Feature', input.id, [
+          ...children.map((row) => `feature ${row.id}`),
+          ...items.map((row) => `item ${row.id}`),
+        ]);
 
         const seedCount = await tx.intentFeatureSeed.count({ where: { workspaceId, featureId: input.id } });
+        const relationCount = await deleteNodeRelations(tx, workspaceId, { kind: 'feature', id: input.id });
         await withForeignKeyRefusal('Feature', input.id, () =>
           tx.intentFeature.delete({ where: { workspaceId_id: { workspaceId, id: input.id } } }),
         );
         return {
-          response: { deleted: { kind: 'feature', id: input.id, cascadedSeedCount: seedCount } },
+          response: {
+            deleted: {
+              kind: 'feature',
+              id: input.id,
+              cascadedSeedCount: seedCount,
+              removedRelationCount: relationCount,
+            },
+          },
           audits: [
             {
               entityKind: IntentAuditEntityKind.feature,
               entityId: input.id,
               operation: IntentAuditOperation.Delete,
               before: { domainId: before.domainId, title: before.title, archived: before.archived },
-              after: { cascadedSeedCount: seedCount },
+              after: { cascadedSeedCount: seedCount, removedRelationCount: relationCount },
             } satisfies IntentAuditRecord,
           ],
         };
@@ -865,7 +909,108 @@ export class IntentTreeService {
     );
   }
 
+  /* ----------------------------------------------------- node relations --- */
+
+  /**
+   * Declare a relation between two nodes, or re-word its reason. The pair is
+   * unordered: `from`/`to` are stored in canonical order, so naming the same
+   * two nodes the other way round addresses the same relation.
+   */
+  async putRelation(workspaceId: string, actor: IntentActor, input: PutIntentNodeRelationInput) {
+    return runIntentMutation(
+      this.prisma,
+      {
+        workspaceId,
+        actor,
+        operation: IntentOperation.RelationPut,
+        idempotencyKey: input.idempotencyKey,
+        request: input,
+      },
+      async (tx) => {
+        const [from, to] = canonicalRelationEndpoints(input.from, input.to);
+        await this.readNode(tx, workspaceId, input.from, ['from']);
+        await this.readNode(tx, workspaceId, input.to, ['to']);
+
+        const identity = relationIdentity(workspaceId, from, to);
+        const existing = await tx.intentNodeRelation.findUnique({ where: identity });
+        const relation = existing
+          ? await tx.intentNodeRelation.update({ where: { id: existing.id }, data: { why: input.why } })
+          : await tx.intentNodeRelation.create({
+              data: {
+                workspaceId,
+                fromKind: from.kind,
+                fromId: from.id,
+                toKind: to.kind,
+                toId: to.id,
+                why: input.why,
+                createdBy: actor.id,
+              },
+            });
+
+        return {
+          response: { relation: relationView(relation), created: existing === null },
+          audits: [
+            {
+              entityKind: IntentAuditEntityKind.node_relation,
+              entityId: relationEntityId(from, to),
+              operation: existing ? IntentAuditOperation.Update : IntentAuditOperation.Create,
+              ...(existing ? { before: { why: existing.why } } : {}),
+              after: { why: relation.why },
+            } satisfies IntentAuditRecord,
+          ],
+        };
+      },
+    );
+  }
+
+  async deleteRelation(workspaceId: string, actor: IntentActor, input: DeleteIntentNodeRelationInput) {
+    return runIntentMutation(
+      this.prisma,
+      {
+        workspaceId,
+        actor,
+        operation: IntentOperation.RelationDelete,
+        idempotencyKey: input.idempotencyKey,
+        request: input,
+      },
+      async (tx) => {
+        const [from, to] = canonicalRelationEndpoints(input.from, input.to);
+        const existing = await tx.intentNodeRelation.findUnique({ where: relationIdentity(workspaceId, from, to) });
+        if (!existing) {
+          throw intentNotFound(
+            IntentErrorCode.NodeRelationNotFound,
+            `No relation joins ${input.from.kind} '${input.from.id}' and ${input.to.kind} '${input.to.id}'`,
+            ['to'],
+          );
+        }
+        await tx.intentNodeRelation.delete({ where: { id: existing.id } });
+        return {
+          response: { deleted: { kind: 'node_relation', from, to } },
+          audits: [
+            {
+              entityKind: IntentAuditEntityKind.node_relation,
+              entityId: relationEntityId(from, to),
+              operation: IntentAuditOperation.Delete,
+              before: { why: existing.why },
+            } satisfies IntentAuditRecord,
+          ],
+        };
+      },
+    );
+  }
+
   /* ------------------------------------------------------------ helpers --- */
+
+  private async readNode(
+    reader: Pick<IntentTransaction, 'intentDomain' | 'intentFeature'>,
+    workspaceId: string,
+    node: IntentNodeRefInput,
+    path: string[],
+  ) {
+    return node.kind === 'domain'
+      ? this.readDomain(reader, workspaceId, node.id, [...path, 'id'])
+      : this.readFeature(reader, workspaceId, node.id, [...path, 'id']);
+  }
 
   private async readDomain(
     reader: Pick<IntentTransaction, 'intentDomain'>,
@@ -905,6 +1050,69 @@ export class IntentTreeService {
     return dimension;
   }
 
+  /**
+   * The parent must exist in the same domain, must not be the feature itself or
+   * below it, and the move must keep every feature within
+   * {@link INTENT_FEATURE_MAX_DEPTH} ancestors — the moved feature's own subtree
+   * included. A workspace lock serialises re-parenting, so two concurrent moves
+   * cannot each pass the cycle check and close a loop together.
+   */
+  private async assertParent(
+    tx: IntentTransaction,
+    workspaceId: string,
+    featureId: string,
+    domainId: string,
+    parentId: string,
+  ) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${workspaceId}::text || ':intent-feature-tree', 0))`;
+    const parent = await this.readFeature(tx, workspaceId, parentId, ['parentFeatureId']);
+    if (parent.domainId !== domainId) {
+      throw intentStateError(
+        IntentErrorCode.FeatureDomainMismatch,
+        `Feature '${parentId}' is in domain '${parent.domainId}'; a feature can only sit under a feature of its own domain '${domainId}'.`,
+        ['parentFeatureId'],
+      );
+    }
+    const tooDeep = () =>
+      intentStateError(
+        IntentErrorCode.FeatureParentCycle,
+        `Features nest at most ${INTENT_FEATURE_MAX_DEPTH} levels below the top; this move would go deeper.`,
+        ['parentFeatureId'],
+      );
+
+    // Ancestors the moved feature would have: the parent and everything above it.
+    let ancestors = 0;
+    let cursor: string | null = parent.id;
+    while (cursor !== null) {
+      if (cursor === featureId) {
+        throw intentStateError(
+          IntentErrorCode.FeatureParentCycle,
+          `Feature '${featureId}' cannot sit under '${parentId}': that is the feature itself or one of its own sub-features.`,
+          ['parentFeatureId'],
+        );
+      }
+      ancestors += 1;
+      if (ancestors > INTENT_FEATURE_MAX_DEPTH) throw tooDeep();
+      const row: { parentFeatureId: string | null } | null = await tx.intentFeature.findUnique({
+        where: { workspaceId_id: { workspaceId, id: cursor } },
+        select: { parentFeatureId: true },
+      });
+      cursor = row?.parentFeatureId ?? null;
+    }
+
+    // Its deepest descendant moves down with it.
+    let level = [featureId];
+    for (let height = 1; level.length > 0; height += 1) {
+      const children = await tx.intentFeature.findMany({
+        where: { workspaceId, parentFeatureId: { in: level } },
+        select: { id: true },
+      });
+      if (children.length === 0) break;
+      if (ancestors + height > INTENT_FEATURE_MAX_DEPTH) throw tooDeep();
+      level = children.map((child) => child.id);
+    }
+  }
+
   private async readFeature(
     reader: Pick<IntentTransaction, 'intentFeature'>,
     workspaceId: string,
@@ -917,6 +1125,82 @@ export class IntentTreeService {
     }
     return feature;
   }
+}
+
+export interface IntentNodeRelationView {
+  from: IntentNodeRefInput;
+  to: IntentNodeRefInput;
+  why: string;
+  createdAt: string;
+}
+
+/**
+ * The stored order of an unordered pair: by `kind:id`, the same comparison the
+ * `intent_node_relations_canonical_check` constraint makes. A self-link is
+ * refused here, before the constraint would turn it into a 500.
+ */
+export function canonicalRelationEndpoints(
+  a: IntentNodeRefInput,
+  b: IntentNodeRefInput,
+): [IntentNodeRefInput, IntentNodeRefInput] {
+  const keyA = `${a.kind}:${a.id}`;
+  const keyB = `${b.kind}:${b.id}`;
+  if (keyA === keyB) {
+    throw intentStateError(IntentErrorCode.NodeRelationSelf, 'A relation must join two different nodes', ['to']);
+  }
+  return keyA < keyB ? [a, b] : [b, a];
+}
+
+function relationIdentity(workspaceId: string, from: IntentNodeRefInput, to: IntentNodeRefInput) {
+  return {
+    workspaceId_fromKind_fromId_toKind_toId: {
+      workspaceId,
+      fromKind: from.kind as IntentNodeKind,
+      fromId: from.id,
+      toKind: to.kind as IntentNodeKind,
+      toId: to.id,
+    },
+  };
+}
+
+/** The audit entity id of a node relation; the workspace import writes the same one. */
+export function relationEntityId(from: IntentNodeRefInput, to: IntentNodeRefInput): string {
+  return `${from.kind}:${from.id}|${to.kind}:${to.id}`;
+}
+
+export function relationView(row: {
+  fromKind: IntentNodeKind;
+  fromId: string;
+  toKind: IntentNodeKind;
+  toId: string;
+  why: string;
+  createdAt: Date;
+}): IntentNodeRelationView {
+  return {
+    from: { kind: row.fromKind, id: row.fromId },
+    to: { kind: row.toKind, id: row.toId },
+    why: row.why,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+/** Delete every relation touching a node, inside the transaction that deletes the node. */
+async function deleteNodeRelations(
+  tx: Pick<IntentTransaction, 'intentNodeRelation'>,
+  workspaceId: string,
+  node: IntentNodeRefInput,
+): Promise<number> {
+  const kind = node.kind as IntentNodeKind;
+  const { count } = await tx.intentNodeRelation.deleteMany({
+    where: {
+      workspaceId,
+      OR: [
+        { fromKind: kind, fromId: node.id },
+        { toKind: kind, toId: node.id },
+      ],
+    },
+  });
+  return count;
 }
 
 function domainView(row: {
@@ -943,6 +1227,7 @@ function domainView(row: {
 function featureView(row: {
   id: string;
   domainId: string;
+  parentFeatureId: string | null;
   title: string;
   statement: string;
   appliesWhen: Prisma.JsonValue;
@@ -950,7 +1235,7 @@ function featureView(row: {
   createdAt: Date;
   updatedAt: Date;
 }): IntentTreeFeatureView {
-  return { ...domainView(row), domainId: row.domainId };
+  return { ...domainView(row), domainId: row.domainId, parentFeatureId: row.parentFeatureId };
 }
 
 function dimensionView(row: {
@@ -979,8 +1264,14 @@ export function treeConditionsOf(value: Prisma.JsonValue | undefined): ContextCo
   return Array.isArray(value) && value.length > 0 ? (value as unknown as ContextCondition[]) : undefined;
 }
 
+/** Absent keeps the stored layout; `[]` clears it to NULL. */
+export function layoutData(layout: unknown[] | undefined) {
+  if (layout === undefined) return {};
+  return { layout: layout.length > 0 ? (layout as Prisma.InputJsonValue) : Prisma.DbNull };
+}
+
 /** `[]` clears to NULL, so a cleared node reads exactly like one never conditioned. */
-function treeConditionsData(conditions: ContextCondition[] | undefined) {
+export function treeConditionsData(conditions: readonly unknown[] | undefined) {
   if (conditions === undefined) return {};
   return { appliesWhen: conditions.length > 0 ? (conditions as Prisma.InputJsonValue) : Prisma.DbNull };
 }

@@ -13,10 +13,10 @@ import { formatCountValue, sampledMedianText, stageBarEntries } from './delivery
 function Fact({ label, text, caption }: { label: string; text: string; caption: string | null }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-[5px]">
-      <span className="text-[12px] text-ink-3">{label}</span>
+      <span className="text-[13px] text-ink-3">{label}</span>
       <span className="whitespace-nowrap text-right">
-        <span className="num text-[12.5px] text-ink-1">{text}</span>
-        {caption === null ? null : <span className="ml-1.5 text-[10.5px] text-ink-4">{caption}</span>}
+        <span className="num text-[13.5px] text-ink-1">{text}</span>
+        {caption === null ? null : <span className="ml-1.5 text-[11.5px] text-ink-4">{caption}</span>}
       </span>
     </div>
   );

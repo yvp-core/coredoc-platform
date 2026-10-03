@@ -32,13 +32,13 @@ export function PillTabs<T extends string>({
             aria-pressed={active}
             onClick={() => onChange(item.value)}
             className={cn(
-              'inline-flex items-center gap-[7px] rounded-full px-[18px] py-[5px] text-[12.5px] font-normal transition-colors disabled:pointer-events-none disabled:opacity-50',
+              'inline-flex items-center gap-[7px] rounded-full px-[18px] py-[5px] text-[13.5px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-50',
               active ? 'bg-brand-wash text-brand-text' : 'text-ink-3 hover:text-ink-1',
             )}
           >
             {item.label}
             {item.count !== undefined ? (
-              <span className="num rounded-full bg-blue-wash px-[7px] text-[10.5px] text-blue">{item.count}</span>
+              <span className="num rounded-full bg-blue-wash px-[7px] text-[11.5px] text-blue">{item.count}</span>
             ) : null}
           </button>
         );

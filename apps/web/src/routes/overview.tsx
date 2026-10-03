@@ -17,7 +17,7 @@ import { Card, CardBody, CardHead } from '@/components/ui/card';
 import { formatRelativeTime } from '@/lib/time';
 import { findWorkspace } from './workspace';
 
-const TH = 'border-b border-border-soft pb-[7px] text-[10.5px] font-normal uppercase tracking-[0.04em] text-ink-4';
+const TH = 'border-b border-border-soft pb-[7px] text-[11.5px] font-normal uppercase tracking-[0.04em] text-ink-4';
 const TD = 'border-b border-border-soft py-2 text-ink-2 last:border-b-0';
 
 const NUM = new Intl.NumberFormat('en-US');
@@ -46,13 +46,13 @@ function JobRow({ job }: { job: Job }) {
   return (
     <div className="flex items-start justify-between gap-3 border-b border-border-soft py-2 last:border-b-0">
       <div className="min-w-0">
-        <div className="truncate text-[12.5px] text-ink-1">{job.repoName ?? job.type}</div>
-        <div className="truncate text-[11px] text-ink-4">
+        <div className="truncate text-[13.5px] text-ink-1">{job.repoName ?? job.type}</div>
+        <div className="truncate text-[12px] text-ink-4">
           {job.status === 'failed' && job.lastError ? job.lastError.split('\n', 1)[0] : job.type}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <span className="num text-[11px] text-ink-4">{formatRelativeTime(job.finishedAt ?? job.queuedAt)}</span>
+        <span className="num text-[12px] text-ink-4">{formatRelativeTime(job.finishedAt ?? job.queuedAt)}</span>
         <Badge variant={JOB_BADGE[job.status]}>{job.status}</Badge>
       </div>
     </div>
@@ -87,7 +87,7 @@ function OverviewContent({ wsId, slug, role }: { wsId: string; slug: string; rol
             title={config.workspace.name}
             sub={
               <>
-                <span className="font-mono text-[11.5px]">{slug}</span>
+                <span className="font-mono text-[12.5px]">{slug}</span>
                 <RoleBadge role={role} />
               </>
             }
@@ -126,7 +126,7 @@ function OverviewContent({ wsId, slug, role }: { wsId: string; slug: string; rol
             title="Repositories"
             sub="graph size and last push"
             right={
-              <Link to="/w/$slug/repos" params={{ slug }} className="text-[11.5px] text-ink-3 hover:text-ink-1">
+              <Link to="/w/$slug/repos" params={{ slug }} className="text-[12.5px] text-ink-3 hover:text-ink-1">
                 Manage →
               </Link>
             }
@@ -137,7 +137,7 @@ function OverviewContent({ wsId, slug, role }: { wsId: string; slug: string; rol
                 repos.length === 0 ? (
                   <EmptyNote>No repositories pushed to this workspace yet.</EmptyNote>
                 ) : (
-                  <table className="w-full border-collapse text-[12.5px]">
+                  <table className="w-full border-collapse text-[13.5px]">
                     <thead>
                       <tr>
                         <th className={`${TH} text-left`}>Repository</th>
@@ -188,9 +188,9 @@ function OverviewContent({ wsId, slug, role }: { wsId: string; slug: string; rol
                 <div className="num text-[24px] font-medium tracking-[-0.02em] text-ink-1">
                   {fmt(configQuery.data?.members.length)}
                 </div>
-                <div className="text-[11px] text-ink-4">members with workspace access</div>
+                <div className="text-[12px] text-ink-4">members with workspace access</div>
               </div>
-              <Link to="/w/$slug/teams" params={{ slug }} className="text-[11.5px] text-ink-3 hover:text-ink-1">
+              <Link to="/w/$slug/teams" params={{ slug }} className="text-[12.5px] text-ink-3 hover:text-ink-1">
                 Manage →
               </Link>
             </CardBody>

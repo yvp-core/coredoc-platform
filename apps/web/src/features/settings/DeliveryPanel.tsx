@@ -41,7 +41,7 @@ import { formatRelativeTime } from '@/lib/time';
 
 import type { DeliveryConnector } from './types';
 
-const ERROR_CLASS = 'text-[12px] text-danger-text';
+const ERROR_CLASS = 'text-[13px] text-danger-text';
 
 function message(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
@@ -99,7 +99,7 @@ function ConnectorRow({
   return (
     <>
       <Tr>
-        <Td className="font-mono text-[11.5px] text-ink-1">{connector.provider}</Td>
+        <Td className="font-mono text-[12.5px] text-ink-1">{connector.provider}</Td>
         <Td className="text-ink-2">{scopeLabel(connector)}</Td>
         <Td>
           <Badge variant={paused ? 'warn' : 'ok'}>{connector.status}</Badge>
@@ -268,7 +268,7 @@ function AddConnectorDialog({
                 onChange={(event) => setScope(event.target.value)}
                 placeholder={github ? 'owner/repo, owner/other' : 'ENG, OPS'}
               />
-              <p className="text-[11.5px] text-ink-4">
+              <p className="text-[12.5px] text-ink-4">
                 Comma separated. Leave empty to ingest everything the credential can reach.
               </p>
             </div>

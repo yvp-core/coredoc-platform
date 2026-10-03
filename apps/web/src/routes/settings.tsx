@@ -28,7 +28,7 @@ export function WorkspaceSettings() {
         title="Settings"
         sub={
           <>
-            <span className="font-mono text-[11.5px]">{workspace.slug}</span>
+            <span className="font-mono text-[12.5px]">{workspace.slug}</span>
             <RoleBadge role={workspace.role} />
           </>
         }
@@ -37,7 +37,7 @@ export function WorkspaceSettings() {
       <Card>
         <CardHead title="Appearance" sub="Applies to this browser only" />
         <CardBody className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[12px] text-ink-3">System follows your operating system's light or dark preference.</p>
+          <p className="text-[13px] text-ink-3">System follows your operating system's light or dark preference.</p>
           <ThemeSelect />
         </CardBody>
       </Card>

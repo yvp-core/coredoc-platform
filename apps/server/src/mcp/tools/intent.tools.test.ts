@@ -30,10 +30,12 @@ import type { IntentProposeService } from '../../modules/intent/intent-propose.s
 import type { IntentReviewService } from '../../modules/intent/intent-review.service.js';
 import type { IntentTreeService } from '../../modules/intent/intent-tree.service.js';
 import type { IntentItemService } from '../../modules/intent/intent-item.service.js';
+import type { IntentReadService } from '../../modules/intent/intent-read.service.js';
 import { McpAuthKind } from '../mcp-auth-context.js';
 import { McpModule } from '../mcp.module.js';
 import {
   IntentAnchorAction,
+  IntentReadAction,
   IntentToolStatus,
   IntentTools,
   IntentTreeAction,
@@ -61,6 +63,13 @@ function mocks() {
       putSeed: vi.fn().mockResolvedValue({ featureId: 'refunds' }),
       deleteSeed: vi.fn().mockResolvedValue({ featureId: 'refunds' }),
       createDimension: vi.fn().mockResolvedValue({ dimension: { id: 'country' } }),
+      putRelation: vi.fn().mockResolvedValue({ created: true }),
+      deleteRelation: vi.fn().mockResolvedValue({ deleted: { kind: 'node_relation' } }),
+    },
+    reads: {
+      tree: vi.fn().mockResolvedValue('# Intent tree: 1 domains'),
+      node: vi.fn().mockResolvedValue('# Sessions and Logout'),
+      search: vi.fn().mockResolvedValue('2 items match'),
     },
     anchors: {
       preview: vi.fn().mockResolvedValue({ wouldCreate: true, drifted: false }),
@@ -96,6 +105,7 @@ function build(m: Mocks): IntentTools {
     m.releases as unknown as IntentReleaseService,
     m.handoffs as unknown as IntentHandoffService,
     m.items as unknown as IntentItemService,
+    m.reads as unknown as IntentReadService,
   );
 }
 
@@ -261,7 +271,12 @@ describe('intent tools — gate matrix', () => {
     expect(answer.status).toBe(IntentToolStatus.PermissionDenied);
     expect(answer.requires).toEqual({
       userSession: true,
-      roles: [WorkspaceMemberRole.Owner, WorkspaceMemberRole.Admin, WorkspaceMemberRole.Member],
+      roles: [
+        WorkspaceMemberRole.Owner,
+        WorkspaceMemberRole.Admin,
+        WorkspaceMemberRole.Product,
+        WorkspaceMemberRole.Member,
+      ],
     });
     expect(answer.message).toMatch(/user session, not a service token/);
     expect(m.review.review).not.toHaveBeenCalled();
@@ -1125,5 +1140,85 @@ describe('intent_source_update', () => {
     const js = read(await tools.intentSourceUpdate({ ...body, url: 'javascript:alert(1)' }, {} as Context, userReq()));
     expect(js.status).toBe('error');
     expect(m.items.updateSource).not.toHaveBeenCalled();
+  });
+});
+
+describe('intent_read', () => {
+  const text = (result: { content: { type: 'text'; text: string }[] }) => result.content[0]?.text;
+
+  it('returns the text document as is, not JSON-encoded', async () => {
+    const m = mocks();
+    configured(m);
+    const tools = build(m);
+    expect(text(await tools.intentRead({ action: IntentReadAction.Tree }, {} as Context, userReq()))).toBe(
+      '# Intent tree: 1 domains',
+    );
+    expect(
+      text(await tools.intentRead({ action: IntentReadAction.Node, feature: 'sessions' }, {} as Context, userReq())),
+    ).toBe('# Sessions and Logout');
+    expect(m.reads.node).toHaveBeenCalledWith(WORKSPACE_ID, { action: 'node', feature: 'sessions' });
+  });
+
+  it('serves a service token holding intent:read', async () => {
+    const m = mocks();
+    configured(m);
+    const result = await build(m).intentRead(
+      { action: IntentReadAction.Search, query: 'logout kiosk' },
+      {} as Context,
+      tokenReq([TokenPermission.IntentRead]),
+    );
+    expect(text(result)).toBe('2 items match');
+    expect(m.reads.search).toHaveBeenCalledWith(WORKSPACE_ID, { action: 'search', query: 'logout kiosk' });
+  });
+
+  it('refuses a field the action does not take, and search without query', async () => {
+    const m = mocks();
+    configured(m);
+    const tools = build(m);
+    const extra = read(await tools.intentRead({ action: IntentReadAction.Tree, query: 'x' }, {} as Context, userReq()));
+    expect(extra.status).toBe(IntentToolStatus.Error);
+    expect((extra.error as { path: string[] }).path).toEqual(['query']);
+    const noQuery = read(await tools.intentRead({ action: IntentReadAction.Search }, {} as Context, userReq()));
+    expect(noQuery.status).toBe(IntentToolStatus.Error);
+    expect(m.reads.tree).not.toHaveBeenCalled();
+    expect(m.reads.search).not.toHaveBeenCalled();
+  });
+
+  it('answers not_configured on an empty workspace', async () => {
+    const m = mocks();
+    const answer = read(await build(m).intentRead({ action: IntentReadAction.Tree }, {} as Context, userReq()));
+    expect(answer.status).toBe(IntentToolStatus.NotConfigured);
+  });
+});
+
+describe('intent_tree — node relations', () => {
+  it('dispatches relation.put and relation.delete through the shared schemas', async () => {
+    const m = mocks();
+    configured(m);
+    const tools = build(m);
+    const body = {
+      idempotencyKey: 'rel-1',
+      from: { kind: 'feature', id: 'sessions' },
+      to: { kind: 'feature', id: 'sign-in' },
+      why: 'Every sign-in method ends by creating a session',
+    };
+    await tools.intentTree({ action: IntentTreeAction.RelationPut, request: body }, {} as Context, userReq());
+    expect(m.tree.putRelation).toHaveBeenCalledWith(WORKSPACE_ID, expect.anything(), body);
+
+    const bad = read(
+      await tools.intentTree(
+        { action: IntentTreeAction.RelationPut, request: { ...body, from: { kind: 'item', id: 'x' } } },
+        {} as Context,
+        userReq(),
+      ),
+    );
+    expect(bad.status).toBe(IntentToolStatus.Error);
+
+    await tools.intentTree(
+      { action: IntentTreeAction.RelationDelete, request: { idempotencyKey: 'rel-2', from: body.from, to: body.to } },
+      {} as Context,
+      userReq(),
+    );
+    expect(m.tree.deleteRelation).toHaveBeenCalledTimes(1);
   });
 });

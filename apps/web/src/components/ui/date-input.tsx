@@ -183,7 +183,7 @@ const DateInput: React.FC<DateInputProps> = ({ value, onChange, 'aria-invalid': 
     // data attribute for the invalid border.
     <div
       data-invalid={invalid}
-      className="border-border bg-surface text-ink-1 data-[invalid=true]:border-danger flex h-7 items-center rounded-md border px-1.5 text-[12px]"
+      className="border-border bg-surface text-ink-1 data-[invalid=true]:border-danger flex h-7 items-center rounded-md border px-1.5 text-[13px]"
     >
       {segment('month', monthRef, 2, 'w-5', 'M')}
       <span className="text-ink-4">/</span>

@@ -1156,12 +1156,35 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
       expect(first.entries[0].payload).toBeUndefined();
       expect(first.entries[0].version).toBe(1);
       expect(first.nextCursor).toBeTruthy();
+      // A page with another page after it is not the whole answer, and says how big the whole is.
+      expect(first.truncated).toBe(true);
+      expect(first.totalMatched).toBeGreaterThan(2);
+      expect(first.omittedCount).toBe(first.totalMatched - 2);
+      expect(first.remedy).toContain('nextCursor');
+      const all = await read({ mode: IntentContextMode.List, limit: '50' });
+      expect(all.entries).toHaveLength(first.totalMatched);
+      expect(all.truncated).toBe(false);
+      expect(all.omittedCount).toBe(0);
 
       const second = await read({ mode: IntentContextMode.List, limit: '2', cursor: first.nextCursor });
       const seen = [...first.entries, ...second.entries].map((entry: { id: string }) => entry.id);
       expect(new Set(seen).size).toBe(seen.length);
       // Ordering is total, so paging never re-serves or skips a row.
       expect(seen).toEqual([...seen].sort());
+    });
+
+    it('counts the other matches even when exact ids fill the page', async () => {
+      const body = await read({
+        mode: IntentContextMode.List,
+        feature: 'checkout',
+        intentIds: 'br-refund-window',
+        limit: '1',
+      });
+      expect(body.entries.map((entry: { id: string }) => entry.id)).toEqual(['br-refund-window']);
+      expect(body.totalMatched).toBe(3);
+      expect(body.omittedCount).toBe(2);
+      expect(body.truncated).toBe(true);
+      expect(body.remedy).toContain('raise limit');
     });
 
     it('carries no graph lease when the selector does not need one', async () => {

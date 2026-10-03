@@ -34,7 +34,7 @@ export function UsageView({
     <div className="flex flex-col gap-3.5">
       <div className="flex flex-wrap items-center gap-2.5">
         <WindowSelector analyticsWindow={analyticsWindow} onChange={onWindowChange} />
-        <span className="ml-auto text-[11.5px] text-ink-4">
+        <span className="ml-auto text-[12.5px] text-ink-4">
           {usageQuery.data ? windowCaption(usageQuery.data.window) : `${windowDays(analyticsWindow)}d · UTC`}
         </span>
       </div>

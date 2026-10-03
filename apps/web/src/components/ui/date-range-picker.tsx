@@ -217,7 +217,7 @@ export function DateRangePicker({ value, onChange, align = 'end' }: DateRangePic
 
         <div className="flex items-center justify-end gap-2 border-t border-border px-3 py-2">
           {error === null ? null : (
-            <p role="alert" className="mr-auto text-[11.5px] text-danger-text">
+            <p role="alert" className="mr-auto text-[12.5px] text-danger-text">
               {error}
             </p>
           )}

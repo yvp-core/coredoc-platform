@@ -43,6 +43,7 @@ const ROLE_LABEL: Record<WorkspaceMemberRole, string> = {
   [WorkspaceMemberRole.Owner]: 'Owner',
   [WorkspaceMemberRole.Admin]: 'Admin',
   [WorkspaceMemberRole.Member]: 'Member',
+  [WorkspaceMemberRole.Product]: 'Product',
 };
 
 const emailKey = (email: string): string => email.trim().toLowerCase();

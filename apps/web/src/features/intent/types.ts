@@ -168,6 +168,8 @@ export interface IntentDomainView {
 
 export interface IntentFeatureView extends IntentDomainView {
   domainId: string;
+  /** The feature this one sits under, in the same domain; `null` at the top level. */
+  parentFeatureId: string | null;
 }
 
 export interface IntentTreeDomain extends IntentDomainView {
@@ -333,6 +335,17 @@ export interface IntentPendingReviewSummary {
   byDomainTruncated: boolean;
 }
 
+/** Waiting candidates attached to one node; both ids null = the product root. */
+export interface IntentPendingNode {
+  domainId: string | null;
+  featureId: string | null;
+  waiting: number;
+}
+
+export interface IntentPendingNodesResponse {
+  nodes: IntentPendingNode[];
+}
+
 /**
  * A queue row. Narrower than {@link IntentItemSummary} on purpose: the route
  * selects candidates only, and a candidate has no `supersededById` — the field
@@ -373,6 +386,39 @@ export interface IntentReviewQueueQuery {
   limit?: number;
 }
 
+/* -------------------------------------------------------------- document --- */
+
+/** One item as the node document shows it (`GET intent/document`), text as written, refs included. */
+export interface IntentDocumentItem {
+  id: string;
+  kind: IntentItemKind;
+  title: string;
+  statement: string;
+  body: string[];
+  authority: IntentAuthority;
+  version: number;
+  effectivity: IntentEffectivity;
+  openQuestion: boolean;
+  proposedSuccessorOfId: string | null;
+  appliesWhen: ContextCondition[];
+  /** A candidate proposing to replace this item. */
+  pendingSuccessor: { id: string; title: string; statement: string; version: number } | null;
+}
+
+export type IntentDocumentBlock =
+  | { type: 'heading'; text: string }
+  | { type: 'prose'; lines: string[] }
+  | { type: 'item'; style: 'bullet' | 'heading' | 'prose'; item: IntentDocumentItem };
+
+export interface IntentNodeDocument {
+  node: { kind: 'root' | 'domain' | 'feature'; id: string | null; title: string; domainId: string | null };
+  sections: { heading: string | null; blocks: IntentDocumentBlock[] }[];
+  related: { kind: 'domain' | 'feature'; id: string; title: string; why: string }[];
+  features: { id: string; title: string }[];
+  delivery: { effective: number; planned: number; unrecorded: number };
+  truncated: boolean;
+}
+
 /* --------------------------------------------------------------- context --- */
 
 export interface IntentItemSource {
@@ -405,6 +451,8 @@ export interface IntentItemAnchor {
 
 export interface IntentContextMatch extends IntentItemSummary {
   statement: string;
+  /** Lines under the statement (use-case bullets, flow steps, a diagram); absent when none. */
+  body?: string[];
   rationale: string | null;
   payload: unknown;
   matchReason: string;
@@ -668,6 +716,8 @@ export interface IntentDeleteInput {
 
 export interface IntentFeatureCreateInput extends IntentDomainCreateInput {
   domainId: string;
+  /** A feature of the same domain to nest under; absent = top level. */
+  parentFeatureId?: string;
 }
 
 /**

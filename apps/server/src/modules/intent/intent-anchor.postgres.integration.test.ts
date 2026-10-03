@@ -647,7 +647,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
         ),
       );
       expect(answer.status).toBe(IntentToolStatus.PermissionDenied);
-      expect(answer.requires).toEqual({ userSession: true, roles: ['owner', 'admin', 'member'] });
+      expect(answer.requires).toEqual({ userSession: true, roles: ['owner', 'admin', 'product', 'member'] });
       expect(await prisma.intentAnchor.count({ where: { workspaceId, itemId: ITEM, nodeId } })).toBe(before);
     });
 

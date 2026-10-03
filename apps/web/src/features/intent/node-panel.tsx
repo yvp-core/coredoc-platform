@@ -30,15 +30,15 @@ export function IntentNodePanel({ domain, feature, dimensions, count, seeds, see
   const used = conditionDimensions([...inherited, ...own], dimensions);
 
   return (
-    <div className="space-y-4 p-4 text-[12.5px]">
+    <div className="space-y-4 p-4 text-[13.5px]">
       <div>
-        <h3 className="text-[14px] font-medium text-ink-1">{node.title}</h3>
-        <p className="font-mono text-[10.5px] text-ink-4">{node.id}</p>
+        <h3 className="text-[15px] font-medium text-ink-1">{node.title}</h3>
+        <p className="font-mono text-[11.5px] text-ink-4">{node.id}</p>
         {node.statement && <p className="mt-2 text-ink-2">{node.statement}</p>}
       </div>
 
       <section className="space-y-1">
-        <h4 className="text-[10.5px] uppercase tracking-[0.04em] text-ink-4">Applies when</h4>
+        <h4 className="text-[11.5px] uppercase tracking-[0.04em] text-ink-4">Applies when</h4>
         {own.length === 0 && inherited.length === 0 ? (
           <p className="text-ink-3">Always — this {level} sets no conditions.</p>
         ) : (
@@ -47,20 +47,20 @@ export function IntentNodePanel({ domain, feature, dimensions, count, seeds, see
               {inherited.map((clause) => (
                 <li key={`domain:${JSON.stringify(clause)}`} className="flex flex-wrap items-baseline gap-1.5">
                   <span>{contextConditionText(clause)}</span>
-                  <span className="text-[10.5px] text-ink-4">from domain {domain.title}</span>
+                  <span className="text-[11.5px] text-ink-4">from domain {domain.title}</span>
                 </li>
               ))}
               {own.map((clause) => (
                 <li key={`own:${JSON.stringify(clause)}`}>{contextConditionText(clause)}</li>
               ))}
             </ul>
-            <p className="text-[11px] text-ink-4">These conditions filter every rule below this {level}.</p>
+            <p className="text-[12px] text-ink-4">These conditions filter every rule below this {level}.</p>
           </>
         )}
       </section>
 
       <section className="space-y-1">
-        <h4 className="text-[10.5px] uppercase tracking-[0.04em] text-ink-4">Rules in scope</h4>
+        <h4 className="text-[11.5px] uppercase tracking-[0.04em] text-ink-4">Rules in scope</h4>
         <p className="num text-ink-2">
           {count === null
             ? 'Not counted yet'
@@ -70,7 +70,7 @@ export function IntentNodePanel({ domain, feature, dimensions, count, seeds, see
 
       {used.length > 0 && (
         <section className="space-y-1">
-          <h4 className="text-[10.5px] uppercase tracking-[0.04em] text-ink-4">Dimensions used</h4>
+          <h4 className="text-[11.5px] uppercase tracking-[0.04em] text-ink-4">Dimensions used</h4>
           <ul className="space-y-0.5">
             {used.map((dimension) => (
               <li key={dimension.id} title={dimension.id} className="text-ink-2">
@@ -83,19 +83,19 @@ export function IntentNodePanel({ domain, feature, dimensions, count, seeds, see
 
       {feature && (
         <section className="space-y-1">
-          <h4 className="text-[10.5px] uppercase tracking-[0.04em] text-ink-4">Seeds</h4>
+          <h4 className="text-[11.5px] uppercase tracking-[0.04em] text-ink-4">Seeds</h4>
           {seeds === null ? (
-            <p className="text-[11px] text-ink-4">Loading seeds…</p>
+            <p className="text-[12px] text-ink-4">Loading seeds…</p>
           ) : seeds.length === 0 ? (
-            <p className="text-[11px] text-ink-4">No seeds on this feature.</p>
+            <p className="text-[12px] text-ink-4">No seeds on this feature.</p>
           ) : (
             <ul className="space-y-1">
               {seeds.map((seed) => (
                 <li key={`${seed.repoKey}\n${seed.nodeId}`}>
-                  <span className="block truncate font-mono text-[11px] text-ink-2" title={seed.nodeId}>
+                  <span className="block truncate font-mono text-[12px] text-ink-2" title={seed.nodeId}>
                     {seed.repoKey} · {seed.nodeId}
                   </span>
-                  <span className="text-[10.5px] text-ink-4">
+                  <span className="text-[11.5px] text-ink-4">
                     {seed.note ? `${seed.note} · ` : ''}added {formatIntentTimestamp(seed.createdAt)}
                   </span>
                 </li>
@@ -103,7 +103,7 @@ export function IntentNodePanel({ domain, feature, dimensions, count, seeds, see
             </ul>
           )}
           {seedsTruncated && (
-            <p className="text-[10.5px] text-warn-text">This feature has more seeds than one read returns.</p>
+            <p className="text-[11.5px] text-warn-text">This feature has more seeds than one read returns.</p>
           )}
         </section>
       )}

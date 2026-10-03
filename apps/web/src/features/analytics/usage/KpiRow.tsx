@@ -25,9 +25,9 @@ const TONE_CLASS = {
 
 function DeltaLine({ delta }: { delta: DeltaPresentation }) {
   if (delta.kind === 'no-prior') {
-    return <span className="whitespace-nowrap text-[11.5px] text-ink-4">no prior data</span>;
+    return <span className="whitespace-nowrap text-[12.5px] text-ink-4">no prior data</span>;
   }
-  return <span className={`num whitespace-nowrap text-[11.5px] ${TONE_CLASS[delta.tone]}`}>{delta.text}</span>;
+  return <span className={`num whitespace-nowrap text-[12.5px] ${TONE_CLASS[delta.tone]}`}>{delta.text}</span>;
 }
 
 function Tile({

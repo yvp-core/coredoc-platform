@@ -12,7 +12,7 @@ function SelectTrigger({ className, children, ...props }: React.ComponentProps<t
   return (
     <SelectPrimitive.Trigger
       className={cn(
-        'flex h-8 w-full items-center justify-between gap-2 rounded-lg border border-border bg-surface px-3 text-[12.5px] text-ink-1 outline-none transition-colors hover:border-axis disabled:pointer-events-none disabled:opacity-50 [&>span]:truncate data-[placeholder]:text-ink-4',
+        'flex h-8 w-full items-center justify-between gap-2 rounded-lg border border-border bg-surface px-3 text-[13.5px] text-ink-1 outline-none transition-colors hover:border-axis disabled:pointer-events-none disabled:opacity-50 [&>span]:truncate data-[placeholder]:text-ink-4',
         className,
       )}
       {...props}
@@ -61,7 +61,7 @@ function SelectContent({
 function SelectLabel({ className, ...props }: React.ComponentProps<typeof SelectPrimitive.Label>) {
   return (
     <SelectPrimitive.Label
-      className={cn('px-2 py-1 text-[11px] uppercase tracking-[0.04em] text-ink-4', className)}
+      className={cn('px-2 py-1 text-[12px] uppercase tracking-[0.04em] text-ink-4', className)}
       {...props}
     />
   );
@@ -71,7 +71,7 @@ function SelectItem({ className, children, ...props }: React.ComponentProps<type
   return (
     <SelectPrimitive.Item
       className={cn(
-        'relative flex cursor-pointer select-none items-center rounded-md py-1.5 pl-2 pr-7 text-[12.5px] text-ink-2 outline-none data-[highlighted]:bg-surface-2 data-[highlighted]:text-ink-1 data-[state=checked]:text-brand-text data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+        'relative flex cursor-pointer select-none items-center rounded-md py-1.5 pl-2 pr-7 text-[13.5px] text-ink-2 outline-none data-[highlighted]:bg-surface-2 data-[highlighted]:text-ink-1 data-[state=checked]:text-brand-text data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
         className,
       )}
       {...props}

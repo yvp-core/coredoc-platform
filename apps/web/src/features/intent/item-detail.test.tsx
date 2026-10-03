@@ -92,3 +92,30 @@ describe('IntentItemDetail with conditions and variants (AC-8)', () => {
     expect(screen.getByText('Payroll export')).toBeInTheDocument();
   });
 });
+
+describe('IntentItemDetail text', () => {
+  it('shows the statement and the body lines as one text, without inline source refs', () => {
+    const match: IntentContextMatch = {
+      ...MATCH,
+      kind: IntentItemKind.Flow,
+      payload: null,
+      appliesWhen: undefined,
+      statement: 'An employee signs in with SSO. *(jira:ACME-308)*',
+      body: ['1. **Start.** The employee picks SSO.', '2. **Return.** The app opens their company.'],
+    };
+    render(
+      <IntentItemDetail
+        itemId={match.id}
+        match={match}
+        graph={null}
+        transitions={[]}
+        loading={false}
+        onRetry={() => undefined}
+      />,
+    );
+    expect(screen.getByText('An employee signs in with SSO.')).toBeInTheDocument();
+    expect(screen.getByText('The employee picks SSO.', { exact: false })).toBeInTheDocument();
+    expect(screen.getByText('The app opens their company.', { exact: false })).toBeInTheDocument();
+    expect(screen.queryByText(/ACME-308/)).toBeNull();
+  });
+});

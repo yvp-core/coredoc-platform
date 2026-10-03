@@ -19,7 +19,7 @@ export function RetentionNotice({ retention }: { retention: CanonicalTaskDetail[
   // Nothing was purged yet, so there is no gap to explain.
   if (retention.purgedThroughReceivedAt === null) return null;
   return (
-    <div className="rounded-lg border border-border-soft bg-surface-2 px-3 py-2.5 text-[11px] text-ink-2">
+    <div className="rounded-lg border border-border-soft bg-surface-2 px-3 py-2.5 text-[12px] text-ink-2">
       <p>
         Fine-event details received through {timestamp(retention.purgedThroughReceivedAt)} are unavailable under the
         90-day retention policy. Durable delivery facts remain available.

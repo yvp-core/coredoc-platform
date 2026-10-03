@@ -24,8 +24,10 @@ import { IntentContextController } from './intent-context.controller.js';
 import { IntentContextService } from './intent-context.service.js';
 import { IntentImportController } from './intent-import.controller.js';
 import { IntentImportService } from './intent-import.service.js';
+import { IntentWorkspaceImportService } from './intent-workspace-import.js';
 import { IntentItemService } from './intent-item.service.js';
 import { IntentProposeService } from './intent-propose.service.js';
+import { IntentReadService } from './intent-read.service.js';
 import { IntentHandoffProcessor } from './intent-handoff-processor.service.js';
 import { IntentReleaseController } from './intent-release.controller.js';
 import { IntentReleaseService } from './intent-release.service.js';
@@ -292,9 +294,11 @@ describe('intent request-validation parity', () => {
         IntentTreeService,
         IntentItemService,
         IntentProposeService,
+        IntentReadService,
         IntentAnchorService,
         IntentContextService,
         IntentImportService,
+        IntentWorkspaceImportService,
         IntentReleaseService,
         IntentHandoffProcessor,
         IntentReviewService,

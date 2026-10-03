@@ -572,3 +572,36 @@ export function conditionDimensions(clauses: readonly TreeCondition[], dimension
   }
   return [...used.values()];
 }
+
+const SOURCE_REF = /^[a-z][a-z0-9-]*:\S/;
+const URL_SCHEME = /^(?:https?|ftp|mailto|file|data|javascript):/i;
+
+/**
+ * Remove parenthesised groups made only of source refs (and the dates imports
+ * write beside them), with their italic stars: `*(jira:PROD-1, 2022-01-27)*`.
+ * A group with any other text in it stays. Mirrors `stripRefs` in the server's
+ * `intent-read.service.ts`, which strips the same groups for agents.
+ */
+export function stripSourceRefs(text: string): string {
+  // Code and diagram fences pass through untouched.
+  return text
+    .split(/(```[\s\S]*?```)/)
+    .map((part) => (part.startsWith('```') ? part : stripRefsOutsideCode(part)))
+    .join('');
+}
+
+function stripRefsOutsideCode(text: string): string {
+  return text
+    .replace(/\s*\*?\(([^()]*)\)\*?/g, (match: string, inner: string, offset: number, whole: string) => {
+      // `[label](target)` is a link, never a citation.
+      if (whole[offset - 1] === ']') return match;
+      // Each `;` part is one citation: a ref, then optional locators or a date after it.
+      const parts = inner.split(/;\s*/).map((part) => part.trim());
+      if (!parts.every((part) => SOURCE_REF.test(part) && !URL_SCHEME.test(part))) return match;
+      // `*(refs)*` goes whole; a trailing star that closes an outer italic stays.
+      const opensItalic = match.trimStart().startsWith('*');
+      return !opensItalic && match.endsWith('*') ? '*' : '';
+    })
+    .replace(/[ \t]+([.,;:])/g, '$1')
+    .replace(/[ \t]+$/gm, '');
+}

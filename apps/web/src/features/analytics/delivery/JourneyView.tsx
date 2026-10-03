@@ -25,13 +25,13 @@ function stamp(ms: number): string {
 
 export function JourneyView({ events }: { events: ReadonlyArray<TraceJourneyEvent> }) {
   if (events.length === 0) {
-    return <p className="py-2 text-[12px] text-ink-4">No facts loaded for this task yet.</p>;
+    return <p className="py-2 text-[13px] text-ink-4">No facts loaded for this task yet.</p>;
   }
   return (
     <ol aria-label="Task journey" className="flex max-h-80 flex-col overflow-y-auto">
       {journeyRows(events).map((row) =>
         row.type === 'gap' ? (
-          <li key={`gap-${row.id}`} className="flex items-center gap-2 py-0.5 text-[10.5px] text-ink-4">
+          <li key={`gap-${row.id}`} className="flex items-center gap-2 py-0.5 text-[11.5px] text-ink-4">
             <span className="h-px flex-1 border-t border-dashed border-axis" />
             {`+${formatDurationShort(row.ms)} gap`}
             <span className="h-px flex-1 border-t border-dashed border-axis" />
@@ -43,19 +43,19 @@ export function JourneyView({ events }: { events: ReadonlyArray<TraceJourneyEven
           >
             <span
               className={cn(
-                'mt-0.5 flex-none rounded px-1.5 text-[9.5px] uppercase tracking-[0.03em]',
+                'mt-0.5 flex-none rounded px-1.5 text-[10.5px] uppercase tracking-[0.03em]',
                 KIND_CLASS[row.event.kind],
               )}
             >
               {row.event.kind}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-[12px] text-ink-1">{row.event.label}</span>
+              <span className="block text-[13px] text-ink-1">{row.event.label}</span>
               {row.event.detail === null ? null : (
-                <span className="block truncate text-[11px] text-ink-4">{row.event.detail}</span>
+                <span className="block truncate text-[12px] text-ink-4">{row.event.detail}</span>
               )}
             </span>
-            <span className="num mt-0.5 shrink-0 whitespace-nowrap text-right text-[10.5px] text-ink-4">
+            <span className="num mt-0.5 shrink-0 whitespace-nowrap text-right text-[11.5px] text-ink-4">
               {stamp(row.event.at)}
             </span>
           </li>

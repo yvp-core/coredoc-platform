@@ -7,6 +7,7 @@ import {
   releaseTriggerLabels,
 } from './release-types.js';
 import { ChevronRight } from 'lucide-react';
+import { IntentMarkdown } from './intent-markdown.js';
 import { IntentDetails } from './intent-details.js';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useId, useRef, useState } from 'react';
@@ -32,7 +33,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { hasAdminAccess } from '@/lib/roles';
+import { hasIntentAccess } from '@/lib/roles';
 import { effectivityVariant, authorityLabel, authorityVariant, formatIntentTimestamp } from './intent-presentation.js';
 import type {
   IntentReleaseAction,
@@ -101,7 +102,7 @@ export function IntentReleases({
 }: IntentReleasesProps) {
   const client = useQueryClient();
   const formId = useId();
-  const canEdit = hasAdminAccess(role);
+  const canEdit = hasIntentAccess(role);
   const history = useInfiniteQuery({ ...intentReleaseHistoryOptions(workspaceId), enabled: view === 'history' });
   const selectedId = itemId ?? null;
   const preview = useQuery(intentReleasePreviewOptions(workspaceId, selectedId));
@@ -547,6 +548,9 @@ export function IntentReleases({
                   </span>
                 </summary>
                 <p>{p.content.statement}</p>
+                {p.content.body && p.content.body.length > 0 && (
+                  <IntentMarkdown text={p.content.body.join('\n')} className="text-ink-2" />
+                )}
                 {p.content.rationale && <p className="text-ink-3">{p.content.rationale}</p>}
                 <div className="space-y-2 pt-2">
                   <h4 className="text-xs uppercase tracking-wide text-ink-4">Details</h4>

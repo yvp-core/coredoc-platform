@@ -30,8 +30,8 @@ function CardHead({
       )}
     >
       <div className="min-w-0">
-        <div className="text-[13px] font-normal text-ink-1">{title}</div>
-        {sub ? <div className="text-[11.5px] text-ink-4 mt-px">{sub}</div> : null}
+        <div className="text-[14px] font-medium text-ink-1">{title}</div>
+        {sub ? <div className="text-[12.5px] text-ink-4 mt-px">{sub}</div> : null}
       </div>
       {right ? <div className="flex items-center gap-2 shrink-0">{right}</div> : null}
     </div>

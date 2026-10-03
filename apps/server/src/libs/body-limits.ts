@@ -63,11 +63,12 @@ const BODY_LIMITS: ReadonlyArray<{ re: RegExp; limit: number; method?: string }>
   { re: /^\/api\/v1\/workspaces\/[^/]+\/mapper(?:\/|$|\?)/, limit: MAPPER_BODY_LIMIT },
   // OTLP ingest — a busy Claude Code log-export window can exceed 1MB; give it 25MB.
   { re: /^\/api\/v1\/workspaces\/[^/]+\/otel\/v1\/(?:metrics|logs)(?:\/|$|\?)/, limit: OTLP_BODY_LIMIT },
-  // Intent onboarding import (POST only) — one whole overlay in one body. The
+  // Intent onboarding imports (POST only) — one whole overlay, or one whole
+  // workspace document, in one body. The
   // sibling GET `intent/import/preflight` carries no body and is deliberately
   // left on the default.
   {
-    re: /^\/api\/v1\/workspaces\/[^/]+\/intent\/import\/?(?:\?.*)?$/,
+    re: /^\/api\/v1\/workspaces\/[^/]+\/intent\/import(?:\/workspace)?\/?(?:\?.*)?$/,
     limit: INTENT_IMPORT_BODY_LIMIT,
     method: 'POST',
   },

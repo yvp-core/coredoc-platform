@@ -15,6 +15,7 @@ import { IntentExportService } from './intent-export.service.js';
 import { IntentImportController } from './intent-import.controller.js';
 import { IntentImportService } from './intent-import.service.js';
 import { IntentModule } from './intent.module.js';
+import { IntentWorkspaceImportService } from './intent-workspace-import.js';
 
 describe('IntentModule DI (import and export)', () => {
   it('compiles the module and resolves both transfer ends of it', async () => {
@@ -24,6 +25,7 @@ describe('IntentModule DI (import and export)', () => {
       .compile();
 
     expect(moduleRef.get(IntentImportService)).toBeInstanceOf(IntentImportService);
+    expect(moduleRef.get(IntentWorkspaceImportService)).toBeInstanceOf(IntentWorkspaceImportService);
     expect(moduleRef.get(IntentImportController)).toBeInstanceOf(IntentImportController);
     expect(moduleRef.get(IntentExportService)).toBeInstanceOf(IntentExportService);
     expect(moduleRef.get(IntentExportController)).toBeInstanceOf(IntentExportController);

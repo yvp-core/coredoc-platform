@@ -51,6 +51,8 @@ import type {
   IntentTransitionsQuery,
   IntentTransitionsResponse,
   IntentTreeResponse,
+  IntentNodeDocument,
+  IntentPendingNodesResponse,
 } from '../../features/intent/types.js';
 
 /** How many items a browse page and a transitions page ask for. */
@@ -205,6 +207,14 @@ export const intentItemsQueryOptions = (workspaceId: string, query: IntentItemsQ
  * The review queue: one page of waiting candidates, plus the filter's `total`
  * and the workspace's waiting summary, from the server's own route.
  */
+/** Waiting candidates per tree node, for the browse tree's counts. */
+export const intentPendingNodesQueryOptions = (workspaceId: string) =>
+  queryOptions({
+    queryKey: ['intent', 'review-nodes', workspaceId] as const,
+    queryFn: () => get<IntentPendingNodesResponse>(intentPath(workspaceId, 'review-queue/nodes')),
+    staleTime: 30_000,
+  });
+
 export const intentReviewQueueQueryOptions = (workspaceId: string, filter: IntentReviewQueueFilter = {}) =>
   infiniteQueryOptions({
     queryKey: [
@@ -226,20 +236,6 @@ export const intentReviewQueueQueryOptions = (workspaceId: string, filter: Inten
     initialPageParam: null as string | null,
     getNextPageParam: (last: IntentReviewQueueResponse) => last.nextCursor,
     staleTime: 30_000,
-  });
-
-/**
- * How many candidates are waiting, for the tab badge. ONE call, and the
- * smallest one the route offers: the summary rides on every queue read, so
- * `limit=1` buys it with a single row.
- */
-export const intentPendingReviewQueryOptions = (workspaceId: string) =>
-  queryOptions({
-    queryKey: ['intent', 'pending-review', workspaceId] as const,
-    queryFn: async () =>
-      (await get<IntentReviewQueueResponse>(intentPath(workspaceId, 'review-queue', intentQuery({ limit: 1 }))))
-        .summary,
-    staleTime: 60_000,
   });
 
 /** The rich read (`mode=context`), by exact ids. `intentIds` is repeated, never comma-joined. */
@@ -295,32 +291,28 @@ export const intentContextListQueryOptions = (workspaceId: string, query: Intent
     staleTime: 30_000,
   });
 
-/**
- * The full current records of specific items, by exact id — statement, sources,
- * payload, anchors and the version. This is how a supersession learns the
- * predecessor's CURRENT version and how the review queue gets the statements
- * its payload-free rows do not carry.
- */
-export const intentItemsByIdQueryOptions = (workspaceId: string, itemIds: readonly string[]) => {
-  const ids = [...new Set(itemIds)].sort();
-  return queryOptions({
-    queryKey: ['intent', 'items-by-id', workspaceId, ids.join(',')] as const,
+/** One tree node as its document; neither id reads the product root. */
+export const intentDocumentQueryOptions = (
+  workspaceId: string,
+  node: { domainId: string | null; featureId: string | null },
+  includeCandidates: boolean,
+) =>
+  queryOptions({
+    queryKey: ['intent', 'document', workspaceId, node.domainId, node.featureId, includeCandidates] as const,
     queryFn: () =>
-      get<IntentContextResponse>(
-        contextPath(workspaceId, {
-          intentIds: ids,
-          // A queue page is candidates; without this they are not matched.
-          includeCandidates: true,
-          limit: Math.min(ids.length, INTENT_CONTEXT_ITEM_LIMIT),
-        }),
+      get<IntentNodeDocument>(
+        intentPath(
+          workspaceId,
+          'document',
+          intentQuery({
+            domainId: node.featureId === null ? (node.domainId ?? undefined) : undefined,
+            featureId: node.featureId ?? undefined,
+            includeCandidates,
+          }),
+        ),
       ),
-    enabled: ids.length > 0,
     staleTime: 30_000,
   });
-};
-
-/** The predecessors a queue page names — the same read under the review surface's name. */
-export const intentPredecessorsQueryOptions = intentItemsByIdQueryOptions;
 
 /** The rich read for one item. `includeCandidates` is always on — the pane must open a candidate. */
 export const intentItemContextQueryOptions = (workspaceId: string, itemId: string | null) =>

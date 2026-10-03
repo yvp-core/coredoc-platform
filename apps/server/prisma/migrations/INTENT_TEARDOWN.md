@@ -14,6 +14,14 @@ created that data:
 - `20260926120000_intent_dimensions` — the dimension registry table, `intent_items.applies_when`,
   and the `dimension` audit entity kind
 - `20260928120000_intent_tree_conditions` — `applies_when` on `intent_domains` and `intent_features`
+- `20261002120000_intent_node_relations` — the `intent_node_relations` table, the `IntentNodeKind`
+  enum type, and the `node_relation` audit entity kind
+- `20261002130000_intent_node_layout_item_body` — `layout` on `intent_domains` and
+  `intent_features`, `body` on `intent_items`
+- `20261002140000_intent_feature_parent` — `parent_feature_id` on `intent_features`, its
+  same-domain foreign key, CHECK and index
+- `20261003100000_intent_node_relations_collate_c` — the node-relation canonical-order CHECK
+  compared bytewise (`COLLATE "C"`)
 
 ## Rollback is a code deploy, and it drops nothing
 
@@ -64,7 +72,7 @@ Then, per workspace, take the export (`GET /api/v1/workspaces/:id/intent/export`
 apart from that field — use that to confirm the export is stable before trusting it.
 
 The export is **not** a backup of `intent_release_events` or audit history. Take a database
-backup containing all eleven intent tables, their sequences, and referenced workspace/repository
+backup containing all twelve intent tables, their sequences, and referenced workspace/repository
 data (a full database backup is sufficient). Verify restoration in an isolated database: compare
 row counts and release event contents, including sequence numbers, request/content hashes,
 original responses and actor/timestamp evidence. Check that the restored head and effective set
@@ -79,9 +87,10 @@ before parents, and the enum types only after the tables that use them are gone.
 ```sql
 BEGIN;
 
--- 1. The eleven intent tables. CASCADE covers the foreign keys between them and
+-- 1. The twelve intent tables. CASCADE covers the foreign keys between them and
 --    the indexes/constraints each one owns, including the two pg_trgm GIN
 --    indexes on intent_items. Each `applies_when` column goes with its table.
+DROP TABLE IF EXISTS "intent_node_relations"        CASCADE;
 DROP TABLE IF EXISTS "intent_release_events"        CASCADE;
 DROP TABLE IF EXISTS "intent_authority_transitions" CASCADE;
 DROP TABLE IF EXISTS "intent_audit_events"          CASCADE;
@@ -101,6 +110,7 @@ DROP TYPE IF EXISTS "IntentAuthoritySourceKind";
 DROP TYPE IF EXISTS "IntentSourceKind";
 DROP TYPE IF EXISTS "IntentItemAuthority";
 DROP TYPE IF EXISTS "IntentItemKind";
+DROP TYPE IF EXISTS "IntentNodeKind";
 
 -- 3. The workspace_repos additions. Named explicitly rather than left to a
 --    column drop, because an operator reading this needs to see exactly which
@@ -122,7 +132,11 @@ WHERE "migration_name" IN (
   '20260902090000_add_intent_source_title_url',
   '20260905100000_intent_release_effectivity',
   '20260926120000_intent_dimensions',
-  '20260928120000_intent_tree_conditions'
+  '20260928120000_intent_tree_conditions',
+  '20261002120000_intent_node_relations',
+  '20261002130000_intent_node_layout_item_body',
+  '20261002140000_intent_feature_parent',
+  '20261003100000_intent_node_relations_collate_c'
 );
 
 COMMIT;

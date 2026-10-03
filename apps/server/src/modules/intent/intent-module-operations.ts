@@ -47,6 +47,15 @@ export const ListIntentFeaturesQuerySchema = z
   .object({ ...listQuery, includeArchived, domainId: slugId().optional() })
   .strict();
 
+/** One node's document: the product root with neither id, a domain, or a feature. */
+export const IntentNodeDocumentQuerySchema = z
+  .object({
+    domainId: slugId().optional(),
+    featureId: slugId().optional(),
+    includeCandidates: z.enum(['true', 'false']).optional(),
+  })
+  .strict();
+
 export const ListIntentFeatureSeedsQuerySchema = z.object({ ...listQuery }).strict();
 
 /**

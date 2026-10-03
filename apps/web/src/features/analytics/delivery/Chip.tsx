@@ -34,7 +34,7 @@ export function Chip({
     <span
       title={title}
       className={cn(
-        'num inline-flex items-center rounded-full border px-[7px] text-[10.5px]',
+        'num inline-flex items-center rounded-full border px-[7px] text-[11.5px]',
         TONE_CLASS[tone],
         mono && 'font-mono',
       )}

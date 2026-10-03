@@ -53,7 +53,7 @@ function retryFailed(queries: ReadonlyArray<{ isError: boolean; refetch: () => u
 function Subcard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="rounded-xl border border-border-soft bg-surface-2 p-3">
-      <h3 className="mb-2 text-[11px] uppercase tracking-[0.04em] text-ink-4">{title}</h3>
+      <h3 className="mb-2 text-[12px] uppercase tracking-[0.04em] text-ink-4">{title}</h3>
       {children}
     </section>
   );
@@ -77,7 +77,7 @@ function ExternalChip({ url, title, children }: { url: string | null; title?: st
       title={title}
       target="_blank"
       rel="noreferrer"
-      className="num inline-flex items-center font-mono text-[10.5px] text-brand-text underline underline-offset-2 hover:opacity-80"
+      className="num inline-flex items-center font-mono text-[11.5px] text-brand-text underline underline-offset-2 hover:opacity-80"
     >
       {children}
     </a>
@@ -147,12 +147,12 @@ function ArtifactChips({
       {open === null ? null : (
         <Subcard title={`Checkpoint content · ${open.kind}`}>
           {revisionsQuery.isPending ? (
-            <div className="flex items-center gap-2 text-[12px] text-ink-4">
+            <div className="flex items-center gap-2 text-[13px] text-ink-4">
               <Spinner /> Loading checkpoint content…
             </div>
           ) : null}
           {revisionsQuery.isError ? (
-            <div className="flex items-center justify-between gap-2 text-[12px] text-ink-2">
+            <div className="flex items-center justify-between gap-2 text-[13px] text-ink-2">
               <span>Checkpoint content is unavailable.</span>
               <Button type="button" variant="outline" size="sm" onClick={() => void revisionsQuery.refetch()}>
                 Retry
@@ -201,7 +201,7 @@ export function TaskTrace({ workspaceId, taskId }: { workspaceId: string; taskId
   if (detailQuery.isError || detailQuery.data === undefined) {
     return (
       <div className="flex min-h-[160px] flex-col items-center justify-center gap-2 text-center">
-        <p className="text-[12px] text-ink-2">This task's detail is unavailable.</p>
+        <p className="text-[13px] text-ink-2">This task's detail is unavailable.</p>
         <Button type="button" variant="outline" size="sm" onClick={() => void detailQuery.refetch()}>
           Retry
         </Button>
@@ -293,14 +293,14 @@ export function TaskTrace({ workspaceId, taskId }: { workspaceId: string; taskId
             <Chip tone="rework">{`${detail.counts.reworkSignals} rework`}</Chip>
           ) : null}
         </div>
-        <p className="text-[11.5px] text-ink-3">{estimatedCostLine(detail.estimatedCost)}</p>
+        <p className="text-[12.5px] text-ink-3">{estimatedCostLine(detail.estimatedCost)}</p>
         <RetentionNotice retention={detail.fineEventRetention} />
       </header>
 
       {failed.length > 0 ? (
         <div className="flex flex-col gap-1.5 rounded-lg border border-border-soft px-3 py-2">
           {failed.map((entry) => (
-            <div key={entry.label} className="flex items-center justify-between gap-2 text-[11.5px]">
+            <div key={entry.label} className="flex items-center justify-between gap-2 text-[12.5px]">
               <span className="text-ink-2">{`${entry.label}: unavailable`}</span>
               <Button type="button" variant="outline" size="sm" onClick={entry.retry}>
                 Retry
@@ -311,14 +311,14 @@ export function TaskTrace({ workspaceId, taskId }: { workspaceId: string; taskId
       ) : null}
 
       {lanes.length === 0 ? (
-        <p className="py-4 text-center text-[12px] text-ink-4">
+        <p className="py-4 text-center text-[13px] text-ink-4">
           {loadingCollections ? 'Loading this task’s facts…' : 'No time-placeable facts are recorded for this task.'}
         </p>
       ) : (
         <GanttChart lanes={lanes} start={start} end={end} ariaLabel={`Trace for ${detail.title ?? detail.id}`} />
       )}
 
-      <div className="flex flex-wrap items-center gap-3.5 text-[11px] text-ink-3">
+      <div className="flex flex-wrap items-center gap-3.5 text-[12px] text-ink-3">
         {stageOrder.map((stageId, index) => (
           <LegendSwatch key={stageId} color={stageColor(index)} label={stageId} mono />
         ))}
@@ -328,7 +328,7 @@ export function TaskTrace({ workspaceId, taskId }: { workspaceId: string; taskId
       </div>
 
       {truncated.length > 0 ? (
-        <p className="text-[10.5px] text-ink-4">
+        <p className="text-[11.5px] text-ink-4">
           {`First page shown · older facts not loaded (${truncated.join(', ')})`}
         </p>
       ) : null}
@@ -338,7 +338,7 @@ export function TaskTrace({ workspaceId, taskId }: { workspaceId: string; taskId
       <div className="grid grid-cols-1 items-start gap-3 xl:grid-cols-[1fr_1.2fr]">
         <Subcard title="Time by stage · this task">
           <StageBars entries={stages.entries} ariaLabel="Claimed time by stage for this task" />
-          <p className="mt-2 text-[10.5px] text-ink-4">{stages.footnote}</p>
+          <p className="mt-2 text-[11.5px] text-ink-4">{stages.footnote}</p>
         </Subcard>
         <Subcard title="Journey · merged fact stream">
           <JourneyView events={events} />

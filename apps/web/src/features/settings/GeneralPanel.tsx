@@ -63,15 +63,15 @@ export function GeneralPanel({ wsId, canManage }: { wsId: string; canManage: boo
             <Button type="submit" disabled={mutation.isPending}>
               {mutation.isPending ? 'Saving…' : 'Save'}
             </Button>
-            {saved && !error && <span className="pb-1.5 text-[12px] text-brand-text">Saved</span>}
+            {saved && !error && <span className="pb-1.5 text-[13px] text-brand-text">Saved</span>}
           </form>
         ) : (
           <div className="flex flex-col gap-1">
-            <span className="text-[11.5px] text-ink-4">Workspace name</span>
-            <span className="text-[12.5px] text-ink-1">{config.workspace.name}</span>
+            <span className="text-[12.5px] text-ink-4">Workspace name</span>
+            <span className="text-[13.5px] text-ink-1">{config.workspace.name}</span>
           </div>
         )}
-        {error && <p className="mt-2 text-[12px] text-danger-text">{error}</p>}
+        {error && <p className="mt-2 text-[13px] text-danger-text">{error}</p>}
       </CardBody>
     </Card>
   );

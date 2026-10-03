@@ -44,4 +44,11 @@ export class IntentReviewQueueController {
   ) {
     return this.queue.readQueue(workspaceId, parsed, parseIntentPageLimit(parsed.limit));
   }
+
+  @Get('review-queue/nodes')
+  @WorkspaceRole('member')
+  @RequirePermission(TokenPermission.IntentRead)
+  async nodes(@Param('workspaceId') workspaceId: string) {
+    return this.queue.nodeCounts(workspaceId);
+  }
 }

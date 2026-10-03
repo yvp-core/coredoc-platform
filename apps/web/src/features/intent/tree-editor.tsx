@@ -51,7 +51,13 @@ export interface IntentTreeEditorProps {
   errorMessage?: string;
   /** Every write answers whether it landed, so a form clears its draft only on success. */
   onCreateDomain: (input: { id: string; title: string; statement?: string }) => Promise<boolean>;
-  onCreateFeature: (input: { id: string; domainId: string; title: string; statement?: string }) => Promise<boolean>;
+  onCreateFeature: (input: {
+    id: string;
+    domainId: string;
+    parentFeatureId?: string;
+    title: string;
+    statement?: string;
+  }) => Promise<boolean>;
   onRenameDomain: (input: { id: string; title: string }) => Promise<boolean>;
   onRenameFeature: (input: { id: string; title: string }) => Promise<boolean>;
   onArchiveDomain: (input: { id: string; archived: boolean }) => void;
@@ -85,6 +91,8 @@ export function IntentTreeEditor({
 }: IntentTreeEditorProps) {
   const [domainDraft, setDomainDraft] = useState(EMPTY_NODE_DRAFT);
   const [featureDraft, setFeatureDraft] = useState(EMPTY_NODE_DRAFT);
+  /** With a feature selected, a new feature goes under it unless the maintainer says otherwise. */
+  const [topLevel, setTopLevel] = useState(false);
   const [renameDraft, setRenameDraft] = useState('');
   const [seedDraft, setSeedDraft] = useState(EMPTY_SEED_DRAFT);
   /** Deleting a node is not reversible, so it takes a second press. */
@@ -120,11 +128,14 @@ export function IntentTreeEditor({
     if (created) setDomainDraft(EMPTY_NODE_DRAFT);
   };
 
+  const parentFeatureId = selectedFeatureId !== null && !topLevel ? selectedFeatureId : null;
+
   const submitCreateFeature = async () => {
     if (selectedDomainId === null) return;
     const created = await onCreateFeature({
       id: featureId,
       domainId: selectedDomainId,
+      ...(parentFeatureId ? { parentFeatureId } : {}),
       title: featureTitle,
       statement: optionalText(featureDraft.statement),
     });
@@ -161,7 +172,7 @@ export function IntentTreeEditor({
 
         <DialogBody className="flex flex-col gap-4">
           {errorMessage && (
-            <p className="rounded-lg bg-danger-wash px-2.5 py-2 text-[11.5px] text-danger-text">{errorMessage}</p>
+            <p className="rounded-lg bg-danger-wash px-2.5 py-2 text-[12.5px] text-danger-text">{errorMessage}</p>
           )}
 
           <Group legend="New domain">
@@ -197,9 +208,17 @@ export function IntentTreeEditor({
             </Button>
           </Group>
 
-          <Group legend={selectedDomainId ? `New feature in ${selectedDomainId}` : 'New feature'}>
+          <Group
+            legend={
+              parentFeatureId
+                ? `New sub-feature under ${parentFeatureId}`
+                : selectedDomainId
+                  ? `New feature in ${selectedDomainId}`
+                  : 'New feature'
+            }
+          >
             {selectedDomainId === null ? (
-              <p className="text-[11px] text-ink-4">Select a domain in the tree to add a feature to it.</p>
+              <p className="text-[12px] text-ink-4">Select a domain in the tree to add a feature to it.</p>
             ) : (
               <>
                 <Field label="Id (slug)" htmlFor="intent-feature-id">
@@ -224,13 +243,19 @@ export function IntentTreeEditor({
                     onChange={(event) => setFeatureDraft({ ...featureDraft, statement: event.target.value })}
                   />
                 </Field>
+                {selectedFeatureId !== null && (
+                  <label className="flex items-center gap-1.5 text-[12.5px] text-ink-3">
+                    <input type="checkbox" checked={topLevel} onChange={(event) => setTopLevel(event.target.checked)} />
+                    Create at the top level of {selectedDomainId}
+                  </label>
+                )}
                 <Button
                   size="sm"
                   className="self-start"
                   disabled={busy || !SLUG_PATTERN.test(featureId) || featureTitle === ''}
                   onClick={() => void submitCreateFeature()}
                 >
-                  Create feature
+                  {parentFeatureId ? 'Create sub-feature' : 'Create feature'}
                 </Button>
               </>
             )}
@@ -238,10 +263,10 @@ export function IntentTreeEditor({
 
           <Group legend="Selected node">
             {selectedNode === null ? (
-              <p className="text-[11px] text-ink-4">Select a domain or feature in the tree to rename it.</p>
+              <p className="text-[12px] text-ink-4">Select a domain or feature in the tree to rename it.</p>
             ) : (
               <>
-                <p className="font-mono text-[11px] text-ink-4">{selectedNode.id}</p>
+                <p className="font-mono text-[12px] text-ink-4">{selectedNode.id}</p>
                 <Field label="Title" htmlFor="intent-rename-title">
                   <Input
                     id="intent-rename-title"
@@ -290,7 +315,7 @@ export function IntentTreeEditor({
 
           <Group legend="Seeds">
             {selectedFeatureId === null ? (
-              <p className="text-[11px] text-ink-4">
+              <p className="text-[12px] text-ink-4">
                 Seeds declare a feature's code area. Select a feature in the tree to manage them.
               </p>
             ) : (
@@ -301,10 +326,10 @@ export function IntentTreeEditor({
                     className="flex items-start justify-between gap-2 rounded-lg border border-border-soft p-2"
                   >
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-mono text-[11px] text-ink-2" title={seed.nodeId}>
+                      <span className="block truncate font-mono text-[12px] text-ink-2" title={seed.nodeId}>
                         {seed.repoKey} · {seed.nodeId}
                       </span>
-                      <span className="block text-[10.5px] text-ink-4">
+                      <span className="block text-[11.5px] text-ink-4">
                         added {formatIntentTimestamp(seed.createdAt)}
                       </span>
                     </span>
@@ -320,9 +345,9 @@ export function IntentTreeEditor({
                     </Button>
                   </div>
                 ))}
-                {(seeds?.length ?? 0) === 0 && <p className="text-[11px] text-ink-4">No seeds on this feature.</p>}
+                {(seeds?.length ?? 0) === 0 && <p className="text-[12px] text-ink-4">No seeds on this feature.</p>}
                 {seedsTruncated && (
-                  <p className="text-[11px] text-warn-text">
+                  <p className="text-[12px] text-warn-text">
                     This feature has more seeds than one exhaustive read returns; the rest are not listed here.
                   </p>
                 )}
@@ -367,7 +392,7 @@ export function IntentTreeEditor({
 function Group({ legend, children }: { legend: string; children: ReactNode }) {
   return (
     <fieldset className="flex flex-col gap-2 rounded-lg border border-border-soft p-3">
-      <legend className="px-1 text-[10.5px] uppercase tracking-[0.04em] text-ink-4">{legend}</legend>
+      <legend className="px-1 text-[11.5px] uppercase tracking-[0.04em] text-ink-4">{legend}</legend>
       {children}
     </fieldset>
   );
@@ -376,7 +401,7 @@ function Group({ legend, children }: { legend: string; children: ReactNode }) {
 function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <label htmlFor={htmlFor} className="text-[10.5px] text-ink-4">
+      <label htmlFor={htmlFor} className="text-[11.5px] text-ink-4">
         {label}
       </label>
       {children}

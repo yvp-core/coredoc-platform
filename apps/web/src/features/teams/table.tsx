@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 export function Table({ minWidth, children }: { minWidth?: number; children: ReactNode }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-[12.5px]" style={minWidth ? { minWidth } : undefined}>
+      <table className="w-full border-collapse text-[13.5px]" style={minWidth ? { minWidth } : undefined}>
         {children}
       </table>
     </div>
@@ -21,7 +21,7 @@ export function Th({ className, children }: { className?: string; children?: Rea
   return (
     <th
       className={cn(
-        'whitespace-nowrap border-b border-border-soft px-3 pb-[7px] text-right text-[10.5px] font-normal uppercase tracking-[0.04em] text-ink-4 first:pl-0 first:text-left',
+        'whitespace-nowrap border-b border-border-soft px-3 pb-[7px] text-right text-[11.5px] font-normal uppercase tracking-[0.04em] text-ink-4 first:pl-0 first:text-left',
         className,
       )}
     >

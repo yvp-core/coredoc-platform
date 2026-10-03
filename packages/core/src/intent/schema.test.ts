@@ -97,7 +97,7 @@ describe('validateIntentFile — AC-1 every kind round-trips with its typed payl
     const decision = byKind.get(IntentKind.Decision);
     if (decision?.kind !== IntentKind.Decision) throw new Error('missing decision');
     expect(decision.payload.question.length).toBeGreaterThan(0);
-    expect(decision.payload.choice.length).toBeGreaterThan(0);
+    expect(decision.payload.choice?.length).toBeGreaterThan(0);
     expect(decision.payload.choiceStatus).toBe('accepted');
     expect(decision.payload.rationale.length).toBeGreaterThan(0);
     expect(decision.payload.alternatives).toHaveLength(1);
@@ -696,5 +696,22 @@ describe('validateIntentPayload — one payload, no file around it', () => {
 
   it('refuses a payload that is not an object at all', () => {
     expect(validateIntentPayload(IntentKind.Decision, 'a decision').length).toBeGreaterThan(0);
+  });
+
+  it('accepts an open decision only without a choice', () => {
+    const open = {
+      question: 'Should unsent punches upload before a forced logout?',
+      choiceStatus: 'open',
+      rationale: 'Employees lost punches after a forced logout; no rule was recorded.',
+      alternatives: [],
+      consequences: [],
+    };
+    expect(validateIntentPayload(IntentKind.Decision, open)).toEqual([]);
+    expect(validateIntentPayload(IntentKind.Decision, { ...open, choice: 'Upload first' })).toEqual([
+      expect.objectContaining({ path: ['choice'] }),
+    ]);
+    expect(validateIntentPayload(IntentKind.Decision, { ...open, choiceStatus: 'accepted' })).toEqual([
+      expect.objectContaining({ path: ['choice'] }),
+    ]);
   });
 });

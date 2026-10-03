@@ -1,6 +1,6 @@
 {
   "name": "coredoc",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "The coredoc-mcp navigation skill, /coredoc:setup, and session tooling for the Coredoc code graph. Pair it with the coredoc MCP server, which you add yourself — its URL is workspace-specific, so it cannot ship in a static manifest.",
   "author": { "name": "Coredoc team" },
   "homepage": "https://coredoc.ai",

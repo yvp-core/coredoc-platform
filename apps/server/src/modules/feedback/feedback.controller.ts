@@ -7,7 +7,7 @@ import { RequirePermission } from '../../auth/decorators/require-permission.deco
 import { TokenPermission } from '../../auth/token-permissions.js';
 import { CurrentUser, type AuthUser } from '../../auth/decorators/current-user.decorator.js';
 import { WorkspaceRoleValue } from '../../auth/decorators/workspace-role-value.decorator.js';
-import { WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js';
+import { isWorkspaceManagerRole, type WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js';
 import { selfScopeFor } from '../../auth/self-scope.js';
 import { parseCustomWindow } from '../../libs/analytics-window.js';
 import { FeedbackService } from './feedback.service.js';
@@ -82,7 +82,7 @@ function resolveFeedbackUserId(
   }
   if (mine === 'true') return user.id;
   if (requested === undefined) return null;
-  if (role === WorkspaceMemberRole.Member && requested !== user.id) {
+  if (role !== undefined && !isWorkspaceManagerRole(role) && requested !== user.id) {
     throw new ForbiddenException('Members may only filter feedback reads by their own id');
   }
   return requested;

@@ -96,7 +96,7 @@ export function IntentOverview({
           )}
         </div>
 
-        <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] text-ink-3">
+        <div className="mt-1.5 flex flex-wrap gap-3 text-[12px] text-ink-3">
           {SEGMENTS.map((segment) => (
             <span key={segment.key} className="num inline-flex items-center gap-1.5">
               <span aria-hidden="true" className={cn('size-[9px] rounded-[3px]', segment.className)} />
@@ -105,7 +105,7 @@ export function IntentOverview({
           ))}
         </div>
         {!complete && (
-          <p className="mt-1.5 text-[10.5px] text-ink-4">
+          <p className="mt-1.5 text-[11.5px] text-ink-4">
             Counted over the item pages loaded so far — the workspace has more.
           </p>
         )}
@@ -113,7 +113,7 @@ export function IntentOverview({
 
       <section>
         <Head>Anchor health</Head>
-        <p className="text-[11px] text-ink-4">
+        <p className="text-[12px] text-ink-4">
           Anchor health is read one item at a time — open an item to see its anchors. Item-level and anchor-level counts
           measure different things and are never collapsed into one.
         </p>
@@ -122,7 +122,7 @@ export function IntentOverview({
       <section>
         <Head>Product-level items</Head>
         {productItems.length === 0 ? (
-          <p className="text-[11px] text-ink-4">
+          <p className="text-[12px] text-ink-4">
             Nothing is attached to the product root — every item lives in a domain.
           </p>
         ) : (
@@ -143,16 +143,16 @@ export function IntentOverview({
       <section>
         <Head>Recent decisions</Head>
         {decisionsErrorMessage ? (
-          <p className="text-[11px] text-ink-4">Couldn't read the decision ledger — {decisionsErrorMessage}</p>
+          <p className="text-[12px] text-ink-4">Couldn't read the decision ledger — {decisionsErrorMessage}</p>
         ) : decisions === null ? (
           <Spinner className="text-ink-4" />
         ) : decisions.length === 0 ? (
-          <p className="text-[11px] text-ink-4">No decisions recorded yet.</p>
+          <p className="text-[12px] text-ink-4">No decisions recorded yet.</p>
         ) : (
           decisions.map((transition) => (
             <div
               key={transition.id}
-              className="flex items-baseline gap-2 border-b border-border-soft py-[5px] text-[11.5px] last:border-b-0"
+              className="flex items-baseline gap-2 border-b border-border-soft py-[5px] text-[12.5px] last:border-b-0"
             >
               <span className="min-w-0 flex-1 text-ink-2">
                 {/* A NULL `from` is an arrival, not a decision somebody made. */}
@@ -161,12 +161,12 @@ export function IntentOverview({
                 <button
                   type="button"
                   onClick={() => onSelectItem(transition.itemId)}
-                  className="font-mono text-[10.5px] text-ink-3 hover:underline"
+                  className="font-mono text-[11.5px] text-ink-3 hover:underline"
                 >
                   {transition.itemId}
                 </button>
               </span>
-              <span className="num shrink-0 text-[10.5px] text-ink-4">
+              <span className="num shrink-0 text-[11.5px] text-ink-4">
                 {formatIntentTimestamp(transition.createdAt)} · {transition.actorRole}
               </span>
             </div>
@@ -184,14 +184,14 @@ export function IntentOverview({
 }
 
 function Head({ children }: { children: string }) {
-  return <h4 className="mb-1.5 text-[11px] uppercase tracking-[0.04em] text-ink-4">{children}</h4>;
+  return <h4 className="mb-1.5 text-[12px] uppercase tracking-[0.04em] text-ink-4">{children}</h4>;
 }
 
 function Stat({ n, label }: { n: number; label: string }) {
   return (
     <div>
       <div className="num text-[21px] font-medium leading-tight tracking-[-0.02em] text-ink-1">{n}</div>
-      <div className="text-[11px] text-ink-4">{label}</div>
+      <div className="text-[12px] text-ink-4">{label}</div>
     </div>
   );
 }

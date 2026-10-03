@@ -26,13 +26,13 @@ export function KpiCard({
         spark && 'pb-[34px]',
       )}
     >
-      <div className="text-[11.5px] text-ink-4">{label}</div>
+      <div className="text-[12.5px] text-ink-4">{label}</div>
       <div className="mt-0.5 flex items-baseline gap-2">
         <div className="num text-[24px] font-medium tracking-[-0.02em] text-ink-1">{value}</div>
         {delta ? (
           <div
             className={cn(
-              'num text-[11.5px]',
+              'num text-[12.5px]',
               dir === 'up' && 'text-brand-text',
               dir === 'down' && 'text-danger-text',
               dir === 'flat' && 'text-ink-4',
@@ -43,7 +43,7 @@ export function KpiCard({
           </div>
         ) : null}
       </div>
-      {hint ? <div className="text-[11px] text-ink-4">{hint}</div> : null}
+      {hint ? <div className="text-[12px] text-ink-4">{hint}</div> : null}
       {spark ? (
         <Sparkline data={spark} className="absolute inset-x-0 bottom-0 block h-[34px] w-full opacity-85" />
       ) : null}

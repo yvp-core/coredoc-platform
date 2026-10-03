@@ -28,6 +28,7 @@ import { McpAuthKind, type AuthenticatedMcpRequest } from './mcp-auth-context.js
 export const INTENT_REVIEWER_ROLES: WorkspaceMemberRole[] = [
   WorkspaceMemberRole.Owner,
   WorkspaceMemberRole.Admin,
+  WorkspaceMemberRole.Product,
   WorkspaceMemberRole.Member,
 ];
 

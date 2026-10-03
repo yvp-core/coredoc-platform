@@ -117,12 +117,18 @@ export enum IntentErrorCode {
   FeatureNotFound = 'feature_not_found',
   /** A proposal names both a feature and a domain, and the feature belongs to another domain. */
   FeatureDomainMismatch = 'feature_domain_mismatch',
+  /** Moving a feature under itself or one of its own descendants. */
+  FeatureParentCycle = 'feature_parent_cycle',
   /** The named item does not exist in this workspace. */
   ItemNotFound = 'item_not_found',
   /** The named seed identity is not declared on this feature. */
   SeedNotFound = 'seed_not_found',
   /** No item in this workspace cites the named source ref. */
   SourceNotFound = 'source_not_found',
+  /** No relation joins the two named nodes. */
+  NodeRelationNotFound = 'node_relation_not_found',
+  /** A relation names the same node at both ends. */
+  NodeRelationSelf = 'node_relation_self',
   /** Create was called for an id that already exists. Ids are immutable; create is not upsert. */
   TreeNodeExists = 'tree_node_exists',
   /** Delete refused: the domain or feature still holds children or attached items. */

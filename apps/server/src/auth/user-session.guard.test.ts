@@ -16,7 +16,7 @@ describe('UserSessionGuard', () => {
   // Auth kind × role matrix. A service token authenticates AS its creator, so
   // the role column is identical for both auth kinds — only the auth kind
   // decides. That is the whole point of this guard.
-  const roles = ['owner', 'admin', 'member'] as const;
+  const roles = ['owner', 'admin', 'product', 'member'] as const;
 
   it.each(roles)('admits a JWT/bearer user session with role %s', (role) => {
     expect(guard.canActivate(ctx({ user, userWorkspaceRole: role, authVia: 'bearer' }))).toBe(true);

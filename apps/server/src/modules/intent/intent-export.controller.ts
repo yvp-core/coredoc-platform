@@ -34,4 +34,12 @@ export class IntentExportController {
   async export(@Param('workspaceId') workspaceId: string) {
     return this.exports.export(workspaceId);
   }
+
+  /** The same content in the shape `POST import/workspace` takes, for a lossless round trip. */
+  @Get('export/workspace')
+  @WorkspaceRole('member')
+  @RequirePermission(TokenPermission.IntentRead)
+  async exportWorkspace(@Param('workspaceId') workspaceId: string) {
+    return this.exports.exportWorkspace(workspaceId);
+  }
 }

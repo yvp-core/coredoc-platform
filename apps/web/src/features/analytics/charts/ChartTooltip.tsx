@@ -40,7 +40,7 @@ export function ChartTooltip({
     <div
       aria-hidden="true"
       className={cn(
-        'pointer-events-none absolute z-10 -translate-x-1/2 rounded-lg bg-tooltip-bg px-2 py-1.5 text-[11.5px] leading-4 text-tooltip-ink shadow-card transition-opacity',
+        'pointer-events-none absolute z-10 -translate-x-1/2 rounded-lg bg-tooltip-bg px-2 py-1.5 text-[12.5px] leading-4 text-tooltip-ink shadow-card transition-opacity',
         placement === 'below' ? 'translate-y-0' : '-translate-y-full',
         visible ? 'opacity-100' : 'opacity-0',
         className,

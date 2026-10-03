@@ -19,6 +19,7 @@ import {
   EMPTY_INTENT_SCOPE_COUNTS,
   intentKnownCount,
   type IntentCountCell,
+  type IntentPendingCounts,
   type IntentScopeCounts,
   type IntentTreeSelection,
 } from './intent-panel-state.js';
@@ -47,7 +48,7 @@ export interface IntentTreeBrowserProps {
   featureExpansion: IntentFeatureExpansion;
   selection: IntentTreeSelection;
   includeArchived: boolean;
-  /** Admin/owner only; a member sees the tree read-only (spec §5). */
+  /** Admin, owner or product; a member sees the tree read-only. */
   canEdit: boolean;
   hasMoreDomains: boolean;
   loadingMoreDomains: boolean;
@@ -56,6 +57,11 @@ export interface IntentTreeBrowserProps {
   onEditTree: () => void;
   onLoadMoreDomains: () => void;
   onShowAllFeatures: (domainId: string) => void;
+  /** Waiting proposals per node, from the server; `null` while unread. */
+  pending?: IntentPendingCounts | null;
+  /** Show only the nodes that hold a waiting proposal (or have one below them). */
+  onlyPending?: boolean;
+  onToggleOnlyPending?: () => void;
 }
 
 export function IntentTreeBrowser({
@@ -73,8 +79,12 @@ export function IntentTreeBrowser({
   onEditTree,
   onLoadMoreDomains,
   onShowAllFeatures,
+  pending = null,
+  onlyPending = false,
+  onToggleOnlyPending,
 }: IntentTreeBrowserProps) {
-  const domains = domainPages ?? [];
+  const filtering = onlyPending && pending !== null;
+  const domains = (domainPages ?? []).filter((domain) => !filtering || (pending?.domains[domain.id] ?? 0) > 0);
 
   return (
     <>
@@ -84,6 +94,7 @@ export function IntentTreeBrowser({
           title="product root"
           root
           count={counts.root}
+          pending={pending ? pending.root : undefined}
           selected={selection.domainId === null && selection.featureId === null}
           onClick={() => onSelect({ domainId: null, featureId: null })}
         />
@@ -104,36 +115,31 @@ export function IntentTreeBrowser({
                 title={domain.id}
                 archived={domain.archived}
                 count={domainCount}
+                pending={pending ? (pending.domains[domain.id] ?? 0) : undefined}
                 conditions={domain.appliesWhen}
                 selected={selection.domainId === domain.id && selection.featureId === null}
                 onClick={() => onSelect({ domainId: domain.id, featureId: null })}
               />
 
-              {features.length === 0 && domainCount !== null && domainCount.items === 0 && (
-                <p className="px-2 pl-[22px] pt-px text-[10.5px] text-ink-4">declared, no items yet</p>
+              {!filtering && features.length === 0 && domainCount !== null && domainCount.items === 0 && (
+                <p className="px-2 pl-[22px] pt-px text-[11.5px] text-ink-4">declared, no items yet</p>
               )}
 
               {features.length > 0 && (
-                <ul className="ml-3.5 border-l border-border-soft pl-3.5">
-                  {features.map((feature) => (
-                    <li key={feature.id}>
-                      <TreeRow
-                        label={feature.title}
-                        title={feature.id}
-                        archived={feature.archived}
-                        count={intentKnownCount(counts.features[feature.id], counts)}
-                        conditions={feature.appliesWhen}
-                        selected={selection.featureId === feature.id}
-                        onClick={() => onSelect({ domainId: domain.id, featureId: feature.id })}
-                      />
-                    </li>
-                  ))}
-                </ul>
+                <FeatureList
+                  features={features}
+                  parentId={null}
+                  pending={pending}
+                  filtering={filtering}
+                  counts={counts}
+                  selection={selection}
+                  onSelect={onSelect}
+                />
               )}
 
               {domain.featuresTruncated && !(expanded && featureExpansion.features !== null) && (
                 <div className="px-2 py-1">
-                  <p className="text-[10.5px] text-ink-4">More features than this page shows.</p>
+                  <p className="text-[11.5px] text-ink-4">More features than this page shows.</p>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -144,13 +150,13 @@ export function IntentTreeBrowser({
                     {expanded && featureExpansion.loading ? 'Loading features…' : 'Show all features'}
                   </Button>
                   {expanded && featureExpansion.errorMessage && (
-                    <p className="text-[10.5px] text-warn-text">{featureExpansion.errorMessage}</p>
+                    <p className="text-[11.5px] text-warn-text">{featureExpansion.errorMessage}</p>
                   )}
                 </div>
               )}
 
               {expanded && featureExpansion.features !== null && featureExpansion.truncated && (
-                <p className="px-2 py-1 text-[10.5px] text-warn-text">
+                <p className="px-2 py-1 text-[11.5px] text-warn-text">
                   This domain has more features than one exhaustive read returns.
                 </p>
               )}
@@ -179,12 +185,25 @@ export function IntentTreeBrowser({
           aria-pressed={includeArchived}
           onClick={onToggleArchived}
           className={cn(
-            'rounded-md px-2 py-0.5 text-[11.5px] transition-colors hover:bg-surface-2 hover:text-ink-1',
+            'rounded-md px-2 py-0.5 text-[12.5px] transition-colors hover:bg-surface-2 hover:text-ink-1',
             includeArchived ? 'text-brand-text' : 'text-ink-3',
           )}
         >
           {includeArchived ? 'Hide archived' : 'Show archived'}
         </button>
+        {onToggleOnlyPending && (
+          <button
+            type="button"
+            aria-pressed={onlyPending}
+            onClick={onToggleOnlyPending}
+            className={cn(
+              'rounded-md px-2 py-0.5 text-[12.5px] transition-colors hover:bg-surface-2 hover:text-ink-1',
+              onlyPending ? 'text-blue' : 'text-ink-3',
+            )}
+          >
+            Only with proposals
+          </button>
+        )}
         {canEdit && (
           <Button variant="ghost" size="sm" className="px-2" onClick={onEditTree}>
             Manage structure
@@ -195,20 +214,85 @@ export function IntentTreeBrowser({
   );
 }
 
+/**
+ * One level of a domain's features. A sub-feature whose parent is not in the
+ * loaded list (archived and hidden, or past the page bound) shows at the top
+ * level rather than disappearing.
+ */
+function FeatureList({
+  features,
+  parentId,
+  pending,
+  filtering,
+  counts,
+  selection,
+  onSelect,
+}: {
+  features: readonly IntentFeatureView[];
+  parentId: string | null;
+  pending: IntentPendingCounts | null;
+  filtering: boolean;
+  counts: IntentScopeCounts;
+  selection: IntentTreeSelection;
+  onSelect: (selection: IntentTreeSelection) => void;
+}) {
+  const loaded = new Set(features.map((feature) => feature.id));
+  const childrenOf = (id: string) => features.filter((feature) => feature.parentFeatureId === id);
+  // A feature's count includes its sub-features', the way a domain's includes its features'.
+  const waitingIn = (id: string, depth = 0): number =>
+    (pending?.features[id] ?? 0) +
+    (depth < 8 ? childrenOf(id).reduce((total, child) => total + waitingIn(child.id, depth + 1), 0) : 0);
+  const level = features.filter(
+    (feature) =>
+      (parentId === null
+        ? feature.parentFeatureId === null || !loaded.has(feature.parentFeatureId)
+        : feature.parentFeatureId === parentId) &&
+      (!filtering || waitingIn(feature.id) > 0),
+  );
+  if (level.length === 0) return null;
+  return (
+    <ul className="ml-3.5 border-l border-border-soft pl-3.5">
+      {level.map((feature) => (
+        <li key={feature.id}>
+          <TreeRow
+            label={feature.title}
+            title={feature.id}
+            archived={feature.archived}
+            count={intentKnownCount(counts.features[feature.id], counts)}
+            pending={pending ? waitingIn(feature.id) : undefined}
+            conditions={feature.appliesWhen}
+            selected={selection.featureId === feature.id}
+            onClick={() => onSelect({ domainId: feature.domainId, featureId: feature.id })}
+          />
+          <FeatureList
+            features={features}
+            parentId={feature.id}
+            pending={pending}
+            filtering={filtering}
+            counts={counts}
+            selection={selection}
+            onSelect={onSelect}
+          />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 // Archived dimensions are excluded by the query, not filtered here.
 function IntentDimensionsSection({ dimensions }: { dimensions?: IntentDimension[] | null }) {
   if (!dimensions || dimensions.length === 0) return null;
 
   return (
     <div className="mt-3 border-t border-border-soft pt-2.5">
-      <p className="px-2 pb-1 text-[10.5px] font-medium uppercase tracking-[0.02em] text-ink-4">Dimensions</p>
+      <p className="px-2 pb-1 text-[11.5px] font-medium uppercase tracking-[0.02em] text-ink-4">Dimensions</p>
       <ul className="flex flex-col gap-1.5 px-2">
         {dimensions.map((dimension) => (
           <li key={dimension.id} title={dimension.id}>
-            <div className="flex items-center gap-1.5 text-[12px] text-ink-2">
+            <div className="flex items-center gap-1.5 text-[13px] text-ink-2">
               <span className="truncate">{dimension.title}</span>
               {dimension.multi && (
-                <span className="rounded border border-border px-1 text-[9.5px] text-ink-4">multi</span>
+                <span className="rounded border border-border px-1 text-[10.5px] text-ink-4">multi</span>
               )}
             </div>
             <div className="mt-0.5 flex flex-wrap gap-1">
@@ -216,7 +300,7 @@ function IntentDimensionsSection({ dimensions }: { dimensions?: IntentDimension[
                 <span
                   key={value.id}
                   title={value.id}
-                  className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10.5px] text-ink-3"
+                  className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[11.5px] text-ink-3"
                 >
                   {value.title}
                 </span>
@@ -250,6 +334,7 @@ function TreeRow({
   title,
   archived = false,
   count,
+  pending,
   conditions,
   root,
   selected,
@@ -261,6 +346,8 @@ function TreeRow({
   conditions?: TreeCondition[];
   /** `null` when nothing has been read for this scope yet — then no number is drawn. */
   count: IntentCountCell | null;
+  /** Waiting proposals from the server; when known it replaces the loaded-pages dot. */
+  pending?: number;
   root?: boolean;
   selected: boolean;
   onClick: () => void;
@@ -272,7 +359,7 @@ function TreeRow({
       title={title}
       aria-pressed={selected}
       className={cn(
-        'flex w-full items-center gap-[7px] rounded-md px-2 py-[5px] text-left text-[12.5px] transition-colors',
+        'flex w-full items-center gap-[7px] rounded-md px-2 py-[5px] text-left text-[13.5px] transition-colors',
         selected
           ? 'bg-brand-wash text-brand-text'
           : root
@@ -282,15 +369,23 @@ function TreeRow({
     >
       <span className="min-w-0 flex-1 truncate">{label}</span>
       <TreeConditionMarker conditions={conditions} />
-      {archived && <span className="rounded border border-border px-1 text-[9.5px] text-ink-4">archived</span>}
-      {count !== null && count.candidates > 0 && (
+      {archived && <span className="rounded border border-border px-1 text-[10.5px] text-ink-4">archived</span>}
+      {pending !== undefined && pending > 0 && (
+        <span
+          title={`${pending} waiting for review`}
+          className="num shrink-0 rounded-full bg-blue-wash px-1.5 text-[11px] text-blue"
+        >
+          {pending}
+        </span>
+      )}
+      {pending === undefined && count !== null && count.candidates > 0 && (
         // Decorative: the count and the item rows already say "candidate" in words.
         <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-blue" />
       )}
       {/* The product root's own attached items are normally zero, and a "0" on the
           row the overview counts in full reads as a contradiction. */}
       {count !== null && (!root || count.items > 0) && (
-        <span className="num shrink-0 text-[10.5px] text-ink-4">{count.items}</span>
+        <span className="num shrink-0 text-[11.5px] text-ink-4">{count.items}</span>
       )}
     </button>
   );

@@ -35,7 +35,7 @@ function DropdownMenuItem({
   return (
     <DropdownMenuPrimitive.Item
       className={cn(
-        'relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] text-ink-2 outline-none transition-colors data-[highlighted]:bg-surface-2 data-[highlighted]:text-ink-1 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0',
+        'relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-[13.5px] text-ink-2 outline-none transition-colors data-[highlighted]:bg-surface-2 data-[highlighted]:text-ink-1 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0',
         variant === 'destructive' && 'text-danger-text data-[highlighted]:text-danger-text',
         className,
       )}
@@ -52,7 +52,7 @@ function DropdownMenuCheckboxItem({
   return (
     <DropdownMenuPrimitive.CheckboxItem
       className={cn(
-        'relative flex cursor-pointer select-none items-center gap-2 rounded-md py-1.5 pl-7 pr-2 text-[12.5px] text-ink-2 outline-none transition-colors data-[highlighted]:bg-surface-2 data-[highlighted]:text-ink-1 data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+        'relative flex cursor-pointer select-none items-center gap-2 rounded-md py-1.5 pl-7 pr-2 text-[13.5px] text-ink-2 outline-none transition-colors data-[highlighted]:bg-surface-2 data-[highlighted]:text-ink-1 data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
         className,
       )}
       {...props}
@@ -70,7 +70,7 @@ function DropdownMenuCheckboxItem({
 function DropdownMenuLabel({ className, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Label>) {
   return (
     <DropdownMenuPrimitive.Label
-      className={cn('px-2 py-1 text-[11px] uppercase tracking-[0.04em] text-ink-4', className)}
+      className={cn('px-2 py-1 text-[12px] uppercase tracking-[0.04em] text-ink-4', className)}
       {...props}
     />
   );

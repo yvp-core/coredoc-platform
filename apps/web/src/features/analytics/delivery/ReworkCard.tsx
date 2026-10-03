@@ -19,22 +19,22 @@ export function ReworkCard({ summary }: { summary: CanonicalDeliverySummary }) {
       <CardBody>
         <section aria-label="Rework signals by source" className="flex flex-col gap-2">
           {entries.length === 0 ? (
-            <p className="text-[12px] text-ink-4">This server does not report rework by source.</p>
+            <p className="text-[13px] text-ink-4">This server does not report rework by source.</p>
           ) : null}
           {entries.map((entry) => (
             <div
               key={entry.key}
               className="grid grid-cols-[minmax(120px,max-content)_1fr_max-content] items-center gap-3"
             >
-              <div className="truncate text-right text-[12px] text-ink-2">
+              <div className="truncate text-right text-[13px] text-ink-2">
                 <span title={`${entry.name} · ${entry.tasks} tasks`}>{entry.name}</span>
               </div>
               <MagnitudeBar value={entry.count} max={max} tone="rework" height={6} />
-              <div className="num min-w-[24px] text-right text-[12px] text-ink-1">{entry.count}</div>
+              <div className="num min-w-[24px] text-right text-[13px] text-ink-1">{entry.count}</div>
             </div>
           ))}
         </section>
-        <p className="mt-2.5 text-[11px] text-ink-4">
+        <p className="mt-2.5 text-[12px] text-ink-4">
           Counted sources: a tracker reopen, a review that requested changes, and a review comment followed by new
           commits. Stage re-entries are iteration, not rework. Sequences are recorded, causes are not inferred.
         </p>

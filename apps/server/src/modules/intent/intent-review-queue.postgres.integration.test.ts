@@ -295,6 +295,22 @@ describe.skipIf(!TEST_DATABASE_URL)('intent review queue (PostgreSQL integration
       ]);
     });
 
+    it('counts waiting candidates per tree node, summing to the domain breakdown', async () => {
+      const { nodes } = (
+        await request(app.getHttpServer())
+          .get(`${url(workspaceId)}/nodes`)
+          .expect(200)
+      ).body as { nodes: { domainId: string | null; featureId: string | null; waiting: number }[] };
+      expect(nodes.find((node) => node.featureId === 'checkout')).toMatchObject({ domainId: 'ordering' });
+      const body = await read();
+      for (const bucket of body.summary.byDomain) {
+        const summed = nodes
+          .filter((node) => node.domainId === bucket.domainId)
+          .reduce((total, node) => total + node.waiting, 0);
+        expect(summed).toBe(bucket.waiting);
+      }
+    });
+
     it('reports that a replacement is waiting, which is the decision a reviewer cannot defer blind', async () => {
       const body = await read();
       expect(body.summary.hasReplacementCandidate).toBe(true);
