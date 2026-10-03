@@ -1,29 +1,22 @@
 ---
 name: intent-capture
-description: Propose reviewed product intent (capabilities, use cases, flows, business rules, limitations, decisions) into a coredoc workspace with `intent_propose`, or into a repo's local overlay with `coredoc intent capture` before cutover; accept the unchanged verbatim items of a document a person has just approved, under that single approval; bootstrap inherited intent from a brownfield codebase as bounded, source-classified packets; and execute a maintainer's explicit review decisions with `intent_review`. Use when a PRD, specification, ADR, or product decision is approved, when asked to bootstrap or inventory existing intent, or when a maintainer asks to review known candidates. Do not use to read intent (`intent_read`, `get_intent_context` / `coredoc intent context`), and never infer acceptance from code or from your own recommendation. Invoked by `coredoc-prd` or `coredoc-spec` when a person approves the PRD, the PRD-less specification or the ADR (`spec accept` for a standalone spec); run it standalone only for an already-approved document.
+description: Propose reviewed product intent (capabilities, use cases, flows, business rules, limitations, decisions) into a coredoc workspace with `intent_propose`; accept the unchanged verbatim items of a document a person has just approved, under that single approval; bootstrap inherited intent from a brownfield codebase as bounded, source-classified packets; and execute a maintainer's explicit review decisions with `intent_review`. Use when a PRD, specification, ADR, or product decision is approved, when asked to bootstrap or inventory existing intent, or when a maintainer asks to review known candidates. Do not use to read intent (`intent_read`, `get_intent_context`), and never infer acceptance from code or from your own recommendation. Invoked by `coredoc-prd` or `coredoc-spec` when a person approves the PRD, the PRD-less specification or the ADR (`spec accept` for a standalone spec); run it standalone only for an already-approved document.
 ---
 
 # Propose product intent as candidates
 
 A person decides authority. Proposals enter as candidates. Execute only an explicit decision: approval of the source document — the approved PRD, the specification accepted when no PRD exists, or the approved ADR — for its unchanged verbatim items (§7.0), or approval of the exact review cards (§7.1). That approval is the acceptance; nobody is asked twice. Implementation never accepts; a change that must contradict accepted intent proposes a successor (`proposedSuccessorOfId`). Never infer approval from code or from your own recommendation.
 
-## 1. Pick the lane, once
+## 1. The write surface
 
-Intent is cloud-first. The write surface picks the lane, not convenience:
-
-- **Cloud lane (default).** The workspace MCP exposes `intent_propose` / `intent_review` / `intent_tree` / `intent_anchor` (only the cloud has these), or `coredoc.config.json` carries `intent: { mode: "cloud", workspaceId }`. Use those tools only. The authenticated workspace *is* the product — never send, ask for, or invent a `projectId`.
-- **Local stepping-stone lane.** No cloud intent for this project yet: write with `coredoc intent capture` into `<repoRoot>/.coredoc/intent.json`.
-
-**After cutover the local lane fails fast.** Once the project is imported into a workspace, every local intent *write* verb refuses with an error naming the workspace that owns authority (`Product intent for project "…" is cloud-authoritative: workspace … owns it`). That error is the lane signal: switch to the cloud lane and re-send the same proposal there. Local *reads* (`status`, `list`, `context`) keep working. Do not retry, do not pass a flag, do not hand-edit.
-
-**Never hand-edit `.coredoc/intent.json`** — its accepted-item protection lives in the write path. Editing the file is a failure of this skill, not a fallback. The one edit that is legitimate is the maintainer's own reviewed acceptance before cutover (§7.2), and it is theirs to make, never yours.
+Product intent lives in a cloud workspace. The workspace MCP exposes `intent_propose` / `intent_review` / `intent_tree` / `intent_anchor`; use those tools only. The authenticated workspace *is* the product — never send, ask for, or invent a `projectId`. Without those tools there is no write surface: say so and stop. There is no local fallback, and no file to edit instead.
 
 If the cloud answers "this workspace has no product intent yet", create the first domain yourself with `intent_tree` (`domain.create`) in the user's own session (any workspace member), and say what you created. A service-token session drafts the domain set and stops.
 
 ## 2. Source and placement
 
 - **The source must be reviewed and finalized**: a merged spec section, an ADR, an explicit product decision from the user, or a ticket they point at. Code, tests, AI summaries, and the graph can *support* a statement; they cannot *be* the source of one. The one exception is bootstrap mode (§4), where unreviewed evidence is classified and framed explicitly. If it is not decided yet, say so and stop.
-- **Placement (cloud):** an item attaches to the product root, one `domainId`, or one `featureId` (a `domainId` beside it must be its domain). Read the tree with `intent_read tree` first. A domain or feature the tree does not declare is yours to create per §5 before you propose into it — reuse a node that honestly fits first, and name what you created and placed there.
+- **Placement:** an item attaches to the product root, one `domainId`, or one `featureId` (a `domainId` beside it must be its domain). Read the tree with `intent_read tree` first. A domain or feature the tree does not declare is yours to create per §5 before you propose into it — reuse a node that honestly fits first, and name what you created and placed there.
 
 ## 3. Draft the proposals
 
@@ -72,8 +65,6 @@ Payload per `kind` (optional, validated when present):
 
 `choiceStatus` describes the product choice, not your authority over it — an accepted ADR choice still enters as a `candidate`.
 
-**Local-lane deltas.** Same fields and discipline, four differences: write the batch to a scratchpad document `{ "items": [ … ] }` (never into the repo); the placement field is `domain`, a slug the overlay registry already declares (`coredoc intent status`); anchors are full `codeAnchors` needing both a stable node id and its `capturedVersionedId` from tool output, so **omit them by default**; apply with `coredoc intent capture --project <id> --input <scratch>/intent-proposals.json`, then `coredoc intent validate --project <id>`.
-
 ### Context conditions and variants
 
 - Item applies only in some contexts → item-level `appliesWhen` (AND-joined `{dimension,in/notIn:[...]}`, `{item:id}`, `{text}`); absent = unconditional.
@@ -110,17 +101,17 @@ The packet wrapper (scratchpad only; never persisted, never sent to a tool):
 }
 ```
 
-**Validate the packet before any propose call.** `parseBrownfieldPacket` in `@coredoc/core` enforces these checks. Without package access, check manually (`coredoc intent bootstrap-check -p <id> -w <workspaceId> --input <packet>` needs a repo overlay). On refusal, fix the packet, never route around it. Send **only `candidates[].proposal`** through `intent_propose`; omit wrapper, classes, owners and conflicts. In the local lane, keep the identical discipline and copy each validated proposal into the capture document, renaming `domainId` to `domain`, dropping `featureId` and `anchorSuggestions`.
+**Validate the packet before any propose call.** `parseBrownfieldPacket` in `@coredoc/core` enforces these checks. Without package access, check them manually. On refusal, fix the packet, never route around it. Send **only `candidates[].proposal`** through `intent_propose`; omit wrapper, classes, owners and conflicts.
 
 Re-running bootstrap on the same source revision is safe: matching source identities update those candidates instead of duplicating them. Put the revision in every `sources[].revision` to identify source changes. Report source-class counts, conflicts and their decision owners, unanchored candidates, and the open owner questions. Bootstrap never accepts anything.
 
-## 5. After import — propose a feature layout with seeds
+## 5. Propose a feature layout with seeds
 
-Import attaches items to domains because the local format has no features. Propose a feature layout when a domain-wide answer is too broad.
+Propose a feature layout when a domain-wide answer is too broad.
 
 Same rule as domain creation (§1): **you propose it in your reply, then you create it** in the acting user's own session; a service-token session drafts the layout and stops. A feature still earns it: two to five seeds and a real placement need; never create one "to hold" one batch.
 
-1. **Read what is there** — `intent_read node` for each imported domain. Group by meaning. Use roadmap-sized features; a one-feature domain needs no split.
+1. **Read what is there** — `intent_read node` for each domain. Group by meaning. Use roadmap-sized features; a one-feature domain needs no split.
 2. **Propose the layout as prose first**, one line per feature: its `domainId`, a short title, and a one-sentence statement. Name the items you would move under each. Keep it to one screen.
 3. **Seeds are the point.** A feature without seeds derives nothing — seeds are the code nodes that define the feature's area, and the applicability of every item hangs off them. Propose two to five per feature, each an exact stable node id you got from the graph (`search_symbols`, `describe_repository`, or an existing item's anchor), never a guessed or hand-assembled id. Prefer the containers a reader would point at — a package, a directory-level module, an entrypoint — over individual functions.
 4. **Then execute** with `intent_tree`: create each feature, then put its seeds, then move the items. One call per operation with a fresh `idempotencyKey`; a seed naming a repo identity the workspace does not carry is refused with the registered identities listed, which is a fix-the-id signal, not a retry signal. Archive and delete are the exception: only on an explicit maintainer instruction naming the node.
@@ -130,13 +121,13 @@ Nothing here accepts, rejects, or re-authorities anything: moving an item betwee
 
 ## 6. Propose
 
-**Cloud.** One `intent_propose` call per batch with a fresh `idempotencyKey` (reuse a key only when retrying that exact call after a transport failure). Read the result: each entry gives `itemId`, `outcome` (`created_candidate` / `updated_candidate`), the new `version`, whether the id was derived, and any accepted items sharing a source identity that were left untouched. Carry those exact ids and versions forward — review decides against them.
+One `intent_propose` call per batch with a fresh `idempotencyKey` (reuse a key only when retrying that exact call after a transport failure). Read the result: each entry gives `itemId`, `outcome` (`created_candidate` / `updated_candidate`), the new `version`, whether the id was derived, and any accepted items sharing a source identity that were left untouched. Carry those exact ids and versions forward — review decides against them.
 
-**Local.** `coredoc intent capture`, then `coredoc intent validate`. A non-zero exit means nothing was written: fix the document and re-run, never work around the refusal. If capture refuses because the overlay is invalid, report it — that needs a maintainer fix or a Git restore, not a rewrite by you.
+A refusal means nothing was written: fix the batch and re-send, never work around the refusal.
 
 ## 7. Review — only on an explicit decision
 
-### 7.0 Single approval from an approved document (cloud)
+### 7.0 Single approval from an approved document
 
 An explicit human approval of a PRD, of a specification accepted when no PRD
 exists, or of an ADR is the decision for its unchanged verbatim items; a
@@ -164,9 +155,9 @@ rechecked against the same approved content; changed content needs a new decisio
 
 ### 7.1 Show the exact review set (when §7.0 does not qualify)
 
-Take the exact ids from the propose result or the user's request; do not rediscover, fuzzy-match, or expand them. Cloud: one `get_intent_context` call with those `intentIds` and `includeCandidates: true`. Local: one `coredoc intent context --project <id> --include-candidates` with one repeated `--id` per exact id.
+Take the exact ids from the propose result or the user's request; do not rediscover, fuzzy-match, or expand them. Make one `get_intent_context` call with those `intentIds` and `includeCandidates: true`.
 
-The adapter's output — never a direct read of the file — is the review surface. If a requested id is unknown or the result is truncated, stop rather than present a partial set. Fetch each item's full payload, sources, anchors, and evidence *before* recommending anything: a concise card is a presentation layer over a complete read. At most ten cards; beyond that, ask for a smaller set.
+The tool's output — never a raw read of stored content — is the review surface. If a requested id is unknown or the result is truncated, stop rather than present a partial set. Fetch each item's full payload, sources, anchors, and evidence *before* recommending anything: a concise card is a presentation layer over a complete read. At most ten cards; beyond that, ask for a smaller set.
 
 One card per item: exact id and its `version`; title or one-sentence meaning; current authority and the proposed outcome (`accept`, `reject`, `supersede` with one exact pair, `defer`, `needs_edit`); the recommendation and its reason; source `ref` and `localId` plus the source revision or a `missing source revision` warning; and the one material owner question, if a decision still hangs on one. Show graph/evidence status once for the batch, not per card, and keep authority, anchor status, and freshness separate — an anchor never licenses acceptance.
 
@@ -176,7 +167,7 @@ Then **stop and wait**. Ask for a product decision in ordinary language, not too
 
 Build the call yourself; never ask the maintainer to construct one. Ask only for what is theirs to supply: the authorizing source (`kind`, `ref`, `localId`, and `revision` for a spec; optional for other kinds) and optionally the work item.
 
-**Cloud:** one `intent_review` call, fresh `idempotencyKey`, one `authorizingSource` for the batch, one decision per item — `{ itemId, expectedVersion, action, reason }`, plus `replacementItemId` and `replacementExpectedVersion` on a `supersede`. `expectedVersion` is the version you showed on that card.
+One `intent_review` call, fresh `idempotencyKey`, one `authorizingSource` for the batch, one decision per item — `{ itemId, expectedVersion, action, reason }`, plus `replacementItemId` and `replacementExpectedVersion` on a `supersede`. `expectedVersion` is the version you showed on that card.
 
 - `accept`, `reject`, and `supersede` change authority. **Reject is real**: a rejected item is recorded as rejected.
 - `defer` and `needs_edit` are reported outcomes that write nothing. Say so plainly and carry the guidance in the conversation or work item; never claim a transition that did not happen.
@@ -185,12 +176,10 @@ Build the call yourself; never ask the maintainer to construct one. Ask only for
 
 **Version conflict.** A decision whose `expectedVersion` no longer matches is refused for that item and writes nothing. Re-fetch **only the exact shown ids**, show what changed and the new versions, and get a NEW decision — the earlier approval does not carry over to refreshed content. Other items in the batch are decided on their own merits, so read the per-item results rather than assuming all-or-nothing.
 
-**Local (pre-cutover only):** there is no local review verb. Authority transitions belong to cloud workspaces. Before a project is imported into a workspace, solo acceptance is the maintainer's own reviewed edit of `.coredoc/intent.json`, followed by `coredoc intent validate -p <id>`. Present the cards, hand off, and edit nothing yourself.
-
 ### 7.3 Verify and hand off
 
-1. Read back the exact reviewed ids (`get_intent_context`; locally `coredoc intent context` plus `coredoc intent validate`) and confirm each one's authority and version.
-2. Report every outcome, the non-mutating `defer` / `needs_edit` ones included, with before/after versions; in the local lane also show `git diff -- .coredoc/intent.json`.
+1. Read back the exact reviewed ids (`get_intent_context`) and confirm each one's authority and version.
+2. Report every outcome, the non-mutating `defer` / `needs_edit` ones included, with before/after versions.
 3. Name any placement you would propose (a domain or feature that does not exist yet) and the items you parked because of it.
 4. Carry the exact ids and observed versions unchanged into any spec, plan, ticket, or review prose that follows.
 

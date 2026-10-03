@@ -41,7 +41,6 @@ import { IntentController } from './intent.controller.js';
 import { IntentExportController } from './intent-export.controller.js';
 import { IntentExportService } from './intent-export.service.js';
 import { IntentImportController } from './intent-import.controller.js';
-import { IntentImportService } from './intent-import.service.js';
 import { IntentItemService } from './intent-item.service.js';
 import { IntentProposeService } from './intent-propose.service.js';
 import { IntentRetentionCron } from './intent-retention.cron.js';
@@ -79,7 +78,6 @@ import { IntentTreeService } from './intent-tree.service.js';
     IntentTransitionsService,
     IntentContextService,
     IntentReadService,
-    IntentImportService,
     IntentWorkspaceImportService,
     IntentExportService,
   ],

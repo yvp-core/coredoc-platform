@@ -1,9 +1,7 @@
 /**
  * The ported derivation must behave EXACTLY like core's `deriveIntentId`, so
- * these expectations are the ones `packages/core/src/intent/capture.test.ts`
- * states, re-run against the port. A drift here means a cloud item id and a
- * local overlay item id for the same statement would differ, which the import
- * path (issue 09) could not reconcile.
+ * these expectations are the ones `packages/core/src/intent/derive-id.test.ts`
+ * states, re-run against the port.
  */
 import { INTENT_ID_MAX_LENGTH, IntentKind } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';

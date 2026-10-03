@@ -8,7 +8,6 @@ import {
   CreateIntentDomainSchema,
   CreateIntentFeatureSchema,
   DeleteIntentFeatureSeedSchema,
-  ImportIntentOverlaySchema,
   IntentReviewAction,
   ProposeIntentItemsSchema,
   PutIntentFeatureSeedSchema,
@@ -279,7 +278,7 @@ describe('review', () => {
   });
 });
 
-describe('anchors and import', () => {
+describe('anchors', () => {
   it('accepts an anchor without graph facts and refuses caller-supplied ones', () => {
     const anchor = {
       idempotencyKey: 'k',
@@ -292,22 +291,6 @@ describe('anchors and import', () => {
 
     const error = violation(() => parseContract(AddIntentAnchorSchema, { ...anchor, nodeType: 'function' }));
     expect(error.code).toBe(IntentErrorCode.SchemaViolation);
-  });
-
-  it('requires a sha-256 local revision on import', () => {
-    const overlay = { schemaVersion: 2, projectId: 'p', domains: [], items: [], relations: [] };
-    expect(
-      parseContract(ImportIntentOverlaySchema, {
-        idempotencyKey: 'k',
-        localRevision: 'a'.repeat(64),
-        overlay,
-      }),
-    ).toMatchObject({ localRevision: 'a'.repeat(64) });
-
-    const error = violation(() =>
-      parseContract(ImportIntentOverlaySchema, { idempotencyKey: 'k', localRevision: 'HEAD', overlay }),
-    );
-    expect(error.path).toEqual(['localRevision']);
   });
 });
 

@@ -209,7 +209,7 @@ export {
 } from './resolution.js';
 
 // =============================================================================
-// Intent Overlay Code-Anchor Evidence
+// Intent Code-Anchor Evidence
 // =============================================================================
 
 export {

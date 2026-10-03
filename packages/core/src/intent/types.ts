@@ -1,30 +1,17 @@
 /**
- * Product-intent overlay contract (`IntentFileV2`).
+ * Shared product-intent contract types: kinds, authority, sources, anchors,
+ * per-kind payloads, and context dimensions.
  *
- * This is a DURABLE, human-reviewed artifact stored beside the code at
- * `<repoRoot>/.coredoc/intent.json`. It is deliberately NOT part of `ParsedRepo`
- * / `OutputFormat`: the code graph is rebuildable parser output, the intent
- * overlay is not, and a reparse must never rewrite it.
+ * Product intent is durable, human-reviewed knowledge owned by a cloud
+ * workspace. It is deliberately NOT part of `ParsedRepo` / `OutputFormat`: the
+ * code graph is rebuildable parser output, intent is not.
  *
- * The intent item `id` is a durable product identity chosen by the maintainer or
- * derived by capture from the item's title. It is unrelated to
+ * An intent item `id` is a durable product identity, unrelated to
  * `StableIdGenerator` — code IDs change with the code, product identities must
- * not. Since v2 it is a kind-prefixed slug (BR-16): the id is free searchable
- * text for the deterministic lexical matcher and self-describing in a routed
- * hand-off, which a numeric `BR-7` never was.
+ * not. It is a kind-prefixed slug (BR-16): free searchable text and
+ * self-describing in a routed hand-off, which a numeric `BR-7` never was.
  */
 import { NodeType } from '../types/graph.js';
-
-/**
- * Version 2 is the ONLY supported shape. A lower value (the pre-slug, pre-domain
- * v1 overlay) is refused with migration remediation and a higher value is
- * refused as a newer schema — neither is dual-read or silently upgraded
- * (BR-22).
- */
-export const INTENT_SCHEMA_VERSION = 2;
-
-/** The v1 shape this build refuses; named so the refusal can be traced to BR-22. */
-export const INTENT_LEGACY_SCHEMA_VERSION = 1;
 
 /** The six supported semantic kinds. There is no generic `note`/`knowledge` escape hatch. */
 export enum IntentKind {
@@ -41,12 +28,11 @@ export enum IntentKind {
  * enum so adding a kind fails the build here rather than silently producing an
  * id no validator can classify.
  */
-// Null prototype, because `kind` reaches this table straight from an
-// agent-authored proposals document BEFORE the discriminated union has rejected
-// an unknown value (`provisionalProposalId` in capture-file.ts, `deriveIntentId`
-// in capture.ts). On a plain object literal `kind: "constructor"` resolves up
+// Null prototype, because `kind` can reach this table from agent-authored input
+// BEFORE a schema has rejected an unknown value (`deriveIntentId` in
+// derive-id.ts). On a plain object literal `kind: "constructor"` resolves up
 // the prototype chain to a truthy inherited member, so the `prefix === undefined`
-// fail-safe guarding those lookups never fires. Defend the MAP, not each read.
+// fail-safe guarding such lookups never fires. Defend the MAP, not each read.
 export const INTENT_ID_PREFIX_BY_KIND: Record<IntentKind, string> = Object.assign(Object.create(null), {
   [IntentKind.Capability]: 'cap',
   [IntentKind.UseCase]: 'uc',
@@ -65,7 +51,7 @@ export const INTENT_SLUG_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 /**
  * Cap on a written item id. An id is quoted in hand-offs, error messages, and
  * eval transcripts, so it must stay a label rather than becoming a sentence;
- * capture truncates a derived id at a word boundary to fit.
+ * a derived id is truncated at a word boundary to fit.
  */
 export const INTENT_ID_MAX_LENGTH = 64;
 
@@ -83,16 +69,6 @@ export enum IntentSourceKind {
   Issue = 'issue',
   Adr = 'adr',
   Manual = 'manual',
-}
-
-/** The controlled relation registry; endpoint kinds are constrained per relation. */
-export enum IntentRelationType {
-  Contains = 'contains',
-  Governs = 'governs',
-  Constrains = 'constrains',
-  Decides = 'decides',
-  DependsOn = 'depends_on',
-  Supersedes = 'supersedes',
 }
 
 /**
@@ -232,8 +208,7 @@ export type ContextCondition =
   | { text: string };
 
 /**
- * Item-level conditions, joined with AND; absent means unconditional. A cloud
- * item field only: the local overlay file format does not carry it (LIM-1).
+ * Item-level conditions, joined with AND; absent means unconditional.
  */
 export interface IntentItemContextConditions {
   appliesWhen?: ContextCondition[];
@@ -257,11 +232,7 @@ export interface RuleVariant {
 export interface LimitationPayload {
   constraint: string;
   reason: string;
-  /**
-   * Human-readable name of the affected flow or capability. The machine-checkable
-   * link is a `constrains` relation; this field keeps the statement readable on
-   * its own when the related item is not fetched.
-   */
+  /** Human-readable name of the affected flow or capability. */
   affects: string;
 }
 
@@ -275,97 +246,3 @@ export interface DecisionPayload {
   alternatives: string[];
   consequences: string[];
 }
-
-/**
- * A declared product area (ADR-8). The registry is in-file and controlled: an
- * item may only reference a domain declared here, which is what keeps `domain`
- * a reviewable facet instead of a free-text tag zoo.
- */
-export interface IntentDomain {
-  /** Slug identity, referenced by `IntentItemBase.domain`. */
-  id: string;
-  title: string;
-  /** Optional one-line scope of the area, for a reader deciding where an item belongs. */
-  statement?: string;
-}
-
-interface IntentItemBase {
-  /** Durable product identity; independent from `StableIdGenerator`. */
-  id: string;
-  /** Exactly one declared domain id (BR-18); membership is a field, not a relation. */
-  domain: string;
-  title: string;
-  statement: string;
-  authority: IntentAuthority;
-  /** At least one reference is required (BR-5). */
-  sources: IntentSourceRef[];
-  codeAnchors?: CodeAnchor[];
-}
-
-export interface CapabilityItem extends IntentItemBase {
-  kind: IntentKind.Capability;
-  payload: CapabilityPayload;
-}
-
-export interface UseCaseItem extends IntentItemBase {
-  kind: IntentKind.UseCase;
-  payload: UseCasePayload;
-}
-
-export interface FlowItem extends IntentItemBase {
-  kind: IntentKind.Flow;
-  payload: FlowPayload;
-}
-
-export interface BusinessRuleItem extends IntentItemBase {
-  kind: IntentKind.BusinessRule;
-  payload: BusinessRulePayload;
-}
-
-export interface LimitationItem extends IntentItemBase {
-  kind: IntentKind.Limitation;
-  payload: LimitationPayload;
-}
-
-export interface DecisionItem extends IntentItemBase {
-  kind: IntentKind.Decision;
-  payload: DecisionPayload;
-}
-
-/** Discriminated by `kind`; the payload shape follows the kind. */
-export type IntentItem = CapabilityItem | UseCaseItem | FlowItem | BusinessRuleItem | LimitationItem | DecisionItem;
-
-export interface IntentRelation {
-  from: string;
-  type: IntentRelationType;
-  to: string;
-}
-
-export interface IntentFileV2 {
-  schemaVersion: typeof INTENT_SCHEMA_VERSION;
-  projectId: string;
-  /** The controlled domain registry; a declared-but-unused entry is valid (BR-19). */
-  domains: IntentDomain[];
-  items: IntentItem[];
-  relations: IntentRelation[];
-}
-
-/**
- * What a capture operation proposes.
- *
- * `authority` is absent by construction: a captured item is always a
- * `candidate` (BR-1), so a proposal cannot express one. `id` is OPTIONAL:
- * omitted, capture derives the kind-prefixed slug from the title (BR-17);
- * supplied, it is validated against BR-16 for the proposal's kind and is
- * ignored when the proposal matches an existing item by source identity — ids
- * are never renamed.
- */
-type ProposalOf<T extends IntentItem> = Omit<T, 'authority' | 'id'> & { id?: string };
-
-export type IntentItemProposal =
-  | ProposalOf<CapabilityItem>
-  | ProposalOf<UseCaseItem>
-  | ProposalOf<FlowItem>
-  | ProposalOf<BusinessRuleItem>
-  | ProposalOf<LimitationItem>
-  | ProposalOf<DecisionItem>;

@@ -3,9 +3,8 @@
  *
  * NEVER AN ERROR TONE. A knowledge base nobody has started is the normal first
  * state of every workspace, not a failure, so the card explains what the thing
- * is in one sentence and offers the two ways to start it: create the first
- * domain here (the tree editor's create form), or import an existing
- * repo-local overlay with the CLI.
+ * is in one sentence and offers the way to start it: create the first domain
+ * here (the tree editor's create form).
  *
  * A WORKSPACE WHOSE DOMAINS ARE ALL ARCHIVED lands here too — the default tree
  * read hides archived nodes, so it returns nothing. That is not an empty
@@ -45,10 +44,6 @@ export function IntentEmptyState({
         <Button type="button" variant="brand" size="sm" onClick={onCreateFirstDomain}>
           Create the first domain
         </Button>
-        <p className="text-[11px] leading-4 text-content-tertiary">
-          Already have a repo overlay? <span className="font-mono text-content-secondary">coredoc intent import</span>{' '}
-          pushes <span className="font-mono text-content-secondary">.coredoc/intent.json</span> into this workspace.
-        </p>
 
         {archivedDomainCount > 0 && onShowArchived && (
           <div className="flex flex-col items-center gap-1 border-t border-border-input pt-3">

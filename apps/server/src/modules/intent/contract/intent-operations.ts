@@ -34,7 +34,6 @@ import {
   repoKey,
   slugId,
   text,
-  canonicalRevision,
   externalUrl,
 } from './intent-primitives.js';
 
@@ -273,8 +272,7 @@ export const ProposedIntentItemSchema = z
     body: IntentItemBodySchema.optional(),
     /**
      * OPTIONAL structured payload (D9), validated by the refinement below
-     * through core's own per-kind payload validation — so a payload the cloud
-     * accepts is one the local overlay format accepts, by construction. Typed
+     * through core's own per-kind payload validation. Typed
      * as a JSON object rather than `unknown` so the MCP schema says at least
      * that much.
      */
@@ -445,24 +443,6 @@ export const UpdateIntentSourceSchema = z
   .strict()
   .refine((value) => value.title !== undefined || value.url !== undefined, 'an update must set title or url');
 
-/* ---------------------------------------------------------------- import --- */
-
-/**
- * Onboarding import (spec §8.1). The overlay is the local `IntentFileV2`
- * document; its full validation is core's `validateIntentFile` inside the
- * import service, not a second copy of the file schema here. This boundary
- * still says "JSON object" for the MCP-schema reason above, and the content
- * walk runs over the whole overlay with the import node budget.
- */
-export const ImportIntentOverlaySchema = z
-  .object({
-    ...mutation,
-    /** Revision of the local file, recorded on every imported item's transition. */
-    localRevision: canonicalRevision,
-    overlay: z.record(z.string(), z.unknown()),
-  })
-  .strict();
-
 /* ----------------------------------------------------------- list queries --- */
 
 /**
@@ -581,4 +561,3 @@ export type ListIntentFeatureSeedsQuery = z.infer<typeof ListIntentFeatureSeedsQ
 export type ListIntentItemsQuery = z.infer<typeof ListIntentItemsQuerySchema>;
 export type ListIntentReviewQueueQuery = z.infer<typeof ListIntentReviewQueueQuerySchema>;
 export type UpdateIntentSourceInput = z.infer<typeof UpdateIntentSourceSchema>;
-export type ImportIntentOverlayInput = z.infer<typeof ImportIntentOverlaySchema>;

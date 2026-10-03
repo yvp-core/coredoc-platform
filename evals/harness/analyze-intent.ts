@@ -240,7 +240,8 @@ export type IntentArmId = 'baseline' | 'intent';
  *
  * Per-session AC-10 semantics are UNCHANGED by this split: the same shapes
  * produce the same `pass`/`violation` verdicts and the same `reasons`. Only the
- * run-level aggregation in `run-intent.ts` reads the severities. One
+ * run-level aggregation (the intent runner, being rebuilt on cloud intent)
+ * reads the severities. One
  * consequence is deliberate and stays visible: a session can be per-session
  * `pass` and still carry a hard finding — one selector-less lookup on an open
  * task sits inside the one-broad-lookup budget, so the session passes, but the

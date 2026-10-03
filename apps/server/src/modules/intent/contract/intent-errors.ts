@@ -191,10 +191,11 @@ export enum IntentErrorCode {
    */
   WorkspaceNotEmpty = 'workspace_not_empty',
   /**
-   * The uploaded overlay is not a valid `IntentFileV2`. Distinct from
+   * The uploaded workspace document is invalid. Distinct from
    * {@link SchemaViolation}: the ENVELOPE was well-formed and the failure came
-   * from core's `validateIntentFile` over the overlay document itself, whose
-   * paths are overlay paths (`overlay.items.3.domain`).
+   * from validating the document itself, whose paths are document paths
+   * (`document.items.3.domainId`). The wire value predates the workspace
+   * document and is kept for callers that branch on it.
    */
   ImportOverlayInvalid = 'import_overlay_invalid',
   /** The workspace holds more intent rows than one export document may carry. */

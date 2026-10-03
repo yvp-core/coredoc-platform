@@ -21,7 +21,6 @@ import { PrismaClient } from '../../generated/prisma/client.js';
 import { IntentErrorCode, IntentPublicException } from './contract/index.js';
 import { IntentExportService } from './intent-export.service.js';
 import { IntentImportController } from './intent-import.controller.js';
-import { IntentImportService } from './intent-import.service.js';
 import { IntentReadService } from './intent-read.service.js';
 import { IntentTreeService } from './intent-tree.service.js';
 import {
@@ -225,7 +224,6 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
       providers: [
         { provide: PrismaService, useValue: prisma as unknown as PrismaService },
         ControlPlaneService,
-        IntentImportService,
         IntentWorkspaceImportService,
       ],
     })

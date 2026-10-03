@@ -3,9 +3,8 @@
  *
  * NEVER AN ERROR TONE. A knowledge base nobody has started is the normal first
  * state of every workspace, so the card explains what the thing is in one
- * sentence and offers the two ways to start it: create the first domain here
- * (maintainers), or import an existing repo-local overlay with the CLI. A
- * member, whose writes the server would refuse anyway, is told who can do it
+ * sentence and offers the way to start it: create the first domain here
+ * (maintainers). A member, whose writes the server would refuse anyway, is told who can do it
  * instead of being handed a button.
  *
  * A WORKSPACE WHOSE DOMAINS ARE ALL ARCHIVED lands here too — the default tree
@@ -46,10 +45,6 @@ export function IntentEmptyState({
           A workspace admin creates the first domain; after that anyone here can browse what is accepted.
         </p>
       )}
-      <p className="max-w-lg text-[12px] text-ink-4">
-        Already have a repo overlay? <span className="font-mono text-ink-2">coredoc intent import</span> pushes{' '}
-        <span className="font-mono text-ink-2">.coredoc/intent.json</span> into this workspace.
-      </p>
 
       {archivedDomainCount > 0 && onShowArchived && (
         <div className="flex flex-col items-center gap-1 border-t border-border-soft pt-3">

@@ -52,11 +52,10 @@ export enum IntentOperation {
   AnchorRemove = 'anchor.remove',
   SourceUpdate = 'source.update',
   /**
-   * Onboarding import (spec §8.1). Export has no member on purpose: it is a
-   * read, and a read spends no key.
+   * Whole-workspace import of a `CloudIntentWorkspaceDocumentV1`. Export has no
+   * member on purpose: it is a read, and a read spends no key. (`overlay.import`
+   * is a retired value that persisted ledger rows may still carry.)
    */
-  OverlayImport = 'overlay.import',
-  /** Whole-workspace import of a `CloudIntentWorkspaceDocumentV1`. */
   WorkspaceImport = 'workspace.import',
 }
 
@@ -260,8 +259,8 @@ async function auditAndRemember(
   // written here (one row per item plus one per domain, so low hundreds), which
   // is a small share of the import transaction's budget; batching these bought
   // little and would have changed the write shape every mutation in the module
-  // depends on. The rows that scale with the overlay — items, sources, anchors,
-  // transitions — are batched at their own call site in `intent-import.service`.
+  // depends on. The rows that scale with the document are inserted in chunks at
+  // their own call site in `intent-workspace-import`.
   for (const audit of args.audits) {
     assertBoundedProjection(audit.before, 'before');
     assertBoundedProjection(audit.after, 'after');
@@ -303,7 +302,7 @@ export interface IntentMutationContext {
    * Omitted, a mutation runs on Prisma's defaults (READ COMMITTED, 5s), which
    * is right for the ordinary single-row tree and review writes. An operation
    * whose worst LEGAL input is bigger than that — import, which writes an entire
-   * overlay — must state its own budget here rather than discover the 5s ceiling
+   * workspace document — must state its own budget here rather than discover the 5s ceiling
    * in production, where the timeout aborts the transaction WITHOUT a ledger row
    * and the caller's only documented recovery is to replay a key that will time
    * out identically.

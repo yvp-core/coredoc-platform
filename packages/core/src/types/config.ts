@@ -84,40 +84,6 @@ export interface ProjectConfig {
    * Absent when the project has never been synced to cloud.
    */
   cloud?: CloudSyncState;
-
-  /**
-   * Product-intent authority cutover, written by `coredoc intent import`.
-   * Absent means the repo-local overlay is still authoritative.
-   */
-  intent?: ProjectIntentCutover;
-}
-
-/**
- * Who owns product-intent WRITE authority for a project.
- *
- * One member on purpose: v1 has a single direction of travel (local overlay →
- * cloud workspace) and no un-cutover path, so "local" is the ABSENCE of the
- * marker rather than a second mode nobody writes.
- */
-export enum ProjectIntentMode {
-  Cloud = 'cloud',
-}
-
-/**
- * The cutover marker (spec §8.1). Written by `coredoc intent import` after the
- * server returns a successful import result, and re-written idempotently when a
- * retried import replays the stored result — which is the designated recovery
- * for a crash between the successful POST and the config write.
- *
- * While it is present, local intent WRITE commands fail fast naming the owning
- * workspace ({@link assertLocalIntentWritable}); local READS keep working
- * against whatever overlay is still on disk, so a cut-over repo stays readable
- * offline.
- */
-export interface ProjectIntentCutover {
-  mode: ProjectIntentMode;
-  /** The cloud workspace that now owns authority. Named in every refusal. */
-  workspaceId: string;
 }
 
 /**

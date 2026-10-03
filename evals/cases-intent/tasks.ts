@@ -57,7 +57,7 @@ export interface IntentTask {
   stage: IntentTaskStage;
   shape: IntentPromptShape;
   title: string;
-  /** Given to both arms verbatim — no tool, skill, or overlay hints. */
+  /** Given to both arms verbatim — no tool, skill, or intent hints. */
   prompt: string;
   /** Exact ids the ROUTED prompt hands over; empty for OPEN prompts. */
   routedIntentIds: string[];

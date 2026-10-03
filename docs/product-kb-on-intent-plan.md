@@ -39,8 +39,8 @@ people who do not use git.
   is the `accepted` transition (actor, reason, source), so it cannot go stale
   silently: any wording change creates a new candidate.
 - Fail explicit: every bounded read says what it left out and how to get it.
-- The local MCP (`packages/mcp`) stays in step with each read change, or
-  refuses explicitly where the local overlay has no equivalent.
+- Intent reads are served by the cloud workspace only; the local MCP
+  (`packages/mcp`) has no intent tools.
 
 ## Phase 1 — read tools that behave like files
 
@@ -109,8 +109,8 @@ Paths are under `apps/server/src/` unless noted.
 
 ## Phase 3 — bulk import
 
-`POST intent/import` accepts only the JSON overlay, only into an empty
-workspace, up to 500 items, without features or relations. A real product KB
+The former `POST intent/import` (since removed) accepted only the JSON overlay,
+only into an empty workspace, up to 500 items, without features or relations. A real product KB
 is larger: the pilot's already has about 840 items.
 
 1. Extend the import contract to take features, node relations, open
@@ -167,8 +167,7 @@ because a queue card shows an item out of the node it belongs to. Prototypes tha
   appends sources not cited inline. Navigation, delivery and inherited-item notes follow a
   `---` line. A replaced item keeps its slot while it is still in production. A node reads
   400 current items per answer; past that it says TRUNCATED and continues with `after` (item
-  id). Superseded history is read separately, so it cannot crowd current items out. On the
-  local MCP `intent_read` answers with an explicit refusal pointing to `get_intent_context`.
+  id). Superseded history is read separately, so it cannot crowd current items out.
   Search ANDs
   every word over statement, body, payload strings, rationale, title and source refs, with a
   total and an `after` cursor.

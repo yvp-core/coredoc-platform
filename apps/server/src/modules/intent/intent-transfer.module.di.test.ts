@@ -13,7 +13,6 @@ import { PrismaService } from '../../database/prisma.service.js';
 import { IntentExportController } from './intent-export.controller.js';
 import { IntentExportService } from './intent-export.service.js';
 import { IntentImportController } from './intent-import.controller.js';
-import { IntentImportService } from './intent-import.service.js';
 import { IntentModule } from './intent.module.js';
 import { IntentWorkspaceImportService } from './intent-workspace-import.js';
 
@@ -24,7 +23,6 @@ describe('IntentModule DI (import and export)', () => {
       .useValue({} as PrismaService)
       .compile();
 
-    expect(moduleRef.get(IntentImportService)).toBeInstanceOf(IntentImportService);
     expect(moduleRef.get(IntentWorkspaceImportService)).toBeInstanceOf(IntentWorkspaceImportService);
     expect(moduleRef.get(IntentImportController)).toBeInstanceOf(IntentImportController);
     expect(moduleRef.get(IntentExportService)).toBeInstanceOf(IntentExportService);

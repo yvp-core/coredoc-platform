@@ -23,7 +23,6 @@ import { IntentEnabledGuard } from './intent-enabled.guard.js';
 import { IntentContextController } from './intent-context.controller.js';
 import { IntentContextService } from './intent-context.service.js';
 import { IntentImportController } from './intent-import.controller.js';
-import { IntentImportService } from './intent-import.service.js';
 import { IntentWorkspaceImportService } from './intent-workspace-import.js';
 import { IntentItemService } from './intent-item.service.js';
 import { IntentReadService } from './intent-read.service.js';
@@ -182,9 +181,9 @@ const TABLE: Case[] = [
   ],
   [
     'IntentImportController',
-    'an import overlay that is not an object',
+    'an import body that is not an object',
     'POST',
-    `${BASE}/import`,
+    `${BASE}/import/workspace`,
     [],
     {
       statusCode: 400,
@@ -271,7 +270,6 @@ describe('intent request-validation parity', () => {
         IntentReadService,
         IntentAnchorService,
         IntentContextService,
-        IntentImportService,
         IntentWorkspaceImportService,
         IntentReleaseService,
         IntentHandoffProcessor,

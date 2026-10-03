@@ -1,19 +1,17 @@
 // Structure guard for the intent-capture skill.
 //
 // The skill is the only sanctioned authoring path into product intent, and its
-// load-bearing content is PROHIBITIONS the tools cannot enforce: never
-// hand-edit the overlay, never capture from code or inference, never invent a
-// node id, never accept on the maintainer's behalf. Prose like that is deleted
+// load-bearing content is PROHIBITIONS the tools cannot enforce: never capture
+// from code or inference, never invent a node id, never accept on the
+// maintainer's behalf. Prose like that is deleted
 // by a well-meaning edit without anything failing, so it is asserted here.
 //
 // This file is deliberately structural: it checks that each rule is still
 // present and still attributed to the right side of the enforcement line. It
 // cannot check that the wording is good.
 //
-// It was rewritten when the skill went CLOUD-FIRST (`## 1. Pick the lane`,
-// `intent_propose`/`intent_review`, the local lane demoted to a stepping stone
-// that fails fast after cutover). The previous version asserted the headings of
-// the local-only skill and failed every case, which guards nothing.
+// Product intent is cloud-only: the skill names the workspace tools as the one
+// write surface and carries no local-overlay lane.
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -47,51 +45,28 @@ test('the opening still puts the decision with the maintainer, not the agent', (
   assert.match(opening, /unchanged verbatim items[\s\S]*exact review cards/);
 });
 
-test('lane selection is cloud-first and decided by the write surface, not convenience', () => {
-  const lane = section('## 1. Pick the lane, once');
-  assert.match(lane, /Intent is cloud-first/);
-  assert.match(lane, /The write surface picks the lane, not convenience/);
-
-  // The cloud lane names its own tools, so "which lane am I in" is answerable
-  // from what the session can actually call.
+test('the write surface is the workspace tools, with no local fallback', () => {
+  const surface = section('## 1. The write surface');
   for (const tool of ['`intent_propose`', '`intent_review`', '`intent_tree`']) {
-    assert.ok(lane.includes(tool), `the cloud lane no longer names ${tool}`);
+    assert.ok(surface.includes(tool), `the write surface no longer names ${tool}`);
   }
-  assert.match(lane, /Cloud lane \(default\)/);
-  assert.match(lane, /Local stepping-stone lane/);
-
-  // The workspace IS the product: a projectId in the cloud lane is fabricated.
-  assert.match(lane, /never send, ask for, or invent a `projectId`/);
-});
-
-test('the cutover error is documented as the lane signal, with no workaround offered', () => {
-  const lane = section('## 1. Pick the lane, once');
-  assert.match(lane, /After cutover the local lane fails fast/);
-  assert.match(lane, /cloud-authoritative/);
-  assert.match(lane, /Local \*reads\*.*keep working/);
-  // The three specific wrong reactions to that error, refused by name.
-  assert.match(lane, /Do not retry, do not pass a flag, do not hand-edit/);
-});
-
-test('hand-editing the overlay is still forbidden, and still attributed to the write path', () => {
-  const lane = section('## 1. Pick the lane, once');
-  assert.match(lane, /\*\*Never hand-edit `\.coredoc\/intent\.json`\*\*/);
-  // WHY it is forbidden — the protection lives in the writer, so the file is
-  // not equivalent to the command.
-  assert.match(lane, /accepted-item protection lives in the write path/);
-  assert.match(lane, /a failure of this skill, not a fallback/);
+  assert.match(surface, /use those tools only/);
+  // The workspace IS the product: a projectId is fabricated.
+  assert.match(surface, /never send, ask for, or invent a `projectId`/);
+  assert.match(surface, /Without those tools there is no write surface: say so and stop/);
+  assert.match(surface, /There is no local fallback/);
 });
 
 test('an empty workspace is the agent\'s to seed in a user session, and a service token stops', () => {
-  const lane = section('## 1. Pick the lane, once');
-  assert.match(lane, /no product intent yet/);
+  const surface = section('## 1. The write surface');
+  assert.match(surface, /no product intent yet/);
   // Tree placement is not authority: in the acting user's own session (any
   // member, BR-1) the agent creates the first domain itself and reports it.
-  assert.match(lane, /create the first domain yourself with `intent_tree`/);
-  assert.match(lane, /in the user's own session \(any workspace member\)/);
-  assert.match(lane, /say what you created/);
+  assert.match(surface, /create the first domain yourself with `intent_tree`/);
+  assert.match(surface, /in the user's own session \(any workspace member\)/);
+  assert.match(surface, /say what you created/);
   // A service token still cannot write the tree — it drafts and stops.
-  assert.match(lane, /A service-token session drafts the domain set and stops/);
+  assert.match(surface, /A service-token session drafts the domain set and stops/);
 });
 
 test('the source rule still forbids code, tests, and inference as sources', () => {
@@ -150,17 +125,6 @@ test('anchor suggestions are documented as carrying no graph facts', () => {
   assert.match(draft, /node type and the drift baseline are resolved server-side/);
   assert.match(draft, /Never invent or reconstruct a node id from a file path/);
   assert.match(draft, /Suggest only ids you read out of tool output/);
-});
-
-test('the local-lane deltas keep anchors off by default and rename the placement field', () => {
-  const draft = section('## 3. Draft the proposals');
-  const local = draft.slice(draft.indexOf('**Local-lane deltas.**'));
-  assert.notEqual(local, '', 'the local-lane delta paragraph is gone');
-  // The local format needs a versioned id no read surface exposes for a NEW
-  // anchor, so the honest default is to omit them.
-  assert.match(local, /omit them by default/);
-  assert.match(local, /the placement field is `domain`/);
-  assert.match(local, /never into the repo/);
 });
 
 test('the allowed source kinds and every item kind are still listed', () => {
@@ -225,7 +189,7 @@ test('the packet is validated before any write, and never itself sent to a tool'
 });
 
 test('the feature layout is proposed and then created in the same user session, minus archive and delete', () => {
-  const layout = section('## 5. After import — propose a feature layout with seeds');
+  const layout = section('## 5. Propose a feature layout with seeds');
   assert.match(layout, /you propose it in your reply, then you create it/);
   assert.match(layout, /in the acting user's own session/);
   // A service token still drafts and stops, and a feature must still earn its
@@ -244,14 +208,14 @@ test('propose still demands a fresh idempotency key and a read of the result', (
   assert.match(propose, /`created_candidate` \/ `updated_candidate`/);
   // Review decides against these exact ids and versions.
   assert.match(propose, /Carry those exact ids and versions forward/);
-  assert.match(propose, /A non-zero exit means nothing was written/);
+  assert.match(propose, /A refusal means nothing was written/);
 });
 
 test('the review ceremony shows an exact set, then stops and waits for a real decision', () => {
   const review = section('## 7. Review — only on an explicit decision');
   assert.match(review, /do not rediscover, fuzzy-match, or expand them/);
-  // The adapter output is the review surface — never a raw read of the file.
-  assert.match(review, /never a direct read of the file/);
+  // The tool output is the review surface — never a raw read of stored content.
+  assert.match(review, /never a raw read of stored content/);
   assert.match(review, /stop rather than present a partial set/);
   assert.match(review, /Then \*\*stop and wait\*\*/);
   // A blanket approval, or one given before the cards, authorizes nothing.
@@ -283,11 +247,8 @@ test('a version conflict forces a NEW decision rather than reusing the old appro
   assert.match(review, /the earlier approval does not carry over to refreshed content/);
 });
 
-test('the local lane still has no review verb, and the hand-off refuses acceptance', () => {
+test('the hand-off never rounds a failure up and leaves authority with the maintainer', () => {
   const review = section('## 7. Review — only on an explicit decision');
-  assert.match(review, /there is no local review verb/);
-  assert.match(review, /acceptance is the maintainer's own reviewed edit/i);
-  assert.match(review, /present the cards, hand off, and edit nothing yourself/i);
   // A failed readback is never rounded up to success.
   assert.match(review, /never converted into a success claim/);
   assert.match(review, /Authority decisions belong to the maintainer/);
@@ -306,7 +267,8 @@ test('the skill stays within its context budget', () => {
   // raised 2026-09-26 for intent-dimensions: appliesWhen/variants capture guidance (step 9, AC-9); the addition was compacted three times first
   // raised 2026-09-28 for intent-dimensions: evidence-only conditions rule (no per-dimension questions)
   // raised 2026-09-28 for pilot review: item-clause reach, same-batch ids, requiredOutcome vs variant.outcome, boolean settings
-  assert.ok(bytes <= 23_296, `SKILL.md is ${bytes} B, over the 23296 B budget`);
+  // lowered 2026-10-03 when the local-overlay lane was removed (intent is cloud-only)
+  assert.ok(bytes <= 20_480, `SKILL.md is ${bytes} B, over the 20480 B budget`);
 });
 
 test('the description ends with the invocation-trigger sentence', () => {

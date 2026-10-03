@@ -69,7 +69,8 @@ describe('hashIntentRequest', () => {
     [IntentOperation.DomainCreate, {}, '5bc508e96e70f23d47c2ac757f67bfe808543507404c6f6526ab5dcef35a31e4'],
     [IntentOperation.DomainCreate, { b: 1, a: 2 }, '1f9e496fd9cfcd4573ce3ee19eeec666f25aeaef1c794064e34eb5ba89d35539'],
     [
-      IntentOperation.OverlayImport,
+      // A retired operation: digests already persisted under it must stay reproducible.
+      'overlay.import' as IntentOperation,
       { localRevision: 'r1', overlay: { schemaVersion: 2, items: [{ id: 'b' }, { id: 'a' }] } },
       '23bb50ae02741f784676e0d12a52eca825000a1fac03f6ea374b79d9b3aec64d',
     ],

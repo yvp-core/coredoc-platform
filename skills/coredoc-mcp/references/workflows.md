@@ -86,9 +86,7 @@ record/rollback/plan/withdraw/reinstate require a person's own session (any work
 and graph publication do not prove availability. An uncertain write is retried with the same
 key, body and expected head; do not automatically update a stale head to force a delivery through.
 
-The local overlay MCP does not support release effectivity or the release ledger. Do not pass
-`effectivity` to a local tool or interpret an ignored argument as a production-aware result.
-A cloud production-aware response includes the `currentRelease` field (which can be null before
+Intent tools exist only on the cloud workspace MCP. A production-aware response includes the `currentRelease` field (which can be null before
 any delivery); without that field, no production effectivity was established by the response.
 
 Default context/list reads carry authority only and provide no production or plan-withdrawal

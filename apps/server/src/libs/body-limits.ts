@@ -10,8 +10,6 @@
  * Matched against `req.url`, which includes the /api/v1 prefix at the Express layer.
  */
 
-import { MAX_INTENT_IMPORT_BODY_BYTES } from '@coredoc/core';
-
 const OneMB = 1024 * 1024;
 
 /** Default ceiling for ordinary JSON API requests (auth, tokens, members, …). */
@@ -35,15 +33,11 @@ export const ARTIFACT_REVISION_BODY_LIMIT = 3 * OneMB;
 /** OTLP ingest — a busy Claude Code log-export window can exceed 1MB. */
 export const OTLP_BODY_LIMIT = 25 * OneMB;
 /**
- * Intent onboarding import — a maximal LEGAL overlay plus its envelope.
- *
- * Not a number of its own: it IS `MAX_INTENT_IMPORT_BODY_BYTES` from
- * `@coredoc/core`, the same bound the CLI checks before sending, so a maximal
- * overlay is refused client-side by name instead of arriving here as a 413.
- * Under DEFAULT_BODY_LIMIT a legal 2 MB overlay was rejected before the service
- * ever saw it.
+ * Intent workspace import — one whole `CloudIntentWorkspaceDocumentV1` plus its
+ * envelope. Under DEFAULT_BODY_LIMIT a legal multi-megabyte document would be
+ * rejected before the service ever saw it.
  */
-export const INTENT_IMPORT_BODY_LIMIT = MAX_INTENT_IMPORT_BODY_BYTES;
+export const INTENT_IMPORT_BODY_LIMIT = 6 * OneMB;
 
 // First match wins; unmatched routes get DEFAULT_BODY_LIMIT.
 const BODY_LIMITS: ReadonlyArray<{ re: RegExp; limit: number; method?: string }> = [
@@ -63,12 +57,9 @@ const BODY_LIMITS: ReadonlyArray<{ re: RegExp; limit: number; method?: string }>
   { re: /^\/api\/v1\/workspaces\/[^/]+\/mapper(?:\/|$|\?)/, limit: MAPPER_BODY_LIMIT },
   // OTLP ingest — a busy Claude Code log-export window can exceed 1MB; give it 25MB.
   { re: /^\/api\/v1\/workspaces\/[^/]+\/otel\/v1\/(?:metrics|logs)(?:\/|$|\?)/, limit: OTLP_BODY_LIMIT },
-  // Intent onboarding imports (POST only) — one whole overlay, or one whole
-  // workspace document, in one body. The
-  // sibling GET `intent/import/preflight` carries no body and is deliberately
-  // left on the default.
+  // Intent workspace import (POST only) — one whole workspace document in one body.
   {
-    re: /^\/api\/v1\/workspaces\/[^/]+\/intent\/import(?:\/workspace)?\/?(?:\?.*)?$/,
+    re: /^\/api\/v1\/workspaces\/[^/]+\/intent\/import\/workspace\/?(?:\?.*)?$/,
     limit: INTENT_IMPORT_BODY_LIMIT,
     method: 'POST',
   },

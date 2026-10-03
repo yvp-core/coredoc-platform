@@ -26,12 +26,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { IntentAuthority, IntentKind, IntentSourceKind, StableIdGenerator } from '@coredoc/core';
-import type { FileNode, FunctionNode, IntentItem, ParsedRepo } from '@coredoc/core';
+import { StableIdGenerator } from '@coredoc/core';
+import type { FileNode, FunctionNode, ParsedRepo } from '@coredoc/core';
 import { closeAllDrivers, closeProjectDatabases, openProjectDatabase } from './backend-factory.js';
 import { transformParsedRepo } from './transformer.js';
 import { NodeType } from './types.js';
-import { AnchorStatus, resolveIntentEvidence } from './intent-evidence.js';
+import { AnchorStatus, resolveIntentEvidence, type AnchoredIntentSubject } from './intent-evidence.js';
 
 const REPO_NAME = 'api';
 const SOURCE = 'export function handle(id: string) {\n  return id;\n}\n';
@@ -98,19 +98,9 @@ function buildParsedRepo(ids: StableIdGenerator): ParsedRepo {
   };
 }
 
-function item(capturedVersionedId: string, nodeId: string): IntentItem {
+function item(capturedVersionedId: string, nodeId: string): AnchoredIntentSubject {
   return {
     id: 'BR-1',
-    kind: IntentKind.BusinessRule,
-    title: 'Requests are handled once',
-    statement: 'A request is handled exactly once.',
-    authority: IntentAuthority.Accepted,
-    payload: {
-      condition: 'A request arrives',
-      requiredOutcome: 'It is handled exactly once',
-      observer: 'api',
-    },
-    sources: [{ kind: IntentSourceKind.Spec, ref: 'spec/api', localId: 'BR-1' }],
     codeAnchors: [
       {
         repo: REPO_NAME,
@@ -120,7 +110,7 @@ function item(capturedVersionedId: string, nodeId: string): IntentItem {
         rationale: 'the request is handled here',
       },
     ],
-  } as IntentItem;
+  };
 }
 
 describe('intent anchors against real transformer output', () => {

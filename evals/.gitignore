@@ -2,10 +2,7 @@
 # they carry full model output; the sibling `runs/` and `runs-planning/` are
 # ignored at the repository root for the same reason.
 runs-intent/
-# Staged at startup by harness/run-intent.ts from the canonical coredoc-workflows
-# distribution — never edited here, never the source of truth.
-_intent-skill-plugin/
-# Same rule, same reason: `stageCoredocPlugin` in harness/run-planning.ts rm's and
+# `stageCoredocPlugin` in harness/run-planning.ts rm's and
 # re-copies this from `skills/coredoc-mcp/` on every run, so it is build output.
 # It was tracked, which meant a stale 24 KB copy of a 6 KB skill sat in the repo
 # reading as authoritative, and every planning run left the tree dirty. The

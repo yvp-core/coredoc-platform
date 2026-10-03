@@ -119,9 +119,9 @@ describe('assertSafeCloudContent — pattern matrix, each asserting the reported
   });
 
   it('rejects an unparseable url field instead of throwing a raw TypeError', () => {
-    const error = violation(() => assertSafeCloudContent({ overlay: { url: 'not a url' } }));
+    const error = violation(() => assertSafeCloudContent({ document: { url: 'not a url' } }));
     expect(error.code).toBe(IntentErrorCode.ContentUrlUnparseable);
-    expect(error.path).toEqual(['overlay', 'url']);
+    expect(error.path).toEqual(['document', 'url']);
   });
 
   it('accepts a clean https url', () => {
@@ -162,11 +162,11 @@ describe('assertSafeCloudContent — pattern matrix, each asserting the reported
     expect(error.path).toEqual(['items', '2']);
   });
 
-  it('walks the import overlay under the larger import budget', () => {
-    const overlay = { items: Array.from({ length: 3_000 }, (_, index) => ({ statement: `s${index}` })) };
-    expect(() => assertSafeCloudContent(overlay)).toThrow(IntentPublicException);
+  it('walks the import document under the larger import budget', () => {
+    const document = { items: Array.from({ length: 3_000 }, (_, index) => ({ statement: `s${index}` })) };
+    expect(() => assertSafeCloudContent(document)).toThrow(IntentPublicException);
     expect(() =>
-      assertSafeCloudContent(overlay, { maxStructureNodes: INTENT_CONTENT_LIMITS.maxImportStructureNodes }),
+      assertSafeCloudContent(document, { maxStructureNodes: INTENT_CONTENT_LIMITS.maxImportStructureNodes }),
     ).not.toThrow();
   });
 });
