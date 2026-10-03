@@ -204,6 +204,7 @@ export function IntentPanel({
   };
 
   const { filter, setFilter } = catalogue;
+  const toggleOpenQuestions = () => setFilter((current) => ({ ...current, openQuestions: !current.openQuestions }));
   const toggleKind = (kind: IntentItemKind) =>
     setFilter((current) => ({
       ...current,
@@ -363,6 +364,8 @@ export function IntentPanel({
               onShowAllFeatures={setExpandedDomainId}
               onlyPending={onlyPending}
               onToggleOnlyPending={() => setOnlyPending((value) => !value)}
+              onlyOpenQuestions={filter.openQuestions}
+              onToggleOnlyOpenQuestions={toggleOpenQuestions}
             />
           </div>
         )}
@@ -438,6 +441,7 @@ export function IntentPanel({
                 onToggleResolved={() =>
                   setFilter((current) => ({ ...current, includeResolved: !current.includeResolved }))
                 }
+                onToggleOpenQuestions={toggleOpenQuestions}
                 onSelectItem={setSelectedItemId}
                 onLoadMore={() => void catalogue.listQuery.fetchNextPage()}
               />

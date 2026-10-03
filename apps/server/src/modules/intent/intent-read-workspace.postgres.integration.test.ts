@@ -21,7 +21,8 @@ import { PrismaClient } from '../../generated/prisma/client.js';
 import { IntentErrorCode, IntentPublicException } from './contract/index.js';
 import { IntentExportService } from './intent-export.service.js';
 import { IntentImportController } from './intent-import.controller.js';
-import { IntentReadService } from './intent-read.service.js';
+import { IntentItemService } from './intent-item.service.js';
+import { INTENT_READ_LIMITS, IntentReadService } from './intent-read.service.js';
 import { IntentTreeService } from './intent-tree.service.js';
 import {
   CLOUD_INTENT_WORKSPACE_FORMAT_VERSION,
@@ -342,33 +343,62 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
     expect(text).toContain('- time-tracking: Time tracking and attendance (empty)\n  - punches: Punches (empty)');
   });
 
-  it('counts the live items and the waiting candidates attached directly to each tree node', async () => {
+  it('counts the live items, waiting candidates and open questions attached directly to each tree node', async () => {
     const page = await tree.getTree(workspaceId, {}, 50);
     const counts = Object.fromEntries(
       page.domains.flatMap((domain) => [
-        [domain.id, [domain.itemCount, domain.pendingCount]],
-        ...domain.features.map((feature) => [feature.id, [feature.itemCount, feature.pendingCount]]),
+        [domain.id, [domain.itemCount, domain.pendingCount, domain.openQuestionCount]],
+        ...domain.features.map((feature) => [
+          feature.id,
+          [feature.itemCount, feature.pendingCount, feature.openQuestionCount],
+        ]),
       ]),
     );
-    expect(page.root).toEqual({ itemCount: 0, pendingCount: 0 });
+    expect(page.root).toEqual({ itemCount: 0, pendingCount: 0, openQuestionCount: 0 });
     expect(counts).toEqual({
       // The domain's own rule only: its features' items count for them, and superseded is history.
-      auth: [1, 0],
-      sessions: [5, 0],
-      'session-timeouts': [0, 0],
-      'sign-in': [0, 0],
-      'time-tracking': [0, 0],
-      punches: [1, 1],
+      auth: [1, 0, 0],
+      // The open decision on unsent punches.
+      sessions: [5, 0, 1],
+      'session-timeouts': [0, 0, 0],
+      'sign-in': [0, 0, 0],
+      'time-tracking': [0, 0, 0],
+      punches: [1, 1, 0],
     });
     // A domain's subtree adds all its features, so a badge never depends on which features a page lists.
-    expect(page.domains.map((domain) => [domain.id, domain.subtreeItemCount, domain.subtreePendingCount])).toEqual([
-      ['auth', 6, 0],
-      ['time-tracking', 1, 1],
+    expect(
+      page.domains.map((domain) => [
+        domain.id,
+        domain.subtreeItemCount,
+        domain.subtreePendingCount,
+        domain.subtreeOpenQuestionCount,
+      ]),
+    ).toEqual([
+      ['auth', 6, 0, 1],
+      ['time-tracking', 1, 1, 0],
     ]);
     const listed = await tree.listFeatures(workspaceId, { domainId: 'time-tracking' }, 50);
     expect(listed.features.map((feature) => [feature.id, feature.itemCount, feature.pendingCount])).toEqual([
       ['punches', 1, 1],
     ]);
+    const auth = await tree.listFeatures(workspaceId, { domainId: 'auth' }, 50);
+    expect(auth.features.map((feature) => [feature.id, feature.openQuestionCount])).toEqual([
+      ['session-timeouts', 0],
+      ['sessions', 1],
+      ['sign-in', 0],
+    ]);
+  });
+
+  it('narrows the item index to the open questions on request', async () => {
+    const items = new IntentItemService(prisma as unknown as PrismaService);
+    const open = await items.listItems(workspaceId, { openQuestions: 'true' }, 50);
+    expect(open.items.map((item) => item.id)).toEqual(['dec-session-unsynced-punches']);
+    // It composes with the other filters: a scope without one answers empty.
+    const elsewhere = await items.listItems(workspaceId, { openQuestions: 'true', domainId: 'time-tracking' }, 50);
+    expect(elsewhere.items).toEqual([]);
+    // Off is the unfiltered index.
+    const all = await items.listItems(workspaceId, { openQuestions: 'false' }, 50);
+    expect(all.items.length).toBe(DOCUMENT.items.length);
   });
 
   it('renders a feature as its document: layout order, sub-headings, item bodies, replacements', async () => {
@@ -413,7 +443,7 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
     expect(footer).toContain('Feature sessions in domain auth (Sign-in and sessions).');
     expect(footer).toContain('- feature punches: Punches. A forced logout may lose unsent punches');
     expect(footer).toContain(
-      'Delivery: 1 in production, 1 planned (br-session-web-timeout-v2), 2 with no delivery record.',
+      'Delivery across this feature and its sub-features: 1 in production, 1 planned (br-session-web-timeout-v2), 2 with no delivery record.',
     );
     expect(footer).toContain('Also applies: 1 items on domain auth also apply here');
   });
@@ -444,6 +474,216 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
     expect(doc.related.map((relation) => relation.id)).toEqual(['sign-in', 'punches']);
     expect(doc.delivery).toEqual({ effective: 1, planned: 1, unrecorded: 2 });
     expect(doc.truncated).toBe(false);
+  });
+
+  it('reads the product root as the whole product: its domains with counts and delivery across every item', async () => {
+    const doc = await reads.document(workspaceId, {});
+    expect(doc.node).toEqual({ kind: 'root', id: null, title: 'Product root', domainId: null });
+    // Subtree counts, as the tree shows them; in production among the accepted items below each domain.
+    expect(doc.domains).toEqual([
+      { id: 'auth', title: 'Sign-in and sessions', itemCount: 6, pendingCount: 0, openQuestionCount: 1, effective: 2 },
+      {
+        id: 'time-tracking',
+        title: 'Time tracking and attendance',
+        itemCount: 1,
+        pendingCount: 1,
+        openQuestionCount: 0,
+        effective: 0,
+      },
+    ]);
+    expect(doc.overview).toEqual({ itemCount: 7, pendingCount: 1, openQuestionCount: 1 });
+    // Every accepted item in the workspace, not only the (empty) root's own; the open question is not delivered.
+    expect(doc.delivery).toEqual({ effective: 2, planned: 1, unrecorded: 2 });
+    expect(doc.sections).toEqual([]);
+    expect(doc.features).toEqual([]);
+    const withCandidates = await reads.document(workspaceId, { includeCandidates: true });
+    expect(withCandidates.delivery).toEqual({ effective: 2, planned: 1, unrecorded: 3 });
+
+    const text = await reads.node(workspaceId, {});
+    const [document, footer] = text.split('\n\n---\n');
+    expect(document).toBe(
+      [
+        '# Product root',
+        '',
+        '## Domains',
+        '- auth: Sign-in and sessions — 6 items, 1 open question, 2 in production',
+        '- time-tracking: Time tracking and attendance — 1 item, 1 waiting for review, 0 in production',
+      ].join('\n'),
+    );
+    expect(text).not.toContain('No items are attached here.');
+    expect(footer).toContain('The whole product: 2 domains, 7 items (1 waiting for review, 1 open question).');
+    expect(footer).toContain(
+      'Delivery across the whole product: 2 in production, 1 planned (br-session-web-timeout-v2), 2 with no delivery record.',
+    );
+  });
+
+  it("counts a domain's delivery across its features", async () => {
+    const doc = await reads.document(workspaceId, { domain: 'auth' });
+    // The domain's own rule plus the sessions feature's items; the open question is not delivered.
+    expect(doc.delivery).toEqual({ effective: 2, planned: 1, unrecorded: 2 });
+    expect(await reads.node(workspaceId, { domain: 'auth' })).toContain(
+      'Delivery across this domain and its features: 2 in production, 1 planned (br-session-web-timeout-v2), 2 with no delivery record.',
+    );
+  });
+
+  it('covers subtrees in delivery, names few planned ids, and leaves archived domains out of the product', async () => {
+    await withWorkspace('subtree-delivery', async (id) => {
+      const rule = (itemId: string, at: { domainId?: string; featureId?: string }) => ({
+        id: itemId,
+        kind: 'business_rule',
+        ...at,
+        title: itemId,
+        statement: `${itemId} holds.`,
+        authority: 'accepted',
+        sources: [issue('PROD-7', 'Billing')],
+      });
+      const extraPlans = Array.from({ length: 11 }, (_, n) => `br-plan-${String(n).padStart(2, '0')}`);
+      await importInto(
+        id,
+        {
+          formatVersion: CLOUD_INTENT_WORKSPACE_FORMAT_VERSION,
+          source: { ref: 'kb@main', revision: 'c'.repeat(64) },
+          dimensions: [],
+          domains: [
+            { id: 'billing', title: 'Billing' },
+            { id: 'legacy', title: 'Legacy', archived: true },
+          ],
+          features: [
+            { id: 'invoices', domainId: 'billing', title: 'Invoices' },
+            { id: 'credit-notes', domainId: 'billing', parentFeatureId: 'invoices', title: 'Credit notes' },
+            { id: 'old-invoices', domainId: 'billing', title: 'Old invoices', archived: true },
+            { id: 'legacy-feature', domainId: 'legacy', title: 'Legacy feature' },
+          ],
+          relations: [],
+          items: [
+            rule('br-everywhere', {}),
+            rule('br-billing', { domainId: 'billing' }),
+            rule('br-invoice', { featureId: 'invoices' }),
+            rule('br-credit', { featureId: 'credit-notes' }),
+            rule('br-old', { featureId: 'old-invoices' }),
+            ...extraPlans.map((itemId) => rule(itemId, { domainId: 'billing' })),
+            rule('br-legacy', { domainId: 'legacy' }),
+            rule('br-legacy-feature', { featureId: 'legacy-feature' }),
+          ],
+          releases: {
+            baseline: { deliveredRef: 'kb-import', itemIds: ['br-invoice', 'br-legacy'] },
+            plans: ['br-credit', 'br-old', ...extraPlans].map((itemId) => ({ itemId })),
+          },
+        },
+        `subtree-delivery-${RUN}`,
+      );
+
+      // A feature counts its sub-features at any depth; a sub-feature only its own.
+      expect((await reads.document(id, { feature: 'invoices' })).delivery).toEqual({
+        effective: 1,
+        planned: 1,
+        unrecorded: 0,
+      });
+      expect(await reads.node(id, { feature: 'invoices' })).toContain(
+        'Delivery across this feature and its sub-features: 1 in production, 1 planned (br-credit).',
+      );
+      expect((await reads.document(id, { feature: 'credit-notes' })).delivery).toEqual({
+        effective: 0,
+        planned: 1,
+        unrecorded: 0,
+      });
+
+      // A domain counts every feature, archived ones included; 13 planned ids are counted, not listed.
+      expect((await reads.document(id, { domain: 'billing' })).delivery).toEqual({
+        effective: 1,
+        planned: 13,
+        unrecorded: 1,
+      });
+      expect(await reads.node(id, { domain: 'billing' })).toContain(
+        'Delivery across this domain and its features: 1 in production, 13 planned, 1 with no delivery record.',
+      );
+
+      // The archived domain and its feature stay out of the product; the root's own item stays in.
+      const root = await reads.document(id, {});
+      expect(root.domains).toEqual([
+        { id: 'billing', title: 'Billing', itemCount: 15, pendingCount: 0, openQuestionCount: 0, effective: 1 },
+      ]);
+      expect(root.overview).toEqual({ itemCount: 16, pendingCount: 0, openQuestionCount: 0 });
+      expect(root.delivery).toEqual({ effective: 1, planned: 13, unrecorded: 2 });
+      const text = await reads.node(id, {});
+      expect(text).toContain('The whole product: 1 domain, 16 items.');
+      expect(text).toContain(
+        'Delivery across the whole product: 1 in production, 13 planned, 2 with no delivery record.',
+      );
+      expect(text).not.toContain('legacy');
+    });
+  });
+
+  it('caps the domains the product root lists, and keeps its totals whole', async () => {
+    await withWorkspace('many-domains', async (id) => {
+      const count = INTENT_READ_LIMITS.rootDomains + 2;
+      await prisma.intentDomain.createMany({
+        data: Array.from({ length: count }, (_, n) => ({
+          workspaceId: id,
+          id: `d-${String(n).padStart(4, '0')}`,
+          title: `Domain ${n}`,
+          statement: '',
+          createdBy: OWNER.id,
+          updatedBy: OWNER.id,
+        })),
+      });
+      const last = `d-${String(count - 1).padStart(4, '0')}`;
+      await prisma.intentItem.create({
+        data: {
+          workspaceId: id,
+          id: 'br-last',
+          kind: 'business_rule',
+          domainId: last,
+          title: 'Last',
+          statement: 'Last holds.',
+          authority: 'accepted',
+          createdBy: OWNER.id,
+          updatedBy: OWNER.id,
+        },
+      });
+      const doc = await reads.document(id, {});
+      expect(doc.domains).toHaveLength(INTENT_READ_LIMITS.rootDomains);
+      expect(doc.moreDomains).toBe(2);
+      // The unlisted domain's item still counts.
+      expect(doc.overview?.itemCount).toBe(1);
+      expect(doc.delivery).toEqual({ effective: 0, planned: 0, unrecorded: 1 });
+      const text = await reads.node(id, {});
+      expect(text).toContain('…and 2 more domains — open the tree (action "tree") to see them all.');
+      expect(text).toContain(`The whole product: ${count} domains, 1 item.`);
+      expect(text).not.toContain(last);
+    });
+  });
+
+  it("lists the product root's own items under its domains as product-wide items", async () => {
+    await withWorkspace('root-items', async (id) => {
+      await tree.createDomain(id, ACTOR, { idempotencyKey: `root-d-${RUN}`, id: 'billing', title: 'Billing' });
+      const rule = (itemId: string, domainId: string | null) => ({
+        workspaceId: id,
+        id: itemId,
+        kind: 'business_rule' as const,
+        domainId,
+        title: itemId,
+        statement: `${itemId} holds.`,
+        authority: 'accepted' as const,
+        createdBy: OWNER.id,
+        updatedBy: OWNER.id,
+      });
+      await prisma.intentItem.createMany({ data: [rule('br-everywhere', null), rule('br-invoice', 'billing')] });
+
+      const doc = await reads.document(id, {});
+      expect(doc.sections.map((section) => section.heading)).toEqual(['Product-wide items']);
+      expect(
+        doc.sections[0]?.blocks.map((block) =>
+          block.type === 'item' ? block.item.id : block.type === 'heading' ? block.text : '',
+        ),
+      ).toEqual(['Rules', 'br-everywhere']);
+      expect(doc.delivery).toEqual({ effective: 0, planned: 0, unrecorded: 2 });
+
+      const text = await reads.node(id, {});
+      expect(text).toContain(
+        '## Domains\n- billing: Billing — 1 item, 0 in production\n\n## Product-wide items\n### Rules\n- **br-everywhere** — br-everywhere holds.',
+      );
+    });
   });
 
   it('shows a replaced item still in production even where it has no slot', async () => {

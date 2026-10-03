@@ -14,10 +14,16 @@ import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { useEffect, useRef, useState } from 'react';
+import { IntentCountBadges } from './count-badges.js';
 import { Chip } from './items-list.js';
 import { IntentMarkdown } from './intent-markdown.js';
 import { contextConditionText, stripSourceRefs } from './intent-presentation.js';
-import { IntentAuthority, type IntentDocumentItem, type IntentNodeDocument } from './types.js';
+import {
+  IntentAuthority,
+  type IntentDocumentDomain,
+  type IntentDocumentItem,
+  type IntentNodeDocument,
+} from './types.js';
 
 export interface IntentDocumentViewProps {
   document: IntentNodeDocument | null;
@@ -105,6 +111,9 @@ export function IntentDocumentView({
             <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.01em] text-ink-1">
               {document.node.title}
             </h1>
+            {document.node.kind === 'root' && (
+              <ProductOverview document={document} onOpenDomain={(id) => onOpenNode('domain', id)} />
+            )}
             {document.sections.map((section, index) => (
               <section key={`${section.heading ?? ''}-${index}`}>
                 {section.heading !== null && (
@@ -141,11 +150,13 @@ export function IntentDocumentView({
                 })}
               </section>
             ))}
-            {document.sections.every((section) => section.blocks.every((block) => block.type !== 'item')) && (
-              <p className="mt-4 text-[13.5px] text-ink-4">
-                {includeCandidates ? 'No items are attached here.' : 'No approved items are attached here.'}
-              </p>
-            )}
+            {/* On the product root the domain list is the content; its own items are an optional extra. */}
+            {document.node.kind !== 'root' &&
+              document.sections.every((section) => section.blocks.every((block) => block.type !== 'item')) && (
+                <p className="mt-4 text-[13.5px] text-ink-4">
+                  {includeCandidates ? 'No items are attached here.' : 'No approved items are attached here.'}
+                </p>
+              )}
             {document.truncated && (
               <p className="mt-4 text-[13px] text-warn-text">
                 This node holds more items than one document shows; use the List view to see the rest.
@@ -259,6 +270,76 @@ function ItemMarks({ item }: { item: IntentDocumentItem }) {
   );
 }
 
+/** The product root read as the whole product: a summary line and its domains, each opening in the tree. */
+function ProductOverview({
+  document,
+  onOpenDomain,
+}: {
+  document: IntentNodeDocument;
+  onOpenDomain: (id: string) => void;
+}) {
+  const { domains, overview } = document;
+  // Absent from an older server; the list is then complete.
+  const more = document.moreDomains ?? 0;
+  return (
+    <>
+      {overview && (
+        <p className="mt-1 text-[13.5px] text-ink-3">
+          The whole product: {plural(domains.length + more, 'domain')}, {plural(overview.itemCount, 'item')}.
+        </p>
+      )}
+      <section>
+        <h2 className="mb-1.5 mt-6 border-b border-border-soft pb-1 text-[15px] font-semibold text-ink-1">Domains</h2>
+        {domains.length === 0 ? (
+          <p className="text-[13.5px] text-ink-4">No domains yet.</p>
+        ) : (
+          <ul aria-label="Domains">
+            {domains.map((domain) => (
+              <li key={domain.id}>
+                <DomainRow domain={domain} onClick={() => onOpenDomain(domain.id)} />
+              </li>
+            ))}
+          </ul>
+        )}
+        {more > 0 && (
+          <p className="mt-1 text-[13px] text-ink-4">
+            …and {plural(more, 'more domain')} — browse them in the Structure tree.
+          </p>
+        )}
+      </section>
+    </>
+  );
+}
+
+function DomainRow({ domain, onClick }: { domain: IntentDocumentDomain; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={domain.id}
+      className="-ml-2 flex w-full items-center gap-[7px] rounded-md px-2 py-[5px] text-left text-[14.5px] text-ink-1 transition-colors hover:bg-surface-2"
+    >
+      <span className="min-w-0 flex-1 truncate">{domain.title}</span>
+      <IntentCountBadges pending={domain.pendingCount} open={domain.openQuestionCount} />
+      <span className="num shrink-0 text-[12px] text-ink-3">{domain.effective} in production</span>
+      <span className="num w-[72px] shrink-0 text-right text-[12px] text-ink-4">
+        {plural(domain.itemCount, 'item')}
+      </span>
+    </button>
+  );
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+/** Delivery covers the node's whole subtree, as its tree badges do. */
+const DELIVERY_SCOPE: Record<IntentNodeDocument['node']['kind'], string> = {
+  root: ' across the whole product',
+  domain: ' across this domain and its features',
+  feature: ' including sub-features',
+};
+
 function DocumentFooter({
   document,
   onOpenNode,
@@ -290,6 +371,7 @@ function DocumentFooter({
         {delivery.effective} in production
         {delivery.planned > 0 ? `, ${delivery.planned} planned` : ''}
         {delivery.unrecorded > 0 ? `, ${delivery.unrecorded} with no delivery record` : ''}
+        {DELIVERY_SCOPE[document.node.kind]}
       </FooterRow>
     </div>
   );

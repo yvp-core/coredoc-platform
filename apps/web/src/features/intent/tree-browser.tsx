@@ -5,16 +5,19 @@
  * All fetching lives in the panel; this component only renders what it is
  * handed. Two honesty rules shape the rows:
  *
- * - **Counts are the server's.** The tree read carries each node's live item
- *   and proposal counts; a node no read in hand has listed shows no number.
+ * - **Counts are the server's.** The tree read carries each node's live item,
+ *   proposal and open-question counts; a node no read in hand has listed shows no number.
  * - **Archived nodes are hidden by default and the toggle says so.** Archiving
  *   keeps children readable, so "hidden" must not read as "gone".
  */
 
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { Funnel } from 'lucide-react';
-import type { IntentTreeCounts, IntentTreeSelection } from './intent-panel-state.js';
+import { Archive, CircleHelp, Funnel, MessageSquareDot, Settings2 } from 'lucide-react';
+import type * as React from 'react';
+import { IntentCountBadges } from './count-badges.js';
+import type { IntentCountCell, IntentTreeCounts, IntentTreeSelection } from './intent-panel-state.js';
 import { contextConditionText } from './intent-presentation.js';
 import type { IntentDimension, IntentFeatureView, IntentTreeDomain, TreeCondition } from './types.js';
 
@@ -52,7 +55,13 @@ export interface IntentTreeBrowserProps {
   /** Show only the nodes that hold a waiting proposal (or have one below them). */
   onlyPending?: boolean;
   onToggleOnlyPending?: () => void;
+  /** Show only the nodes that hold an open question (or have one below them); combines with `onlyPending`. */
+  onlyOpenQuestions?: boolean;
+  onToggleOnlyOpenQuestions?: () => void;
 }
+
+/** Which counts a node must have above zero to stay listed; empty means no filter. */
+type TreeFilter = readonly ('pending' | 'open')[];
 
 export function IntentTreeBrowser({
   domains: domainPages,
@@ -71,12 +80,61 @@ export function IntentTreeBrowser({
   onShowAllFeatures,
   onlyPending = false,
   onToggleOnlyPending,
+  onlyOpenQuestions = false,
+  onToggleOnlyOpenQuestions,
 }: IntentTreeBrowserProps) {
-  const filtering = onlyPending && counts !== null;
-  const domains = (domainPages ?? []).filter((domain) => !filtering || (counts?.domains[domain.id]?.pending ?? 0) > 0);
+  const filter: TreeFilter =
+    counts === null
+      ? []
+      : [...(onlyPending ? ['pending' as const] : []), ...(onlyOpenQuestions ? ['open' as const] : [])];
+  const filtering = filter.length > 0;
+  const domains = (domainPages ?? []).filter((domain) =>
+    filter.every((field) => (counts?.domains[domain.id]?.[field] ?? 0) > 0),
+  );
 
   return (
     <>
+      {/* Icon-only so the toolbar fits the narrow column; the tooltip and
+          aria-label carry the words. A local provider keeps the toolbar
+          renderable outside the app shell (tests, embeds). */}
+      <TooltipProvider delayDuration={200}>
+        <div className="flex items-center gap-1 border-b border-border-soft px-2.5 py-1.5">
+          <TreeToolbarButton
+            label="Show archived"
+            tooltip={includeArchived ? 'Showing archived' : 'Show archived'}
+            pressed={includeArchived}
+            activeClassName="text-brand-text"
+            onClick={onToggleArchived}
+          >
+            <Archive aria-hidden="true" className="size-4" />
+          </TreeToolbarButton>
+          {onToggleOnlyPending && (
+            <TreeToolbarButton
+              label="Only with proposals"
+              pressed={onlyPending}
+              activeClassName="text-blue"
+              onClick={onToggleOnlyPending}
+            >
+              <MessageSquareDot aria-hidden="true" className="size-4" />
+            </TreeToolbarButton>
+          )}
+          {onToggleOnlyOpenQuestions && (
+            <TreeToolbarButton
+              label="Only with open questions"
+              pressed={onlyOpenQuestions}
+              activeClassName="text-warn-text"
+              onClick={onToggleOnlyOpenQuestions}
+            >
+              <CircleHelp aria-hidden="true" className="size-4" />
+            </TreeToolbarButton>
+          )}
+          {canEdit && (
+            <TreeToolbarButton label="Manage structure" className="ml-auto" onClick={onEditTree}>
+              <Settings2 aria-hidden="true" className="size-4" />
+            </TreeToolbarButton>
+          )}
+        </div>
+      </TooltipProvider>
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-2.5 pt-1.5">
         <TreeRow
           label="All product rules"
@@ -84,6 +142,7 @@ export function IntentTreeBrowser({
           root
           count={counts ? counts.root.items : null}
           pending={counts ? counts.root.pending : undefined}
+          open={counts ? counts.root.open : undefined}
           selected={selection.domainId === null && selection.featureId === null}
           onClick={() => onSelect({ domainId: null, featureId: null })}
         />
@@ -103,6 +162,7 @@ export function IntentTreeBrowser({
                 archived={domain.archived}
                 count={domainCount ? domainCount.items : null}
                 pending={counts ? (domainCount?.pending ?? 0) : undefined}
+                open={counts ? (domainCount?.open ?? 0) : undefined}
                 conditions={domain.appliesWhen}
                 selected={selection.domainId === domain.id && selection.featureId === null}
                 onClick={() => onSelect({ domainId: domain.id, featureId: null })}
@@ -116,7 +176,7 @@ export function IntentTreeBrowser({
                 <FeatureList
                   features={features}
                   parentId={null}
-                  filtering={filtering}
+                  filter={filter}
                   counts={counts}
                   selection={selection}
                   onSelect={onSelect}
@@ -164,39 +224,50 @@ export function IntentTreeBrowser({
 
         <IntentDimensionsSection dimensions={dimensions} />
       </nav>
+    </>
+  );
+}
 
-      <div className="flex items-center justify-between gap-2 border-t border-border-soft px-3.5 py-2">
+function TreeToolbarButton({
+  label,
+  tooltip,
+  pressed,
+  activeClassName,
+  className,
+  onClick,
+  children,
+}: {
+  /** The accessible name; constant for a toggle, whose state `pressed` carries. */
+  label: string;
+  /** Visible hint when it should differ from `label`. */
+  tooltip?: string;
+  /** Set for toggles; omitted for plain actions so no aria-pressed is announced. */
+  pressed?: boolean;
+  activeClassName?: string;
+  className?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
         <button
           type="button"
-          aria-pressed={includeArchived}
-          onClick={onToggleArchived}
+          aria-label={label}
+          aria-pressed={pressed}
+          onClick={onClick}
           className={cn(
-            'rounded-md px-2 py-0.5 text-[12.5px] transition-colors hover:bg-surface-2 hover:text-ink-1',
-            includeArchived ? 'text-brand-text' : 'text-ink-3',
+            'grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-2 hover:text-ink-1',
+            pressed ? (activeClassName ?? 'text-ink-1') : 'text-ink-3',
+            pressed && 'bg-surface-2',
+            className,
           )}
         >
-          {includeArchived ? 'Hide archived' : 'Show archived'}
+          {children}
         </button>
-        {onToggleOnlyPending && (
-          <button
-            type="button"
-            aria-pressed={onlyPending}
-            onClick={onToggleOnlyPending}
-            className={cn(
-              'rounded-md px-2 py-0.5 text-[12.5px] transition-colors hover:bg-surface-2 hover:text-ink-1',
-              onlyPending ? 'text-blue' : 'text-ink-3',
-            )}
-          >
-            Only with proposals
-          </button>
-        )}
-        {canEdit && (
-          <Button variant="ghost" size="sm" className="px-2" onClick={onEditTree}>
-            Manage structure
-          </Button>
-        )}
-      </div>
-    </>
+      </TooltipTrigger>
+      <TooltipContent side="top">{tooltip ?? label}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -208,14 +279,14 @@ export function IntentTreeBrowser({
 function FeatureList({
   features,
   parentId,
-  filtering,
+  filter,
   counts,
   selection,
   onSelect,
 }: {
   features: readonly IntentFeatureView[];
   parentId: string | null;
-  filtering: boolean;
+  filter: TreeFilter;
   counts: IntentTreeCounts | null;
   selection: IntentTreeSelection;
   onSelect: (selection: IntentTreeSelection) => void;
@@ -223,15 +294,14 @@ function FeatureList({
   const loaded = new Set(features.map((feature) => feature.id));
   const childrenOf = (id: string) => features.filter((feature) => feature.parentFeatureId === id);
   // A feature's count includes its sub-features', the way a domain's includes its features'.
-  const waitingIn = (id: string, depth = 0): number =>
-    (counts?.features[id]?.pending ?? 0) +
-    (depth < 8 ? childrenOf(id).reduce((total, child) => total + waitingIn(child.id, depth + 1), 0) : 0);
+  const totalIn = (field: keyof IntentCountCell, id: string, depth = 0): number =>
+    (counts?.features[id]?.[field] ?? 0) +
+    (depth < 8 ? childrenOf(id).reduce((total, child) => total + totalIn(field, child.id, depth + 1), 0) : 0);
   const level = features.filter(
     (feature) =>
       (parentId === null
         ? feature.parentFeatureId === null || !loaded.has(feature.parentFeatureId)
-        : feature.parentFeatureId === parentId) &&
-      (!filtering || waitingIn(feature.id) > 0),
+        : feature.parentFeatureId === parentId) && filter.every((field) => totalIn(field, feature.id) > 0),
   );
   if (level.length === 0) return null;
   return (
@@ -243,7 +313,8 @@ function FeatureList({
             title={feature.id}
             archived={feature.archived}
             count={counts?.features[feature.id]?.items ?? null}
-            pending={counts ? waitingIn(feature.id) : undefined}
+            pending={counts ? totalIn('pending', feature.id) : undefined}
+            open={counts ? totalIn('open', feature.id) : undefined}
             conditions={feature.appliesWhen}
             selected={selection.featureId === feature.id}
             onClick={() => onSelect({ domainId: feature.domainId, featureId: feature.id })}
@@ -251,7 +322,7 @@ function FeatureList({
           <FeatureList
             features={features}
             parentId={feature.id}
-            filtering={filtering}
+            filter={filter}
             counts={counts}
             selection={selection}
             onSelect={onSelect}
@@ -318,6 +389,7 @@ function TreeRow({
   archived = false,
   count,
   pending,
+  open,
   conditions,
   root,
   selected,
@@ -331,6 +403,8 @@ function TreeRow({
   count: number | null;
   /** Waiting proposals; `undefined` while the counts are unread. */
   pending?: number;
+  /** Open questions; `undefined` while the counts are unread. */
+  open?: number;
   root?: boolean;
   selected: boolean;
   onClick: () => void;
@@ -353,14 +427,7 @@ function TreeRow({
       <span className="min-w-0 flex-1 truncate">{label}</span>
       <TreeConditionMarker conditions={conditions} />
       {archived && <span className="rounded border border-border px-1 text-[10.5px] text-ink-4">archived</span>}
-      {pending !== undefined && pending > 0 && (
-        <span
-          title={`${pending} waiting for review`}
-          className="num shrink-0 rounded-full bg-blue-wash px-1.5 text-[11px] text-blue"
-        >
-          {pending}
-        </span>
-      )}
+      <IntentCountBadges pending={pending} open={open} />
       {/* The product root's own attached items are normally zero, and a "0" on the
           row the overview counts in full reads as a contradiction. */}
       {count !== null && (!root || count > 0) && <span className="num shrink-0 text-[11.5px] text-ink-4">{count}</span>}

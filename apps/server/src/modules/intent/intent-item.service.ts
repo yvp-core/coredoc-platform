@@ -10,7 +10,7 @@
  * Every entry carries its `version`, because that is the token a reviewer or an
  * updating proposal has to hand back (spec §5).
  */
-import { IntentAuthority } from '@coredoc/core';
+import { DecisionStatus, IntentAuthority } from '@coredoc/core';
 import { readReleaseSnapshot } from './intent-release.service.js';
 import {
   IntentAuditOperation,
@@ -27,6 +27,18 @@ import { listConditionsOf } from './intent-context.service.js';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import { IntentCursorScope, decodeIntentCursor, paginate } from './intent-cursor.js';
+
+/**
+ * An OPEN QUESTION: a live (candidate or accepted) decision whose choice is
+ * still open. The tree badges and the browse filter share this one definition.
+ * A badge counts candidates and accepted alike; the list it narrows to also
+ * follows the browse authority filter, so it can show fewer.
+ */
+export const OPEN_QUESTION_WHERE = {
+  kind: 'decision',
+  authority: { in: ['candidate', 'accepted'] },
+  payload: { path: ['choiceStatus'], equals: DecisionStatus.Open },
+} satisfies Prisma.IntentItemWhereInput;
 
 @Injectable()
 export class IntentItemService {
@@ -101,6 +113,7 @@ export class IntentItemService {
               ]
             : []),
           ...(query.kinds ? [{ kind: { in: query.kinds } }] : []),
+          ...(query.openQuestions === 'true' ? [OPEN_QUESTION_WHERE] : []),
           ...(query.scopeFeatureId ? [{ OR: [{ featureId: query.scopeFeatureId }, { featureId: null }] }] : []),
           ...(search
             ? [

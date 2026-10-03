@@ -442,7 +442,9 @@ const INTENT_READ_DESCRIPTION =
   'first instead of guessing ids. node {domain | feature | neither for the product root, refs?, kind?, ' +
   'includeCandidates?}: one node as its document: prose, rules, use cases, flows, decisions, limitations and open ' +
   'questions, each item under its id. Below a --- line: the related nodes with the reason to read them, its features, ' +
-  'what is in production or planned, and how many domain-level items also apply. Follow Related for impact questions. ' +
+  'what is in production or planned across the node and everything below it (whatever kind filter), and how many domain-level items also apply. Follow Related for impact questions. ' +
+  'The product root (neither id) is the whole-product overview: each domain with its item, waiting, open-question and ' +
+  'in-production counts, the items attached to the product as a whole, and delivery across every item outside archived domains. ' +
   'refs: false (default) gives the bare facts; refs: true keeps the Jira, Confluence and code references, for when ' +
   'you must cite or check a source. search {query, domain?, feature?, kind?, refs?, limit?, after?}: items whose ' +
   'title, statement, body or rationale contain every word (a ref:<value> word is an exact, case-insensitive source-ref match), or, when ' +

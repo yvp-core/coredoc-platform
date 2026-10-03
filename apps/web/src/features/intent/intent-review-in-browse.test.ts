@@ -33,33 +33,53 @@ const item = (id: string, extra: Partial<IntentDocumentItem> = {}): IntentDocume
 });
 
 describe('intentTreeCounts', () => {
-  it("takes the domain's subtree counts, each feature's own, and keeps the product root apart", () => {
+  it("takes the domain's subtree counts (open questions included), each feature's own, and keeps the product root apart", () => {
     const node = { title: '', statement: '', archived: false, createdAt: '', updatedAt: '', itemCount: 4 };
     expect(
       intentTreeCounts(
         [
           {
-            root: { itemCount: 2, pendingCount: 2 },
+            root: { itemCount: 2, pendingCount: 2, openQuestionCount: 1 },
             domains: [
               {
                 ...node,
                 id: 'billing',
                 pendingCount: 1,
+                openQuestionCount: 0,
                 subtreeItemCount: 9,
                 subtreePendingCount: 5,
+                subtreeOpenQuestionCount: 3,
                 featuresTruncated: false,
-                features: [{ ...node, id: 'refunds', domainId: 'billing', parentFeatureId: null, pendingCount: 3 }],
+                features: [
+                  {
+                    ...node,
+                    id: 'refunds',
+                    domainId: 'billing',
+                    parentFeatureId: null,
+                    pendingCount: 3,
+                    openQuestionCount: 2,
+                  },
+                ],
               },
             ],
             nextCursor: null,
           },
         ],
-        [{ ...node, id: 'chargebacks', domainId: 'billing', parentFeatureId: null, pendingCount: 1 }],
+        [
+          {
+            ...node,
+            id: 'chargebacks',
+            domainId: 'billing',
+            parentFeatureId: null,
+            pendingCount: 1,
+            openQuestionCount: 1,
+          },
+        ],
       ),
     ).toEqual({
-      root: { items: 2, pending: 2 },
-      domains: { billing: { items: 9, pending: 5 } },
-      features: { refunds: { items: 4, pending: 3 }, chargebacks: { items: 4, pending: 1 } },
+      root: { items: 2, pending: 2, open: 1 },
+      domains: { billing: { items: 9, pending: 5, open: 3 } },
+      features: { refunds: { items: 4, pending: 3, open: 2 }, chargebacks: { items: 4, pending: 1, open: 1 } },
     });
   });
 });
@@ -90,6 +110,9 @@ describe('intentDocumentProposals', () => {
       ],
       related: [],
       features: [],
+      domains: [],
+      overview: null,
+      moreDomains: 0,
       delivery: { effective: 1, planned: 0, unrecorded: 0 },
       truncated: false,
     };

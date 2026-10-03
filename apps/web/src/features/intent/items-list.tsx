@@ -58,6 +58,8 @@ export interface IntentItemsListProps {
   onToggleKind: (kind: IntentItemKind) => void;
   onToggleCandidates: () => void;
   onToggleResolved: () => void;
+  /** The same state as the structure column's "Only with open questions" toggle. */
+  onToggleOpenQuestions: () => void;
   onSelectItem: (itemId: string) => void;
   onLoadMore: () => void;
   deliverySelection: string[];
@@ -90,6 +92,7 @@ export function IntentItemsList({
   onToggleKind,
   onToggleCandidates,
   onToggleResolved,
+  onToggleOpenQuestions,
   onSelectItem,
   onLoadMore,
   deliverySelection,
@@ -126,6 +129,7 @@ export function IntentItemsList({
         <div className="flex flex-wrap gap-[5px]">
           <Chip pressed={filter.includeCandidates} label="Accepted + candidates" onClick={onToggleCandidates} />
           <Chip pressed={filter.includeResolved} label="Include resolved" onClick={onToggleResolved} />
+          <Chip pressed={filter.openQuestions} label="Open questions only" onClick={onToggleOpenQuestions} />
         </div>
       </div>
 

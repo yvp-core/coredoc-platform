@@ -23,11 +23,13 @@ import { INTENT_NODE_SCAN, unknownNodeError } from './intent-node-suggest.js';
 import { readReleaseSnapshot } from './intent-release.service.js';
 import type { Effectivity, ReleaseSnapshot } from './intent-release.fold.js';
 import { intentStateError } from './intent-state-errors.js';
-import { treeConditionsOf } from './intent-tree.service.js';
+import { type IntentNodeCounts, readIntentNodeCounts, treeConditionsOf } from './intent-tree.service.js';
 
 export const INTENT_READ_LIMITS = {
   /** Items one node read returns before it asks to be narrowed by kind. */
   nodeItems: 400,
+  /** Domains the product root lists; its totals still cover every domain. */
+  rootDomains: 200,
   searchDefault: 50,
   searchMax: 200,
   searchTokens: 10,
@@ -47,6 +49,20 @@ const KIND_SECTIONS: { kind: IntentItemKind; heading: string; style: ItemStyle }
   { kind: IntentItemKind.limitation, heading: 'Limitations', style: 'bullet' },
 ];
 const OPEN_QUESTIONS = 'Open questions';
+/** The product root's own items, under its domain list. */
+const PRODUCT_WIDE = 'Product-wide items';
+/** Planned item ids a delivery line names before it gives only their count. */
+const PLANNED_NAMED = 10;
+/**
+ * The whole product as the root overview counts it: the root's own items and
+ * every item in a domain that is not archived (a feature's items carry its domain).
+ */
+const PRODUCT_SCOPE = {
+  OR: [{ domainId: null }, { domain: { archived: false } }],
+} satisfies Prisma.IntentItemWhereInput;
+/** {@link PRODUCT_SCOPE} as SQL over `intent_items i`, for the delivery scan. */
+const PRODUCT_SCOPE_SQL = Prisma.sql`(i.domain_id IS NULL OR EXISTS (SELECT 1 FROM intent_domains d
+  WHERE d.workspace_id = i.workspace_id AND d.id = i.domain_id AND d.archived = false))`;
 
 const KIND_VALUES = new Set<string>(Object.values(IntentItemKind));
 
@@ -101,12 +117,37 @@ export type IntentDocumentBlock =
   | { type: 'prose'; lines: string[] }
   | { type: 'item'; style: ItemStyle; item: IntentDocumentItem };
 
+/** A domain as the product root lists it: its whole subtree's counts, as the tree shows them. */
+export interface IntentDocumentDomain extends IntentNodeCounts {
+  id: string;
+  title: string;
+  /** Items in the subtree that are in production (open questions are not delivered). */
+  effective: number;
+}
+
+interface DeliveryCounts {
+  effective: number;
+  planned: number;
+  unrecorded: number;
+}
+
 export interface IntentNodeDocument {
   node: { kind: 'root' | 'domain' | 'feature'; id: string | null; title: string; domainId: string | null };
   sections: { heading: string | null; blocks: IntentDocumentBlock[] }[];
   related: { kind: IntentNodeKind; id: string; title: string; why: string }[];
   features: { id: string; title: string }[];
-  delivery: { effective: number; planned: number; unrecorded: number };
+  /** The product root only: its non-archived domains, in tree order. Empty on a domain or feature. */
+  domains: IntentDocumentDomain[];
+  /** The product root only: the whole product's counts (archived domains left out). */
+  overview: IntentNodeCounts | null;
+  /** The product root only: live domains past {@link INTENT_READ_LIMITS.rootDomains}, not listed. */
+  moreDomains: number;
+  /**
+   * What is in production across the node's subtree: a feature with its
+   * sub-features, a domain with all its features, the product root with its own
+   * items and every domain that is not archived.
+   */
+  delivery: DeliveryCounts;
   truncated: boolean;
 }
 
@@ -215,6 +256,7 @@ export class IntentReadService {
       request.after,
     );
     const items = current;
+    const overview = target.kind === 'root' ? await this.productOverview(workspaceId, authority, release) : undefined;
 
     // A continuation page has no layout to fill: its items render in kind order.
     // Items still in force are listed on the first page only, so a continuation does not repeat them.
@@ -222,9 +264,15 @@ export class IntentReadService {
       refs,
       filtered: Boolean(kinds) || request.after !== undefined,
       release,
+      productWide: overview !== undefined,
+      // The domain list is the product root's content; a continuation page only pages its own items.
+      preface:
+        overview && !request.after ? ['', '## Domains', ...domainLines(overview.domains, overview.moreDomains)] : [],
     });
     const lines = [document];
-    if (items.length === 0) {
+    if (overview) {
+      if (items.length === 0 && kinds) lines.push('', 'No product-wide items of the requested kinds.');
+    } else if (items.length === 0) {
       lines.push('', kinds ? 'No items of the requested kinds are attached here.' : 'No items are attached here.');
     }
     if (more) {
@@ -236,7 +284,7 @@ export class IntentReadService {
 
     // The footer is navigation and evidence about the document, not part of it.
     const footer: string[] = [];
-    footer.push(target.header);
+    footer.push(overview ? overviewHeader(overview) : target.header);
     if (target.kind !== 'root') {
       const related = await this.relatedOf(workspaceId, { kind: target.kind as IntentNodeKind, id: target.id });
       if (related.length > 0) {
@@ -251,7 +299,12 @@ export class IntentReadService {
         `${target.kind === 'feature' ? 'Sub-features' : 'Features'}: ${target.children.map((child) => child.id).join(', ')}`,
       );
     }
-    footer.push('', deliveryLine(items, release));
+    footer.push(
+      '',
+      overview
+        ? `Delivery across the whole product: ${deliveryText(overview.delivery)}.`
+        : `Delivery ${target.kind === 'domain' ? 'across this domain and its features' : 'across this feature and its sub-features'}: ${deliveryText(await this.subtreeDelivery(workspaceId, target, authority, release))}.`,
+    );
     footer.push(...(await this.inheritedNote(workspaceId, target, authority)));
     lines.push('', INTENT_NODE_FOOTER, ...footer);
     return lines.join('\n');
@@ -395,7 +448,9 @@ export class IntentReadService {
       undefined,
     );
     const items = current;
-    const sections = documentSections(target.layout, items, stillInForce, false);
+    const overview = target.kind === 'root' ? await this.productOverview(workspaceId, authority, release) : undefined;
+    const laidOut = documentSections(target.layout, items, stillInForce, false);
+    const sections = overview ? productWideSections(laidOut) : laidOut;
 
     // A candidate replacing an item on this page rides on that item's block instead of standing alone.
     const shown = new Set(
@@ -442,9 +497,7 @@ export class IntentReadService {
       target.kind === 'root'
         ? []
         : await this.relatedOf(workspaceId, { kind: target.kind as IntentNodeKind, id: target.id });
-    const counted = items.filter((item) => !isOpenQuestion(item));
-    const effective = counted.filter((item) => release.effectivity(item.id) === 'effective').length;
-    const planned = counted.filter((item) => release.effectivity(item.id) === 'planned').length;
+    const delivery = overview?.delivery ?? (await this.subtreeDelivery(workspaceId, target, authority, release));
     return {
       node: {
         kind: target.kind,
@@ -471,12 +524,122 @@ export class IntentReadService {
         why: relation.why,
       })),
       features: target.children,
-      delivery: { effective, planned, unrecorded: counted.length - effective - planned },
+      domains: overview?.domains ?? [],
+      overview: overview?.totals ?? null,
+      moreDomains: overview?.moreDomains ?? 0,
+      delivery: { effective: delivery.effective, planned: delivery.planned, unrecorded: delivery.unrecorded },
       truncated: more,
     };
   }
 
   /* ------------------------------------------------------------ helpers --- */
+
+  /**
+   * The product root read as the whole product: its non-archived domains with
+   * their subtree counts (the tree's numbers), and totals and delivery over the
+   * same scope — the root's own items plus every live domain's subtree — so the
+   * domain rows add up to them.
+   */
+  private async productOverview(workspaceId: string, authority: IntentItemAuthority[], release: ReleaseSnapshot) {
+    const [domains, domainCount, counts, { delivery, effectiveIn }] = await Promise.all([
+      this.prisma.intentDomain.findMany({
+        where: { workspaceId, archived: false },
+        orderBy: { id: 'asc' },
+        take: INTENT_READ_LIMITS.rootDomains,
+        select: { id: true, title: true },
+      }),
+      this.prisma.intentDomain.count({ where: { workspaceId, archived: false } }),
+      readIntentNodeCounts(this.prisma, workspaceId, PRODUCT_SCOPE),
+      this.deliveryIn(workspaceId, authority, release, PRODUCT_SCOPE_SQL),
+    ]);
+    return {
+      domains: domains.map((domain): IntentDocumentDomain => {
+        const subtree = counts.subtreeOf(domain.id);
+        return {
+          id: domain.id,
+          title: domain.title,
+          itemCount: subtree.subtreeItemCount,
+          pendingCount: subtree.subtreePendingCount,
+          openQuestionCount: subtree.subtreeOpenQuestionCount,
+          effective: effectiveIn.get(domain.id) ?? 0,
+        };
+      }),
+      domainCount,
+      moreDomains: domainCount - domains.length,
+      totals: counts.total(),
+      delivery,
+    };
+  }
+
+  /**
+   * What is in production among the items in `scope` (SQL over
+   * `intent_items i`) under the read's authorities, in total and per domain.
+   * Open questions are not delivered. The scan is bounded by the subtree, not
+   * by a node read's page, so the numbers do not depend on what one page shows;
+   * it reads two columns per item and keeps at most {@link PLANNED_NAMED} ids.
+   */
+  private async deliveryIn(
+    workspaceId: string,
+    authority: IntentItemAuthority[],
+    release: ReleaseSnapshot,
+    scope: Prisma.Sql,
+  ) {
+    // The COALESCE keeps a decision without a choiceStatus counted, as `isOpenQuestion` does.
+    const items = await this.prisma.$queryRaw<{ id: string; domain_id: string | null }[]>`
+      SELECT i.id, i.domain_id FROM intent_items i
+      WHERE i.workspace_id = ${workspaceId}::uuid
+        AND i.authority::text IN (${Prisma.join(authority)})
+        AND ${scope}
+        AND NOT (i.kind::text = 'decision' AND COALESCE(i.payload->>'choiceStatus', '') = ${DecisionStatus.Open})
+      ORDER BY i.id ASC`;
+    const delivery: Delivery = { effective: 0, planned: 0, plannedIds: [], unrecorded: 0 };
+    const effectiveIn = new Map<string, number>();
+    for (const item of items) {
+      const state = release.effectivity(item.id);
+      if (state === 'effective') {
+        delivery.effective += 1;
+        if (item.domain_id) effectiveIn.set(item.domain_id, (effectiveIn.get(item.domain_id) ?? 0) + 1);
+      } else if (state === 'planned') {
+        delivery.planned += 1;
+        if (delivery.plannedIds.length < PLANNED_NAMED) delivery.plannedIds.push(item.id);
+      } else delivery.unrecorded += 1;
+    }
+    return { delivery, effectiveIn };
+  }
+
+  /**
+   * A domain's or feature's delivery covers its subtree, the way its badges do:
+   * a domain with every one of its features (archived ones included), a feature
+   * with its sub-features at any depth.
+   */
+  private async subtreeDelivery(
+    workspaceId: string,
+    target: { kind: 'feature' | 'domain' | 'root'; id: string; domainId: string | null },
+    authority: IntentItemAuthority[],
+    release: ReleaseSnapshot,
+  ): Promise<Delivery> {
+    if (target.kind === 'root')
+      return (await this.deliveryIn(workspaceId, authority, release, PRODUCT_SCOPE_SQL)).delivery;
+    if (target.kind === 'domain')
+      return (await this.deliveryIn(workspaceId, authority, release, Prisma.sql`i.domain_id = ${target.id}`)).delivery;
+    const features = await this.prisma.intentFeature.findMany({
+      where: { workspaceId, domainId: target.domainId ?? undefined },
+      select: { id: true, parentFeatureId: true },
+    });
+    const below = new Set([target.id]);
+    // Nesting is acyclic (the tree refuses cycles); the set still stops a walk that meets one.
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const feature of features)
+        if (feature.parentFeatureId && below.has(feature.parentFeatureId) && !below.has(feature.id)) {
+          below.add(feature.id);
+          grew = true;
+        }
+    }
+    return (
+      await this.deliveryIn(workspaceId, authority, release, Prisma.sql`i.feature_id IN (${Prisma.join([...below])})`)
+    ).delivery;
+  }
 
   /**
    * The node's current items, one page of {@link INTENT_READ_LIMITS.nodeItems}
@@ -593,7 +756,8 @@ export class IntentReadService {
       id: '',
       title: 'Product root',
       layout: [] as LayoutBlock[],
-      header: 'Items attached to the product as a whole, outside any domain.',
+      // Replaced by the overview line once the counts are read (see `productOverview`).
+      header: 'The whole product.',
       domainId: null,
       children: [] as { id: string; title: string }[],
     };
@@ -907,6 +1071,10 @@ interface RenderOptions {
   /** A kind filter or a continuation page: the layout is skipped, items render in kind order. */
   filtered: boolean;
   release: ReleaseSnapshot;
+  /** The product root: its own items sit in one section under its domain list. */
+  productWide?: boolean;
+  /** Lines rendered right under the title. */
+  preface?: string[];
 }
 
 function renderDocument(
@@ -917,8 +1085,9 @@ function renderDocument(
   options: RenderOptions,
 ): string {
   const { refs, filtered } = options;
-  const out = [`# ${title}`];
-  for (const section of documentSections(layout, items, stillInForce, filtered)) {
+  const out = [`# ${title}`, ...(options.preface ?? [])];
+  const laidOut = documentSections(layout, items, stillInForce, filtered);
+  for (const section of options.productWide ? productWideSections(laidOut) : laidOut) {
     const lines: string[] = [];
     const push = (chunk: string[], separate: boolean) => {
       if (separate && lines.length > 0 && lines[lines.length - 1] !== '') lines.push('');
@@ -936,21 +1105,54 @@ function renderDocument(
   return out.join('\n');
 }
 
-function deliveryLine(items: ItemRow[], release: ReleaseSnapshot): string {
-  const planned: string[] = [];
-  let effective = 0;
-  let unknown = 0;
-  for (const item of items) {
-    if (isOpenQuestion(item)) continue;
-    const state = release.effectivity(item.id);
-    if (state === 'effective') effective += 1;
-    else if (state === 'planned') planned.push(item.id);
-    else unknown += 1;
-  }
-  const parts = [`${effective} in production`];
-  if (planned.length > 0) parts.push(`${planned.length} planned (${planned.join(', ')})`);
-  if (unknown > 0) parts.push(`${unknown} with no delivery record`);
-  return `Delivery: ${parts.join(', ')}.`;
+interface Delivery {
+  effective: number;
+  planned: number;
+  /** The first {@link PLANNED_NAMED} planned ids, in id order. */
+  plannedIds: string[];
+  unrecorded: number;
+}
+
+/** Planned ids are named while the list is short; past that the count alone keeps the line readable. */
+function deliveryText(delivery: Delivery): string {
+  const parts = [`${delivery.effective} in production`];
+  const { planned, plannedIds } = delivery;
+  if (planned > 0) parts.push(`${planned} planned${planned <= PLANNED_NAMED ? ` (${plannedIds.join(', ')})` : ''}`);
+  if (delivery.unrecorded > 0) parts.push(`${delivery.unrecorded} with no delivery record`);
+  return parts.join(', ');
+}
+
+/** The product root's own items, gathered under one heading so they read apart from its domain list. */
+function productWideSections(sections: DocSection[]): DocSection[] {
+  const entries = sections.flatMap((section): DocEntry[] =>
+    section.heading === null ? section.entries : [{ heading: section.heading }, ...section.entries],
+  );
+  return entries.length > 0 ? [{ heading: PRODUCT_WIDE, entries }] : [];
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+function domainLines(domains: IntentDocumentDomain[], more: number): string[] {
+  if (domains.length === 0) return ['No domains yet.'];
+  const lines = domains.map((domain) => {
+    const parts = [plural(domain.itemCount, 'item')];
+    if (domain.pendingCount > 0) parts.push(`${domain.pendingCount} waiting for review`);
+    if (domain.openQuestionCount > 0) parts.push(plural(domain.openQuestionCount, 'open question'));
+    parts.push(`${domain.effective} in production`);
+    return `- ${domain.id}: ${domain.title} — ${parts.join(', ')}`;
+  });
+  if (more > 0) lines.push(`…and ${plural(more, 'more domain')} — open the tree (action "tree") to see them all.`);
+  return lines;
+}
+
+function overviewHeader(overview: { domainCount: number; totals: IntentNodeCounts }): string {
+  const { totals } = overview;
+  const extra: string[] = [];
+  if (totals.pendingCount > 0) extra.push(`${totals.pendingCount} waiting for review`);
+  if (totals.openQuestionCount > 0) extra.push(plural(totals.openQuestionCount, 'open question'));
+  return `The whole product: ${plural(overview.domainCount, 'domain')}, ${plural(totals.itemCount, 'item')}${extra.length > 0 ? ` (${extra.join(', ')})` : ''}. Open a domain with action "node" and its id; product-wide items apply everywhere.`;
 }
 
 function snippet(text: string, tokens: string[]): string {

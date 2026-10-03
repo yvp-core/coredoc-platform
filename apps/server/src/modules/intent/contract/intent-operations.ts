@@ -502,6 +502,8 @@ export const ListIntentItemsQuerySchema = z
       .pipe(z.array(z.enum(IntentKind)).min(1).max(6))
       .optional(),
     scopeFeatureId: slugId().optional(),
+    /** Only live decisions whose choice is still open (the tree's `openQuestionCount`). */
+    openQuestions: z.enum(['true', 'false']).optional(),
     authority: z.enum(IntentAuthority).optional(),
     kind: z.enum(IntentKind).optional(),
     domainId: slugId().optional(),
