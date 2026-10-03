@@ -107,8 +107,8 @@ export function IntentReleases({
   const selectedId = itemId ?? null;
   const preview = useQuery(intentReleasePreviewOptions(workspaceId, selectedId));
   const triggerQuery = useQuery(intentReleaseTriggerOptions(workspaceId));
-  // Three states, not two: a value, an absent field (old server) reading as
-  // manual, and a failed read — which must not be dressed up as `Manual`.
+  // A failed read must not be dressed up as `Manual`; only the pending read
+  // shows the manual default until the value arrives.
   const triggerUnavailable = triggerQuery.isError;
   const trigger = triggerQuery.data ?? IntentReleaseTrigger.Manual;
   const automatic = trigger !== IntentReleaseTrigger.Manual;

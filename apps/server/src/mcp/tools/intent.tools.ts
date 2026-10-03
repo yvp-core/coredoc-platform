@@ -105,8 +105,10 @@ import {
   renderIntentPublicError,
   slugId,
   type IntentPublicError,
+  DeleteIntentDomainSchema,
+  DeleteIntentFeatureSchema,
+  PreviewIntentAnchorQuerySchema,
 } from '../../modules/intent/contract/index.js';
-import { PreviewIntentAnchorQuerySchema } from '../../modules/intent/intent-anchor.operations.js';
 import { IntentAnchorService } from '../../modules/intent/intent-anchor.service.js';
 import {
   INTENT_CONTEXT_READ_LIMITS,
@@ -121,7 +123,6 @@ import { INTENT_PAGE_LIMITS } from '../../modules/intent/intent-cursor.js';
 import { INTENT_READ_LIMITS, IntentReadService } from '../../modules/intent/intent-read.service.js';
 import { IntentItemService } from '../../modules/intent/intent-item.service.js';
 import type { IntentActor } from '../../modules/intent/intent-idempotency.js';
-import { DeleteIntentDomainSchema, DeleteIntentFeatureSchema } from '../../modules/intent/intent-module-operations.js';
 import { INTENT_ANCHOR_NODE_TYPES } from '../../modules/intent/intent-node-types.js';
 import { IntentProposeService } from '../../modules/intent/intent-propose.service.js';
 import { IntentReviewService } from '../../modules/intent/intent-review.service.js';
@@ -485,11 +486,13 @@ const INTENT_TREE_DESCRIPTION =
   'token): an agent acting in that session creates the domains, features and seeds its ' +
   'placement needs and reports what it created, while domain/feature archive and delete follow an explicit ' +
   'maintainer instruction naming the node. Bodies by action: ' +
-  'domain.create {id, title, statement?, appliesWhen?}; domain.update {id, title?, statement?, appliesWhen?}; ' +
+  'domain.create {id, title, statement?, appliesWhen?, layout?}; domain.update {id, title?, statement?, appliesWhen?, layout?}; ' +
   'domain.archive {id, archived}; domain.delete {id}; ' +
-  'feature.create {id, domainId, parentFeatureId?, title, statement?, appliesWhen?} (parentFeatureId nests it under ' +
-  'another feature of the same domain); feature.update {id, title?, statement?, appliesWhen?, parentFeatureId?} ' +
-  '(null moves it to the top level); ' +
+  'feature.create {id, domainId, parentFeatureId?, title, statement?, appliesWhen?, layout?} (parentFeatureId nests it under ' +
+  'another feature of the same domain); feature.update {id, title?, statement?, appliesWhen?, layout?, parentFeatureId?} ' +
+  '(null moves it to the top level). layout is the node read as a document, in order: {heading, level: 2|3}, ' +
+  '{lines: [Markdown]} and {item: id, style?: bullet|heading|prose} slots; an item with no slot is appended under ' +
+  'its kind, and on update layout replaces the stored one ([] clears it); ' +
   'feature.archive {id, archived}; feature.delete {id}; seed.put {featureId, repoKey, nodeId, note?}; ' +
   'seed.delete {featureId, repoKey, nodeId}; dimension.create {id, title, values: [{id, title, aliases?}], multi?}; ' +
   'dimension.update {id, title?, values?, multi?} (values replaces the list); dimension.archive {id, archived}; ' +
@@ -989,8 +992,8 @@ export class IntentTools {
     return this.respond('intent_anchor', request, async () => {
       // The envelope is read BEFORE the gate here, unlike `intent_tree`,
       // because the action IS the gate: preview is a member read of graph facts
-      // (REST gates it at `intent:read`), the three writes are authority-
-      // adjacent and take the reviewer gate. The envelope carries no content of
+      // gated at `intent:read`, the three writes are authority-adjacent and
+      // take the reviewer gate. The envelope carries no content of
       // its own, so nothing is disclosed by shape-checking it first.
       const input: IntentAnchorToolInput = parseEnvelope(IntentAnchorToolSchema, 'intent_anchor', args);
 

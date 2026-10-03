@@ -1,6 +1,6 @@
 ---
 name: intent-capture
-description: Propose reviewed product intent (capabilities, use cases, flows, business rules, limitations, decisions) into a coredoc workspace with `intent_propose`, or into a repo's local overlay with `coredoc intent capture` before cutover; accept the unchanged verbatim items of a document a person has just approved, under that single approval; bootstrap inherited intent from a brownfield codebase as bounded, source-classified packets; and execute a maintainer's explicit review decisions with `intent_review`. Use when a PRD, specification, ADR, or product decision is approved, when asked to bootstrap or inventory existing intent, or when a maintainer asks to review known candidates. Do not use to read intent (`get_intent_context` / `coredoc intent context`), and never infer acceptance from code or from your own recommendation. Invoked by `coredoc-prd` or `coredoc-spec` when a person approves the PRD, the PRD-less specification or the ADR (`spec accept` for a standalone spec); run it standalone only for an already-approved document.
+description: Propose reviewed product intent (capabilities, use cases, flows, business rules, limitations, decisions) into a coredoc workspace with `intent_propose`, or into a repo's local overlay with `coredoc intent capture` before cutover; accept the unchanged verbatim items of a document a person has just approved, under that single approval; bootstrap inherited intent from a brownfield codebase as bounded, source-classified packets; and execute a maintainer's explicit review decisions with `intent_review`. Use when a PRD, specification, ADR, or product decision is approved, when asked to bootstrap or inventory existing intent, or when a maintainer asks to review known candidates. Do not use to read intent (`intent_read`, `get_intent_context` / `coredoc intent context`), and never infer acceptance from code or from your own recommendation. Invoked by `coredoc-prd` or `coredoc-spec` when a person approves the PRD, the PRD-less specification or the ADR (`spec accept` for a standalone spec); run it standalone only for an already-approved document.
 ---
 
 # Propose product intent as candidates
@@ -23,7 +23,7 @@ If the cloud answers "this workspace has no product intent yet", create the firs
 ## 2. Source and placement
 
 - **The source must be reviewed and finalized**: a merged spec section, an ADR, an explicit product decision from the user, or a ticket they point at. Code, tests, AI summaries, and the graph can *support* a statement; they cannot *be* the source of one. The one exception is bootstrap mode (§4), where unreviewed evidence is classified and framed explicitly. If it is not decided yet, say so and stop.
-- **Placement (cloud):** an item attaches to the product root, one `domainId`, or one `featureId` (a `domainId` beside it must be its domain). Read the tree with `get_intent_context` first. A domain or feature the tree does not declare is yours to create per §5 before you propose into it — reuse a node that honestly fits first, and name what you created and placed there.
+- **Placement (cloud):** an item attaches to the product root, one `domainId`, or one `featureId` (a `domainId` beside it must be its domain). Read the tree with `intent_read tree` first. A domain or feature the tree does not declare is yours to create per §5 before you propose into it — reuse a node that honestly fits first, and name what you created and placed there.
 
 ## 3. Draft the proposals
 
@@ -34,9 +34,11 @@ If the cloud answers "this workspace has no product intent yet", create the firs
 | `id` | **normally omit** — the server derives a kind-prefixed slug from the title (`br-refund-window`); supply one only when a derivation refusal asks for it |
 | `kind` | `capability` \| `use_case` \| `flow` \| `business_rule` \| `limitation` \| `decision` |
 | `title` | a few words that state the rule, **not a sentence** (`Refund window is 30 days`, not `Refund window`): its slug becomes the id, and a title too long to fit the id cap is refused (pass a shorter title, or an explicit `id`) |
-| `statement` | one or two sentences, self-contained: it must read without its payload |
+| `statement` | ONE sentence, self-contained: it must read without its body or payload |
+| `body` | optional Markdown lines for everything else (use-case bullets, flow steps, a diagram) |
 | `rationale` | optional; why this is the rule |
 | `payload` | **optional** structured detail, validated per kind (table below) |
+| `appliesWhen` | optional context conditions (below); `[]` clears them |
 | `domainId` / `featureId` | at most one; both absent = the product root |
 | `proposedSuccessorOfId` | only when this candidate is meant to replace a specific accepted item |
 | `sources[]` | `{ kind: spec\|issue\|adr\|manual, ref, localId, revision?, locator?, title?, url? }`, at least one; `title`+`url` on every citing item (fix later: `intent_source_update`) |
@@ -45,10 +47,10 @@ If the cloud answers "this workspace has no product intent yet", create the firs
 Enforced — a violation is a rejection, not a warning:
 
 - **No `authority` key.** A proposal is a candidate by construction.
-- **Unknown keys reject the whole batch**, which is what keeps prompts, transcripts, and file bodies out of the workspace. Text fields are length-capped; a batch holds at most ten items.
+- **Unknown keys reject the whole batch**, which is what keeps prompts, transcripts, and file bodies out of the workspace.
 - **`sources[]` identity is exact `(ref, localId)`, scoped to the workspace** — artifact plus position inside it, so `ref` is repo-qualified: `<repoKey>:<path>` (two repositories in one workspace can both hold `docs/spec.md` with a `BR-1`, and an unqualified path would overwrite the other repository's candidate). Propose upserts on it: an explicit `id` updates that candidate, otherwise a matching source identity updates the existing candidate instead of appending a duplicate. Keep the pair stable across runs and precise per statement.
-- **Ids are immutable.** Never rename an id to update something; a semantic rename is a new item plus the maintainer's supersede decision. Giving a NEW proposal an id that already exists is a hard refusal.
-- **Anchor suggestions carry no graph facts** — you send `repoKey` + `nodeId` and a reason; node type and the drift baseline are resolved server-side. Never invent or reconstruct a node id from a file path; an unresolvable one refuses the batch. Suggest only ids you read out of tool output.
+- **Ids are immutable.** Never rename an id to update something; a semantic rename is a new item plus the maintainer's supersede decision.
+- **Anchor suggestions carry no graph facts** — you send `repoKey` + `nodeId` and a reason; node type and the drift baseline are resolved server-side. Never invent or reconstruct a node id from a file path. Suggest only ids you read out of tool output.
 
 On you — nothing checks these:
 
@@ -66,7 +68,7 @@ Payload per `kind` (optional, validated when present):
 | `flow` | `trigger`, `terminationCondition`, `steps[]` = `{ id, actor, action, outcome, branches?: [{ condition, toStepId }] }` (a `toStepId` must name a step in the same flow) |
 | `business_rule` | `condition`, `requiredOutcome`, `observer`, `exceptions?[]`, `variants?[]` = `{when?: {country: "de"}, outcome, inputs?[]}` (`when` maps dimension → value or value[], not a clause; no `when` = default, ≤1) |
 | `limitation` | `constraint`, `reason`, `affects` |
-| `decision` | `question`, `choice`, `choiceStatus` (`proposed`\|`accepted`), `rationale`, `alternatives[]`, `consequences[]` |
+| `decision` | `question`, `choice`, `choiceStatus` (`open`, `choice` absent \| `proposed` \| `accepted`), `rationale`, `alternatives[]`, `consequences[]` |
 
 `choiceStatus` describes the product choice, not your authority over it — an accepted ADR choice still enters as a `candidate`.
 
@@ -88,7 +90,7 @@ Payload per `kind` (optional, validated when present):
 
 Use only when the user explicitly asks to bootstrap or inventory inherited intent. It produces candidates only, through the ordinary propose path: bootstrap is a flow over propose, never a separate write path.
 
-Precondition on an EMPTY workspace: every packet attaches to a domain, and a tree write needs the acting user's own session. So the first bootstrap runs in a user session — name the domain set, create it with `intent_tree`, then send packets, and report what you created. A service-token session cannot seed the tree; draft the domain set and stop instead of improvising.
+Precondition on an EMPTY workspace: every packet attaches to a domain, so first name the domain set and create it per §1, then send packets.
 
 1. **One packet, one slice** — one domain and one risk theme. Risk-first order: auth/tenant isolation, money, deletion and data loss, privacy, then compliance, before low-risk explanatory context. Never scan a whole product into one packet.
 2. **Inventory exact source identities**, each with a named owner and one class: `A` explicit current product decision (approved spec/ADR, owner's decision); `B` maintained product evidence (user/API docs, release or support contract); `C` observed implementation (code, tests, config, telemetry, graph, AI summary); `D` stale or unknown provenance. A class is provenance — never a confidence score, never acceptance.
@@ -108,7 +110,7 @@ The packet wrapper (scratchpad only; never persisted, never sent to a tool):
 }
 ```
 
-**Validate the packet before any propose call.** `parseBrownfieldPacket` in `@coredoc/core` enforces these checks. Without package access, check manually (`coredoc intent bootstrap-check --input` needs a repo overlay). On refusal, fix the packet, never route around it. Send **only `candidates[].proposal`** through `intent_propose`; omit wrapper, classes, owners and conflicts. In the local lane, keep the identical discipline and copy each validated proposal into the capture document, renaming `domainId` to `domain`, dropping `featureId` and `anchorSuggestions`.
+**Validate the packet before any propose call.** `parseBrownfieldPacket` in `@coredoc/core` enforces these checks. Without package access, check manually (`coredoc intent bootstrap-check -p <id> -w <workspaceId> --input <packet>` needs a repo overlay). On refusal, fix the packet, never route around it. Send **only `candidates[].proposal`** through `intent_propose`; omit wrapper, classes, owners and conflicts. In the local lane, keep the identical discipline and copy each validated proposal into the capture document, renaming `domainId` to `domain`, dropping `featureId` and `anchorSuggestions`.
 
 Re-running bootstrap on the same source revision is safe: matching source identities update those candidates instead of duplicating them. Put the revision in every `sources[].revision` to identify source changes. Report source-class counts, conflicts and their decision owners, unanchored candidates, and the open owner questions. Bootstrap never accepts anything.
 
@@ -116,9 +118,9 @@ Re-running bootstrap on the same source revision is safe: matching source identi
 
 Import attaches items to domains because the local format has no features. Propose a feature layout when a domain-wide answer is too broad.
 
-Same rule as domain creation: **you propose it in your reply, then you create it** in the acting user's own session. `intent_tree` needs a user session, so a service-token session drafts the layout and stops. A feature still earns it: two to five seeds and a real placement need; never create one "to hold" one batch.
+Same rule as domain creation (§1): **you propose it in your reply, then you create it** in the acting user's own session; a service-token session drafts the layout and stops. A feature still earns it: two to five seeds and a real placement need; never create one "to hold" one batch.
 
-1. **Read what is there** — `get_intent_context` in `list` mode over the imported domains. Group by meaning. Use roadmap-sized features; a one-feature domain needs no split.
+1. **Read what is there** — `intent_read node` for each imported domain. Group by meaning. Use roadmap-sized features; a one-feature domain needs no split.
 2. **Propose the layout as prose first**, one line per feature: its `domainId`, a short title, and a one-sentence statement. Name the items you would move under each. Keep it to one screen.
 3. **Seeds are the point.** A feature without seeds derives nothing — seeds are the code nodes that define the feature's area, and the applicability of every item hangs off them. Propose two to five per feature, each an exact stable node id you got from the graph (`search_symbols`, `describe_repository`, or an existing item's anchor), never a guessed or hand-assembled id. Prefer the containers a reader would point at — a package, a directory-level module, an entrypoint — over individual functions.
 4. **Then execute** with `intent_tree`: create each feature, then put its seeds, then move the items. One call per operation with a fresh `idempotencyKey`; a seed naming a repo identity the workspace does not carry is refused with the registered identities listed, which is a fix-the-id signal, not a retry signal. Archive and delete are the exception: only on an explicit maintainer instruction naming the node.

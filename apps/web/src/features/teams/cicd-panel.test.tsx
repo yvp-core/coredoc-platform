@@ -126,20 +126,6 @@ describe('Release trigger settings', () => {
     expect(reads.filter((url) => url.endsWith('/workspaces/ws1') || url.endsWith('/repos'))).toEqual([]);
   });
 
-  it('reads an absent trigger field (older server) as Manual', async () => {
-    const base = fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string, init?: RequestInit) =>
-        url.endsWith('/workspaces/ws1') && init?.method === undefined ? new Response('{}') : base(url, init),
-      ),
-    );
-    mount();
-    const select = await screen.findByRole('combobox', { name: 'Intent release trigger' });
-    await waitFor(() => expect(select).toBeEnabled());
-    expect(select).toHaveTextContent('Manual');
-  });
-
   it('disables the selector and says unavailable when the trigger read fails', async () => {
     const base = fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
     vi.stubGlobal(

@@ -23,7 +23,7 @@ import {
   type OpenedIntentGraphFixture,
 } from '@coredoc/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { resolveFeatureApplicability, resolveNodeApplicability } from './applicability.js';
+import { resolveNodeApplicability } from './applicability.js';
 import { DerivationBudget, resolveDerivationBounds } from './derivation-bounds.js';
 import {
   IntentDerivationLimit,
@@ -251,128 +251,6 @@ describe('bounds (§6.1)', () => {
 
     expect(area.queriesUsed).toBe(shared.queriesUsed);
     expect(shared.queriesUsed).toBeGreaterThan(2);
-  });
-});
-
-describe('applicability reasons (§6.2)', () => {
-  async function applicabilityFor(
-    target: DerivableFeature,
-    items: DerivableIntentItem[],
-    bounds: Parameters<typeof resolveDerivationBounds>[0] = {},
-  ) {
-    const shared = budget(bounds);
-    const area = await computeFeatureArea({
-      traversal,
-      feature: target,
-      graphRepoHashByKey: repoHashByKey,
-      budget: shared,
-    });
-    return resolveFeatureApplicability({ feature: target, items, area, traversal, budget: shared });
-  }
-
-  it('returns a guard-anchored rule for a feature whose area calls it, named anchor_called_by_area', async () => {
-    const { repoA } = fixture;
-    const rule = anchoredItem('br-admin-only', REPO_KEY_A, repoA.guard);
-
-    const applicable = await applicabilityFor(feature('orders', [{ repoKey: REPO_KEY_A, nodeId: repoA.route }]), [
-      rule,
-    ]);
-
-    expect(applicable).toEqual([
-      {
-        itemId: 'br-admin-only',
-        // `inherited` too: the item is attached to the product root. Both
-        // reasons are true and both are reported — the derived one is the
-        // acceptance criterion.
-        reasons: [IntentMatchReason.Inherited, IntentMatchReason.AnchorCalledByArea],
-        matchedAnchors: [rule.anchors[0]],
-      },
-    ]);
-  });
-
-  it('names the same guard anchor_in_area when containment, not a call, reaches it', async () => {
-    const { repoA } = fixture;
-
-    const applicable = await applicabilityFor(feature('app', [{ repoKey: REPO_KEY_A, nodeId: repoA.appPackage }]), [
-      anchoredItem('br-admin-only', REPO_KEY_A, repoA.guard),
-    ]);
-
-    expect(applicable[0]?.reasons).toContain(IntentMatchReason.AnchorInArea);
-    expect(applicable[0]?.reasons).not.toContain(IntentMatchReason.AnchorCalledByArea);
-  });
-
-  it('does not return an item anchored two hops away', async () => {
-    const { repoA } = fixture;
-
-    const applicable = await applicabilityFor(feature('orders', [{ repoKey: REPO_KEY_A, nodeId: repoA.route }]), [
-      { ...anchoredItem('br-deep', REPO_KEY_A, repoA.deepHelper), attachment: { domainId: 'other', featureId: null } },
-    ]);
-
-    expect(applicable).toEqual([]);
-  });
-
-  it('does not carry an anchor across repositories', async () => {
-    const { repoA, repoB } = fixture;
-
-    const applicable = await applicabilityFor(feature('reports', [{ repoKey: REPO_KEY_B, nodeId: repoB.route }]), [
-      // repo B's handler calls repo A's guard, but the anchor names repo A and
-      // the feature has no seed there.
-      { ...anchoredItem('br-guard-a', REPO_KEY_A, repoA.guard), attachment: { domainId: 'other', featureId: null } },
-    ]);
-
-    expect(applicable).toEqual([]);
-  });
-
-  it('resolves attachment and inheritance without touching the graph', async () => {
-    const target = feature('orders', [{ repoKey: REPO_KEY_A, nodeId: fixture.repoA.route }]);
-    const items: DerivableIntentItem[] = [
-      { id: 'cap-attached', attachment: { domainId: DOMAIN, featureId: 'orders' }, anchors: [] },
-      { id: 'br-domain', attachment: { domainId: DOMAIN, featureId: null }, anchors: [] },
-      { id: 'dec-root', attachment: { domainId: null, featureId: null }, anchors: [] },
-      { id: 'lim-other-domain', attachment: { domainId: 'billing', featureId: null }, anchors: [] },
-      { id: 'uc-other-feature', attachment: { domainId: DOMAIN, featureId: 'refunds' }, anchors: [] },
-    ];
-
-    const applicable = await resolveFeatureApplicability({
-      feature: target,
-      items,
-      area: null,
-      traversal: null,
-      budget: budget(),
-    });
-
-    expect(applicable).toEqual([
-      { itemId: 'cap-attached', reasons: [IntentMatchReason.Attached], matchedAnchors: [] },
-      { itemId: 'br-domain', reasons: [IntentMatchReason.Inherited], matchedAnchors: [] },
-      { itemId: 'dec-root', reasons: [IntentMatchReason.Inherited], matchedAnchors: [] },
-    ]);
-  });
-
-  it('re-checks a specific anchor when the callee layer was truncated', async () => {
-    const { repoA } = fixture;
-    const shared = budget({ maxStepNodes: 1 });
-    const target = feature('orders', [{ repoKey: REPO_KEY_A, nodeId: repoA.route }]);
-    const area = await computeFeatureArea({
-      traversal,
-      feature: target,
-      graphRepoHashByKey: repoHashByKey,
-      budget: shared,
-    });
-
-    const applicable = await resolveFeatureApplicability({
-      feature: target,
-      items: [
-        { ...anchoredItem('br-admin-only', REPO_KEY_A, repoA.guard), attachment: { domainId: 'x', featureId: null } },
-      ],
-      area,
-      traversal,
-      budget: shared,
-    });
-
-    // The truncated callee page may or may not contain the guard; either way the
-    // answer must be the same, because a cut-short page is not evidence of absence.
-    expect(area.truncated).toBe(true);
-    expect(applicable[0]?.reasons).toEqual([IntentMatchReason.AnchorCalledByArea]);
   });
 });
 

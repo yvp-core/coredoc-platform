@@ -301,7 +301,6 @@ export function IntentPanel({
     () => intentItemsInScope(previewing ? previewRows : results, selection),
     [previewing, previewRows, results, selection],
   );
-  const shownItems = scopedItems;
   const counts = useMemo(
     () =>
       intentScopeCounts({
@@ -721,7 +720,6 @@ export function IntentPanel({
             title={itemsTitle}
             right={
               <span className="flex items-center gap-1">
-                {centerView === 'list' && `${shownItems.length} of ${scopedItems.length} loaded`}
                 <Chip pressed={centerView === 'document'} label="Document" onClick={() => setCenterView('document')} />
                 <Chip pressed={centerView === 'list'} label="List" onClick={() => setCenterView('list')} />
               </span>
@@ -754,7 +752,7 @@ export function IntentPanel({
                 ignoredFilters={previewIgnored}
               />
               <IntentItemsList
-                items={shownItems}
+                items={scopedItems}
                 deliverySelection={deliverySelection.map((item) => item.id)}
                 canSelectForDelivery={canEdit}
                 selectingAll={selectingAll || searching}
@@ -773,7 +771,7 @@ export function IntentPanel({
                 }
                 onSelectVisible={() =>
                   setDeliverySelection((current) => {
-                    const remaining = shownItems.filter(
+                    const remaining = scopedItems.filter(
                       (item) =>
                         (item.authority === 'accepted' || item.authority === 'superseded') &&
                         !current.some((row) => row.id === item.id),

@@ -59,8 +59,13 @@ import {
 import { IntentContextService } from './intent-context.service.js';
 import { IntentItemService } from './intent-item.service.js';
 import { IntentProposeService } from './intent-propose.service.js';
-import type { ListIntentItemsQuery } from './intent-module-operations.js';
-import { IntentErrorCode, IntentPublicException, parseContract, ProposeIntentItemsSchema } from './contract/index.js';
+import {
+  IntentErrorCode,
+  IntentPublicException,
+  parseContract,
+  ProposeIntentItemsSchema,
+  type ListIntentItemsQuery,
+} from './contract/index.js';
 
 const TEST_DATABASE_URL = process.env.INTENT_CONTEXT_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;

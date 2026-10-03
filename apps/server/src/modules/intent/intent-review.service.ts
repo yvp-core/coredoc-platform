@@ -47,8 +47,13 @@ import {
   type IntentReviewDecisionInput,
   type ReviewIntentItemsInput,
 } from './contract/index.js';
-import { IntentOperation, runIntentMutation, type IntentActor, type IntentTransaction } from './intent-idempotency.js';
-import { updateItemWithVersion } from './intent-optimistic.js';
+import {
+  IntentOperation,
+  runIntentMutation,
+  updateItemWithVersion,
+  type IntentActor,
+  type IntentTransaction,
+} from './intent-idempotency.js';
 import {
   IntentReviewEffect,
   IntentReviewOutcome,

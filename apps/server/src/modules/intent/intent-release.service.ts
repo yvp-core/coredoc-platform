@@ -1,5 +1,4 @@
 import { lockHandoff } from './intent-handoff.service.js';
-import { resolveIntentReleaseTrigger } from './intent-release-trigger.js';
 import { createHash } from 'node:crypto';
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
@@ -32,6 +31,14 @@ import {
 import { intentConflict, intentNotFound, intentStateError } from './intent-state-errors.js';
 
 type TrailerRef = { itemId: string; version: number };
+
+/** One effective mode for the CI guard and the connector, including legacy repos. */
+export function resolveIntentReleaseTrigger(
+  repo: IntentReleaseTrigger | null | undefined,
+  workspace: IntentReleaseTrigger | null | undefined,
+): IntentReleaseTrigger {
+  return repo ?? workspace ?? IntentReleaseTrigger.manual;
+}
 
 type Reader = Pick<IntentTransaction, 'intentReleaseEvent'>;
 export async function readReleaseSnapshot(reader: Reader, workspaceId: string): Promise<ReleaseSnapshot> {

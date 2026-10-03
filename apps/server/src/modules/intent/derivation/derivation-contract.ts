@@ -217,12 +217,6 @@ export interface IntentDerivationDegradation {
 export interface IntentDerivationResult {
   applicable: ItemApplicability[];
   evidence: IntentDerivationEvidence;
-  /** Absent when anchor-derived applicability could not be computed. */
-  area?: {
-    featureId: string;
-    repos: Array<{ repoKey: string; nodeIds: string[]; calledNodeIds: string[] }>;
-    unresolvedRepoKeys: string[];
-  };
   /** Present exactly when something degraded; never a silent omission. */
   degradation?: IntentDerivationDegradation;
   /** True when ANY bound tripped — area, applicability, or a step cap. */

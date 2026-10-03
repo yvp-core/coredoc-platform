@@ -13,7 +13,7 @@ import { IntentItemAuthority, PrismaClient } from '../../generated/prisma/client
 import { WorkspaceGraphContextError, WorkspaceMcpContextService } from '../../mcp/workspace-mcp-context.service.js';
 import { IntentExportService } from './intent-export.service.js';
 import { IntentItemService } from './intent-item.service.js';
-import { updateItemWithVersion } from './intent-optimistic.js';
+import { updateItemWithVersion } from './intent-idempotency.js';
 import { IntentAnchorTargetService } from './intent-anchor-target.js';
 import { IntentProposeService } from './intent-propose.service.js';
 import { IntentReadService } from './intent-read.service.js';
@@ -22,7 +22,13 @@ import { IntentReviewService } from './intent-review.service.js';
 
 import { IntentTreeService } from './intent-tree.service.js';
 import { IntentController } from './intent.controller.js';
-import { IntentErrorCode } from './contract/index.js';
+import {
+  IntentErrorCode,
+  IntentPublicException,
+  ProposeIntentItemsSchema,
+  parseContract,
+  renderIntentPublicError,
+} from './contract/index.js';
 import { INTENT_LIMITS } from '@coredoc/core';
 import type { Request } from 'express';
 import { McpAuthKind } from '../../mcp/mcp-auth-context.js';
@@ -31,7 +37,8 @@ import { IntentTools, IntentTreeAction } from '../../mcp/tools/intent.tools.js';
 /**
  * End-to-end behaviour of the intent module against real PostgreSQL: tree CRUD
  * with its audit trail, the guard gates (including the service-token refusal
- * that no role check could express), the propose matrix, idempotency replay,
+ * that no role check could express), the propose matrix (through the service
+ * the MCP tool shares — propose has no REST route), idempotency replay,
  * and the optimistic-concurrency helper.
  *
  * Only `AuthGuard` is stubbed — it is the token→principal step, and there is no
@@ -73,6 +80,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
   let principal: Principal;
   let tools: IntentTools;
   let tree: IntentTreeService;
+  let proposer: IntentProposeService;
 
   beforeAll(async () => {
     previousDatabaseUrl = process.env.DATABASE_URL;
@@ -146,6 +154,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
 
     // The MCP surface over the SAME real services, for REST/MCP refusal parity.
     tree = moduleRef.get(IntentTreeService);
+    proposer = moduleRef.get(IntentProposeService);
     tools = new IntentTools(
       {} as never,
       moduleRef.get(IntentProposeService),
@@ -207,6 +216,30 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
 
   function proposeBody(items: unknown[], key = nextKey('propose')) {
     return { idempotencyKey: key, items };
+  }
+
+  /**
+   * Propose through the service the MCP `intent_propose` tool calls (the REST
+   * route is gone). The same contract parse runs first, and a refusal comes back
+   * rendered as the public error body, so assertions read `{ status, body }`.
+   */
+  async function proposeItems(input: unknown, expected?: number): Promise<{ status: number; body: any }> {
+    const role = principal.user.id === MEMBER.id ? 'member' : 'owner';
+    let result: { status: number; body: any };
+    try {
+      const value = await proposer.propose(
+        workspaceId,
+        { id: principal.user.id, role },
+        parseContract(ProposeIntentItemsSchema, input),
+      );
+      result = { status: 201, body: JSON.parse(JSON.stringify(value)) };
+    } catch (error) {
+      if (!(error instanceof IntentPublicException)) throw error;
+      const { status, error: rendered } = renderIntentPublicError(error);
+      result = { status, body: { statusCode: status, ...rendered } };
+    }
+    if (expected !== undefined) expect(result.status, JSON.stringify(result.body)).toBe(expected);
+    return result;
   }
 
   async function auditFor(entityId: string) {
@@ -302,20 +335,18 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
     it('refuses deleting a feature that still holds an item', async () => {
       await createDomain('inventory');
       await createFeature('inventory-stock', 'inventory');
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              kind: 'business_rule',
-              title: 'Stock never goes negative',
-              statement: 'A warehouse stock level is never negative.',
-              featureId: 'inventory-stock',
-              sources: [{ kind: 'spec', ref: 'spec/inventory', localId: 'BR-1' }],
-            },
-          ]),
-        )
-        .expect(201);
+      await proposeItems(
+        proposeBody([
+          {
+            kind: 'business_rule',
+            title: 'Stock never goes negative',
+            statement: 'A warehouse stock level is never negative.',
+            featureId: 'inventory-stock',
+            sources: [{ kind: 'spec', ref: 'spec/inventory', localId: 'BR-1' }],
+          },
+        ]),
+        201,
+      );
 
       const blocked = await api()
         .post(`${base()}/features/inventory-stock/delete`)
@@ -415,22 +446,9 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
       ).toBe(null);
     });
 
-    it('lets a service token read and propose only with the matching permission', async () => {
+    it('lets a service token read only with the matching permission', async () => {
       principal = { user: OWNER, serviceToken: { permissions: [TokenPermission.IntentRead] } };
       await api().get(`${base()}/tree`).expect(200);
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              kind: 'limitation',
-              title: 'Token propose without permission',
-              statement: 'This request must never reach the service.',
-              sources: [{ kind: 'spec', ref: 'spec/tokens', localId: 'LIM-1' }],
-            },
-          ]),
-        )
-        .expect(403);
 
       principal = { user: OWNER, serviceToken: { permissions: [TokenPermission.IntentPropose] } };
       await api().get(`${base()}/tree`).expect(403);
@@ -448,19 +466,17 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
     const source = { kind: 'spec', ref: 'spec/refunds', localId: 'BR-1' };
 
     it('creates a candidate with a derived kind-prefixed slug', async () => {
-      const response = await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              kind: 'business_rule',
-              title: 'Refund window is 30 days',
-              statement: 'A refund is possible within 30 days of delivery.',
-              sources: [source],
-            },
-          ]),
-        )
-        .expect(201);
+      const response = await proposeItems(
+        proposeBody([
+          {
+            kind: 'business_rule',
+            title: 'Refund window is 30 days',
+            statement: 'A refund is possible within 30 days of delivery.',
+            sources: [source],
+          },
+        ]),
+        201,
+      );
 
       expect(response.body.items[0]).toMatchObject({
         itemId: 'br-refund-window-is-30-days',
@@ -477,19 +493,17 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
 
     it('persists a source title and url, which the contract accepts and the write used to drop', async () => {
       const titled = { kind: 'spec', ref: 'spec/provenance', localId: 'BR-9' };
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              kind: 'business_rule',
-              title: 'Sources keep their link',
-              statement: 'A cited source keeps the label and link the capture read it under.',
-              sources: [{ ...titled, title: 'Provenance spec, §4', url: 'https://specs.example.com/provenance#4' }],
-            },
-          ]),
-        )
-        .expect(201);
+      await proposeItems(
+        proposeBody([
+          {
+            kind: 'business_rule',
+            title: 'Sources keep their link',
+            statement: 'A cited source keeps the label and link the capture read it under.',
+            sources: [{ ...titled, title: 'Provenance spec, §4', url: 'https://specs.example.com/provenance#4' }],
+          },
+        ]),
+        201,
+      );
 
       const stored = await prisma.intentItemSource.findFirstOrThrow({
         where: { workspaceId, ref: titled.ref, localId: titled.localId },
@@ -513,19 +527,17 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
 
     it('re-describes a source on an accepted item without touching the rule', async () => {
       const cited = { kind: 'spec', ref: 'confluence:1234567890', localId: 'BR-1' };
-      const proposed = await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              kind: 'business_rule',
-              title: 'Overtime is paid weekly',
-              statement: 'International overtime is paid in the weekly payroll run.',
-              sources: [cited],
-            },
-          ]),
-        )
-        .expect(201);
+      const proposed = await proposeItems(
+        proposeBody([
+          {
+            kind: 'business_rule',
+            title: 'Overtime is paid weekly',
+            statement: 'International overtime is paid in the weekly payroll run.',
+            sources: [cited],
+          },
+        ]),
+        201,
+      );
       const itemId = proposed.body.items[0].itemId as string;
       await prisma.intentItem.update({
         where: { workspaceId_id: { workspaceId, id: itemId } },
@@ -567,19 +579,17 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
     });
 
     it('updates the matching candidate for the same source identity instead of duplicating it', async () => {
-      const response = await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              kind: 'business_rule',
-              title: 'Refund window is 30 days',
-              statement: 'A refund is possible within 30 days of delivery, weekends included.',
-              sources: [{ ...source, revision: 'rev-2' }],
-            },
-          ]),
-        )
-        .expect(201);
+      const response = await proposeItems(
+        proposeBody([
+          {
+            kind: 'business_rule',
+            title: 'Refund window is 30 days',
+            statement: 'A refund is possible within 30 days of delivery, weekends included.',
+            sources: [{ ...source, revision: 'rev-2' }],
+          },
+        ]),
+        201,
+      );
 
       expect(response.body.items[0]).toMatchObject({
         itemId: 'br-refund-window-is-30-days',
@@ -592,90 +602,80 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
     });
 
     it('updates the named candidate when an explicit id is supplied', async () => {
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              id: 'lim-no-partial-refunds',
-              kind: 'limitation',
-              title: 'No partial refunds',
-              statement: 'A refund is always for the full order value.',
-              sources: [{ kind: 'spec', ref: 'spec/refunds', localId: 'LIM-1' }],
-            },
-          ]),
-        )
-        .expect(201);
+      await proposeItems(
+        proposeBody([
+          {
+            id: 'lim-no-partial-refunds',
+            kind: 'limitation',
+            title: 'No partial refunds',
+            statement: 'A refund is always for the full order value.',
+            sources: [{ kind: 'spec', ref: 'spec/refunds', localId: 'LIM-1' }],
+          },
+        ]),
+        201,
+      );
 
-      const response = await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              id: 'lim-no-partial-refunds',
-              kind: 'limitation',
-              title: 'No partial refunds',
-              statement: 'A refund is always for the full order value, shipping included.',
-              sources: [{ kind: 'spec', ref: 'spec/refunds', localId: 'LIM-1' }],
-            },
-          ]),
-        )
-        .expect(201);
+      const response = await proposeItems(
+        proposeBody([
+          {
+            id: 'lim-no-partial-refunds',
+            kind: 'limitation',
+            title: 'No partial refunds',
+            statement: 'A refund is always for the full order value, shipping included.',
+            sources: [{ kind: 'spec', ref: 'spec/refunds', localId: 'LIM-1' }],
+          },
+        ]),
+        201,
+      );
       expect(response.body.items[0]).toMatchObject({ itemId: 'lim-no-partial-refunds', outcome: 'updated_candidate' });
     });
 
     it('keeps source identities the proposal did not repeat, and reports how many', async () => {
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              id: 'dec-single-currency',
-              kind: 'decision',
-              title: 'Single currency',
-              statement: 'Orders are priced in one currency per workspace.',
-              sources: [
-                { kind: 'adr', ref: 'adr/currency', localId: 'D-1' },
-                { kind: 'spec', ref: 'spec/pricing', localId: 'D-1' },
-              ],
-            },
-          ]),
-        )
-        .expect(201);
+      await proposeItems(
+        proposeBody([
+          {
+            id: 'dec-single-currency',
+            kind: 'decision',
+            title: 'Single currency',
+            statement: 'Orders are priced in one currency per workspace.',
+            sources: [
+              { kind: 'adr', ref: 'adr/currency', localId: 'D-1' },
+              { kind: 'spec', ref: 'spec/pricing', localId: 'D-1' },
+            ],
+          },
+        ]),
+        201,
+      );
 
-      const response = await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              id: 'dec-single-currency',
-              kind: 'decision',
-              title: 'Single currency',
-              statement: 'Orders are priced in one currency per workspace, chosen at creation.',
-              sources: [{ kind: 'adr', ref: 'adr/currency', localId: 'D-1' }],
-            },
-          ]),
-        )
-        .expect(201);
+      const response = await proposeItems(
+        proposeBody([
+          {
+            id: 'dec-single-currency',
+            kind: 'decision',
+            title: 'Single currency',
+            statement: 'Orders are priced in one currency per workspace, chosen at creation.',
+            sources: [{ kind: 'adr', ref: 'adr/currency', localId: 'D-1' }],
+          },
+        ]),
+        201,
+      );
       expect(response.body.items[0].retainedSourceCount).toBe(1);
       expect(await prisma.intentItemSource.count({ where: { workspaceId, itemId: 'dec-single-currency' } })).toBe(2);
     });
 
     it('never mutates an accepted item: the proposal becomes a separate candidate', async () => {
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              id: 'uc-place-an-order',
-              kind: 'use_case',
-              title: 'Place an order',
-              statement: 'A customer places an order for available stock.',
-              sources: [{ kind: 'spec', ref: 'spec/ordering', localId: 'UC-1' }],
-            },
-          ]),
-        )
-        .expect(201);
+      await proposeItems(
+        proposeBody([
+          {
+            id: 'uc-place-an-order',
+            kind: 'use_case',
+            title: 'Place an order',
+            statement: 'A customer places an order for available stock.',
+            sources: [{ kind: 'spec', ref: 'spec/ordering', localId: 'UC-1' }],
+          },
+        ]),
+        201,
+      );
       // Only review may set this authority; the test writes it directly because
       // the review operation lands in issue 04.
       await prisma.intentItem.update({
@@ -686,19 +686,17 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
         where: { workspaceId_id: { workspaceId, id: 'uc-place-an-order' } },
       });
 
-      const response = await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              kind: 'use_case',
-              title: 'Place an order with a coupon',
-              statement: 'A customer places an order and applies one coupon.',
-              sources: [{ kind: 'spec', ref: 'spec/ordering', localId: 'UC-1' }],
-            },
-          ]),
-        )
-        .expect(201);
+      const response = await proposeItems(
+        proposeBody([
+          {
+            kind: 'use_case',
+            title: 'Place an order with a coupon',
+            statement: 'A customer places an order and applies one coupon.',
+            sources: [{ kind: 'spec', ref: 'spec/ordering', localId: 'UC-1' }],
+          },
+        ]),
+        201,
+      );
 
       expect(response.body.items[0]).toMatchObject({
         outcome: 'created_candidate',
@@ -711,41 +709,37 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
     });
 
     it('refuses an explicit id that names an accepted item', async () => {
-      const response = await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              id: 'uc-place-an-order',
-              kind: 'use_case',
-              title: 'Place an order',
-              statement: 'A rewritten statement that must never be applied.',
-              sources: [{ kind: 'spec', ref: 'spec/ordering', localId: 'UC-9' }],
-            },
-          ]),
-        )
-        .expect(400);
+      const response = await proposeItems(
+        proposeBody([
+          {
+            id: 'uc-place-an-order',
+            kind: 'use_case',
+            title: 'Place an order',
+            statement: 'A rewritten statement that must never be applied.',
+            sources: [{ kind: 'spec', ref: 'spec/ordering', localId: 'UC-9' }],
+          },
+        ]),
+        400,
+      );
       expect(response.body.code).toBe(IntentErrorCode.ItemNotCandidate);
     });
 
     it("attaches to a feature and carries the feature's own domain", async () => {
       await createDomain('accounts');
       await createFeature('accounts-login', 'accounts');
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              id: 'br-login-throttle',
-              kind: 'business_rule',
-              title: 'Login throttle',
-              statement: 'Five failed logins in a minute lock the account for ten minutes.',
-              featureId: 'accounts-login',
-              sources: [{ kind: 'spec', ref: 'spec/accounts', localId: 'BR-7' }],
-            },
-          ]),
-        )
-        .expect(201);
+      await proposeItems(
+        proposeBody([
+          {
+            id: 'br-login-throttle',
+            kind: 'business_rule',
+            title: 'Login throttle',
+            statement: 'Five failed logins in a minute lock the account for ten minutes.',
+            featureId: 'accounts-login',
+            sources: [{ kind: 'spec', ref: 'spec/accounts', localId: 'BR-7' }],
+          },
+        ]),
+        201,
+      );
 
       const stored = await prisma.intentItem.findUniqueOrThrow({
         where: { workspaceId_id: { workspaceId, id: 'br-login-throttle' } },
@@ -754,20 +748,18 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
     });
 
     it('refuses a proposal attached to a feature that does not exist', async () => {
-      const response = await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              kind: 'flow',
-              title: 'Ghost flow',
-              statement: 'A flow attached to a feature nobody created.',
-              featureId: 'no-such-feature',
-              sources: [{ kind: 'spec', ref: 'spec/ghost', localId: 'F-1' }],
-            },
-          ]),
-        )
-        .expect(404);
+      const response = await proposeItems(
+        proposeBody([
+          {
+            kind: 'flow',
+            title: 'Ghost flow',
+            statement: 'A flow attached to a feature nobody created.',
+            featureId: 'no-such-feature',
+            sources: [{ kind: 'spec', ref: 'spec/ghost', localId: 'F-1' }],
+          },
+        ]),
+        404,
+      );
       expect(response.body.code).toBe(IntentErrorCode.FeatureNotFound);
     });
 
@@ -776,66 +768,60 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
       // baseline that only the graph can supply. The refusal is the point: a
       // fabricated baseline would make a later `matched` anchorStatus meaningless.
       // The resolvable path is exercised in `intent-anchor.postgres.integration.test.ts`.
-      const response = await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              kind: 'capability',
-              title: 'Anchored capability',
-              statement: 'A capability proposed with an anchor suggestion.',
-              sources: [{ kind: 'spec', ref: 'spec/anchors', localId: 'CAP-1' }],
-              anchorSuggestions: [{ repoKey: REPO_KEY, nodeId: NODE_ID }],
-            },
-          ]),
-        )
-        .expect(503);
+      const response = await proposeItems(
+        proposeBody([
+          {
+            kind: 'capability',
+            title: 'Anchored capability',
+            statement: 'A capability proposed with an anchor suggestion.',
+            sources: [{ kind: 'spec', ref: 'spec/anchors', localId: 'CAP-1' }],
+            anchorSuggestions: [{ repoKey: REPO_KEY, nodeId: NODE_ID }],
+          },
+        ]),
+        503,
+      );
       expect(response.body.code).toBe(IntentErrorCode.AnchorGraphUnavailable);
       expect(response.body.path).toEqual(['items', '0', 'anchorSuggestions', '0']);
       expect(await prisma.intentItem.count({ where: { workspaceId, id: 'cap-anchored-capability' } })).toBe(0);
     });
 
     it('refuses an anchor suggestion naming an unregistered repo, before touching the graph', async () => {
-      const response = await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              kind: 'capability',
-              title: 'Suggestion on a ghost repo',
-              statement: 'A capability whose anchor names a repo this workspace does not carry.',
-              sources: [{ kind: 'spec', ref: 'spec/anchors', localId: 'CAP-2' }],
-              anchorSuggestions: [{ repoKey: 'someone/else', nodeId: NODE_ID }],
-            },
-          ]),
-        )
-        .expect(400);
+      const response = await proposeItems(
+        proposeBody([
+          {
+            kind: 'capability',
+            title: 'Suggestion on a ghost repo',
+            statement: 'A capability whose anchor names a repo this workspace does not carry.',
+            sources: [{ kind: 'spec', ref: 'spec/anchors', localId: 'CAP-2' }],
+            anchorSuggestions: [{ repoKey: 'someone/else', nodeId: NODE_ID }],
+          },
+        ]),
+        400,
+      );
       expect(response.body.code).toBe(IntentErrorCode.UnknownRepoKey);
       expect(response.body.path).toEqual(['items', '0', 'anchorSuggestions', '0', 'repoKey']);
     });
 
     it('rejects the whole batch, writing nothing, when one proposal is refused', async () => {
       const before = await prisma.intentItem.count({ where: { workspaceId } });
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              kind: 'business_rule',
-              title: 'A rule that would be created',
-              statement: 'This one is fine on its own.',
-              sources: [{ kind: 'spec', ref: 'spec/batch', localId: 'BR-1' }],
-            },
-            {
-              id: 'uc-wrong-prefix-for-kind',
-              kind: 'business_rule',
-              title: 'A rule with a use-case id',
-              statement: 'This one is refused, and takes the batch with it.',
-              sources: [{ kind: 'spec', ref: 'spec/batch', localId: 'BR-2' }],
-            },
-          ]),
-        )
-        .expect(400);
+      await proposeItems(
+        proposeBody([
+          {
+            kind: 'business_rule',
+            title: 'A rule that would be created',
+            statement: 'This one is fine on its own.',
+            sources: [{ kind: 'spec', ref: 'spec/batch', localId: 'BR-1' }],
+          },
+          {
+            id: 'uc-wrong-prefix-for-kind',
+            kind: 'business_rule',
+            title: 'A rule with a use-case id',
+            statement: 'This one is refused, and takes the batch with it.',
+            sources: [{ kind: 'spec', ref: 'spec/batch', localId: 'BR-2' }],
+          },
+        ]),
+        400,
+      );
       expect(await prisma.intentItem.count({ where: { workspaceId } })).toBe(before);
     });
   });
@@ -875,9 +861,9 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
       };
     }
 
-    /** One refusal through REST and through MCP: same code, message, and path. */
+    /** One refusal through the propose service and through MCP: same code, message, and path. */
     async function refusedOnBoth(items: unknown[], status: number) {
-      const rest = await api().post(`${base()}/items/propose`).send(proposeBody(items)).expect(status);
+      const rest = await proposeItems(proposeBody(items), status);
       const mcp = mcpError(await tools.intentPropose(proposeBody(items), {} as never, mcpRequest()));
       expect(mcp).toEqual({ code: rest.body.code, message: rest.body.message, path: rest.body.path });
       return rest.body as { code: string; path: string[]; details?: { message: string }[] };
@@ -953,15 +939,13 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
     });
 
     it('stores appliesWhen on a proposal, and leaves the column NULL on one without it', async () => {
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            rule('br-ctx-conditioned', { appliesWhen: [{ dimension: 'product', in: ['shifts'] }] }),
-            rule('br-ctx-plain'),
-          ]),
-        )
-        .expect(201);
+      await proposeItems(
+        proposeBody([
+          rule('br-ctx-conditioned', { appliesWhen: [{ dimension: 'product', in: ['shifts'] }] }),
+          rule('br-ctx-plain'),
+        ]),
+        201,
+      );
       const [conditioned, plain] = await Promise.all(
         ['br-ctx-conditioned', 'br-ctx-plain'].map((id) =>
           prisma.intentItem.findUniqueOrThrow({ where: { workspaceId_id: { workspaceId, id } } }),
@@ -1032,10 +1016,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
       });
 
       // A rejected or superseded target could never filter: refused, where a candidate reference is kept.
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(proposeBody([rule('br-ctx-rejected'), rule('br-ctx-superseded')]))
-        .expect(201);
+      await proposeItems(proposeBody([rule('br-ctx-rejected'), rule('br-ctx-superseded')]), 201);
       await prisma.intentItem.update({
         where: { workspaceId_id: { workspaceId, id: 'br-ctx-rejected' } },
         data: { authority: 'rejected' },
@@ -1063,10 +1044,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
 
       // A cycle through a STORED reference: br-ctx-stored → br-ctx-conditioned is committed, and the
       // proposal closes it from the other side.
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(proposeBody([rule('br-ctx-stored', { appliesWhen: [{ item: 'br-ctx-conditioned' }] })]))
-        .expect(201);
+      await proposeItems(proposeBody([rule('br-ctx-stored', { appliesWhen: [{ item: 'br-ctx-conditioned' }] })]), 201);
       const storedCycle = await refusedOnBoth(
         [rule('br-ctx-conditioned', { appliesWhen: [{ item: 'br-ctx-stored' }] })],
         400,
@@ -1077,22 +1055,16 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
       });
 
       // Same-batch references to an id that does not exist yet are fine.
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(proposeBody([rule('br-ctx-p', { appliesWhen: [{ item: 'br-ctx-q' }] }), rule('br-ctx-q')]))
-        .expect(201);
+      await proposeItems(
+        proposeBody([rule('br-ctx-p', { appliesWhen: [{ item: 'br-ctx-q' }] }), rule('br-ctx-q')]),
+        201,
+      );
     });
 
     it('checks cycles on an id-less proposal that source identity matches to an existing candidate', async () => {
       const xSource = { ...source, localId: 'CTX-SOURCE-X' };
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(proposeBody([rule('br-ctx-src-x', { sources: [xSource] })]))
-        .expect(201);
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(proposeBody([rule('br-ctx-src-y', { appliesWhen: [{ item: 'br-ctx-src-x' }] })]))
-        .expect(201);
+      await proposeItems(proposeBody([rule('br-ctx-src-x', { sources: [xSource] })]), 201);
+      await proposeItems(proposeBody([rule('br-ctx-src-y', { appliesWhen: [{ item: 'br-ctx-src-x' }] })]), 201);
       const { id: _id, ...idless } = rule('br-ctx-src-x', {
         sources: [xSource],
         appliesWhen: [{ item: 'br-ctx-src-y' }],
@@ -1107,18 +1079,12 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
     it('clears stored conditions with appliesWhen: [] back to NULL and the unconditioned release hash', async () => {
       const conditioned = rule('br-ctx-cleared', { appliesWhen: [{ dimension: 'product', in: ['shifts'] }] });
       const twin = rule('br-ctx-cleared-twin', { title: conditioned.title });
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(proposeBody([conditioned, twin]))
-        .expect(201);
+      await proposeItems(proposeBody([conditioned, twin]), 201);
       const read = (id: string) =>
         prisma.intentItem.findUniqueOrThrow({ where: { workspaceId_id: { workspaceId, id } } });
       const before = await read('br-ctx-cleared');
 
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(proposeBody([{ ...conditioned, appliesWhen: [] }]))
-        .expect(201);
+      await proposeItems(proposeBody([{ ...conditioned, appliesWhen: [] }]), 201);
       const [row] = await prisma.$queryRaw<{ isNull: boolean }[]>`
         SELECT applies_when IS NULL AS "isNull" FROM intent_items
         WHERE workspace_id = ${workspaceId}::uuid AND id = 'br-ctx-cleared'`;
@@ -1129,23 +1095,21 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
     });
 
     it('refuses archiving, deleting, or dropping a value of a referenced dimension, naming the items (AC-6)', async () => {
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            rule(
-              'br-ctx-overtime',
-              { appliesWhen: [{ dimension: 'country', notIn: ['ua'] }] },
-              {
-                variants: [
-                  { when: { country: 'de' }, outcome: '40h' },
-                  { outcome: 'contract × 1.1', inputs: ['contractHours'] },
-                ],
-              },
-            ),
-          ]),
-        )
-        .expect(201);
+      await proposeItems(
+        proposeBody([
+          rule(
+            'br-ctx-overtime',
+            { appliesWhen: [{ dimension: 'country', notIn: ['ua'] }] },
+            {
+              variants: [
+                { when: { country: 'de' }, outcome: '40h' },
+                { outcome: 'contract × 1.1', inputs: ['contractHours'] },
+              ],
+            },
+          ),
+        ]),
+        201,
+      );
 
       const deleted = await api()
         .post(`${base()}/dimensions/country/delete`)
@@ -1225,14 +1189,12 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
           ],
         })
         .expect(201);
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            rule('br-ctx-night-pay', {}, { variants: [{ when: { 'shift-kind': 'night' }, outcome: '1.25×' }] }),
-          ]),
-        )
-        .expect(201);
+      await proposeItems(
+        proposeBody([
+          rule('br-ctx-night-pay', {}, { variants: [{ when: { 'shift-kind': 'night' }, outcome: '1.25×' }] }),
+        ]),
+        201,
+      );
       await prisma.intentItem.update({
         where: { workspaceId_id: { workspaceId, id: 'br-ctx-night-pay' } },
         data: { authority: IntentItemAuthority.accepted },
@@ -1358,7 +1320,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
       const treeCall = (action: IntentTreeAction, body: Record<string, unknown>) =>
         tools.intentTree({ action, request: { idempotencyKey: nextKey('tree'), ...body } }, {} as never, mcpRequest());
       const propose = async (items: unknown[]) =>
-        (await api().post(`${base()}/items/propose`).send(proposeBody(items)).expect(201)).body as {
+        (await proposeItems(proposeBody(items), 201)).body as {
           items: unknown[];
           hints?: unknown[];
         };
@@ -1653,7 +1615,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
         expect(stored).toEqual({ domainId: 'packet-home', featureId: 'packet-feature' });
 
         const mismatched = [rule('br-packet-mismatch', { domainId: 'packet-other', featureId: 'packet-feature' })];
-        const rest = await api().post(`${base()}/items/propose`).send(proposeBody(mismatched)).expect(400);
+        const rest = await proposeItems(proposeBody(mismatched), 400);
         expect(rest.body).toMatchObject({
           code: IntentErrorCode.FeatureDomainMismatch,
           path: ['items', '0', 'domainId'],
@@ -1754,20 +1716,18 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
   describe('optimistic concurrency', () => {
     it('applies a versioned update once and conflicts on the stale version', async () => {
       principal = { user: OWNER };
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              id: 'br-versioned-rule',
-              kind: 'business_rule',
-              title: 'Versioned rule',
-              statement: 'A rule used to exercise the version guard.',
-              sources: [{ kind: 'spec', ref: 'spec/versions', localId: 'BR-1' }],
-            },
-          ]),
-        )
-        .expect(201);
+      await proposeItems(
+        proposeBody([
+          {
+            id: 'br-versioned-rule',
+            kind: 'business_rule',
+            title: 'Versioned rule',
+            statement: 'A rule used to exercise the version guard.',
+            sources: [{ kind: 'spec', ref: 'spec/versions', localId: 'BR-1' }],
+          },
+        ]),
+        201,
+      );
 
       const applied = await prisma.$transaction((tx) =>
         updateItemWithVersion(tx, {
@@ -1806,21 +1766,19 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
         requiredOutcome: 'The refund is issued within the window',
         observer: 'Customer',
       };
-      await api()
-        .post(`${base()}/items/propose`)
-        .send(
-          proposeBody([
-            {
-              id: itemId,
-              kind: 'business_rule',
-              title: 'Race rule',
-              statement: 'The reviewed statement.',
-              payload: REVIEWED_PAYLOAD,
-              sources: [source],
-            },
-          ]),
-        )
-        .expect(201);
+      await proposeItems(
+        proposeBody([
+          {
+            id: itemId,
+            kind: 'business_rule',
+            title: 'Race rule',
+            statement: 'The reviewed statement.',
+            payload: REVIEWED_PAYLOAD,
+            sources: [source],
+          },
+        ]),
+        201,
+      );
 
       // Controlled pause: the propose transaction stops right after its plan
       // read saw a candidate, while the review runs on another pooled

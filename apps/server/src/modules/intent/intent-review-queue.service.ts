@@ -39,7 +39,7 @@ import {
   readReferencedClauses,
 } from './intent-authoring-hints.js';
 import { IntentCursorScope, decodeIntentCursor, paginate } from './intent-cursor.js';
-import type { ListIntentReviewQueueQuery } from './intent-module-operations.js';
+import type { ListIntentReviewQueueQuery } from './contract/index.js';
 
 /**
  * Domain buckets reported inline. A workspace's domain registry is small by

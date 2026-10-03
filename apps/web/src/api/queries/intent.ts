@@ -59,9 +59,6 @@ import type {
 export const INTENT_BROWSE_PAGE_SIZE = 100;
 export const INTENT_HISTORY_PAGE_SIZE = 25;
 
-/** How many decisions the product overview's feed shows. First page only. */
-export const INTENT_RECENT_DECISIONS_LIMIT = 10;
-
 /**
  * How many ITEMS one context read may answer with (`INTENT_CONTEXT_LIMITS.max`).
  * It is a hard refusal, not a clamp: a bigger `limit` fails the whole read, so
@@ -325,21 +322,6 @@ export const intentItemContextQueryOptions = (workspaceId: string, itemId: strin
       );
     },
     enabled: itemId !== null,
-    staleTime: 30_000,
-  });
-
-/**
- * The workspace's most recent decisions — the product overview's feed, read
- * from the decision ledger rather than inferred from item state. First page
- * only: this is a glance at what the team just decided.
- */
-export const intentTransitionsQueryOptions = (workspaceId: string) =>
-  queryOptions({
-    queryKey: ['intent', 'transitions', workspaceId] as const,
-    queryFn: () =>
-      get<IntentTransitionsResponse>(
-        intentPath(workspaceId, 'transitions', intentQuery({ limit: INTENT_RECENT_DECISIONS_LIMIT })),
-      ),
     staleTime: 30_000,
   });
 

@@ -85,16 +85,6 @@ export type AuthoringHint =
   | { kind: AuthoringHintKind.DeadVariant; variant: number }
   | { kind: AuthoringHintKind.UnacceptedConditionItem; item: string };
 
-/** A `business_rule` payload variant: an outcome for one slice of context. */
-export interface RuleVariant {
-  /** Absent means the default variant. A list names alternatives, not a conjunction. */
-  when?: DimensionValueSelection;
-  /** Text; may be a formula over `inputs`. */
-  outcome: string;
-  /** Runtime values a formula reads. Not dimensions, never enumerated. */
-  inputs?: string[];
-}
-
 /** Per-anchor drift verdict, computed at read time (spec §6.4). */
 export enum IntentAnchorStatus {
   Matched = 'matched',
@@ -129,13 +119,6 @@ export enum IntentReviewOutcome {
   Refused = 'refused',
 }
 
-/**
- * The one refusal code the review UI branches on: the reviewer decided against a
- * version that is no longer current, so the decision must be re-made against
- * what the item says now. Every other code is displayed verbatim.
- */
-export const INTENT_VERSION_CONFLICT_CODE = 'version_conflict';
-
 /* ---------------------------------------------------------------- errors --- */
 
 /** One field-level detail inside a structured intent error (spec §12). */
@@ -143,14 +126,6 @@ export interface IntentErrorDetail {
   code: string;
   message: string;
   path: string[];
-}
-
-/** `IntentExceptionFilter`'s public error body — surfaced verbatim, never summarized. */
-export interface IntentErrorEnvelope extends IntentErrorDetail {
-  statusCode: number;
-  timestamp: string;
-  requestPath?: string;
-  details?: IntentErrorDetail[];
 }
 
 /* ------------------------------------------------------------------ tree --- */

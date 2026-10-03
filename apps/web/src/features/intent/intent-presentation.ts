@@ -16,11 +16,9 @@ import {
   IntentAnchorStatus,
   IntentAuthority,
   IntentContextMatchState,
-  AuthoringHintKind,
   IntentItemKind,
   IntentReviewOutcome,
   IntentSnapshotFreshness,
-  type AuthoringHint,
   type ContextCondition,
   type DimensionValueSelection,
   type IntentDimension,
@@ -141,12 +139,6 @@ const OUTCOME_LABELS: Record<IntentReviewOutcome, string> = {
 
 export function outcomeLabel(outcome: IntentReviewOutcome): string {
   return OUTCOME_LABELS[outcome] ?? outcome;
-}
-
-export function outcomeVariant(outcome: IntentReviewOutcome): IntentBadgeVariant {
-  if (outcome === IntentReviewOutcome.Refused) return 'err';
-  if (outcome === IntentReviewOutcome.Accepted || outcome === IntentReviewOutcome.Superseded) return 'ok';
-  return 'neutral';
 }
 
 /**
@@ -460,31 +452,6 @@ export function inheritedConditionSourceLabel(
 ): string {
   const id = group.source === 'domain' ? domainId : featureId;
   return id ? `from ${group.source} ${id}` : `from ${group.source}`;
-}
-
-const scalarOrListText = (value: string | string[]): string => (Array.isArray(value) ? value.join(', ') : value);
-
-/**
- * A non-blocking authoring hint as a readable sentence (BR-3, BR-5, worked
- * examples). Variant numbers are shown 1-based; the wire's `variants`/`variant`
- * indices are 0-based.
- */
-export function authoringHintText(hint: AuthoringHint): string {
-  switch (hint.kind) {
-    case AuthoringHintKind.MissingCondition:
-      return `Mentions “${hint.matched}” (${hint.dimension} = ${hint.value}) but has no ${hint.dimension} condition`;
-    case AuthoringHintKind.AmbiguousVariants: {
-      const [first, second] = hint.variants;
-      const context = Object.entries(hint.context)
-        .map(([dimension, value]) => `${dimension} = ${scalarOrListText(value)}`)
-        .join('; ');
-      return `Variants ${first + 1} and ${second + 1} both match ${context} — add a more specific variant`;
-    }
-    case AuthoringHintKind.DeadVariant:
-      return `Variant ${hint.variant + 1} can never apply under the item's conditions`;
-    case AuthoringHintKind.UnacceptedConditionItem:
-      return `Applies where ${hint.item} applies, but ${hint.item} is not accepted yet — until it is, this condition filters nothing`;
-  }
 }
 
 export function effectivityVariant(state: import('./release-types.js').IntentEffectivity) {

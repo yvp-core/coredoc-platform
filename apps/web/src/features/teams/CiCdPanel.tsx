@@ -472,8 +472,7 @@ function ReleaseTriggerCard({
   // Intent off = nothing here to configure, and neither read is issued.
   const triggerQuery = useQuery({ ...intentReleaseTriggerOptions(wsId), enabled: intentEnabled });
   const repos = useQuery({ ...reposQueryOptions(wsId), enabled: intentEnabled });
-  // A failed read is its own state: neither the loaded value nor the `Manual`
-  // an absent field (old server) legitimately means.
+  // A failed read is its own state, never dressed up as the `Manual` default.
   const triggerUnavailable = triggerQuery.isError;
   const trigger = triggerQuery.data ?? IntentReleaseTrigger.Manual;
 

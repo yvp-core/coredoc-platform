@@ -14,8 +14,6 @@ import { enclosingNodeIdCandidates } from '../intent-context.select.js';
 import type {
   DerivableFeature,
   DerivableIntentItem,
-  FeatureArea,
-  FeatureAreaRepoSlice,
   FeatureSeedRef,
   ItemAnchorRef,
   ItemApplicability,
@@ -85,94 +83,6 @@ function addAttachmentReasons(
   // feature, a domain reaches its own features, and nothing reaches sideways.
   if (domainId === null || domainId === feature.domainId) {
     accumulator.add(item.id, IntentMatchReason.Inherited);
-  }
-}
-
-interface AnchorLayers {
-  coreNodeIds: ReadonlySet<string>;
-  calledNodeIds: ReadonlySet<string>;
-  calleesTruncated: boolean;
-}
-
-function layersByRepoKey(slices: readonly FeatureAreaRepoSlice[]): Map<string, AnchorLayers> {
-  return new Map(
-    slices.map((slice) => [
-      slice.repoKey,
-      {
-        coreNodeIds: slice.coreNodeIds,
-        calledNodeIds: slice.calledNodeIds,
-        calleesTruncated: slice.calleesTruncated,
-      },
-    ]),
-  );
-}
-
-interface PendingRecheck {
-  itemId: string;
-  anchor: ItemAnchorRef;
-}
-
-/**
- * Place every anchor against the layers of its own repository.
- *
- * Anchors whose repo has no layer are simply not matched here: a feature with
- * no seed in that repository has no area there, and §6.1 refuses to let a
- * cross-repo edge invent one.
- */
-function placeAnchors(
-  accumulator: ApplicabilityAccumulator,
-  items: readonly DerivableIntentItem[],
-  layers: ReadonlyMap<string, AnchorLayers>,
-): Map<string, PendingRecheck[]> {
-  const pendingByRepoKey = new Map<string, PendingRecheck[]>();
-  for (const item of items) {
-    for (const anchor of item.anchors) {
-      const layer = layers.get(anchor.repoKey);
-      if (!layer) continue;
-      if (layer.coreNodeIds.has(anchor.nodeId)) {
-        accumulator.add(item.id, IntentMatchReason.AnchorInArea, anchor);
-        continue;
-      }
-      if (layer.calledNodeIds.has(anchor.nodeId)) {
-        accumulator.add(item.id, IntentMatchReason.AnchorCalledByArea, anchor);
-        continue;
-      }
-      // The callee layer was cut short, so "not in the set" is not yet an
-      // answer for this anchor — ask the graph about this exact node instead of
-      // reporting a false negative.
-      if (!layer.calleesTruncated) continue;
-      const pending = pendingByRepoKey.get(anchor.repoKey) ?? [];
-      pending.push({ itemId: item.id, anchor });
-      pendingByRepoKey.set(anchor.repoKey, pending);
-    }
-  }
-  return pendingByRepoKey;
-}
-
-async function resolvePendingRechecks(
-  accumulator: ApplicabilityAccumulator,
-  pendingByRepoKey: ReadonlyMap<string, PendingRecheck[]>,
-  sourcesByRepoKey: ReadonlyMap<string, { graphRepoHash: string; sourceNodeIds: readonly string[] }>,
-  traversal: BatchTraversalCapability,
-  budget: DerivationBudget,
-): Promise<void> {
-  for (const [repoKey, pending] of pendingByRepoKey) {
-    const source = sourcesByRepoKey.get(repoKey);
-    if (!source || source.sourceNodeIds.length === 0) continue;
-    const candidateIds = [...new Set(pending.map((entry) => entry.anchor.nodeId))];
-    if (!budget.claimQuery()) return;
-    const reached = await traversal.selectReachedNodeIds(
-      source.sourceNodeIds,
-      candidateIds,
-      { edgeTypes: AREA_CALL_EDGE_TYPES, limit: budget.stepLimit() },
-      [source.graphRepoHash],
-    );
-    const matched = new Set(reached.nodeIds);
-    for (const entry of pending) {
-      if (matched.has(entry.anchor.nodeId)) {
-        accumulator.add(entry.itemId, IntentMatchReason.AnchorCalledByArea, entry.anchor);
-      }
-    }
   }
 }
 
@@ -271,41 +181,6 @@ async function anchorIdsCallingNodes(
   const ids = new Set<string>();
   for (const edge of edges) for (const candidate of enclosingNodeIdCandidates(edge.callerId)) ids.add(candidate);
   return ids;
-}
-
-export interface ResolveFeatureApplicabilityInput {
-  feature: DerivableFeature;
-  items: readonly DerivableIntentItem[];
-  /** Null when the graph is unavailable — attachment and inheritance still resolve. */
-  area: FeatureArea | null;
-  traversal: BatchTraversalCapability | null;
-  budget: DerivationBudget;
-}
-
-export async function resolveFeatureApplicability(
-  input: ResolveFeatureApplicabilityInput,
-): Promise<ItemApplicability[]> {
-  const accumulator = new ApplicabilityAccumulator();
-  for (const item of input.items) addAttachmentReasons(accumulator, item, input.feature);
-
-  if (input.area && input.traversal) {
-    const layers = layersByRepoKey(input.area.slices);
-    const pending = placeAnchors(accumulator, input.items, layers);
-    await resolvePendingRechecks(
-      accumulator,
-      pending,
-      new Map(
-        input.area.slices.map((slice) => [
-          slice.repoKey,
-          { graphRepoHash: slice.graphRepoHash, sourceNodeIds: [...slice.coreNodeIds] },
-        ]),
-      ),
-      input.traversal,
-      input.budget,
-    );
-  }
-
-  return accumulator.collect(input.items);
 }
 
 export interface ResolveNodeApplicabilityInput {

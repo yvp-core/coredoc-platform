@@ -16,6 +16,7 @@
 import {
   ContextConditionSchema,
   INTENT_LIMITS,
+  IntentAuthority,
   IntentDimensionSchema,
   IntentKind,
   TreeConditionsSchema,
@@ -144,6 +145,14 @@ export const UpdateIntentFeatureSchema = z
   );
 
 export const ArchiveIntentFeatureSchema = z.object({ ...mutation, id: slugId(), archived: z.boolean() }).strict();
+
+/**
+ * Deleting a domain or feature is refused while it still holds children or
+ * attached items (spec §4.1/§4.2), so the request needs nothing but the id —
+ * there is no cascade to opt into and no force flag to add.
+ */
+export const DeleteIntentDomainSchema = z.object({ ...mutation, id: slugId() }).strict();
+export const DeleteIntentFeatureSchema = z.object({ ...mutation, id: slugId() }).strict();
 
 /**
  * A seed is identified by `(featureId, repoKey, nodeId)` — no surrogate id to
@@ -416,6 +425,9 @@ export const RemoveIntentAnchorSchema = z
   .object({ ...mutation, itemId: slugId(), repoKey, nodeId: graphNodeId })
   .strict();
 
+/** Preview is a read: it resolves what a write would and writes nothing, so it carries no idempotency key. */
+export const PreviewIntentAnchorQuerySchema = z.object({ itemId: slugId(), repoKey, nodeId: graphNodeId }).strict();
+
 /* --------------------------------------------------------------- sources --- */
 
 /**
@@ -451,12 +463,100 @@ export const ImportIntentOverlaySchema = z
   })
   .strict();
 
+/* ----------------------------------------------------------- list queries --- */
+
+/**
+ * Shared list parameters. `limit` and `cursor` are parsed by the cursor codec
+ * (they carry their own refusals), so they are strings here.
+ */
+const listQuery = {
+  cursor: z.string().optional(),
+  limit: z.string().optional(),
+};
+
+/**
+ * Archived nodes are hidden from browse defaults and stay readable on request
+ * (spec §4.1). An explicit `'true'` opts in — archiving is a visibility state,
+ * never a deletion, and the KB must be able to show it.
+ */
+const includeArchived = z.enum(['true', 'false']).optional();
+
+export const ListIntentTreeQuerySchema = z.object({ ...listQuery, includeArchived }).strict();
+
+export const ListIntentFeaturesQuerySchema = z
+  .object({ ...listQuery, includeArchived, domainId: slugId().optional() })
+  .strict();
+
+/** One node's document: the product root with neither id, a domain, or a feature. */
+export const IntentNodeDocumentQuerySchema = z
+  .object({
+    domainId: slugId().optional(),
+    featureId: slugId().optional(),
+    includeCandidates: z.enum(['true', 'false']).optional(),
+  })
+  .strict();
+
+export const ListIntentFeatureSeedsQuerySchema = z.object({ ...listQuery }).strict();
+
+/**
+ * The browse INDEX of items — ids, titles, kinds, attachment, authority,
+ * version. Deliberately not the agent context read (issue 07): no selectors, no
+ * derivation, no evidence. It is what a KB list view and a paging client need.
+ */
+export const ListIntentItemsQuerySchema = z
+  .object({
+    ...listQuery,
+    production: z.enum(['true', 'false']).optional(),
+    effectivity: z.enum(['effective', 'planned', 'withdrawn', 'not_effective', 'unknown']).optional(),
+    sourceRef: z.string().min(1).max(2048).optional(),
+    sourceKind: z.enum(['spec', 'issue', 'adr', 'manual']).optional(),
+    search: z.string().trim().min(1).max(200).optional(),
+    authorities: z
+      .string()
+      .transform((value) => value.split(','))
+      .pipe(z.array(z.enum(IntentAuthority)).min(1).max(4))
+      .optional(),
+    kinds: z
+      .string()
+      .transform((value) => value.split(','))
+      .pipe(z.array(z.enum(IntentKind)).min(1).max(6))
+      .optional(),
+    scopeFeatureId: slugId().optional(),
+    authority: z.enum(IntentAuthority).optional(),
+    kind: z.enum(IntentKind).optional(),
+    domainId: slugId().optional(),
+    featureId: slugId().optional(),
+  })
+  .strict();
+
+/**
+ * The REVIEW QUEUE read (issue v1.1-04): the candidates-only slice of the item
+ * index, plus the counts a reviewer surface needs before it pages anything.
+ *
+ * There is no `authority` parameter, deliberately: the queue IS the candidate
+ * set, and a filter that could widen it to accepted items would make the badge
+ * and the list disagree. The three filters are the ones a reviewer works
+ * through — a domain, one feature inside it, or one kind of statement.
+ */
+export const ListIntentReviewQueueQuerySchema = z
+  .object({
+    ...listQuery,
+    kind: z.enum(IntentKind).optional(),
+    domainId: slugId().optional(),
+    featureId: slugId().optional(),
+  })
+  .strict();
+
+export const ListIntentSourcesQuerySchema = z.object({ search: z.string().trim().max(200).optional() }).strict();
+
 export type CreateIntentDomainInput = z.infer<typeof CreateIntentDomainSchema>;
 export type UpdateIntentDomainInput = z.infer<typeof UpdateIntentDomainSchema>;
 export type ArchiveIntentDomainInput = z.infer<typeof ArchiveIntentDomainSchema>;
 export type CreateIntentFeatureInput = z.infer<typeof CreateIntentFeatureSchema>;
 export type UpdateIntentFeatureInput = z.infer<typeof UpdateIntentFeatureSchema>;
 export type ArchiveIntentFeatureInput = z.infer<typeof ArchiveIntentFeatureSchema>;
+export type DeleteIntentDomainInput = z.infer<typeof DeleteIntentDomainSchema>;
+export type DeleteIntentFeatureInput = z.infer<typeof DeleteIntentFeatureSchema>;
 export type PutIntentFeatureSeedInput = z.infer<typeof PutIntentFeatureSeedSchema>;
 export type DeleteIntentFeatureSeedInput = z.infer<typeof DeleteIntentFeatureSeedSchema>;
 export type IntentNodeRefInput = z.infer<typeof IntentNodeRefSchema>;
@@ -474,5 +574,11 @@ export type ReviewIntentItemsInput = z.infer<typeof ReviewIntentItemsSchema>;
 export type AddIntentAnchorInput = z.infer<typeof AddIntentAnchorSchema>;
 export type RefreshIntentAnchorInput = z.infer<typeof RefreshIntentAnchorSchema>;
 export type RemoveIntentAnchorInput = z.infer<typeof RemoveIntentAnchorSchema>;
+export type PreviewIntentAnchorQuery = z.infer<typeof PreviewIntentAnchorQuerySchema>;
+export type ListIntentTreeQuery = z.infer<typeof ListIntentTreeQuerySchema>;
+export type ListIntentFeaturesQuery = z.infer<typeof ListIntentFeaturesQuerySchema>;
+export type ListIntentFeatureSeedsQuery = z.infer<typeof ListIntentFeatureSeedsQuerySchema>;
+export type ListIntentItemsQuery = z.infer<typeof ListIntentItemsQuerySchema>;
+export type ListIntentReviewQueueQuery = z.infer<typeof ListIntentReviewQueueQuerySchema>;
 export type UpdateIntentSourceInput = z.infer<typeof UpdateIntentSourceSchema>;
 export type ImportIntentOverlayInput = z.infer<typeof ImportIntentOverlaySchema>;

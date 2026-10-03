@@ -78,7 +78,6 @@ function routes(): Route[] {
  * a write at all; the rest are the named machine paths of BR-1.
  */
 const MACHINE_ADMISSIBLE: Record<string, TokenPermission> = {
-  'IntentController.proposeItems': TokenPermission.IntentPropose,
   'IntentReleaseController.record': TokenPermission.IntentRelease,
 };
 

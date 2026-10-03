@@ -79,7 +79,7 @@ describe('bodyLimitFor', () => {
     expect(bodyLimitFor(`${importPath}?retry=1`, 'POST')).toBe(INTENT_IMPORT_BODY_LIMIT);
     // The read-only preflight and every other intent route stay on the default.
     expect(bodyLimitFor(`${importPath}/preflight`, 'GET')).toBe(DEFAULT_BODY_LIMIT);
-    expect(bodyLimitFor('/api/v1/workspaces/ws_1/intent/items/propose', 'POST')).toBe(DEFAULT_BODY_LIMIT);
+    expect(bodyLimitFor('/api/v1/workspaces/ws_1/intent/items/review', 'POST')).toBe(DEFAULT_BODY_LIMIT);
     expect(bodyLimitFor('/api/v1/workspaces/ws_1/intent/tree', 'GET')).toBe(DEFAULT_BODY_LIMIT);
   });
 

@@ -239,7 +239,7 @@ export function Chip({ pressed, label, onClick }: { pressed: boolean; label: str
 }
 
 /** One row of the items column, and of the overview's product-level list. */
-export function ItemRow({
+function ItemRow({
   item,
   selection,
   featureTitles,

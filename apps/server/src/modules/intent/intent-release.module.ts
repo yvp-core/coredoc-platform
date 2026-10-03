@@ -6,15 +6,17 @@
  * Importing `IntentModule` from delivery would drag seven controllers and the
  * whole propose/review graph into the worker and create an import cycle;
  * exporting the one service from a module that imports nothing but the database
- * is the smallest wiring that keeps a single instance of the write path.
+ * is the smallest wiring that keeps a single instance of the write path. The
+ * connector's release projection lives here for the same reason.
  */
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../database/database.module.js';
+import { GithubIntentReleaseService } from './github-intent-release.service.js';
 import { IntentReleaseService } from './intent-release.service.js';
 
 @Module({
   imports: [DatabaseModule],
-  providers: [IntentReleaseService],
-  exports: [IntentReleaseService],
+  providers: [IntentReleaseService, GithubIntentReleaseService],
+  exports: [IntentReleaseService, GithubIntentReleaseService],
 })
 export class IntentReleaseModule {}

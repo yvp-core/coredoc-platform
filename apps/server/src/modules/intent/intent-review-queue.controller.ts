@@ -22,9 +22,8 @@ import { WorkspaceRole } from '../../auth/decorators/workspace-role.decorator.js
 import { PermissionsGuard, TokenPermission } from '../../auth/permissions.guard.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { IntentEnabledGuard } from './intent-enabled.guard.js';
-import { IntentExceptionFilter, intentContractPipe } from './contract/index.js';
+import { IntentExceptionFilter, intentContractPipe, ListIntentReviewQueueQuerySchema } from './contract/index.js';
 import { parseIntentPageLimit } from './intent-cursor.js';
-import { ListIntentReviewQueueQuerySchema } from './intent-module-operations.js';
 import { IntentReviewQueueService } from './intent-review-queue.service.js';
 
 @Controller('workspaces/:workspaceId/intent')

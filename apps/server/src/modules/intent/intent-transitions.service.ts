@@ -11,9 +11,8 @@
  * this file does add is the BigInt boundary: `id` is a `BIGSERIAL` and leaves as
  * a decimal string, because JSON has no integer wide enough to promise it back.
  *
- * The two query schemas live here rather than in `intent-module-operations.ts`
- * for the same reason that file gives for not living in `contract/`: they are
- * the transport shape of these two reads and nothing else consumes them.
+ * The two query schemas live here rather than in `contract/`: they are the
+ * transport shape of these two reads and nothing else consumes them.
  */
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';

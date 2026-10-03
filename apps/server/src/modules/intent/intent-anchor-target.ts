@@ -28,7 +28,8 @@ import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import type { IGraphReadRepository } from '@coredoc/db';
 import { WorkspaceMcpContextService } from '../../mcp/workspace-mcp-context.service.js';
 import { IntentErrorCode, IntentPublicException } from './contract/index.js';
-import { IntentGraphUnavailableCode, graphRemediation, graphUnavailableCode } from './derivation/index.js';
+import { IntentGraphUnavailableCode } from './derivation/derivation-contract.js';
+import { graphRemediation, graphUnavailableCode } from './derivation/graph-degradation.js';
 import { INTENT_ANCHOR_NODE_TYPES } from './intent-node-types.js';
 import {
   readWorkspaceIntentRepoIdentities,
