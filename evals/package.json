@@ -8,6 +8,8 @@
   "scripts": {
     "eval": "tsx harness/run.ts",
     "eval:planning": "tsx harness/run-planning.ts",
+    "eval:intent": "tsx harness/run-intent.ts",
+    "eval:intent:setup": "tsx cases-intent/setup.ts",
     "analyze": "tsx harness/analyze.ts",
     "measure:resolution": "tsx scripts/measure-resolution.ts",
     "test": "vitest run",
