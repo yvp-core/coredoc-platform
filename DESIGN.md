@@ -108,7 +108,7 @@ The mechanically verifiable part of this document. Run it before and after any d
 - **Gradient tokens (ERROR):** a gradient-valued token used via `bg-*`/`text-*`/`border-*`/`ring-*` compiles to `background-color`/`color`/`border-color`, which reject gradients — the rule is dropped and the surface paints nothing. Use a dedicated `@utility` that sets `background:` (`bg-panel` is the reference).
 - **Raw colors (WARN):** arbitrary literals like `text-[#079467]` in the renderer. Deliberate exceptions go in `scripts/design-conformance-allowlist.json` with a `reason`.
 - **Figma drift:** `--figma-vars <dump.json>` compares `@theme` values to a `get_variable_defs` export, reporting `MATCH` / `DRIFT(old→new)` / `UNMAPPED` / `UNVERIFIABLE` (gradients export empty and are never guessed at).
-- Exit is non-zero on ERROR only, unless `--strict`. The `coredoc-design-conformance` skill covers the agent-session workflow; `--self-test` verifies the checker itself.
+- Exit is non-zero on ERROR only, unless `--strict`. The project skill `.claude/skills/coredoc-design-conformance/SKILL.md` covers the agent-session workflow; `--self-test` verifies the checker itself.
 
 ## Component vocabulary settled by review
 These were re-derived wrongly at least once. They are facts now, not preferences.
