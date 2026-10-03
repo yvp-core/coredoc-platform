@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { allowSourcesInGraph } from '@coredoc/core/utils';
 import type { EntrypointType } from '@coredoc/core/types';
 import { CypherResultShape } from '@coredoc/db';
+import { CYPHER_VOCABULARY } from './tool-descriptions.js';
 
 // Shared parameter fragments.
 const SCOPE = z
@@ -306,7 +307,8 @@ export const TOOL_SCHEMAS = {
       .string()
       .min(1)
       .describe(
-        'One read-only Cypher statement. Project scalars for the rows shape (`RETURN n.name AS name, count(*) AS total`). Mutating/administrative clauses and multiple `;`-separated statements are rejected. Paginate in-query with ORDER BY + SKIP/LIMIT — there is no cursor.',
+        'One read-only Cypher statement. Project scalars for the rows shape (`RETURN n.name AS name, count(*) AS total`). Mutating/administrative clauses and multiple `;`-separated statements are rejected. Paginate in-query with ORDER BY + SKIP/LIMIT — there is no cursor. ' +
+          CYPHER_VOCABULARY,
       ),
     resultShape: z
       .enum(CypherResultShape)

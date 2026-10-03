@@ -72,6 +72,7 @@ Payload per `kind` (optional, validated when present):
 - `requiredOutcome` is the outcome when no variant matches; add a `when`-less variant only when that default differs.
 - Custom roles are not dimension values: condition on the permissions they grant. A boolean setting is a two-value dimension.
 - No OR across dimensions: `in:[a,b]` covers alternatives within one dimension; otherwise split the item.
+- Clause syntax, inheritance and refusals: `references/tree.md`.
 
 ## 4. Bootstrap mode — brownfield packets
 
@@ -107,7 +108,7 @@ Split a domain into features only when a domain-wide answer is too broad and eac
 
 Seeds are exact graph node ids you read from tool output (`search_symbols`, `describe_repository`, an existing anchor), two to five per feature; prefer containers a reader would point at (a package, a directory module, an entrypoint) over functions. A feature without seeds derives nothing.
 
-Then, per §1, create each feature with `intent_tree` (`parentFeatureId` nests one; `layout` orders a node's document), put its seeds, and re-propose the candidates you move with their new `featureId`; an accepted item moves only as a successor candidate plus a supersede decision, so report it as parked. Link nodes a reader of one should also read with `relation.put` and a one-sentence `why`. Report what you created, the seeds accepted, the items moved and parked, then re-read one moved item to show it derives through its feature. Placement is not authority.
+Then, per §1, create each feature with `intent_tree` (nesting, layout: `references/tree.md`), put its seeds, and re-propose the candidates you move with their new `featureId`; an accepted item moves only as a successor candidate plus a supersede decision, so report it as parked. Link nodes a reader of one should also read with `relation.put` and a one-sentence `why`. Report what you created, the seeds accepted, the items moved and parked, then re-read one moved item to show it derives through its feature. Placement is not authority.
 
 ## 6. Propose
 

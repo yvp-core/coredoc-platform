@@ -297,7 +297,11 @@ const GetIntentContextSchema = z
       .boolean()
       .optional()
       .describe(
-        'Opt in to recorded production effectivity and active plans; includes superseded rules still effective in production',
+        'Opt in to recorded production effectivity and active plans; includes superseded rules still effective in ' +
+          'production. Effective means current according to recorded delivery evidence (currentRelease, null before ' +
+          'any delivery), not live monitoring; each item may carry deliveries[] {repoKey, pr, seq, deliveredRef, ' +
+          'orderingToken}, one per recorded delivery across repositories. Default: authority only, with no production ' +
+          'or withdrawal information',
       ),
     includeCandidates: z
       .boolean()
@@ -307,12 +311,19 @@ const GetIntentContextSchema = z
       .boolean()
       .optional()
       .describe(
-        'Include the review breakdown and the pending handoff operations with their ids. Default: compact counts',
+        'Include the review breakdown and the pending handoff operations with their ids. Default: compact ' +
+          'pendingReview and handoffFreshness {pending, needsAttention} counts. Re-read with it when needsAttention > 0, ' +
+          'then inspect and repair those operations with intent_handoff get',
       ),
     context: IntentContextSchema.optional().describe(
       'Reader context over declared dimensions, e.g. {"country": "de", "product": ["ta", "shifts"]} (a list only for a ' +
-        'multi dimension). Drops items whose appliesWhen is false for it and adds contextMatch to each item. {} returns ' +
-        'the declared dimensions without narrowing',
+        'multi dimension). Drops items whose effective conditions (domain AND feature AND own appliesWhen) are false ' +
+        'for it; items whose conditions hold or stay open are returned, each with contextMatch {state: ' +
+        'match|open|unevaluated, the open dimension ids, openBy when a tree level left one open, and for a rule with ' +
+        'variants its resolution: resolved|default|ambiguous|open|base}. contextExcluded counts the dropped items; ' +
+        'excludedIntentIds names the dropped ones you asked for by intentIds or sourceRefs. {} returns the declared ' +
+        'dimensions without narrowing. Without context, contextNotSupplied {conditionedItems, dimensions} flags ' +
+        'conditioned rules returned unfiltered',
     ),
     limit: z
       .number()
@@ -344,7 +355,20 @@ const IntentTreeToolSchema = z
     action: z.enum(IntentTreeAction).describe('Which tree operation this call performs'),
     request: z
       .record(z.string(), z.unknown())
-      .describe("The body for `action` — see the tool description for each action's fields"),
+      .describe(
+        'The body for `action`; every body also takes idempotencyKey. domain.create {id, title, statement?, ' +
+          'appliesWhen?, layout?}; domain.update {id, title?, statement?, appliesWhen?, layout?}; domain.archive {id, ' +
+          'archived}; domain.delete {id}; feature.create {id, domainId, parentFeatureId?, title, statement?, ' +
+          'appliesWhen?, layout?} (parentFeatureId nests it under another feature of the same domain); feature.update ' +
+          '{id, title?, statement?, appliesWhen?, layout?, parentFeatureId?} (null moves it to the top level); ' +
+          'feature.archive {id, archived}; feature.delete {id}; seed.put {featureId, repoKey, nodeId, note?}; ' +
+          'seed.delete {featureId, repoKey, nodeId}; dimension.create {id, title, values: [{id, title, aliases?}], ' +
+          'multi?}; dimension.update {id, title?, values?, multi?} (values replaces the list); dimension.archive {id, ' +
+          'archived}; dimension.delete {id}; relation.put {from: {kind: domain|feature, id}, to: {kind, id}, why} (why: ' +
+          'one sentence); relation.delete {from, to}. A domain or feature appliesWhen: [{dimension, in: [values]} | ' +
+          '{dimension, notIn: [values]}], [] clears it. layout, in order: {heading, level: 2|3}, {lines: [Markdown]}, ' +
+          '{item: id, style?: bullet|heading|prose}; on update it replaces the stored layout, [] clears it',
+      ),
   })
   .strict();
 
@@ -414,27 +438,30 @@ const INTENT_READ_FIELDS: Record<IntentReadAction, readonly (keyof IntentReadToo
 
 /* ---------------------------------------------------------- descriptions --- */
 
+// The client cuts a description at 2,048 characters (tool-description-cap.test.ts).
+// A description keeps what an agent needs to call the tool correctly: purpose,
+// gates, and the refusals to react to. Field detail lives in the parameter
+// `.describe()`, and longer semantics in the skill reference a description names
+// (coredoc-mcp references/workflows.md, intent-capture references/tree.md).
+
 const GET_INTENT_CONTEXT_DESCRIPTION =
   'Read the rules that apply to code you are about to edit or review: by files/nodeIds (anchors and graph ' +
   'applicability), by exact intentIds, by the source a rule was recorded from (sourceRefs, e.g. "jira:DAY-123"), or ' +
-  'for a specific customer context. It is not the tool for product questions: to learn what a domain or feature ' +
-  'does, what is open or what else it affects, use intent_read, which returns nodes whole. Prefer task (task text), ' +
-  'files ({repoKey,path}) or known nodeIds, known intentIds and an optional domain/feature in ONE call; the server ' +
-  'fuses text, stored anchors and graph applicability, deduplicates and ranks before bounding the answer. Refresh ' +
-  'when the task expands to new code. Exact-id reads fetch missing payloads; list mode is for browsing, not ' +
-  'mandatory orientation. Only accepted items are discovered unless includeCandidates is true; only exact ids reach ' +
-  'rejected/superseded items. Every item carries its version, match reason, sources and anchor evidence. An anchor ' +
-  'is location, never runtime conformance. Check truncated, scanTruncated, unresolvedFiles/nodeIds and graph ' +
-  'limits/freshness; empty or partial results do not establish that no rule applies. A missing graph degrades ' +
-  'evidence, not lexical reads. An empty KB returns status not_configured with a remedy. ' +
-  'Pass context when answering for a specific customer or user: only items whose effective conditions (domain AND ' +
-  'feature AND own appliesWhen) hold or stay open are returned; contextMatch gives state (match|open|unevaluated), ' +
-  'the open dimension ids, openBy (the levels that left a dimension open) when a tree level takes part, and for a ' +
-  'rule with variants the variant resolution (resolved|default|ambiguous|open, or base: no variant applies, ' +
-  'requiredOutcome does). Items carry inheritedConditions {domain?, feature?} when their tree nodes are conditioned. ' +
-  'contextExcluded counts scanned items its conditions dropped, and excludedIntentIds names the dropped items you ' +
-  'asked for by intentIds or sourceRefs. Without context, contextNotSupplied {conditionedItems, dimensions} means ' +
-  'conditioned rules were returned unfiltered, every variant included.';
+  'for a specific customer context. Not for product questions (what a domain or feature does, what is open, what ' +
+  'else it affects): use intent_read, which returns nodes whole. Prefer task (task text), files ({repoKey,path}) or ' +
+  'known nodeIds, known intentIds and an optional domain/feature in ONE call; the server fuses text, anchors and ' +
+  'graph applicability and ranks before bounding the answer. Refresh when the task expands to new code. Only ' +
+  'accepted items are discovered unless includeCandidates is true; only exact ids reach rejected/superseded items. ' +
+  'An anchor is location, never runtime conformance. Check truncated, scanTruncated, unresolvedFiles/nodeIds and ' +
+  'graph limits/freshness; empty or partial results do not establish that no rule applies. A missing graph degrades ' +
+  'evidence, not lexical reads. An empty KB returns status not_configured with a remedy. Every read carries ' +
+  'pendingReview and handoffFreshness {pending, needsAttention} counts; when needsAttention > 0, re-read with ' +
+  'includeDiagnostics:true and inspect those operations with intent_handoff get. Default reads carry authority only: ' +
+  'pass effectivity:true before reasoning about delivery. Follow effective; implement planned only when the task ' +
+  'includes that approved change via its sources or a maintainer instruction; never implement withdrawn or ' +
+  'not_effective; unknown is not proof of production. Pass context when answering for a customer or user; without ' +
+  'it, contextNotSupplied means conditioned rules came back unfiltered. What the effectivity, context and handoff ' +
+  "fields mean: the coredoc-mcp skill's references/workflows.md (Intent reads).";
 
 const INTENT_READ_DESCRIPTION =
   'Read the product intent the way you read a folder of Markdown files. ' +
@@ -452,23 +479,22 @@ const INTENT_READ_DESCRIPTION =
 
 const INTENT_PROPOSE_DESCRIPTION =
   'Propose intent CANDIDATES in this workspace: create new ones, or update a candidate by naming its id. Proposing ' +
-  'never accepts intent and never touches an accepted item. `statement` is one sentence that stands alone without ' +
-  'its payload (the rule, or who wants what); everything else the item says goes in `body` as Markdown lines ' +
-  '(use-case bullets, numbered flow steps, a diagram). Each item names at least one source (where the intent came ' +
-  'from), attaches to the product root or to one domain or one feature (a domainId beside a featureId is a check ' +
-  "and must be that feature's domain), and may carry anchor suggestions the server resolves against the workspace " +
-  'graph; an anchor is never conformance proof. Omit `id` and the server derives one from the title; a title whose ' +
-  'slug does not fit the id cap is REFUSED, because an id is immutable — pass a shorter title or an explicit id. ' +
-  'To offer a replacement for an accepted item, name it in proposedSuccessorOfId — the swap itself is a reviewer ' +
-  'decision. `appliesWhen` (AND-joined clauses {dimension, in|notIn}, {item}, {text}) says when an item applies, ' +
-  'and a business_rule payload may carry `variants` [{when?, outcome, inputs?}]; dimensions and values must be ' +
-  'declared with intent_tree, item clauses must name existing items or same-batch items proposed with an explicit ' +
-  'id, without a cycle (a rejected or superseded target is refused; a candidate target is not evaluated), and ' +
-  'overlapping variants or a second default are refused; `appliesWhen: []` clears ' +
-  'conditions. Items inherit their domain and feature conditions. The response may carry non-blocking hints[] ' +
-  '{proposalIndex, kind: missing-condition|ambiguous-variants|dead-variant|unaccepted-condition-item, …} for the ' +
-  'reviewer; they never write a condition and are not a reason to ask the user. Every call carries an ' +
-  'idempotencyKey; replaying one changes nothing. Requires the intent:propose permission.';
+  'never accepts intent and never touches an accepted item. Each item names at least one source (where the intent ' +
+  'came from), attaches to the product root or to one domain or one feature (a domainId beside a featureId is a ' +
+  "check and must be that feature's domain), and may carry anchor suggestions the server resolves against the " +
+  'workspace graph; an anchor is never conformance proof. Omit `id` and the server derives one from the title; a ' +
+  'title whose slug does not fit the id cap is REFUSED (id_would_truncate), because an id is immutable — pass a ' +
+  'shorter title or an explicit id. To offer a replacement for an accepted item, name it in proposedSuccessorOfId ' +
+  '— the swap itself is a reviewer decision. Conditions (appliesWhen, business_rule variants) are refused with ' +
+  'dimension_not_found or dimension_value_not_found until the dimension and value are declared with intent_tree; ' +
+  'condition_item_not_found when an item clause names neither an existing item nor a same-batch item proposed with ' +
+  'an explicit id; condition_cycle; condition_item_inactive for a rejected or superseded target (a candidate target ' +
+  'is not evaluated); variant_overlap for overlapping variants or a second default. Items inherit their domain and ' +
+  'feature conditions. The response may carry non-blocking hints[] {proposalIndex, kind: ' +
+  'missing-condition|ambiguous-variants|dead-variant|unaccepted-condition-item, …} for the reviewer; they never ' +
+  'write a condition and are not a reason to ask the user. Every call carries an idempotencyKey; replaying one ' +
+  "changes nothing. Requires the intent:propose permission. Condition rules: the intent-capture skill's " +
+  'references/tree.md.';
 
 const INTENT_REVIEW_DESCRIPTION =
   "Record the acting human's decisions on exact items: accept, reject, supersede, defer or needs_edit. Authority " +
@@ -481,35 +507,21 @@ const INTENT_REVIEW_DESCRIPTION =
   'actor is the authenticated user, never an identity supplied by the agent.';
 
 const INTENT_TREE_DESCRIPTION =
-  "Edit this workspace's product-intent tree: domains, features, feature seeds — the graph nodes that stake out " +
-  "a feature's code area — and context dimensions (country, plan, role, …) that items condition on. Domains and features are created explicitly, never implicitly by a proposal; ids are " +
-  'immutable; archiving is a visibility state, not a deletion; a delete is refused while children or attached items ' +
-  'remain. A seed is identified by (featureId, repoKey, nodeId), so seed.put is both "declare" and "re-note". Every ' +
-  "action takes an idempotencyKey. Requires the acting user's own session (any workspace member; no service " +
-  'token): an agent acting in that session creates the domains, features and seeds its ' +
-  'placement needs and reports what it created, while domain/feature archive and delete follow an explicit ' +
-  'maintainer instruction naming the node. Bodies by action: ' +
-  'domain.create {id, title, statement?, appliesWhen?, layout?}; domain.update {id, title?, statement?, appliesWhen?, layout?}; ' +
-  'domain.archive {id, archived}; domain.delete {id}; ' +
-  'feature.create {id, domainId, parentFeatureId?, title, statement?, appliesWhen?, layout?} (parentFeatureId nests it under ' +
-  'another feature of the same domain); feature.update {id, title?, statement?, appliesWhen?, layout?, parentFeatureId?} ' +
-  '(null moves it to the top level). layout is the node read as a document, in order: {heading, level: 2|3}, ' +
-  '{lines: [Markdown]} and {item: id, style?: bullet|heading|prose} slots; an item with no slot is appended under ' +
-  'its kind, and on update layout replaces the stored one ([] clears it); ' +
-  'feature.archive {id, archived}; feature.delete {id}; seed.put {featureId, repoKey, nodeId, note?} (a repoKey the workspace ' +
-  'does not carry is refused with the registered identities listed: fix the id, do not retry); ' +
-  'seed.delete {featureId, repoKey, nodeId}; dimension.create {id, title, values: [{id, title, aliases?}], multi?}; ' +
-  'dimension.update {id, title?, values?, multi?} (values replaces the list); dimension.archive {id, archived}; ' +
-  'dimension.delete {id}; relation.put {from: {kind: domain|feature, id}, to: {kind, id}, why} links two nodes a ' +
-  'reader of one should also read, with the reason in one sentence (unordered; a put on an existing pair re-words ' +
-  'why); relation.delete {from, to}. Deleting a node removes its relations. Dimension archive and delete follow an explicit maintainer instruction too; archive, ' +
-  'delete, or dropping a value is refused with dimension_in_use, naming the blockers, while a domain, a feature, ' +
-  'or a candidate or accepted item still references it. A domain or feature appliesWhen holds dimension clauses ' +
-  'only ({dimension, in} | {dimension, notIn}); every item under the node inherits it (AND), [] clears it. Set ' +
-  'structural conditions (which product a domain exists for) on the tree once, not on each item, and set or clear ' +
-  'a domain/feature appliesWhen only on an explicit maintainer instruction naming the node, like archive and ' +
-  'delete; a response that changed it reports affectedAcceptedItems (for a domain, including its features). Aliases are ' +
-  'the words that name a value in prose; propose hints match aliases only, never a value title.';
+  "Edit this workspace's product-intent tree: domains, features (nestable), feature seeds — the graph nodes that " +
+  "stake out a feature's code area — context dimensions (country, plan, role, …) that items condition on, and " +
+  'relations between nodes a reader of one should also read. The `request` parameter lists the body of each action; ' +
+  'every body takes an idempotencyKey. Domains and features are created explicitly, never implicitly by a proposal; ' +
+  'ids are immutable; archiving is a visibility state, not a deletion; a delete is refused (tree_node_not_empty) ' +
+  "while children or attached items remain. Requires the acting user's own session (any workspace member; no " +
+  'service token): an agent acting in that session creates the domains, features and seeds its placement needs and ' +
+  'reports what it created, while archive and delete of a domain, feature or dimension, and setting or clearing a ' +
+  'domain/feature appliesWhen, follow only an explicit maintainer instruction naming the node. A seed.put repoKey ' +
+  'the workspace does not carry is refused (unknown_repo_key) with the registered identities listed: fix the id, do ' +
+  'not retry. Archiving, deleting or dropping a value of a dimension is refused with dimension_in_use, naming the ' +
+  'blockers, while a domain, a feature, or a candidate or accepted item still references it. A domain or feature ' +
+  'appliesWhen holds dimension clauses only and every item under the node inherits it (AND): set structural ' +
+  'conditions on the tree once, not on each item. A response that changed it reports affectedAcceptedItems. ' +
+  "Relation, layout, seed and condition rules: the intent-capture skill's references/tree.md.";
 
 const INTENT_ANCHOR_DESCRIPTION =
   'Attach, re-observe, or remove a code anchor on an intent item — the touchpoint that records "this reviewed ' +
@@ -774,9 +786,7 @@ export class IntentTools {
   @Tool({
     name: 'get_intent_context',
     annotations: toolAnnotations('get_intent_context'),
-    description:
-      GET_INTENT_CONTEXT_DESCRIPTION +
-      ' Every read returns compact pendingReview (the outstanding decisions) and handoffFreshness {pending, needsAttention} counts; when needsAttention > 0, re-read with includeDiagnostics:true to get the operation ids, then use intent_handoff get to inspect and repair them. Default reads carry authority only, with no production or withdrawal information. With effectivity:true, effective means current according to recorded delivery evidence (currentRelease), not live monitoring, and each item may carry deliveries[] {repoKey, pr, seq, deliveredRef, orderingToken}, one per recorded delivery across repositories. Implement planned only when the task explicitly includes that approved change via its sources or a maintainer instruction; otherwise follow effective and report the plan. Never implement withdrawn; not_effective is a retired/replaced rule, not a plan to implement; unknown is not proof of production availability.',
+    description: GET_INTENT_CONTEXT_DESCRIPTION,
     parameters: GetIntentContextSchema,
   })
   async getIntentContext(args: unknown, _context: Context, request: Request) {

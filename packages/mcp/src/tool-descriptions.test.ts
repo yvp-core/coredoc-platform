@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { NodeType, EdgeType } from '@coredoc/core/types';
 import { TOOL_DESCRIPTIONS, buildCypherDescription } from './tool-descriptions.js';
+import { TOOL_INPUT_SCHEMAS, TOOL_SCHEMAS } from './tool-schemas.js';
 
 // The skill ships as a small always-injected core plus reference files the agent loads on
 // demand. Rules that must survive an isolated injection (where references may be
@@ -208,9 +209,16 @@ describe('run_cypher_query descriptions', () => {
       expect(description).toContain('describe_db_schema');
     });
 
-    it('lists the node and edge vocabulary compactly from the enums', () => {
-      for (const type of Object.values(NodeType)) expect(description).toContain(type);
-      for (const type of Object.values(EdgeType)) expect(description).toContain(type);
+    it('sends the node and edge vocabulary to the query parameter, which the client does not truncate', () => {
+      expect(description).toMatch(/kinds: see the `query` parameter/);
+      // Both surfaces: the cloud reads the zod schema, the local server its JSON Schema.
+      const zodQuery = TOOL_SCHEMAS.run_cypher_query.shape.query.description ?? '';
+      const jsonQuery =
+        (TOOL_INPUT_SCHEMAS.run_cypher_query.properties.query as { description?: string }).description ?? '';
+      for (const query of [zodQuery, jsonQuery]) {
+        for (const type of Object.values(NodeType)) expect(query).toContain(type);
+        for (const type of Object.values(EdgeType)) expect(query).toContain(type);
+      }
     });
   });
 
@@ -232,5 +240,13 @@ describe('run_cypher_query descriptions', () => {
     const description = buildCypherDescription({ dialects: ['ladybug', 'neo4j'] });
     expect(description).toContain('GraphNode');
     expect(description).toContain('CodeNode');
+  });
+
+  it('inlines the vocabulary for a prompt that has no parameter schema to point at', () => {
+    const prompt = buildCypherDescription({ dialects: ['ladybug'], inlineVocabulary: true });
+    for (const type of Object.values(NodeType)) expect(prompt).toContain(type);
+    for (const type of Object.values(EdgeType)) expect(prompt).toContain(type);
+    expect(prompt).not.toContain('see the `query` parameter');
+    expect(prompt).toContain('references/graph-schema.md');
   });
 });

@@ -12,9 +12,8 @@ import { fileURLToPath } from "node:url";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PLUGIN = "plugins/coredoc";
 // Consumption skills plus intent-capture. author-profile needs the local parser
-// engine and stays out. intent-capture depends on the coredoc CLI too, but it
-// preflights availability and fails closed without it (intent spec, plan-review
-// D3), so shipping it in this plugin is safe.
+// engine and stays out. intent-capture writes only through the workspace MCP
+// intent tools and stops when they are absent, so shipping it here is safe.
 const SKILLS = ["coredoc-mcp", "coredoc-feedback", "intent-capture"];
 
 // True mirror: clear the destination first so a skill removed from SKILLS (or

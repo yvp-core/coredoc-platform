@@ -266,23 +266,41 @@ export const ProposedIntentItemSchema = z
      * Mandatory and self-contained: one sentence that states the rule (or who wants
      * what) without its body or payload (D9). Longer text belongs in `body`.
      */
-    statement: text(INTENT_CONTRACT_LIMITS.statement),
+    statement: text(INTENT_CONTRACT_LIMITS.statement).describe(
+      'One sentence that stands alone without its body or payload: the rule, or who wants what',
+    ),
     rationale: text(INTENT_CONTRACT_LIMITS.text).optional(),
     /** Markdown lines under the statement; absent keeps what is stored. */
-    body: IntentItemBodySchema.optional(),
+    body: IntentItemBodySchema.optional().describe(
+      'Everything else the item says, as Markdown lines: use-case bullets, numbered flow steps, a diagram. Absent ' +
+        'keeps the stored body',
+    ),
     /**
      * OPTIONAL structured payload (D9), validated by the refinement below
      * through core's own per-kind payload validation. Typed
      * as a JSON object rather than `unknown` so the MCP schema says at least
      * that much.
      */
-    payload: z.record(z.string(), z.unknown()).optional(),
+    payload: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .describe(
+        'Structured detail validated per kind; a business_rule payload may carry variants [{when?, outcome, inputs?}], ' +
+          'one outcome per context, at most one without when',
+      ),
     /**
      * Context conditions, AND-joined; absent = keep what is stored (unconditional
      * on create), `[]` = clear them. Registry and item references are checked by
      * propose against the workspace, not here.
      */
-    appliesWhen: z.array(ContextConditionSchema).max(INTENT_LIMITS.conditionsPerItem).optional(),
+    appliesWhen: z
+      .array(ContextConditionSchema)
+      .max(INTENT_LIMITS.conditionsPerItem)
+      .optional()
+      .describe(
+        'When the item applies: AND-joined clauses {dimension, in: [values]} | {dimension, notIn: [values]} | ' +
+          '{item: id} | {text} ({text} is never evaluated). [] clears the conditions; absent keeps what is stored',
+      ),
     /**
      * Attachment: both absent = the product root (spec §4.4). A `featureId` places
      * the item in that feature; a `domainId` next to it is a check, not a second

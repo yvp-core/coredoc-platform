@@ -20,6 +20,7 @@ vi.mock('./runtime-paths.js', () => ({ requireProjectRoot: () => '/tmp/root' }))
 vi.mock('./e2e-mode.js', () => ({ isE2EMode: () => false }));
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: claudeQueryMock }));
 
+import { CYPHER_VOCABULARY } from '@coredoc/mcp';
 import {
   buildClaudeOneShotOptions,
   cleanCypherResponse,
@@ -267,6 +268,9 @@ describe('generateCypherFromNl', () => {
     // Ladybug shape names the single node table `GraphNode`; the instruction is appended.
     expect(args.systemPrompt).toContain('GraphNode');
     expect(args.systemPrompt).toMatch(/read-only Cypher query/i);
+    // No parameter schema to point at here, so the node and edge kinds are inlined.
+    expect(args.systemPrompt).toContain(CYPHER_VOCABULARY);
+    expect(args.systemPrompt).not.toContain('see the `query` parameter');
   });
 
   it('adds the graph-canvas return contract and external-call topology to the prompt', async () => {

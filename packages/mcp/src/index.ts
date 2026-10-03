@@ -23,7 +23,12 @@ export { formatMcpContent } from './response-formatter.js';
 
 // Canonical tool descriptions + parameter schemas, shared with the cloud MCP
 // server so the two surfaces describe and validate each tool identically.
-export { TOOL_DESCRIPTIONS, buildCypherDescription } from './tool-descriptions.js';
+export {
+  CYPHER_VOCABULARY,
+  TOOL_DESCRIPTIONS,
+  TOOL_DESCRIPTION_CLIENT_CAP,
+  buildCypherDescription,
+} from './tool-descriptions.js';
 export type { CypherDialect } from './tool-descriptions.js';
 export { TOOL_SCHEMAS, TOOL_INPUT_SCHEMAS, SYMBOL_TYPES, ENTRYPOINT_TYPES } from './tool-schemas.js';
 

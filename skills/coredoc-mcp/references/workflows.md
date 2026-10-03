@@ -74,15 +74,58 @@ than the default `"summary"` — ask for it when you need ids or exact fields, n
 context.
 
 
-## Intent release effectivity
+## Intent reads: context, effectivity, handoffs
 
 Intent tools (`intent_read`, `get_intent_context`, `intent_release`, …) exist only on the cloud
-workspace MCP; the local MCP has none. Their descriptions carry the effectivity contract; two
-readings they leave implicit:
+workspace MCP; the local MCP has none. Their descriptions say how to call them and which refusals
+to react to; this section says what a `get_intent_context` answer means.
+
+**What an answer covers.** Only accepted items are discovered unless `includeCandidates: true`;
+only exact `intentIds` reach rejected or superseded items. Every item carries its version, match
+reason, sources and anchor evidence, and an exact-id read fetches payloads a ranked read left out.
+List mode is for browsing, not a mandatory first step. An anchor records where a rule was said to
+live, never that the code obeys it. Before concluding that no rule applies, check `truncated`,
+`scanTruncated`, the unresolved files and node ids, and the graph limits and freshness: an empty or
+partial answer is not that evidence. A missing graph degrades evidence, not lexical reads.
+
+**Review and handoff state.** Every read returns compact `pendingReview` (the outstanding review
+decisions) and `handoffFreshness {pending, needsAttention}` counts. When `needsAttention > 0`,
+re-read with `includeDiagnostics: true` to get the operation ids, then inspect and repair them with
+`intent_handoff get`; a `needs_attention` handoff needs a corrected save.
+
+**Effectivity.** A default read carries authority only, with no production or withdrawal
+information. Opt in with `effectivity: true` before reasoning about delivery or planned work.
+Effective means current according to recorded delivery evidence (`currentRelease`), not live
+monitoring. The read then includes superseded rules still effective in production, and each item
+may carry `deliveries[] {repoKey, pr, seq, deliveredRef, orderingToken}`, one per recorded delivery
+across repositories.
 
 - A read established production effectivity only if its response includes the `currentRelease`
-  field (null before any delivery). Opt in with `effectivity: true` before reasoning about delivery
-  or planned work.
+  field (null before any delivery).
+- `effective`: follow it.
+- `planned`: implement it only when the task explicitly includes that approved change, through its
+  sources or a maintainer instruction; otherwise follow the effective rule and report the plan.
+- `withdrawn`: never implement it.
 - `not_effective` means the rule is excluded from recorded production state, including ancestors
-  replaced before delivery. It never authorizes implementing the rule again: inspect its history and
-  the task's approved change rather than treating it as `planned`.
+  replaced before delivery. It is a retired or replaced rule, never a plan, and never authorizes
+  implementing the rule again: inspect its history and the task's approved change rather than
+  treating it as `planned`.
+- `unknown` is not proof of production availability.
+
+**Customer context.** Pass `context` (`{dimension: value}`, a list only for a multi dimension) when
+answering for a specific customer or user. Only items whose effective conditions — domain AND
+feature AND the item's own `appliesWhen` — hold or stay open are returned. Each item's
+`contextMatch` gives:
+
+- the state: `match`, `open` or `unevaluated`;
+- the open dimension ids, and `openBy` (the tree levels that left a dimension open) when a domain or
+  feature condition takes part;
+- for a rule with variants, the variant resolution: `resolved`, `default`, `ambiguous`, `open`, or
+  `base` (no variant applies; `requiredOutcome` does).
+
+Items carry `inheritedConditions {domain?, feature?}` when their tree nodes are conditioned.
+`contextExcluded` counts the scanned items the conditions dropped, and `excludedIntentIds` names the
+dropped items you asked for by `intentIds` or `sourceRefs`. `context: {}` returns the declared
+dimensions without narrowing. Without `context`, `contextNotSupplied {conditionedItems, dimensions}`
+means conditioned rules were returned unfiltered, every variant included: re-read with `context`
+before answering for one customer.

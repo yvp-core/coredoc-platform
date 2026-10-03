@@ -74,7 +74,7 @@ Indexed siblings remain usable for cross-repo questions.
 `intent_read`: `tree`, then `node`, then `search`. Rules for code you
 change: `get_intent_context` with `files`/`intentIds`.
 
-Release effectivity: see `workflows.md`.
+Intent read semantics: see `workflows.md`.
 
 `explain` is the default when the kind is uncertain: kinds merge into one result; a
 disambiguation list = a cross-file collision (re-call with `className`/`fileHint`); **`+N more`
