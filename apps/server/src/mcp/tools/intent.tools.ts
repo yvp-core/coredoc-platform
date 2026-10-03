@@ -416,26 +416,25 @@ const INTENT_READ_FIELDS: Record<IntentReadAction, readonly (keyof IntentReadToo
 
 const GET_INTENT_CONTEXT_DESCRIPTION =
   'Read the rules that apply to code you are about to edit or review: by files/nodeIds (anchors and graph ' +
-  'applicability), by the source a rule came from (sourceRefs), by exact intentIds (also rejected or superseded ones), ' +
-  'or for a specific customer context. It is not the tool for product questions: to learn what a domain or feature ' +
-  'does, what is open or what else it affects, use intent_read, which returns nodes whole. Prefer task (task text), files ({repoKey,path}) or known nodeIds, ' +
-  'known intentIds and an optional domain/feature in ONE call. The server fuses text, stored anchors and graph ' +
-  'applicability, deduplicates and ranks before bounding the answer. No index walk or local parser is required. ' +
-  'Refresh when the task expands to new code. Exact-id reads fetch missing payloads; list mode is for browsing, ' +
-  'not mandatory orientation. ' +
-  'Only accepted items are discovered unless includeCandidates is true; only exact ids reach rejected/superseded ' +
-  'items. sourceRefs selects items recorded from a source such as a Jira ticket ("jira:DAY-123"). Every item carries its version, match reason, sources and anchor evidence. An anchor is location, never ' +
-  'runtime conformance. Check truncated, scanTruncated, unresolvedFiles/nodeIds and graph limits/freshness; empty ' +
-  'or partial results do not establish that no rule applies. A missing graph degrades evidence, not lexical reads. ' +
-  'An empty KB returns status not_configured with a remedy. pendingReview reports the outstanding decisions. ' +
-  'With context, only items whose effective conditions (domain AND feature AND own appliesWhen) hold or stay open ' +
-  'are returned; contextMatch gives state (match|open|unevaluated), the open dimension ids, openBy (the levels ' +
-  'that left a dimension open) when a tree level takes part, and for a rule with variants the variant resolution ' +
-  '(resolved|default|ambiguous|open, or base: no variant applies, requiredOutcome does). Items carry ' +
-  'inheritedConditions {domain?, feature?} when their tree nodes are conditioned. Pass context when answering for a ' +
-  'specific customer or user; contextExcluded counts scanned items its conditions dropped, and excludedIntentIds ' +
-  'names the dropped items you asked for by intentIds or sourceRefs. contextNotSupplied ' +
-  '{conditionedItems, dimensions} means conditioned rules were returned unfiltered, every variant included.';
+  'applicability), by exact intentIds, by the source a rule was recorded from (sourceRefs, e.g. "jira:DAY-123"), or ' +
+  'for a specific customer context. It is not the tool for product questions: to learn what a domain or feature ' +
+  'does, what is open or what else it affects, use intent_read, which returns nodes whole. Prefer task (task text), ' +
+  'files ({repoKey,path}) or known nodeIds, known intentIds and an optional domain/feature in ONE call; the server ' +
+  'fuses text, stored anchors and graph applicability, deduplicates and ranks before bounding the answer. Refresh ' +
+  'when the task expands to new code. Exact-id reads fetch missing payloads; list mode is for browsing, not ' +
+  'mandatory orientation. Only accepted items are discovered unless includeCandidates is true; only exact ids reach ' +
+  'rejected/superseded items. Every item carries its version, match reason, sources and anchor evidence. An anchor ' +
+  'is location, never runtime conformance. Check truncated, scanTruncated, unresolvedFiles/nodeIds and graph ' +
+  'limits/freshness; empty or partial results do not establish that no rule applies. A missing graph degrades ' +
+  'evidence, not lexical reads. An empty KB returns status not_configured with a remedy. ' +
+  'Pass context when answering for a specific customer or user: only items whose effective conditions (domain AND ' +
+  'feature AND own appliesWhen) hold or stay open are returned; contextMatch gives state (match|open|unevaluated), ' +
+  'the open dimension ids, openBy (the levels that left a dimension open) when a tree level takes part, and for a ' +
+  'rule with variants the variant resolution (resolved|default|ambiguous|open, or base: no variant applies, ' +
+  'requiredOutcome does). Items carry inheritedConditions {domain?, feature?} when their tree nodes are conditioned. ' +
+  'contextExcluded counts scanned items its conditions dropped, and excludedIntentIds names the dropped items you ' +
+  'asked for by intentIds or sourceRefs. Without context, contextNotSupplied {conditionedItems, dimensions} means ' +
+  'conditioned rules were returned unfiltered, every variant included.';
 
 const INTENT_READ_DESCRIPTION =
   'Read the product intent the way you read a folder of Markdown files. ' +
@@ -452,37 +451,34 @@ const INTENT_READ_DESCRIPTION =
   'says TRUNCATED and how to get the rest. Requires the intent:read permission.';
 
 const INTENT_PROPOSE_DESCRIPTION =
-  'Propose intent CANDIDATES in this workspace: create new ones, or update a candidate by naming its id. `statement` is ' +
-  'one sentence that stands alone (the rule, or who wants what); everything else the item says goes in `body` as ' +
-  'Markdown lines (use-case bullets, numbered flow steps, a diagram). Proposing ' +
-  'never accepts intent and never touches an accepted item. An explicit human approval of a specification section ' +
-  'can authorize a separate intent_review for its unchanged verbatim items. Each item states its rule in `statement` so it stands without its payload, ' +
-  'names at least one source (where the intent came from), attaches to the product root or to one domain or one ' +
-  "feature (a domainId beside a featureId is a check and must be that feature's domain), and may carry anchor suggestions the server resolves against the workspace graph; an anchor is never " +
-  'conformance proof. Omit `id` and the server derives one from the title; a title whose slug does not fit the id ' +
-  'cap is REFUSED, because an id is immutable — pass a shorter title or an explicit id. ' +
-  'To offer a replacement for an accepted item, name it in proposedSuccessorOfId — the swap ' +
-  'itself is a reviewer decision. `appliesWhen` (AND-joined clauses {dimension, in|notIn}, {item}, {text}) says when ' +
-  'an item applies, and a business_rule payload may carry `variants` [{when?, outcome, inputs?}]; dimensions and ' +
-  'values must be declared with intent_tree, item clauses must name existing items or same-batch items proposed with an explicit id, ' +
-  'without a cycle, and overlapping variants or a second default are refused; `appliesWhen: []` clears conditions. ' +
-  'Items inherit their domain and feature conditions; set only conditions the approved text states. The response ' +
-  'may carry non-blocking hints[] {proposalIndex, kind: missing-condition|ambiguous-variants|dead-variant|unaccepted-condition-item, …} for ' +
-  'the reviewer; they never write a condition and are not a reason to ask the user. ' +
-  'Every call carries an idempotencyKey; replaying one changes nothing. Requires ' +
-  'the intent:propose permission.';
+  'Propose intent CANDIDATES in this workspace: create new ones, or update a candidate by naming its id. Proposing ' +
+  'never accepts intent and never touches an accepted item. `statement` is one sentence that stands alone without ' +
+  'its payload (the rule, or who wants what); everything else the item says goes in `body` as Markdown lines ' +
+  '(use-case bullets, numbered flow steps, a diagram). Each item names at least one source (where the intent came ' +
+  'from), attaches to the product root or to one domain or one feature (a domainId beside a featureId is a check ' +
+  "and must be that feature's domain), and may carry anchor suggestions the server resolves against the workspace " +
+  'graph; an anchor is never conformance proof. Omit `id` and the server derives one from the title; a title whose ' +
+  'slug does not fit the id cap is REFUSED, because an id is immutable — pass a shorter title or an explicit id. ' +
+  'To offer a replacement for an accepted item, name it in proposedSuccessorOfId — the swap itself is a reviewer ' +
+  'decision. `appliesWhen` (AND-joined clauses {dimension, in|notIn}, {item}, {text}) says when an item applies, ' +
+  'and a business_rule payload may carry `variants` [{when?, outcome, inputs?}]; dimensions and values must be ' +
+  'declared with intent_tree, item clauses must name existing items or same-batch items proposed with an explicit ' +
+  'id, without a cycle (a rejected or superseded target is refused; a candidate target is not evaluated), and ' +
+  'overlapping variants or a second default are refused; `appliesWhen: []` clears ' +
+  'conditions. Items inherit their domain and feature conditions. The response may carry non-blocking hints[] ' +
+  '{proposalIndex, kind: missing-condition|ambiguous-variants|dead-variant|unaccepted-condition-item, …} for the ' +
+  'reviewer; they never write a condition and are not a reason to ask the user. Every call carries an ' +
+  'idempotencyKey; replaying one changes nothing. Requires the intent:propose permission.';
 
 const INTENT_REVIEW_DESCRIPTION =
-  "Record the acting human's decisions: accept, reject, supersede, defer or needs_edit. Authority changes require " +
-  'either an explicit decision on the exact items or the human approval of an unchanged specification section ' +
-  '(including an authorized resumption). Spec approval covers only items whose complete statement, condition, ' +
-  'exceptions and scope are verbatim from that section. Read back the exact proposed ids and versions, verify ' +
-  'their whole content and sources.revision, and use that spec section/revision as authorizingSource (revision is required for kind spec). Do not ask ' +
-  'for a second approval of the same content. Supersede qualifies only when the approved section explicitly names ' +
-  'the replaced id; inference, paraphrase or a changed source needs an explicit human decision. Each decision ' +
-  'carries expectedVersion and a source-grounded reason; version conflicts write nothing. defer/needs_edit do not ' +
-  'change authority. Requires a user session of any workspace member; service tokens cannot review regardless of permissions. ' +
-  'The recorded actor is the authenticated user, never an identity supplied by the agent.';
+  "Record the acting human's decisions on exact items: accept, reject, supersede, defer or needs_edit. Authority " +
+  'changes require either an explicit human decision on those items or a human approval of an unchanged source ' +
+  'section (including an authorized resumption) whose items are verbatim from it, with that section and revision ' +
+  'as authorizingSource (revision is required for kind spec); a supersede qualifies under such an approval only ' +
+  'when the section names the replaced id. Each decision carries expectedVersion and a source-grounded reason; a ' +
+  'version conflict refuses that item and writes nothing. defer/needs_edit do not change authority. Requires a ' +
+  'user session of any workspace member; service tokens cannot review regardless of permissions. The recorded ' +
+  'actor is the authenticated user, never an identity supplied by the agent.';
 
 const INTENT_TREE_DESCRIPTION =
   "Edit this workspace's product-intent tree: domains, features, feature seeds — the graph nodes that stake out " +
@@ -500,7 +496,8 @@ const INTENT_TREE_DESCRIPTION =
   '(null moves it to the top level). layout is the node read as a document, in order: {heading, level: 2|3}, ' +
   '{lines: [Markdown]} and {item: id, style?: bullet|heading|prose} slots; an item with no slot is appended under ' +
   'its kind, and on update layout replaces the stored one ([] clears it); ' +
-  'feature.archive {id, archived}; feature.delete {id}; seed.put {featureId, repoKey, nodeId, note?}; ' +
+  'feature.archive {id, archived}; feature.delete {id}; seed.put {featureId, repoKey, nodeId, note?} (a repoKey the workspace ' +
+  'does not carry is refused with the registered identities listed: fix the id, do not retry); ' +
   'seed.delete {featureId, repoKey, nodeId}; dimension.create {id, title, values: [{id, title, aliases?}], multi?}; ' +
   'dimension.update {id, title?, values?, multi?} (values replaces the list); dimension.archive {id, archived}; ' +
   'dimension.delete {id}; relation.put {from: {kind: domain|feature, id}, to: {kind, id}, why} links two nodes a ' +
@@ -779,7 +776,7 @@ export class IntentTools {
     annotations: toolAnnotations('get_intent_context'),
     description:
       GET_INTENT_CONTEXT_DESCRIPTION +
-      ' Every read returns compact pendingReview and handoffFreshness {pending, needsAttention} counts; when needsAttention > 0, re-read with includeDiagnostics:true to get the operation ids, then use intent_handoff get to inspect and repair them. Default reads carry authority only, with no production or withdrawal information. With effectivity:true, effective means current according to recorded delivery evidence (currentRelease), not live monitoring. With effectivity:true each item may carry deliveries[] {repoKey, pr, seq, deliveredRef, orderingToken}, one per recorded delivery across repositories. Implement planned only when the task explicitly includes that approved change via its sources or a maintainer instruction; otherwise follow effective and report the plan. Never implement withdrawn; not_effective is a retired/replaced rule, not a plan to implement; unknown is not proof of production availability.',
+      ' Every read returns compact pendingReview (the outstanding decisions) and handoffFreshness {pending, needsAttention} counts; when needsAttention > 0, re-read with includeDiagnostics:true to get the operation ids, then use intent_handoff get to inspect and repair them. Default reads carry authority only, with no production or withdrawal information. With effectivity:true, effective means current according to recorded delivery evidence (currentRelease), not live monitoring, and each item may carry deliveries[] {repoKey, pr, seq, deliveredRef, orderingToken}, one per recorded delivery across repositories. Implement planned only when the task explicitly includes that approved change via its sources or a maintainer instruction; otherwise follow effective and report the plan. Never implement withdrawn; not_effective is a retired/replaced rule, not a plan to implement; unknown is not proof of production availability.',
     parameters: GetIntentContextSchema,
   })
   async getIntentContext(args: unknown, _context: Context, request: Request) {

@@ -76,21 +76,13 @@ context.
 
 ## Intent release effectivity
 
-On cloud servers exposing release effectivity, opt in with `effectivity: true` to distinguish
-recorded production rules from planned changes. `currentRelease` identifies the latest recorded
-evidence; it is not live deployment monitoring. Implement `planned` only when the current task
-explicitly includes that approved change through its sources or a maintainer instruction.
-Otherwise follow `effective` and report the relevant plan in review. Never implement `withdrawn`;
-`unknown` is not proof of production availability. `intent_release` preview/list are reads;
-record/rollback/plan/withdraw/reinstate require a person's own session (any workspace member). Merge, ticket closure,
-and graph publication do not prove availability. An uncertain write is retried with the same
-key, body and expected head; do not automatically update a stale head to force a delivery through.
+Intent tools (`intent_read`, `get_intent_context`, `intent_release`, …) exist only on the cloud
+workspace MCP; the local MCP has none. Their descriptions carry the effectivity contract; two
+readings they leave implicit:
 
-Intent tools exist only on the cloud workspace MCP. A production-aware response includes the `currentRelease` field (which can be null before
-any delivery); without that field, no production effectivity was established by the response.
-
-Default context/list reads carry authority only and provide no production or plan-withdrawal
-information. Opt in before reasoning about delivery or planned implementation. `not_effective`
-means the rule is excluded from recorded production state, including ancestors replaced before delivery; it does not authorize
-implementing it again. Inspect its history and the task's approved change rather than treating
-it as `planned`.
+- A read established production effectivity only if its response includes the `currentRelease`
+  field (null before any delivery). Opt in with `effectivity: true` before reasoning about delivery
+  or planned work.
+- `not_effective` means the rule is excluded from recorded production state, including ancestors
+  replaced before delivery. It never authorizes implementing the rule again: inspect its history and
+  the task's approved change rather than treating it as `planned`.
