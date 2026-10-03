@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   IntentAc10Verdict,
+  IntentLookupKind,
   IntentToolShape,
   analyzeIntentRun,
   extractIntentInteractions,
@@ -29,6 +30,7 @@ function transcript(
 }
 
 const INTENT_TOOL = 'mcp__coredoc-eval__get_intent_context';
+const READ_TOOL = 'mcp__coredoc-eval__intent_read';
 const ROUTED = { shape: IntentPromptShape.Routed, routedIntentIds: ['BR-2', 'CAP-1'] };
 const OPEN = { shape: IntentPromptShape.Open, routedIntentIds: [] as string[] };
 
@@ -39,7 +41,7 @@ describe('extractIntentInteractions', () => {
     );
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
-      shape: IntentToolShape.Mcp,
+      shape: IntentToolShape.Context,
       intentIds: ['BR-2'],
       includeCandidates: true,
       nodeIds: [],
@@ -47,26 +49,49 @@ describe('extractIntentInteractions', () => {
     expect(events[0]!.query).toBeUndefined();
   });
 
-  it('decodes CLI-shaped calls run through Bash, including repeated flags', () => {
+  it('decodes intent_read calls: tree is the index, node and search are discovery', () => {
     const events = extractIntentInteractions(
       transcript([
-        {
-          name: 'Bash',
-          input: {
-            command:
-              'node /repo/packages/cli/dist/index.js intent context --project intent-eval --id BR-2 --id CAP-1',
-          },
-        },
-        {
-          name: 'Bash',
-          input: { command: 'coredoc intent context -p intent-eval --query "rounding rules" --include-candidates' },
-        },
-        { name: 'Bash', input: { command: 'grep -rn roundCurrency src' } },
+        { name: READ_TOOL, input: { action: 'tree' } },
+        { name: READ_TOOL, input: { action: 'node', domain: 'pricing', includeCandidates: true } },
+        { name: READ_TOOL, input: { action: 'search', query: 'rounding' } },
       ]),
     );
-    expect(events).toHaveLength(2);
-    expect(events[0]).toMatchObject({ shape: IntentToolShape.Cli, intentIds: ['BR-2', 'CAP-1'] });
-    expect(events[1]).toMatchObject({ query: 'rounding rules', includeCandidates: true });
+    expect(events.map((event) => [event.shape, event.kind, event.broad])).toEqual([
+      [IntentToolShape.Read, IntentLookupKind.Index, false],
+      [IntentToolShape.Read, IntentLookupKind.Discovery, true],
+      [IntentToolShape.Read, IntentLookupKind.Discovery, true],
+    ]);
+    expect(events[1]).toMatchObject({ includeCandidates: true, intentIds: [] });
+    expect(events[2]!.query).toBe('rounding');
+  });
+
+  it('counts the cloud context selectors beyond query and nodeIds as discovery', () => {
+    const kinds = extractIntentInteractions(
+      transcript([
+        { name: INTENT_TOOL, input: { task: { text: 'add a service fee' } } },
+        { name: INTENT_TOOL, input: { sourceRefs: ['spec/widget-ordering'] } },
+        { name: INTENT_TOOL, input: { files: [{ repoKey: 'fixture-repo', path: 'src/a.ts' }] } },
+        { name: INTENT_TOOL, input: { domain: 'pricing' } },
+        { name: INTENT_TOOL, input: { mode: 'list', domain: 'pricing' } },
+        { name: INTENT_TOOL, input: { intentIds: ['BR-2'], task: { text: 'fee' } } },
+      ]),
+    ).map((event) => event.kind);
+    expect(kinds).toEqual([
+      IntentLookupKind.Discovery,
+      IntentLookupKind.Discovery,
+      IntentLookupKind.Discovery,
+      IntentLookupKind.Discovery,
+      IntentLookupKind.Index,
+      IntentLookupKind.Mixed,
+    ]);
+  });
+
+  it('no longer reads the retired `coredoc intent context` CLI as an intent interaction', () => {
+    const events = extractIntentInteractions(
+      transcript([{ name: 'Bash', input: { command: 'coredoc intent context -p intent-eval --id BR-2' } }]),
+    );
+    expect(events).toEqual([]);
   });
 
   it('ignores unrelated MCP and base tools', () => {
@@ -330,17 +355,42 @@ describe('analyzeIntentRun — broad-lookup classification (review P1-1, P1-3)',
     expect(analysis.reasons.join(' ')).toMatch(/discovery|combined/i);
   });
 
-  it('classifies the same shapes for the CLI surface', () => {
+  it('spends the one broad lookup across both cloud tools', () => {
     const analysis = analyzeIntentRun({
       arm: 'intent',
       task: OPEN,
       transcript: transcript([
-        { name: 'Bash', input: { command: 'coredoc intent context -p intent-eval' } },
-        { name: 'Bash', input: { command: 'coredoc intent context -p intent-eval --id BR-2 --query rounding' } },
+        { name: READ_TOOL, input: { action: 'tree' } },
+        { name: READ_TOOL, input: { action: 'search', query: 'rounding' } },
+        { name: INTENT_TOOL, input: { query: 'discount' } },
       ]),
     });
+    expect(analysis.indexCalls).toBe(1);
     expect(analysis.broadLookups).toBe(2);
     expect(analysis.verdict).toBe(IntentAc10Verdict.Violation);
+  });
+
+  it('treats an intent_read call on a routed task as a broad lookup, never as an exact fetch', () => {
+    const analysis = analyzeIntentRun({
+      arm: 'intent',
+      task: ROUTED,
+      transcript: transcript([
+        { name: INTENT_TOOL, input: { intentIds: ['BR-2', 'CAP-1'] } },
+        { name: READ_TOOL, input: { action: 'node', domain: 'pricing' } },
+      ]),
+    });
+    expect(analysis.fetchedIds).toEqual(['BR-2', 'CAP-1']);
+    expect(analysis.broadLookups).toBe(1);
+    expect(analysis.verdict).toBe(IntentAc10Verdict.Violation);
+  });
+
+  it('flags a control that answered an intent_read call as contaminated', () => {
+    const analysis = analyzeIntentRun({
+      arm: 'baseline',
+      task: OPEN,
+      transcript: transcript([{ name: READ_TOOL, input: { action: 'tree' } }]),
+    });
+    expect(analysis.verdict).toBe(IntentAc10Verdict.ContaminatedControl);
   });
 });
 
@@ -409,6 +459,18 @@ describe('analyzeIntentRun — contamination is gating (review P1-5)', () => {
       task: OPEN,
       transcript: transcript([{ name: 'Bash', input: { command: 'cat .coredoc/intent.json' } }]),
     });
+    expect(analysis.verdict).toBe(IntentAc10Verdict.ContaminatedControl);
+  });
+
+  it('marks a baseline arm that read the cloud seed file as a contaminated control', () => {
+    const analysis = analyzeIntentRun({
+      arm: 'baseline',
+      task: OPEN,
+      transcript: transcript([
+        { name: 'Read', input: { file_path: '/repo/evals/cases-intent/seed-intent.json' } },
+      ]),
+    });
+    expect(analysis.overlayFileReads).toBe(1);
     expect(analysis.verdict).toBe(IntentAc10Verdict.ContaminatedControl);
   });
 
@@ -776,7 +838,7 @@ describe('analyzeIntentRun — codex transcripts', () => {
       task: ROUTED,
       transcript: codexTranscript([{ args: { intentIds: ['BR-2', 'CAP-1'] } }]),
     });
-    expect(analysis.calls[0]).toMatchObject({ shape: IntentToolShape.Mcp, intentIds: ['BR-2', 'CAP-1'] });
+    expect(analysis.calls[0]).toMatchObject({ shape: IntentToolShape.Context, intentIds: ['BR-2', 'CAP-1'] });
     expect(analysis.broadLookups).toBe(0);
     expect(analysis.exactIdCalls).toBe(1);
     expect(analysis.verdict).toBe(IntentAc10Verdict.Pass);
@@ -834,18 +896,6 @@ describe('analyzeIntentRun — codex transcripts', () => {
     expect(analysis.deniedInteractions).toBe(1);
     expect(analysis.interactions).toBe(0);
     expect(analysis.verdict).toBe(IntentAc10Verdict.NoAdoption);
-  });
-
-  it('reads the intent CLI out of a codex shell item, whose input is a bare string', () => {
-    const analysis = analyzeIntentRun({
-      arm: 'intent',
-      task: ROUTED,
-      transcript: codexTranscript([
-        { command: "/bin/zsh -lc 'coredoc intent context --id BR-2 --id CAP-1'" },
-      ]),
-    });
-    expect(analysis.calls[0]).toMatchObject({ shape: IntentToolShape.Cli, intentIds: ['BR-2', 'CAP-1'] });
-    expect(analysis.verdict).toBe(IntentAc10Verdict.Pass);
   });
 
   it('is a clean control — not a no-adoption failure — when the codex baseline was given no server', () => {

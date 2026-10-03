@@ -4,6 +4,7 @@ import {
   query,
   type CanUseTool,
   type HookCallback,
+  type McpServerConfig,
   type PreToolUseHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import {
@@ -205,6 +206,13 @@ export interface RunAgentOpts {
   additionalReadRoots?: readonly string[];
   mcpServerCommand?: string;
   mcpServerEnv?: Record<string, string>;
+  /**
+   * A remote (streamable HTTP) MCP server under the same harness-owned key, used
+   * when `mcpServerCommand` is not. Unlike the spawned server it is attached
+   * whatever the arm factors say: the caller allowlists its tools through
+   * `extraTools`, so a cloud server's graph tools stay out of the arm unless named.
+   */
+  mcpServerHttp?: { url: string; headers?: Record<string, string> };
   /** Local SDK plugins used by the planning-arm experiment. */
   pluginPaths?: readonly string[];
   /** Plugin-provided skills preloaded through an SDK main-agent definition. */
@@ -572,6 +580,35 @@ export function workspaceFaultResult(opts: {
   };
 }
 
+/** The SDK `mcpServers` entry for one run; see EVAL_MCP_SERVER_NAME for why the key is harness-owned. */
+export function buildMcpServers(
+  opts: Pick<RunAgentOpts, 'mcpServerCommand' | 'mcpServerEnv' | 'mcpServerHttp'>,
+  armUsesMcp: boolean,
+): Record<string, McpServerConfig> | undefined {
+  if (armUsesMcp && opts.mcpServerCommand) {
+    return {
+      [EVAL_MCP_SERVER_NAME]: {
+        command: 'node',
+        args: [opts.mcpServerCommand],
+        env: {
+          ...opts.mcpServerEnv,
+          COREDOC_MCP_METRICS_DISABLED: '1',
+        },
+      },
+    };
+  }
+  if (opts.mcpServerHttp) {
+    return {
+      [EVAL_MCP_SERVER_NAME]: {
+        type: 'http',
+        url: opts.mcpServerHttp.url,
+        ...(opts.mcpServerHttp.headers ? { headers: opts.mcpServerHttp.headers } : {}),
+      },
+    };
+  }
+  return undefined;
+}
+
 export async function runAgent(opts: RunAgentOpts): Promise<CurrentAgentRunResult> {
   // Before anything is spawned or billed: the cwd must hold the checkout this
   // arm is supposed to read (see agentWorkspaceFault).
@@ -596,20 +633,7 @@ export async function runAgent(opts: RunAgentOpts): Promise<CurrentAgentRunResul
     historyless ? false : armFactors.mcp,
   );
 
-  // See EVAL_MCP_SERVER_NAME for why the key is harness-owned.
-  const mcpServers =
-    armFactors.mcp && opts.mcpServerCommand
-      ? {
-          [EVAL_MCP_SERVER_NAME]: {
-            command: 'node',
-            args: [opts.mcpServerCommand],
-            env: {
-              ...opts.mcpServerEnv,
-              COREDOC_MCP_METRICS_DISABLED: '1',
-            },
-          },
-        }
-      : undefined;
+  const mcpServers = buildMcpServers(opts, armFactors.mcp);
   // Worktree runs get the analogous envelope, pinned to the worktree root: a
   // 2026-08-24 acme-calculations agent walked out of its pinned worktree and read
   // the user's live checkout, so the answer cited an unevaluated revision. Only

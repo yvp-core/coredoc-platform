@@ -3,15 +3,15 @@
  * AC-10 verdicts from OBSERVED tool events — never from artifact text (D6).
  *
  * Reads the transcript through the shared {@link extractToolEvents} primitive,
- * decodes every `get_intent_context` interaction (MCP tool call or the
- * equivalent `coredoc intent context` CLI invocation run through Bash), and
- * applies the two bounds BR-8/ADR-3 promise:
+ * decodes every call to the workspace MCP intent tools (`get_intent_context`
+ * and `intent_read`), and applies the two bounds BR-8/ADR-3 promise:
  *
  *   routed ids  → fetch exactly those ids (all of them), no broad lookup at all
  *   no ids      → at most ONE broad lookup per stage
  *
  * A lookup is BROAD unless it is a pure exact-id fetch or the payload-free
- * index. Discovery (`query` / `nodeIds`) is broad; so is a SELECTOR-LESS
+ * index. Discovery (`query`, `nodeIds`, `task`, `files`, `sourceRefs`, a
+ * `domain`/`feature`/`kind` scope, and every `intent_read` node or search) is broad; so is a SELECTOR-LESS
  * context call, which is in fact the broadest request the engine serves — with
  * no selector at all it returns every accepted item up to the limit; so is a
  * call that mixes `intentIds` with a `query`/`nodeIds`, because the engine runs
@@ -34,16 +34,22 @@
 import { extractToolEvents } from './analyze-mcp.js';
 import type { IntentPromptShape } from '../cases-intent/tasks.js';
 
-/** The MCP tool name under the harness-owned server key (see agent.ts). */
+/** The workspace MCP intent tools under the harness-owned server key (see agent.ts). */
 export const INTENT_MCP_TOOL = 'mcp__coredoc-eval__get_intent_context';
+export const INTENT_READ_MCP_TOOL = 'mcp__coredoc-eval__intent_read';
+export const INTENT_MCP_TOOLS: readonly string[] = [INTENT_MCP_TOOL, INTENT_READ_MCP_TOOL];
 
-/** Path fragment that identifies the overlay file itself. */
-const OVERLAY_PATH_FRAGMENT = '.coredoc/intent.json';
+/** Intent files on disk an arm must not read: the retired overlay and the eval's seed. */
+const INTENT_FILE_FRAGMENTS = ['.coredoc/intent.json', 'seed-intent.json'];
+const INTENT_FILES_LABEL = INTENT_FILE_FRAGMENTS.join(' / ');
 
 export enum IntentToolShape {
-  Mcp = 'mcp',
-  Cli = 'cli',
+  Context = 'get_intent_context',
+  Read = 'intent_read',
 }
+
+/** `intent_read` actions: `tree` is the payload-free index, `node` and `search` return item text. */
+export const INTENT_READ_TREE_ACTION = 'tree';
 
 /** The tool's `mode` argument (issue 10, BR-28). Absent means `context`. */
 export const INTENT_LIST_MODE = 'list';
@@ -75,9 +81,11 @@ export function classifyLookup(call: {
   query?: string;
   nodeIds: readonly string[];
   mode?: string;
+  /** Any other discovery selector the call carried (`task`, `files`, `sourceRefs`, a scope). */
+  scoped?: boolean;
 }): IntentLookupKind {
   const hasIds = call.intentIds.length > 0;
-  const hasDiscovery = call.query !== undefined || call.nodeIds.length > 0;
+  const hasDiscovery = call.query !== undefined || call.nodeIds.length > 0 || call.scoped === true;
   if (call.mode === INTENT_LIST_MODE && !hasIds && !hasDiscovery) return IntentLookupKind.Index;
   if (hasIds && hasDiscovery) return IntentLookupKind.Mixed;
   if (hasIds) return IntentLookupKind.Exact;
@@ -240,8 +248,7 @@ export type IntentArmId = 'baseline' | 'intent';
  *
  * Per-session AC-10 semantics are UNCHANGED by this split: the same shapes
  * produce the same `pass`/`violation` verdicts and the same `reasons`. Only the
- * run-level aggregation (the intent runner, being rebuilt on cloud intent)
- * reads the severities. One
+ * run-level aggregation in `run-intent.ts` reads the severities. One
  * consequence is deliberate and stays visible: a session can be per-session
  * `pass` and still carry a hard finding — one selector-less lookup on an open
  * task sits inside the one-broad-lookup budget, so the session passes, but the
@@ -290,7 +297,7 @@ export interface IntentRunAnalysis {
   broadByKind: Record<IntentLookupKind, number>;
   /** Calls the host refused (permission denial or tool error) — no intent was delivered. */
   deniedInteractions: number;
-  /** Direct reads of `.coredoc/intent.json` through Read/Grep/Glob/Bash. */
+  /** Direct reads of an intent file (overlay or seed) through Read/Grep/Glob/Bash. */
   overlayFileReads: number;
   reasons: string[];
   /**
@@ -310,54 +317,63 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
 }
 
-/** Split a shell command into tokens, honouring single and double quotes. */
-function tokenize(command: string): string[] {
-  const tokens: string[] = [];
-  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(command)) !== null) {
-    tokens.push(match[1] ?? match[2] ?? match[3] ?? '');
-  }
-  return tokens;
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value : undefined;
 }
 
 /**
- * Decode a `coredoc intent context` invocation. The CLI is the second sanctioned
- * read surface (issue 05 methodology), so an arm that uses it is adopting the
- * capability just as much as one calling the MCP tool — counting only MCP calls
- * would report `no-adoption` for a compliant run.
+ * `get_intent_context` input. `domain`, `feature` and `kind` narrow a list-mode
+ * index without making it a lookup; in context mode they scope a discovery read.
  */
-function decodeCliInvocation(
-  command: string,
-  toolUseId: string,
-  seenIds: ReadonlySet<string>,
-): IntentToolInteraction | null {
-  if (!/\bintent\s+context\b/.test(command)) return null;
-  const tokens = tokenize(command);
-  const intentIds: string[] = [];
-  const nodeIds: string[] = [];
-  let query: string | undefined;
-  let includeCandidates = false;
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i]!;
-    const next = tokens[i + 1];
-    if (token === '--id' && next) intentIds.push(next);
-    else if (token === '--node-id' && next) nodeIds.push(next);
-    else if ((token === '--query' || token === '-q') && next) query = next;
-    else if (token === '--include-candidates') includeCandidates = true;
-  }
-  const kind = classifyLookup({ intentIds, ...(query !== undefined ? { query } : {}), nodeIds });
-  return {
-    shape: IntentToolShape.Cli,
-    toolUseId,
+function decodeContextCall(input: Record<string, unknown>): Omit<IntentToolInteraction, 'toolUseId' | 'derivedIds' | 'denied'> {
+  const intentIds = asStringArray(input.intentIds);
+  const nodeIds = asStringArray(input.nodeIds);
+  const query = nonEmptyString(input.query);
+  const mode = nonEmptyString(input.mode);
+  const hasScope = input.domain !== undefined || input.feature !== undefined || input.kind !== undefined;
+  const scoped =
+    input.task !== undefined ||
+    asStringArray(input.sourceRefs).length > 0 ||
+    (Array.isArray(input.files) && input.files.length > 0) ||
+    (mode !== INTENT_LIST_MODE && hasScope);
+  const kind = classifyLookup({
     intentIds,
     ...(query !== undefined ? { query } : {}),
     nodeIds,
-    includeCandidates,
+    ...(mode !== undefined ? { mode } : {}),
+    scoped,
+  });
+  return {
+    shape: IntentToolShape.Context,
+    intentIds,
+    ...(query !== undefined ? { query } : {}),
+    nodeIds,
+    includeCandidates: input.includeCandidates === true,
     kind,
     broad: isBroadKind(kind),
-    derivedIds: intentIds.filter((id) => seenIds.has(id)),
-    denied: false,
+  };
+}
+
+/**
+ * `intent_read` input. `tree` lists the nodes with no item payloads — the same
+ * orientation role as list mode. `node` opens a whole domain or feature and
+ * `search` matches item text: both deliver payloads chosen by the call, not by
+ * exact id, so both are discovery.
+ */
+function decodeReadCall(input: Record<string, unknown>): Omit<IntentToolInteraction, 'toolUseId' | 'derivedIds' | 'denied'> {
+  const query = nonEmptyString(input.query);
+  const kind =
+    input.action === INTENT_READ_TREE_ACTION
+      ? IntentLookupKind.Index
+      : classifyLookup({ intentIds: [], ...(query !== undefined ? { query } : {}), nodeIds: [], scoped: true });
+  return {
+    shape: IntentToolShape.Read,
+    intentIds: [],
+    ...(query !== undefined ? { query } : {}),
+    nodeIds: [],
+    includeCandidates: input.includeCandidates === true,
+    kind,
+    broad: isBroadKind(kind),
   };
 }
 
@@ -372,8 +388,8 @@ export function extractIntentInteractions(transcript: unknown[]): IntentToolInte
   // agent had already been TOLD, which is why the walk is ordered (D9).
   const seenIds = new Set<string>();
   // Results can contain arbitrary JSON from Read/Bash/other MCP tools. Only a
-  // successful response to the sanctioned intent reader may establish an id
-  // for a later D9 hop.
+  // successful response to a sanctioned intent tool may establish an id for a
+  // later D9 hop.
   const intentUseIds = new Set<string>();
   for (const event of events) {
     if (event.kind === 'result') {
@@ -382,84 +398,28 @@ export function extractIntentInteractions(transcript: unknown[]): IntentToolInte
       }
       continue;
     }
-    if (event.toolName === INTENT_MCP_TOOL) {
-      intentUseIds.add(event.toolUseId);
-      const input = (event.input ?? {}) as Record<string, unknown>;
-      const intentIds = asStringArray(input.intentIds);
-      const nodeIds = asStringArray(input.nodeIds);
-      const query = typeof input.query === 'string' && input.query.trim() !== '' ? input.query : undefined;
-      const mode = typeof input.mode === 'string' ? input.mode : undefined;
-      const kind = classifyLookup({
-        intentIds,
-        ...(query !== undefined ? { query } : {}),
-        nodeIds,
-        ...(mode !== undefined ? { mode } : {}),
-      });
-      interactions.push({
-        shape: IntentToolShape.Mcp,
-        toolUseId: event.toolUseId,
-        intentIds,
-        ...(query !== undefined ? { query } : {}),
-        nodeIds,
-        includeCandidates: input.includeCandidates === true,
-        kind,
-        broad: isBroadKind(kind),
-        derivedIds: intentIds.filter((id) => seenIds.has(id)),
-        denied: failedByUseId.has(event.toolUseId),
-      });
-      continue;
-    }
-    const command = commandTextOf(event.toolName, event.input);
-    if (command === null) continue;
-    const decoded = decodeCliInvocation(command, event.toolUseId, seenIds);
-    if (decoded) {
-      intentUseIds.add(event.toolUseId);
-      interactions.push({ ...decoded, denied: failedByUseId.has(event.toolUseId) });
-    }
+    if (event.toolName !== INTENT_MCP_TOOL && event.toolName !== INTENT_READ_MCP_TOOL) continue;
+    intentUseIds.add(event.toolUseId);
+    const input = (event.input ?? {}) as Record<string, unknown>;
+    const decoded = event.toolName === INTENT_MCP_TOOL ? decodeContextCall(input) : decodeReadCall(input);
+    interactions.push({
+      ...decoded,
+      toolUseId: event.toolUseId,
+      derivedIds: decoded.intentIds.filter((id) => seenIds.has(id)),
+      denied: failedByUseId.has(event.toolUseId),
+    });
   }
   return interactions;
 }
 
-/** Bash input is `{command}` for the Claude SDK and a bare string for codex. */
-function commandTextOf(toolName: string, input: unknown): string | null {
-  if (toolName !== 'Bash') return null;
-  if (typeof input === 'string') return unwrapShellCommand(input);
-  const command = (input as { command?: unknown } | null)?.command;
-  return typeof command === 'string' ? unwrapShellCommand(command) : null;
-}
-
-const SHELL_BINARY = /^(?:.*\/)?(?:ba|z|da|k)?sh$/;
-
 /**
- * Unwrap codex's shell envelope.
+ * Direct reads of an intent file on disk.
  *
- * Codex reports every command as `/bin/zsh -lc '<script>'`, so the script the
- * agent actually ran is ONE quoted token — {@link tokenize} would hand
- * `decodeCliInvocation` a single blob and every `--id` flag would vanish, i.e.
- * a compliant codex session that used `coredoc intent context` would be
- * reported as `no-adoption`. Claude's Bash input carries the bare command and
- * is returned untouched.
- */
-export function unwrapShellCommand(command: string): string {
-  const tokens = tokenize(command);
-  if (tokens.length < 2) return command;
-  const [binary, ...rest] = tokens as [string, ...string[]];
-  if (!SHELL_BINARY.test(binary)) return command;
-  const script = rest.at(-1)!;
-  // Everything between the shell and the script must be a flag; anything else
-  // (a filename, a redirect) means this is not the `-c <script>` shape.
-  if (!rest.slice(0, -1).every((token) => token.startsWith('-'))) return command;
-  if (!rest.slice(0, -1).some((token) => /^-[a-z]*c$/.test(token))) return command;
-  return script;
-}
-
-/**
- * Direct reads of the overlay file.
- *
- * The pilot overlay is repo-local, so it sits inside the agent's cwd and a
- * baseline arm CAN read it with an ordinary file tool. That is contamination,
- * not adoption: it is reported per run so a baseline artifact grounded in the
- * overlay is never mistaken for evidence that intent context is unnecessary.
+ * The cloud workspace is seeded from `seed-intent.json` in this repository, and
+ * a checkout that still carries a repo-local overlay would expose it too. A
+ * file tool reaching either is contamination, not adoption: it is reported per
+ * run so a baseline artifact grounded in it is never mistaken for evidence that
+ * intent context is unnecessary.
  */
 export function detectOverlayFileReads(transcript: unknown[]): number {
   let count = 0;
@@ -473,7 +433,7 @@ export function detectOverlayFileReads(transcript: unknown[]): number {
         if (typeof value === 'string') haystacks.push(value);
       }
     }
-    if (haystacks.some((text) => text.includes(OVERLAY_PATH_FRAGMENT))) count += 1;
+    if (haystacks.some((text) => INTENT_FILE_FRAGMENTS.some((fragment) => text.includes(fragment)))) count += 1;
   }
   return count;
 }
@@ -565,7 +525,7 @@ export function analyzeIntentRun(input: AnalyzeIntentRunInput): IntentRunAnalysi
     if (overlayFileReads > 0) {
       note(
         IntentViolationSeverity.Hard,
-        `overlay contamination: ${overlayFileReads} direct read(s) of ${OVERLAY_PATH_FRAGMENT}`,
+        `overlay contamination: ${overlayFileReads} direct read(s) of ${INTENT_FILES_LABEL}`,
       );
     }
     // A control that was reached by intent cannot serve as the control: every
@@ -601,7 +561,7 @@ export function analyzeIntentRun(input: AnalyzeIntentRunInput): IntentRunAnalysi
   if (broadByKind[IntentLookupKind.SelectorLess] > 0) {
     note(
       IntentViolationSeverity.Hard,
-      `${broadByKind[IntentLookupKind.SelectorLess]} selector-less call(s) (no intentIds, query or nodeIds) — ` +
+      `${broadByKind[IntentLookupKind.SelectorLess]} selector-less call(s) (no ids, query or other selector) — ` +
         'the engine answers those with every accepted item up to the limit, the broadest lookup there is',
     );
   }
@@ -654,7 +614,7 @@ export function analyzeIntentRun(input: AnalyzeIntentRunInput): IntentRunAnalysi
   if (overlayFileReads > 0) {
     note(
       IntentViolationSeverity.Hard,
-      `overlay contamination: ${overlayFileReads} direct read(s) of ${OVERLAY_PATH_FRAGMENT} bypassing the bounded read surface`,
+      `overlay contamination: ${overlayFileReads} direct read(s) of ${INTENT_FILES_LABEL} bypassing the bounded read surface`,
     );
   }
 

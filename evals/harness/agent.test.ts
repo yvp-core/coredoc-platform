@@ -635,6 +635,45 @@ describe('runAgent planning extensions', () => {
   );
 });
 
+describe('runAgent remote MCP server', () => {
+  it('attaches an HTTP server under the harness key and allowlists only the tools the caller names', async () => {
+    mockBehavior = 'complete';
+    capturedQueryOptions = undefined;
+    const dir = checkoutDir('evals-agent-http-mcp-');
+    try {
+      await runAgent({
+        prompt: 'hi',
+        systemPrompt: 'sys',
+        model: 'claude-sonnet-5',
+        cwd: dir,
+        arm: 'withoutMcp',
+        baseTools: ['Read', 'Grep', 'Glob'],
+        extraTools: ['mcp__coredoc-eval__get_intent_context'],
+        mcpServerHttp: { url: 'http://localhost:3000/api/v1/workspaces/ws/mcp', headers: { Authorization: 'Bearer t' } },
+        maxTurns: 5,
+        timeoutMs: 10_000,
+        transcriptPath: join(dir, 'transcript.json'),
+      });
+      expect(capturedQueryOptions?.mcpServers).toEqual({
+        [EVAL_MCP_SERVER_NAME]: {
+          type: 'http',
+          url: 'http://localhost:3000/api/v1/workspaces/ws/mcp',
+          headers: { Authorization: 'Bearer t' },
+        },
+      });
+      expect(capturedQueryOptions?.allowedTools).toEqual([
+        'Read',
+        'Grep',
+        'Glob',
+        'mcp__coredoc-eval__get_intent_context',
+      ]);
+      expect(capturedQueryOptions?.strictMcpConfig).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('runAgent no-checkout tool isolation', () => {
   it('exposes only coredoc-eval MCP tools in the with-MCP arm', async () => {
     mockBehavior = 'complete';
