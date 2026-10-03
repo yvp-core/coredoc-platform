@@ -1,6 +1,6 @@
 ---
 name: intent-capture
-description: Propose reviewed product intent (capabilities, use cases, flows, business rules, limitations, decisions) into a coredoc workspace with `intent_propose`; accept the unchanged verbatim items of a document a person has just approved, under that single approval; bootstrap inherited intent from a brownfield codebase as bounded, source-classified packets; and execute a maintainer's explicit review decisions with `intent_review`. Use when a PRD, specification, ADR, or product decision is approved, when asked to bootstrap or inventory existing intent, or when a maintainer asks to review known candidates. Do not use to read intent (`intent_read`, `get_intent_context`), and never infer acceptance from code or from your own recommendation. Invoked by `coredoc-prd` or `coredoc-spec` when a person approves the PRD, the PRD-less specification or the ADR (`spec accept` for a standalone spec); run it standalone only for an already-approved document.
+description: Propose reviewed product intent (`intent_propose`) and execute its approval: when a PRD, spec, ADR or product decision is approved, to bootstrap brownfield intent, or for a maintainer's review. Do not use to read intent (`intent_read`/`get_intent_context`); never infer acceptance from code or from your own recommendation. Invoked by `coredoc-prd` or `coredoc-spec` when a person approves the PRD, the PRD-less specification or the ADR (`spec accept` for a standalone spec); run it standalone only for an already-approved document.
 ---
 
 # Propose product intent as candidates
@@ -11,43 +11,43 @@ A person decides authority. Proposals enter as candidates. Execute only an expli
 
 Product intent lives in a cloud workspace. The workspace MCP exposes `intent_propose` / `intent_review` / `intent_tree` / `intent_anchor`; use those tools only. The authenticated workspace *is* the product — never send, ask for, or invent a `projectId`. Without those tools there is no write surface: say so and stop. There is no local fallback, and no file to edit instead.
 
-If the cloud answers "this workspace has no product intent yet", create the first domain yourself with `intent_tree` (`domain.create`) in the user's own session (any workspace member), and say what you created. A service-token session drafts the domain set and stops.
+**Sessions.** Tree, review, anchor and source-update writes run only in the acting person's own session (any workspace member). A service-token session may read and propose; for anything else it drafts the change in the reply and stops. Later sections say "per §1" for this rule.
+
+If the cloud answers "this workspace has no product intent yet", create the first domain yourself with `intent_tree` (`domain.create`) per §1, and say what you created.
 
 ## 2. Source and placement
 
 - **The source must be reviewed and finalized**: a merged spec section, an ADR, an explicit product decision from the user, or a ticket they point at. Code, tests, AI summaries, and the graph can *support* a statement; they cannot *be* the source of one. The one exception is bootstrap mode (§4), where unreviewed evidence is classified and framed explicitly. If it is not decided yet, say so and stop.
-- **Placement:** an item attaches to the product root, one `domainId`, or one `featureId` (a `domainId` beside it must be its domain). Read the tree with `intent_read tree` first. A domain or feature the tree does not declare is yours to create per §5 before you propose into it — reuse a node that honestly fits first, and name what you created and placed there.
+- **Placement:** an item attaches to the product root, one `domainId`, or one `featureId`. Read the tree with `intent_read tree` first. Reuse a node that honestly fits; otherwise the missing domain or feature is yours to create per §5 before you propose into it, and you name what you created and placed there.
 
 ## 3. Draft the proposals
 
-`intent_propose` item fields; anything else is refused, and a refusal writes nothing:
+`intent_propose` item fields:
 
 | field | value |
 |---|---|
-| `id` | **normally omit** — the server derives a kind-prefixed slug from the title (`br-refund-window`); supply one only when a derivation refusal asks for it |
+| `id` | **normally omit** — the server derives a slug from the title; supply one only when a derivation refusal asks for it, or for a same-batch `{item}` reference |
 | `kind` | `capability` \| `use_case` \| `flow` \| `business_rule` \| `limitation` \| `decision` |
-| `title` | a few words that state the rule, **not a sentence** (`Refund window is 30 days`, not `Refund window`): its slug becomes the id, and a title too long to fit the id cap is refused (pass a shorter title, or an explicit `id`) |
+| `title` | a few words that state the rule, **not a sentence** (`Refund window is 30 days`, not `Refund window`) |
 | `statement` | ONE sentence, self-contained: it must read without its body or payload |
 | `body` | optional Markdown lines for everything else (use-case bullets, flow steps, a diagram) |
 | `rationale` | optional; why this is the rule |
 | `payload` | **optional** structured detail, validated per kind (table below) |
 | `appliesWhen` | optional context conditions (below); `[]` clears them |
-| `domainId` / `featureId` | at most one; both absent = the product root |
+| `domainId` / `featureId` | at most one placement; both absent = the product root |
 | `proposedSuccessorOfId` | only when this candidate is meant to replace a specific accepted item |
 | `sources[]` | `{ kind: spec\|issue\|adr\|manual, ref, localId, revision?, locator?, title?, url? }`, at least one; `title`+`url` on every citing item (fix later: `intent_source_update`) |
 | `anchorSuggestions[]` | optional `{ repoKey, nodeId, rationale? }` |
 
-Enforced — a violation is a rejection, not a warning:
+Anything outside the table is refused, and a refusal writes nothing. Decide these before the call:
 
-- **No `authority` key.** A proposal is a candidate by construction.
-- **Unknown keys reject the whole batch**, which is what keeps prompts, transcripts, and file bodies out of the workspace.
-- **`sources[]` identity is exact `(ref, localId)`, scoped to the workspace** — artifact plus position inside it, so `ref` is repo-qualified: `<repoKey>:<path>` (two repositories in one workspace can both hold `docs/spec.md` with a `BR-1`, and an unqualified path would overwrite the other repository's candidate). Propose upserts on it: an explicit `id` updates that candidate, otherwise a matching source identity updates the existing candidate instead of appending a duplicate. Keep the pair stable across runs and precise per statement.
-- **Ids are immutable.** Never rename an id to update something; a semantic rename is a new item plus the maintainer's supersede decision.
-- **Anchor suggestions carry no graph facts** — you send `repoKey` + `nodeId` and a reason; node type and the drift baseline are resolved server-side. Never invent or reconstruct a node id from a file path. Suggest only ids you read out of tool output.
+- **Source identity is exact `(ref, localId)`, workspace-wide.** Make `ref` repo-qualified, `<repoKey>:<path>`: two repositories can both hold `docs/spec.md` with a `BR-1`, and an unqualified path overwrites the other repository's candidate. Propose upserts on the pair, so keep it stable across runs and precise per statement.
+- **Ids are immutable.** A semantic rename is a new item (`proposedSuccessorOfId`) plus the maintainer's supersede decision, never an edited id.
+- **Never build a node id yourself.** Anchor suggestions send `repoKey` + `nodeId` + a reason; suggest only ids you read out of tool output, never one reconstructed from a file path.
 
 On you — nothing checks these:
 
-- **Statements only.** Never paste source bodies, prompts, transcripts, file contents, credentials, or long quotes. Preserve the approved statement and its restrictions within the contract’s field limits; do not copy the surrounding document.
+- **Statements only.** Never paste source bodies, prompts, transcripts, file contents, credentials, or long quotes. Preserve the approved statement and its restrictions within the contract's field limits; do not copy the surrounding document.
 - **One concept per item.** Two sources describing the same concept stay two items.
 - **Granularity test.** A row is intent only if a product owner would recognise it without reading code. Flags, paths, types, function names and release-scoping notes are not intent: propose nothing for them.
 - **Placement fit.** When nothing declared honestly fits, park the item at the closest node and name the placement you would propose in the hand-off; never stretch a statement to fit a slot.
@@ -58,8 +58,8 @@ Payload per `kind` (optional, validated when present):
 |---|---|
 | `capability` | `outcome`, `beneficiary`, `boundary` |
 | `use_case` | `primaryActor`, `trigger`, `preconditions[]`, `successOutcome`, `failureOutcomes[]` |
-| `flow` | `trigger`, `terminationCondition`, `steps[]` = `{ id, actor, action, outcome, branches?: [{ condition, toStepId }] }` (a `toStepId` must name a step in the same flow) |
-| `business_rule` | `condition`, `requiredOutcome`, `observer`, `exceptions?[]`, `variants?[]` = `{when?: {country: "de"}, outcome, inputs?[]}` (`when` maps dimension → value or value[], not a clause; no `when` = default, ≤1) |
+| `flow` | `trigger`, `terminationCondition`, `steps[]` = `{ id, actor, action, outcome, branches?: [{ condition, toStepId }] }` |
+| `business_rule` | `condition`, `requiredOutcome`, `observer`, `exceptions?[]`, `variants?[]` = `{when?: {country: "de"}, outcome, inputs?[]}` |
 | `limitation` | `constraint`, `reason`, `affects` |
 | `decision` | `question`, `choice`, `choiceStatus` (`open`, `choice` absent \| `proposed` \| `accepted`), `rationale`, `alternatives[]`, `consequences[]` |
 
@@ -67,15 +67,11 @@ Payload per `kind` (optional, validated when present):
 
 ### Context conditions and variants
 
-- Item applies only in some contexts → item-level `appliesWhen` (AND-joined `{dimension,in/notIn:[...]}`, `{item:id}`, `{text}`); absent = unconditional.
-- One rule, outcome per context (40h in DE, formula elsewhere) → `business_rule.variants`, not `exceptions`.
-- Conditions come only from the approved text naming a dimension value; nothing named → unconditional. Never ask per dimension. A condition shared by a domain/feature goes on that node via `intent_tree`, only on an explicit maintainer instruction naming it; propose `hints` are review input, not questions.
-- Not expressible on dimensions → `{text}`, never evaluated.
-- Declare dimensions first via `intent_tree` `dimension.create` (`id`, `title`, `values: [{id, title, aliases}]`, `multi: true` for sets); undeclared refs fail. Hints match `aliases` only.
-- No OR/hierarchies: `in:[a,b]` within a dimension; split the item across dimensions.
-- Custom roles aren't dimension values; condition on the permissions they grant.
-- `{item}`: one level (the target's effective dimension clauses); filters once the target is accepted (candidate → unevaluated; rejected/superseded refused). Same-batch refs need an explicit `id`.
-- `requiredOutcome` = the outcome when no variant matches; add a `when`-less variant only when that default differs. A boolean setting = a two-value dimension.
+- Conditions come only from dimension values the approved text names; nothing named → unconditional. Never ask the user per dimension. A condition no dimension expresses goes in `{text}`, which is never evaluated.
+- The item applies only in some contexts → `appliesWhen`. One rule with a different outcome per context (40h in DE, a formula elsewhere) → `business_rule.variants`, not `exceptions`.
+- `requiredOutcome` is the outcome when no variant matches; add a `when`-less variant only when that default differs.
+- Custom roles are not dimension values: condition on the permissions they grant. A boolean setting is a two-value dimension.
+- No OR across dimensions: `in:[a,b]` covers alternatives within one dimension; otherwise split the item.
 
 ## 4. Bootstrap mode — brownfield packets
 
@@ -107,17 +103,11 @@ Re-running bootstrap on the same source revision is safe: matching source identi
 
 ## 5. Propose a feature layout with seeds
 
-Propose a feature layout when a domain-wide answer is too broad.
+Split a domain into features only when a domain-wide answer is too broad and each feature earns it: two to five seeds and a real placement need, never one "to hold" one batch. Read each domain (`intent_read node`), group by meaning into roadmap-sized features, and propose the layout in your reply first: per feature its `domainId`, title, one-sentence statement and the items you would move.
 
-Same rule as domain creation (§1): **you propose it in your reply, then you create it** in the acting user's own session; a service-token session drafts the layout and stops. A feature still earns it: two to five seeds and a real placement need; never create one "to hold" one batch.
+Seeds are exact graph node ids you read from tool output (`search_symbols`, `describe_repository`, an existing anchor), two to five per feature; prefer containers a reader would point at (a package, a directory module, an entrypoint) over functions. A feature without seeds derives nothing.
 
-1. **Read what is there** — `intent_read node` for each domain. Group by meaning. Use roadmap-sized features; a one-feature domain needs no split.
-2. **Propose the layout as prose first**, one line per feature: its `domainId`, a short title, and a one-sentence statement. Name the items you would move under each. Keep it to one screen.
-3. **Seeds are the point.** A feature without seeds derives nothing — seeds are the code nodes that define the feature's area, and the applicability of every item hangs off them. Propose two to five per feature, each an exact stable node id you got from the graph (`search_symbols`, `describe_repository`, or an existing item's anchor), never a guessed or hand-assembled id. Prefer the containers a reader would point at — a package, a directory-level module, an entrypoint — over individual functions.
-4. **Then execute** with `intent_tree`: create each feature, then put its seeds, then move the items. One call per operation with a fresh `idempotencyKey`; a seed naming a repo identity the workspace does not carry is refused with the registered identities listed, which is a fix-the-id signal, not a retry signal. Archive and delete are the exception: only on an explicit maintainer instruction naming the node.
-5. **Report the result**: features created, seeds accepted, items moved, and anything you parked. Then re-read one moved item and show that it now derives through its feature — a layout that changes no answer is worth saying so about.
-
-Nothing here accepts, rejects, or re-authorities anything: moving an item between a domain and a feature is placement, not authority.
+Then, per §1, create each feature with `intent_tree` (`parentFeatureId` nests one; `layout` orders a node's document), put its seeds, and re-propose the candidates you move with their new `featureId`; an accepted item moves only as a successor candidate plus a supersede decision, so report it as parked. Link nodes a reader of one should also read with `relation.put` and a one-sentence `why`. Report what you created, the seeds accepted, the items moved and parked, then re-read one moved item to show it derives through its feature. Placement is not authority.
 
 ## 6. Propose
 
@@ -129,29 +119,15 @@ A refusal means nothing was written: fix the batch and re-send, never work aroun
 
 ### 7.0 Single approval from an approved document
 
-An explicit human approval of a PRD, of a specification accepted when no PRD
-exists, or of an ADR is the decision for its unchanged verbatim items; a
-specification derived from an approved PRD accepts nothing of its own; an authorized resumption reuses that recorded approval.
-A file merely marked accepted by an agent is not evidence of a human decision.
-Keep the complete statement, condition, scope and exceptions from that section:
-`business_rule.payload.exceptions` and `limitation.payload.affects` must preserve
-its restrictions. Keep `sources.revision` (approved commit or content digest)
-and the exact source section. Paraphrases and inferences remain candidates.
+A person's explicit approval of a PRD, of a specification accepted when no PRD exists, or of an ADR is the decision for its unchanged verbatim items. A specification derived from an approved PRD accepts nothing of its own; an authorized resumption reuses the recorded approval. A file an agent marked accepted is not evidence of a human decision.
 
-After proposing, read back those exact IDs and current versions and compare the
-whole content with the approved source. For qualifying items, call `intent_review`
-with `authorizingSource` naming that section and revision (required by the server for `kind: spec`), a source-grounded reason,
-and those `expectedVersion` values. No second card approval is needed. Supersede
-qualifies only if the accepted section explicitly names the replaced ID; read
-both versions first. Preserve the exact proposal, mutation key and approval
-reference in the existing handoff before sending. On interruption, read back
-known IDs or replay the same proposal/key; do not duplicate accepted items.
+1. Before the first write, record the exact proposal, its `idempotencyKey` and the approval reference in the coredoc-workflows session handoff (not the `intent_handoff` tool) or, when there is no session handoff, state it in the reply, so an interrupted run can resume from it.
+2. Propose each item with the section's complete statement, condition, scope and exceptions — `business_rule.payload.exceptions` and `limitation.payload.affects` preserve its restrictions — and `sources.revision` set to the approved commit or content digest. Paraphrases and inferences remain candidates.
+3. Read back those exact ids and current versions and compare the whole content and `sources.revision` with the approved section.
+4. For the items that match, call `intent_review` with `authorizingSource` naming that section and revision, a source-grounded reason, and those `expectedVersion` values. No second card approval is needed. A supersede qualifies only when the section explicitly names the replaced id; read both versions first.
+5. On interruption, read back the known ids or replay the same proposal with the same key; never duplicate accepted items.
 
-This uses the person's own session, never a
-CI/service-token permission upgrade. If the host refuses the authority change, report the refusal and stop
-that write; do not bypass it. Unknown approval, changed content or ambiguous
-replacement uses the explicit cards below. A version change alone can be
-rechecked against the same approved content; changed content needs a new decision.
+The session follows §1, never a service-token permission upgrade. If the host refuses the authority change, report the refusal and stop that write; do not bypass it. Unknown approval, changed content or an ambiguous replacement goes to the cards below. A version change alone can be rechecked against the same approved content; changed content needs a new decision.
 
 ### 7.1 Show the exact review set (when §7.0 does not qualify)
 
@@ -167,14 +143,14 @@ Then **stop and wait**. Ask for a product decision in ordinary language, not too
 
 Build the call yourself; never ask the maintainer to construct one. Ask only for what is theirs to supply: the authorizing source (`kind`, `ref`, `localId`, and `revision` for a spec; optional for other kinds) and optionally the work item.
 
-One `intent_review` call, fresh `idempotencyKey`, one `authorizingSource` for the batch, one decision per item — `{ itemId, expectedVersion, action, reason }`, plus `replacementItemId` and `replacementExpectedVersion` on a `supersede`. `expectedVersion` is the version you showed on that card.
+One `intent_review` call with a fresh `idempotencyKey`, one `authorizingSource` for the batch and one decision per item; `expectedVersion` is the version you showed on that card.
 
 - `accept`, `reject`, and `supersede` change authority. **Reject is real**: a rejected item is recorded as rejected.
 - `defer` and `needs_edit` are reported outcomes that write nothing. Say so plainly and carry the guidance in the conversation or work item; never claim a transition that did not happen.
 - **One provenance group per batch** — only decisions authorized by the same source and work item travel together. Several approved groups run as several calls, in the shown order, stopping on the first failure.
 - Never add an unshown id, change an approved outcome, combine unrelated provenance, or silently retry a failure.
 
-**Version conflict.** A decision whose `expectedVersion` no longer matches is refused for that item and writes nothing. Re-fetch **only the exact shown ids**, show what changed and the new versions, and get a NEW decision — the earlier approval does not carry over to refreshed content. Other items in the batch are decided on their own merits, so read the per-item results rather than assuming all-or-nothing.
+**Version conflict** (refused for that item, nothing written): re-fetch **only the exact shown ids**, show what changed and the new versions, and get a NEW decision — the earlier approval does not carry over to refreshed content. Other items in the batch are decided on their own merits, so read the per-item results rather than assuming all-or-nothing.
 
 ### 7.3 Verify and hand off
 
