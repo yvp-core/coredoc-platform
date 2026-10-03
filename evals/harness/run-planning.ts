@@ -80,9 +80,8 @@ function resolveSuperpowersPluginDir(): string {
 /**
  * Stage the in-repo coredoc-mcp skill into the eval's local plugin (mirrors run.ts).
  *
- * The WHOLE directory is generated, manifest included — the same shape
- * `stageIntentSkillPlugin` in run-intent.ts already uses, and the reason its
- * `_intent-skill-plugin/` can simply be gitignored. This one used to generate only
+ * The WHOLE directory is generated, manifest included, so it can simply be
+ * gitignored. This one used to generate only
  * `skills/` and keep a committed manifest beside it, which made the directory
  * half-tracked: a stale 24 KB copy of what is now a 6 KB skill sat in the repo
  * reading as authoritative, and every run left the working tree dirty. Writing the

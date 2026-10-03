@@ -23,8 +23,8 @@ pending work. Either merge/publish order works; another code push is not require
 
 ## Once: connect the repository
 
-Turn intent on for the workspace before running `coredoc intent import`: the REST
-intent routes answer `409 intent_disabled` while it is off.
+Turn intent on for the workspace first: the REST intent routes answer
+`409 intent_disabled` while it is off.
 
 For a TS/JS repository, ask the agent to add this starter to
 `.coredoc/profile.ts` in the setup PR, adjusting `include` to the source roots.

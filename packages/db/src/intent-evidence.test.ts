@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { IntentAuthority, IntentKind, IntentSourceKind, type CodeAnchor, type IntentItem } from '@coredoc/core';
+import type { CodeAnchor } from '@coredoc/core';
 import { NodeType, type GraphNode, type IGraphReadRepository } from './types.js';
 import { closeAllDrivers, closeProjectDatabases, openProjectDatabase } from './backend-factory.js';
 import {
@@ -12,6 +12,7 @@ import {
   SnapshotFreshness,
   readObservedCheckout,
   resolveIntentEvidence,
+  type AnchoredIntentSubject,
   type ObservedCheckout,
 } from './intent-evidence.js';
 
@@ -60,22 +61,9 @@ function codeNode(overrides: Partial<GraphNode> & Pick<GraphNode, 'id' | 'name'>
   } as GraphNode;
 }
 
-/** A minimal business-rule item; only `id` and `codeAnchors` drive evidence resolution. */
-function item(id: string, codeAnchors?: CodeAnchor[]): IntentItem {
-  return {
-    id,
-    kind: IntentKind.BusinessRule,
-    title: 'Orders are charged once',
-    statement: 'An order is charged exactly once.',
-    authority: IntentAuthority.Accepted,
-    payload: {
-      condition: 'An order is submitted',
-      requiredOutcome: 'Exactly one charge is created',
-      observer: 'billing',
-    },
-    sources: [{ kind: IntentSourceKind.Spec, ref: 'spec/billing', localId: 'BR-1' }],
-    ...(codeAnchors ? { codeAnchors } : {}),
-  } as IntentItem;
+/** A minimal anchored subject; only `id` and `codeAnchors` drive evidence resolution. */
+function item(id: string, codeAnchors?: CodeAnchor[]): AnchoredIntentSubject {
+  return { id, ...(codeAnchors ? { codeAnchors } : {}) };
 }
 
 function anchor(overrides: Partial<CodeAnchor> = {}): CodeAnchor {

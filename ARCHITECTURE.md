@@ -155,10 +155,9 @@ names and schemas live in `packages/mcp/src/server.ts` and the shared tool defin
 cloud wrappers add workspace authority. `run_cypher_query` is backend-gated,
 `semantic_search` is optional/local, and tool sets depend on the connected surface.
 
-Product intent complements the code graph. Local projects can use the
-`.coredoc/intent.json` overlay via intent CLI/MCP reads. Cloud-owned intent is served
-by workspace intent tools; after cutover the local overlay is a frozen snapshot.
-Read accepted decisions/non-goals from the active authority. Code anchors locate
+Product intent complements the code graph. It is owned by a cloud workspace and served
+by workspace intent tools; the local MCP has no intent tools. Read accepted
+decisions/non-goals from the workspace. Code anchors locate
 implementation touchpoints; they do not prove runtime conformance.
 
 ## Distribution and CI

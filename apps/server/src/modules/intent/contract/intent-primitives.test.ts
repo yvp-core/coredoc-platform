@@ -1,11 +1,10 @@
 import { readFileSync } from 'node:fs';
 import {
   INTENT_ID_MAX_LENGTH,
-  INTENT_SCHEMA_VERSION,
-  IntentAuthority,
+  INTENT_LIMITS,
   IntentKind,
   IntentSourceKind,
-  validateIntentFile,
+  validateIntentPayload,
 } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
 import { parseContract } from './intent-content.js';
@@ -20,94 +19,33 @@ import {
 } from './intent-primitives.js';
 
 /**
- * {@link INTENT_CONTRACT_LIMITS} now TAKES its shared bounds from core's
+ * {@link INTENT_CONTRACT_LIMITS} TAKES its shared bounds from core's
  * `INTENT_LIMITS`, so a number cannot drift. What can still drift is the
- * MAPPING — which core bound governs which cloud field. These tests probe
- * core's REAL enforcement per field through `validateIntentFile`, so a bound
- * re-pointed at the wrong core key fails HERE instead of the cloud quietly
- * accepting content the local overlay format would refuse.
+ * MAPPING — which core bound governs which cloud field.
  */
-function coreAccepts(item: Record<string, unknown>): boolean {
-  const result = validateIntentFile({
-    schemaVersion: INTENT_SCHEMA_VERSION,
-    projectId: 'limits-probe',
-    domains: [{ id: 'probe', title: 'Probe' }],
-    items: [
-      {
-        id: 'cap-probe',
-        domain: 'probe',
-        kind: IntentKind.Capability,
-        title: 'Probe',
-        statement: 'Probe',
-        authority: IntentAuthority.Candidate,
-        sources: [{ kind: IntentSourceKind.Spec, ref: 'probe', localId: 'probe' }],
-        payload: { outcome: 'o', beneficiary: 'b', boundary: 'y' },
-        ...item,
-      },
-    ],
-    relations: [],
-  });
-  return result.ok;
-}
-
-describe('INTENT_CONTRACT_LIMITS mirrors the core intent bounds', () => {
-  it.each([
-    ['title', (n: number) => ({ title: 'x'.repeat(n) }), INTENT_CONTRACT_LIMITS.title],
-    ['statement', (n: number) => ({ statement: 'x'.repeat(n) }), INTENT_CONTRACT_LIMITS.statement],
-    [
-      'payload text',
-      (n: number) => ({ payload: { outcome: 'x'.repeat(n), beneficiary: 'b', boundary: 'y' } }),
-      INTENT_CONTRACT_LIMITS.text,
-    ],
-    [
-      'source ref',
-      (n: number) => ({ sources: [{ kind: IntentSourceKind.Spec, ref: 'x'.repeat(n), localId: 'probe' }] }),
-      INTENT_CONTRACT_LIMITS.ref,
-    ],
-  ])('%s is bounded at %s in core too', (_label, build, limit) => {
-    expect(coreAccepts(build(limit as number))).toBe(true);
-    expect(coreAccepts(build((limit as number) + 1))).toBe(false);
+describe('INTENT_CONTRACT_LIMITS maps onto the core intent bounds', () => {
+  it('points each field at the core bound that governs it', () => {
+    expect(INTENT_CONTRACT_LIMITS).toMatchObject({
+      title: INTENT_LIMITS.title,
+      statement: INTENT_LIMITS.statement,
+      text: INTENT_LIMITS.text,
+      id: INTENT_LIMITS.id,
+      ref: INTENT_LIMITS.ref,
+      sourcesPerItem: INTENT_LIMITS.sourcesPerItem,
+      anchorsPerItem: INTENT_LIMITS.anchorsPerItem,
+      repoKey: INTENT_LIMITS.id,
+      nodeId: INTENT_LIMITS.ref,
+    });
   });
 
-  it('sourcesPerItem and anchorsPerItem match core', () => {
-    const source = (index: number) => ({
-      kind: IntentSourceKind.Spec,
-      ref: `spec/${index}`,
-      localId: `S-${index}`,
-    });
-    const anchor = (index: number) => ({
-      repo: 'api',
-      nodeId: `aaaa:function:src/a.ts:f${index}`,
-      nodeType: 'function',
-      capturedVersionedId: `aaaa:function:src/a.ts:f${index}@1`,
-      rationale: 'probe',
-    });
-    const range = (count: number, make: (index: number) => unknown) => Array.from({ length: count }, (_, i) => make(i));
-
-    expect(coreAccepts({ sources: range(INTENT_CONTRACT_LIMITS.sourcesPerItem, source) })).toBe(true);
-    expect(coreAccepts({ sources: range(INTENT_CONTRACT_LIMITS.sourcesPerItem + 1, source) })).toBe(false);
-    expect(coreAccepts({ codeAnchors: range(INTENT_CONTRACT_LIMITS.anchorsPerItem, anchor) })).toBe(true);
-    expect(coreAccepts({ codeAnchors: range(INTENT_CONTRACT_LIMITS.anchorsPerItem + 1, anchor) })).toBe(false);
+  it('bounds payload text exactly where the core payload validator does', () => {
+    const payload = (n: number) => ({ outcome: 'x'.repeat(n), beneficiary: 'b', boundary: 'y' });
+    expect(validateIntentPayload(IntentKind.Capability, payload(INTENT_CONTRACT_LIMITS.text))).toEqual([]);
+    expect(validateIntentPayload(IntentKind.Capability, payload(INTENT_CONTRACT_LIMITS.text + 1))).not.toEqual([]);
   });
 
   it('takes the slug id cap straight from core rather than mirroring it', () => {
     expect(INTENT_CONTRACT_LIMITS.slugId).toBe(INTENT_ID_MAX_LENGTH);
-  });
-
-  it('points the anchor coordinates at the core bounds that actually govern them', () => {
-    const anchor = (repo: string, nodeId: string) => ({
-      repo,
-      nodeId,
-      nodeType: 'function',
-      capturedVersionedId: 'aaaa:function:src/a.ts:f@1',
-      rationale: 'probe',
-    });
-    const repo = 'r'.repeat(INTENT_CONTRACT_LIMITS.repoKey);
-    const nodeId = 'n'.repeat(INTENT_CONTRACT_LIMITS.nodeId);
-
-    expect(coreAccepts({ codeAnchors: [anchor(repo, nodeId)] })).toBe(true);
-    expect(coreAccepts({ codeAnchors: [anchor(`${repo}x`, 'n')] })).toBe(false);
-    expect(coreAccepts({ codeAnchors: [anchor('r', `${nodeId}x`)] })).toBe(false);
   });
 });
 

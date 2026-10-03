@@ -16,7 +16,7 @@ describe('tool classes', () => {
     expect(DISPATCHABLE_TOOL_NAMES.length).toBeGreaterThan(0);
   });
 
-  it('declares get_intent_context and the gated tools as reads', () => {
+  it('declares the intent read and the gated tools as reads', () => {
     expect(COREDOC_TOOL_CLASSES.get_intent_context).toBe(ToolAccess.Read);
     expect(COREDOC_TOOL_CLASSES.run_cypher_query).toBe(ToolAccess.Read);
     expect(COREDOC_TOOL_CLASSES.semantic_search).toBe(ToolAccess.Read);

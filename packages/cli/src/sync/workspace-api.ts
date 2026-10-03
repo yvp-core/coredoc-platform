@@ -366,7 +366,7 @@ export async function checkServerCompat(serverUrl: string): Promise<void> {
 }
 
 // =============================================================================
-// Intent transport (spec §8.1, §9, §12)
+// Intent transport (spec §9, §12)
 // =============================================================================
 
 /**
@@ -399,9 +399,8 @@ const MAX_RAW_ERROR_BODY_CHARS = 4096;
  * A structured intent refusal from the server.
  *
  * THE NAMED §12 DEFECT THIS FIXES: the archived `postIntentHandover` read the
- * response body, threw away everything in it, and reported a generic hint. A
- * maintainer whose overlay was refused for one email address in one field saw
- * "preflight failed" and had no way to find the field. Here the body is parsed
+ * response body, threw away everything in it, and reported a generic hint, so
+ * a refused field could not be found. Here the body is parsed
  * into {@link publicError} when it has the contract shape and preserved in
  * {@link rawBody} when it does not — either way nothing is discarded, and the
  * renderer in `commands/intent-cloud.ts` prints it without summarizing.
@@ -460,74 +459,6 @@ async function intentFailure(operation: string, response: Response): Promise<Int
   return new IntentApiError(operation, response.status, readIntentPublicError(body), bounded);
 }
 
-export interface ImportIntentOverlayBody {
-  idempotencyKey: string;
-  /** sha256 hex of the canonical overlay bytes; recorded on every arrival transition. */
-  localRevision: string;
-  overlay: Record<string, unknown>;
-}
-
-/** The fields `coredoc intent import` reports. The server's result carries more; extra keys are kept by the caller. */
-export interface CloudIntentImportResult {
-  formatVersion: number;
-  workspaceId: string;
-  localRevision: string;
-  projectId: string;
-  createdDomains: Array<{ id: string; title: string }>;
-  importedItems: Array<{ id: string; authority: string; domainId: string }>;
-  importedSourceCount: number;
-  importedAnchorCount: number;
-  skippedAnchors: Array<{ repo: string; reason: string; anchorCount: number; itemIds: string[] }>;
-  droppedRelations: Array<{ from: string; type: string; to: string }>;
-  registeredRepoIdentities: string[];
-}
-
-/**
- * `POST …/intent/import`. Idempotent by key: a retry after a network failure
- * returns the STORED result rather than importing twice, which is what makes
- * "rerun the same command" the recovery for a crashed cutover write.
- */
-export async function importIntentOverlay(
-  workspaceId: string,
-  body: ImportIntentOverlayBody,
-): Promise<CloudIntentImportResult> {
-  const serverUrl = await getServerUrl();
-  const response = await fetch(`${serverUrl}/api/v1/workspaces/${workspaceId}/intent/import`, {
-    method: 'POST',
-    headers: await authHeaders(),
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) throw await intentFailure('intent import', response);
-  return (await response.json()) as CloudIntentImportResult;
-}
-
-/**
- * The import's preconditions as the server sees them (`GET …/intent/import/preflight`).
- *
- * Read-only, and the SAME rule the import asserts: the counts come from the
- * function `IntentImportService` calls before it writes, so a green preflight
- * and a refused import cannot disagree about what "empty" means.
- */
-export interface IntentImportPreflight {
-  workspaceId: string;
-  empty: boolean;
-  content: { domains: number; features: number; items: number; dimensions?: number };
-  /** Display rendering, unbound repos included. */
-  registeredRepoIdentities: string[];
-  /** The bound durable keys an overlay anchor's `repo` is checked against. */
-  intentRepoKeys: string[];
-}
-
-export async function getIntentImportPreflight(workspaceId: string): Promise<IntentImportPreflight> {
-  const serverUrl = await getServerUrl();
-  const response = await fetch(`${serverUrl}/api/v1/workspaces/${workspaceId}/intent/import/preflight`, {
-    method: 'GET',
-    headers: await authHeaders(),
-  });
-  if (!response.ok) throw await intentFailure('intent bootstrap-check', response);
-  return (await response.json()) as IntentImportPreflight;
-}
-
 /** The export document. `content` stays opaque here: the CLI writes it verbatim, it does not interpret it. */
 export interface CloudIntentExportDocument {
   formatVersion: number;
@@ -544,6 +475,27 @@ export async function exportIntent(workspaceId: string): Promise<CloudIntentExpo
   });
   if (!response.ok) throw await intentFailure('intent export', response);
   return (await response.json()) as CloudIntentExportDocument;
+}
+
+/**
+ * The workspace document (`GET …/intent/export/workspace`): the shape
+ * `POST …/intent/import/workspace` takes. Opaque beyond the fields the CLI reports.
+ */
+export interface CloudIntentWorkspaceDocument {
+  formatVersion: number;
+  source: { ref: string; revision: string };
+  items: unknown[];
+  [key: string]: unknown;
+}
+
+export async function exportIntentWorkspace(workspaceId: string): Promise<CloudIntentWorkspaceDocument> {
+  const serverUrl = await getServerUrl();
+  const response = await fetch(`${serverUrl}/api/v1/workspaces/${workspaceId}/intent/export/workspace`, {
+    method: 'GET',
+    headers: await authHeaders(),
+  });
+  if (!response.ok) throw await intentFailure('intent export', response);
+  return (await response.json()) as CloudIntentWorkspaceDocument;
 }
 
 export async function getJob(workspaceId: string, jobId: string): Promise<JobResponse | null> {

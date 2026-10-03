@@ -75,7 +75,7 @@ export {
 } from './cross-repo/descriptor-matcher.js';
 export type { EntrypointIndex } from './cross-repo/descriptor-matcher.js';
 
-// Product-intent overlay (.coredoc/intent.json) — durable, outside ParsedRepo.
+// Shared product-intent contracts — durable, outside ParsedRepo.
 export * from './intent/index.js';
 
 // Version

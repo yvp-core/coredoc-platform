@@ -189,12 +189,6 @@ vi.mock('./tools/discovery/semantic-search.js', () => ({
   }),
 }));
 
-vi.mock('./tools/intent/get-intent-context.js', () => ({
-  handleGetIntentContext: vi.fn().mockResolvedValue({
-    data: { message: 'get_intent_context result' },
-  }),
-}));
-
 vi.mock('./tools/discovery/run-cypher-query.js', () => ({
   handleRunCypherQuery: vi.fn().mockResolvedValue({
     data: { message: 'run_cypher_query result' },
@@ -400,7 +394,7 @@ describe('MCP Server', () => {
   });
 
   describe('MCP Protocol Compliance', () => {
-    it('advertises intent and graph reads as non-destructive read-only tools', async () => {
+    it('advertises graph reads as non-destructive read-only tools', async () => {
       const server = createServer() as unknown as {
         _requestHandlers: Map<
           string,
@@ -410,7 +404,7 @@ describe('MCP Server', () => {
         >;
       };
       const { tools } = await server._requestHandlers.get('tools/list')!({ method: 'tools/list', params: {} });
-      for (const name of ['get_intent_context', 'find_callers', 'describe_repository', 'explain']) {
+      for (const name of ['find_callers', 'describe_repository', 'explain']) {
         expect(tools.find((tool) => tool.name === name)?.annotations, name).toMatchObject({
           readOnlyHint: true,
           destructiveHint: false,
@@ -1345,72 +1339,8 @@ describe('MCP Server', () => {
     });
   });
 
-  // get_intent_context is a PERMANENT LOCAL-ONLY tool: unlike semantic_search it
-  // has no env gate, and unlike the shared tools it is deliberately absent from
-  // the tool-descriptions/tool-schemas registry that apps/server iterates —
-  // that absence IS the cloud gate (AC-9, AC-13).
-  describe('get_intent_context (permanent, local-only)', () => {
-    async function listToolNames(): Promise<string[]> {
-      const server = createServer() as unknown as { _requestHandlers: Map<string, ToolCallHandler> };
-      const listHandler = server._requestHandlers.get('tools/list') as unknown as (
-        request: unknown,
-      ) => Promise<{ tools: Array<{ name: string; inputSchema: { properties: Record<string, unknown> } }> }>;
-      const result = await listHandler({ method: 'tools/list', params: {} });
-      return result.tools.map((tool) => tool.name);
-    }
-
-    it('is listed with no env flag set', async () => {
-      delete process.env.ENABLE_SEMANTIC_SEARCH;
-      expect(await listToolNames()).toContain('get_intent_context');
-    });
-
-    it('advertises the bounded selector schema', async () => {
-      const server = createServer() as unknown as { _requestHandlers: Map<string, ToolCallHandler> };
-      const listHandler = server._requestHandlers.get('tools/list') as unknown as (
-        request: unknown,
-      ) => Promise<{ tools: Array<{ name: string; inputSchema: { properties: Record<string, unknown> } }> }>;
-      const { tools } = await listHandler({ method: 'tools/list', params: {} });
-      const tool = tools.find((entry) => entry.name === 'get_intent_context');
-      expect(Object.keys(tool?.inputSchema.properties ?? {})).toEqual(
-        expect.arrayContaining(['intentIds', 'query', 'nodeIds', 'includeCandidates', 'limit']),
-      );
-    });
-
-    it('is NOT in the shared registry the cloud server iterates (AC-13)', async () => {
-      const { TOOL_DESCRIPTIONS } = await import('./tool-descriptions.js');
-      const { TOOL_INPUT_SCHEMAS, TOOL_SCHEMAS } = await import('./tool-schemas.js');
-      expect(Object.keys(TOOL_DESCRIPTIONS)).not.toContain('get_intent_context');
-      expect(Object.keys(TOOL_INPUT_SCHEMAS)).not.toContain('get_intent_context');
-      expect(Object.keys(TOOL_SCHEMAS)).not.toContain('get_intent_context');
-    });
-
-    it('dispatches to the handler', async () => {
-      const { handleGetIntentContext } = await import('./tools/intent/get-intent-context.js');
-      (handleGetIntentContext as ReturnType<typeof vi.fn>).mockClear();
-      const result = await toolCallHandler(createServer())({
-        method: 'tools/call',
-        params: { name: 'get_intent_context', arguments: { query: 'ordering' } },
-      });
-      expect(result.isError).toBeUndefined();
-      expect(handleGetIntentContext).toHaveBeenCalledOnce();
-    });
-
-    it('still dispatches when the project has no graph, with no repository bound (AC-9)', async () => {
-      const { handleGetIntentContext } = await import('./tools/intent/get-intent-context.js');
-      (handleGetIntentContext as ReturnType<typeof vi.fn>).mockClear();
-      mockListAllRepositories.mockResolvedValueOnce([]);
-
-      const result = await toolCallHandler(createServer())({
-        method: 'tools/call',
-        params: { name: 'get_intent_context', arguments: {} },
-      });
-
-      expect(result.isError).toBeUndefined();
-      expect(handleGetIntentContext).toHaveBeenCalledOnce();
-      expect((handleGetIntentContext as ReturnType<typeof vi.fn>).mock.calls[0][5]).toBeUndefined();
-    });
-
-    it('does not swallow a missing graph for graph-dependent tools', async () => {
+  describe('graph availability', () => {
+    it('does not swallow a missing graph', async () => {
       mockListAllRepositories.mockResolvedValueOnce([]);
       const result = await toolCallHandler(createServer())({
         method: 'tools/call',
@@ -1420,30 +1350,16 @@ describe('MCP Server', () => {
       expect(result.content[0].text).toContain('No graph data');
     });
 
-    // The AC-9 degradation is scoped to ABSENCE of graph data. An unreadable
-    // database — corrupt file, lock contention, permission denied — is not
-    // evidence that a project was never pushed, so it must be logged and
-    // surfaced rather than answered as "no code evidence exists".
-    it('does not report an unreadable database as absent evidence', async () => {
-      const { handleGetIntentContext } = await import('./tools/intent/get-intent-context.js');
-      (handleGetIntentContext as ReturnType<typeof vi.fn>).mockClear();
-      const stderr = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('surfaces an unreadable database instead of answering empty', async () => {
       mockOpenProjectDatabase.mockRejectedValueOnce(
         Object.assign(new Error('database disk image is malformed'), { name: 'SqliteError' }),
       );
-
       const result = await toolCallHandler(createServer())({
         method: 'tools/call',
-        params: { name: 'get_intent_context', arguments: {} },
+        params: { name: 'search_symbols', arguments: { query: 'x' } },
       });
-
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('database disk image is malformed');
-      expect(handleGetIntentContext).not.toHaveBeenCalled();
-      const stderrText = stderr.mock.calls.map((call) => String(call[0])).join('\n');
-      expect(stderrText).toContain('get_intent_context could not open the project graph');
-      expect(stderrText).toContain('database disk image is malformed');
-      stderr.mockRestore();
     });
   });
 
@@ -1478,7 +1394,7 @@ describe('MCP Server', () => {
     it('is absent from the tool list when the env var is unset (fail-closed)', async () => {
       delete process.env.ENABLE_SEMANTIC_SEARCH;
       const names = await listToolNames();
-      expect(names).toHaveLength(15);
+      expect(names).toHaveLength(13);
       expect(names).not.toContain('semantic_search');
       expect(names).not.toContain('list_topics');
       expect(names).not.toContain('trace_topic');

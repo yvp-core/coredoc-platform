@@ -11,7 +11,7 @@
  * accumulates the full path and throws the §12 public triple.
  *
  * Why a walker at all, when the schemas already bound every declared field:
- * optional payloads and the import overlay legitimately carry free-form JSON
+ * optional payloads and the import document legitimately carry free-form JSON
  * objects, and that is exactly where a transcript, an API key, or a reporter's
  * email address would otherwise ride into the workspace.
  */
@@ -29,12 +29,10 @@ export const INTENT_CONTENT_LIMITS = {
   maxStructureNodes: 5_000,
   maxMultilineChars: 500,
   /**
-   * Import walks a whole local overlay in one request, and that overlay is
-   * itself bounded by `INTENT_LIMITS` in `@coredoc/core` (500 items × a bounded
-   * payload, 2000 relations). Its node count is an order of magnitude above a
-   * single mutation's, so import passes this budget explicitly rather than the
-   * default one — a legitimate full-size overlay must not be refused as
-   * oversized structure.
+   * Import walks a whole workspace document in one request. Its node count is
+   * an order of magnitude above a single mutation's, so import passes this
+   * budget explicitly rather than the default one — a legitimate full-size
+   * document must not be refused as oversized structure.
    */
   maxImportStructureNodes: 100_000,
 } as const;
@@ -161,7 +159,7 @@ function assertSafeUrl(value: string, path: string[]): void {
   } catch {
     // The archive let this `new URL` throw a raw TypeError; declared `url`
     // fields are schema-validated first, but the free-form payload and the
-    // import overlay can carry any `url` key, so the refusal is typed here
+    // import document can carry any `url` key, so the refusal is typed here
     // instead of surfacing as an unexpected 500.
     throw intentContractViolation(
       IntentErrorCode.ContentUrlUnparseable,

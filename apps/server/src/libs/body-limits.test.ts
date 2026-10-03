@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { MAX_INTENT_FILE_BYTES, MAX_INTENT_IMPORT_BODY_BYTES } from '@coredoc/core';
 import {
   ARTIFACT_REVISION_BODY_LIMIT,
   bodyLimitFor,
@@ -72,22 +71,18 @@ describe('bodyLimitFor', () => {
     expect(bodyLimitFor('/api/v1/workspaces/ws_1/otel/v1/logs', 'POST')).toBe(OTLP_BODY_LIMIT);
   });
 
-  it('grants the intent import ceiling only to the import POST', () => {
-    const importPath = '/api/v1/workspaces/ws_1/intent/import';
+  it('grants the intent import ceiling only to the workspace import POST', () => {
+    const importPath = '/api/v1/workspaces/ws_1/intent/import/workspace';
     expect(bodyLimitFor(importPath, 'POST')).toBe(INTENT_IMPORT_BODY_LIMIT);
     expect(bodyLimitFor(`${importPath}/`, 'POST')).toBe(INTENT_IMPORT_BODY_LIMIT);
     expect(bodyLimitFor(`${importPath}?retry=1`, 'POST')).toBe(INTENT_IMPORT_BODY_LIMIT);
-    // The read-only preflight and every other intent route stay on the default.
-    expect(bodyLimitFor(`${importPath}/preflight`, 'GET')).toBe(DEFAULT_BODY_LIMIT);
+    // The retired overlay route and every other intent route stay on the default.
+    expect(bodyLimitFor('/api/v1/workspaces/ws_1/intent/import', 'POST')).toBe(DEFAULT_BODY_LIMIT);
     expect(bodyLimitFor('/api/v1/workspaces/ws_1/intent/items/review', 'POST')).toBe(DEFAULT_BODY_LIMIT);
     expect(bodyLimitFor('/api/v1/workspaces/ws_1/intent/tree', 'GET')).toBe(DEFAULT_BODY_LIMIT);
   });
 
-  it('leaves headroom for a maximal legal overlay plus its import envelope', () => {
-    // The bound is core's, not a second copy, and it clears the largest overlay
-    // the local reader will ever hand over.
-    expect(INTENT_IMPORT_BODY_LIMIT).toBe(MAX_INTENT_IMPORT_BODY_BYTES);
-    expect(INTENT_IMPORT_BODY_LIMIT).toBeGreaterThan(MAX_INTENT_FILE_BYTES);
+  it('keeps the import ceiling above the default', () => {
     expect(DEFAULT_BODY_LIMIT).toBeLessThan(INTENT_IMPORT_BODY_LIMIT);
   });
 

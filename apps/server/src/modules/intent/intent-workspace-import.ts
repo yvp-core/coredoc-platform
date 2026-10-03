@@ -2,11 +2,9 @@
  * Workspace import: a whole product knowledge base becomes the intent content
  * of an empty workspace in one transaction.
  *
- * The overlay import (`intent-import.service.ts`) carries the local file format,
- * which has no features, no node relations, no delivery status and a 500-item
- * ceiling. A knowledge base kept anywhere else (a Markdown tree, another tool)
- * needs all four, so this import takes its own document,
- * `CloudIntentWorkspaceDocumentV1`, and writes:
+ * It takes `CloudIntentWorkspaceDocumentV1` — the document
+ * `GET intent/export/workspace` produces, or one built from a knowledge base
+ * kept elsewhere (a Markdown tree, another tool) — and writes:
  *
  * - the tree (domains, features), the dimension registry and node relations;
  * - items with their sources, at authority `accepted`, `candidate`,
@@ -636,8 +634,8 @@ export class IntentWorkspaceImportService {
         operation: IntentOperation.WorkspaceImport,
         idempotencyKey: input.idempotencyKey,
         request: { document: input.document },
-        // Same budget and isolation as the overlay import, for the same reason:
-        // the emptiness check is a read a later write depends on.
+        // A whole document in one transaction, and the emptiness check is a
+        // read a later write depends on.
         transaction: {
           timeout: 120_000,
           maxWait: 15_000,

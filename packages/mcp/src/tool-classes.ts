@@ -38,7 +38,7 @@ export type ToolClass = ToolAccess | { readonly byAction: ToolActionClasses };
 // tracks the JSON SHAPE — a new key or changed semantics — not this map's contents:
 // adding, removing or reclassifying a tool never bumps it.
 export const COREDOC_TOOL_CLASSES: Readonly<Record<string, ToolClass>> = {
-  // Graph + overlay reads.
+  // Graph and intent reads.
   analyze_change_impact: ToolAccess.Read,
   describe_db_schema: ToolAccess.Read,
   describe_repository: ToolAccess.Read,

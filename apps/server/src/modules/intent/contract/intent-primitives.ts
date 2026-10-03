@@ -12,16 +12,14 @@ import { INTENT_LIMITS, IntentSourceKind } from '@coredoc/core';
 import { z } from 'zod';
 
 /**
- * Bounded lengths, TAKEN from `INTENT_LIMITS` in `@coredoc/core` wherever the
- * cloud bounds the same value the local overlay format bounds.
+ * Bounded lengths, TAKEN from `INTENT_LIMITS` in `@coredoc/core`, the bounds
+ * core's shared validators (payloads, conditions, brownfield packets) enforce.
  *
- * They are imported rather than restated, so drift between the two surfaces is
- * unrepresentable rather than merely test-detected: a bound the cloud enforces
- * is the bound core enforces, by construction. What this table still owns is
- * the MAPPING — which core bound governs which cloud field (a repo key is
- * bounded as an identity, a node id as a ref) — and the two bounds core has no
- * opinion about (`capturedVersionedId`, `batch`). `intent-primitives.test.ts`
- * probes core's real enforcement per field, so a re-pointed mapping fails there.
+ * They are imported rather than restated, so a bound the cloud enforces is the
+ * bound core enforces, by construction. What this table still owns is the
+ * MAPPING — which core bound governs which cloud field (a repo key is bounded
+ * as an identity, a node id as a ref) — and the bounds core has no opinion
+ * about (`capturedVersionedId`, `relationWhy`, `batch`).
  *
  * EVERY NUMBER HERE IS ALSO A COLUMN WIDTH. A contract bound LOOSER than the
  * `VARCHAR(n)` it lands in is not a laxer rule — it is a §12 refusal converted
@@ -51,15 +49,13 @@ export const INTENT_CONTRACT_LIMITS = {
   anchorsPerItem: INTENT_LIMITS.anchorsPerItem,
   /**
    * `intent_anchors.repo_key` and `intent_feature_seeds.repo_key` are
-   * VARCHAR(200), and core bounds an overlay's `repo` at its own `id` bound of
-   * 200. This was 256 — wide enough for a 201-character repo key to pass the
+   * VARCHAR(200), core's `id` bound. This was 256 — wide enough for a 201-character repo key to pass the
    * contract and then fail in the driver.
    */
   repoKey: INTENT_LIMITS.id,
   /**
    * `intent_anchors.node_id` and `intent_feature_seeds.node_id` are VARCHAR(500),
-   * and core bounds an overlay's anchor `nodeId` at its `ref` bound of 500. This
-   * was 2000 — four times the column, so a long node id was a 500 rather than a
+   * core's `ref` bound. This was 2000 — four times the column, so a long node id was a 500 rather than a
    * refusal naming `nodeId`.
    */
   nodeId: INTENT_LIMITS.ref,
@@ -115,7 +111,7 @@ export const externalUrl = z
 /** A positive optimistic-concurrency token. Version 0 never exists: a created row starts at 1. */
 export const itemVersion = z.number().int().positive();
 
-/** SHA-256 hex, e.g. the local overlay revision an import records. */
+/** SHA-256 hex, e.g. the source revision an import records. */
 export const canonicalRevision = z.string().regex(/^[a-f0-9]{64}$/, 'revision must be a sha-256 hex digest');
 
 /**

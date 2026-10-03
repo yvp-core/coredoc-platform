@@ -1,29 +1,23 @@
 /**
  * Cross-package id-derivation parity (spec §08 "Low findings" — issue 08).
  *
- * `intent-id.ts`'s header explains WHY this is a port rather than an import:
- * `@coredoc/core`'s intent barrel does not re-export `deriveIntentId`, and
- * widening that barrel is outside this change's file surface. That leaves a
- * real drift risk — a cloud item id (server) and a local overlay item id
- * (core, used by `packages/cli`'s pre-cutover capture path) for the SAME
- * statement could diverge silently. This test closes that gap the only way
- * available without touching the barrel: importing core's implementation
- * FILE directly (not its package entry point) and running the exact same
- * `(kind, title, takenIds)` triples through both derivations side by side.
+ * `intent-id.ts`'s header explains WHY this is a port rather than an import.
+ * That leaves a drift risk between the server's derivation and core's shared
+ * `deriveIntentId` for the SAME statement. This test imports core's
+ * implementation FILE directly (the intent barrel does not export it) and runs
+ * the exact same `(kind, title, takenIds)` triples through both derivations.
  *
  * `boundedSlugId` itself is private on both sides (server: not exported from
- * `intent-id.ts`; core: not exported from `capture.ts` or the intent barrel),
+ * `intent-id.ts`; core: not exported from `derive-id.ts`),
  * so parity is asserted through each side's public entry point —
- * `deriveIntentItemId` / `deriveIntentId` — which is also the only shape a
- * real caller (a propose request, a capture batch) ever exercises.
+ * `deriveIntentItemId` / `deriveIntentId`.
  */
 import { IntentKind } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
 import { deriveIntentItemId } from './intent-id.js';
 // Deep import of core's SOURCE FILE, not the package's public entry point —
-// see the file header for why. `@coredoc/core` has no subpath export for
-// `intent/capture`, and adding one is outside this issue's file ownership.
-import { deriveIntentId } from '../../../../../packages/core/src/intent/capture.js';
+// see the file header for why.
+import { deriveIntentId } from '../../../../../packages/core/src/intent/derive-id.js';
 
 describe('server/core intent id derivation parity', () => {
   const cases: Array<{ kind: IntentKind; title: string }> = [
@@ -67,7 +61,7 @@ describe('server/core intent id derivation parity', () => {
       expect(server.id).toBe(core.id);
     } else {
       // Both refuse; the reason differs by error-object shape between the two
-      // packages (IntentPublicException vs IntentCaptureError) but the *kind*
+      // packages (IntentPublicException vs IntentIdDerivationError) but the *kind*
       // of refusal (underivable vs would-truncate) must still agree.
       expect(server.errorCode).toBeDefined();
       expect(core.errorCode).toBeDefined();

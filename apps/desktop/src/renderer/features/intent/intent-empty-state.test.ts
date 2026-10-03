@@ -32,10 +32,6 @@ describe('IntentEmptyState', () => {
     expect(render()).toContain('Create the first domain');
   });
 
-  it('names the CLI path for a repo overlay that already exists', () => {
-    expect(render()).toContain('coredoc intent import');
-  });
-
   it('never uses an error tone', () => {
     const html = render();
     expect(html.toLowerCase()).not.toContain('error');

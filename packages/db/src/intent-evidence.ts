@@ -1,5 +1,5 @@
 /**
- * Code-anchor evidence for the product-intent overlay (`.coredoc/intent.json`).
+ * Code-anchor evidence for product-intent items.
  *
  * Resolves each stored {@link CodeAnchor} against the ACTIVE project graph and
  * reports two INDEPENDENT dimensions (spec BR-4, ADR-2):
@@ -127,10 +127,8 @@ export interface RepoSnapshotEvidence {
 /**
  * The only two fields of an item this module reads.
  *
- * Deliberately structural rather than the local `IntentItem` union: the hosted
- * intent service stores items relationally (no `kind`/`payload`/`sources` union
- * to satisfy) and must resolve the SAME anchors through the SAME algorithm.
- * `IntentItem` satisfies this, so every existing caller is unaffected.
+ * Deliberately structural: the hosted intent service stores items relationally
+ * and resolves anchors through this one algorithm.
  */
 export interface AnchoredIntentSubject {
   id: string;

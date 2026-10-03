@@ -352,8 +352,8 @@ describe('runAgent MCP availability probe', () => {
   });
 
   it('leaves adherence not applicable for harnesses that set no access mode', async () => {
-    // run-planning.ts / run-intent.ts call runAgent without accessMode and own
-    // their adherence semantics; the probe must not reclassify their runs.
+    // run-planning.ts calls runAgent without accessMode and owns
+    // its adherence semantics; the probe must not reclassify its runs.
     mockMessages = [
       {
         type: 'system',

@@ -12,7 +12,6 @@ import { RuntimeConfig } from '@coredoc/core/types';
 import { listAvailableParsers } from './parser-loader.js';
 import { parse as sdkParse } from './sdk/parse.js';
 import { readOpsTimestamps } from './sdk/ops.js';
-import { INTENT_CONTEXT_LIMITS, IntentOverlayStatus, type IntentKind } from '@coredoc/core';
 import { CLI_VERSION } from './version.js';
 import {
   getAllRepos,
@@ -1056,7 +1055,7 @@ function loadConfig(configPath: string): RuntimeConfig {
         (migration.parserDirsMoved > 0 || migration.outputArtifactsMoved > 0 || migration.idsAssigned > 0)
       ) {
         // Diagnostic, not command output: it must go to stderr so machine-readable
-        // stdout modes (e.g. `intent list --ids`) never receive it as a data line.
+        // stdout modes (e.g. `--json` output) never receive it as a data line.
         console.error(
           `[coredoc] Migrated layout: ${migration.parserDirsMoved} parser dirs, ` +
             `${migration.outputArtifactsMoved} output artifacts, ` +
@@ -1555,279 +1554,33 @@ mapperCmd
 // Intent Commands
 // =============================================================================
 //
-// Read-only surface over the repo-local product-intent overlay
-// (`<repoRoot>/.coredoc/intent.json`). `validate` is file-only; `status` and
-// `context` additionally resolve code anchors against the project's local
-// graph — and still answer with the intent when that graph is unavailable
-// (BR-9): an absent graph makes the code dimension unknown, not the intent.
+// Product intent is owned by a cloud workspace. Read, propose and review are
+// MCP and UI surfaces (spec §11); the CLI carries the export projection and the
+// CI release actor.
 
-const intentCmd = program
-  .command('intent')
-  .description('Inspect the product-intent overlay (.coredoc/intent.json)')
-  // THERE IS NO LOCAL REVIEW VERB, and that is the decision, not an omission
-  // (v1.1-03). `capture` proposes candidates; accepting one in the solo lane is
-  // the maintainer's own reviewed edit of the overlay file, re-checked with
-  // `coredoc intent validate`. Reviewed authority with an audit trail is a
-  // cloud-workspace capability (spec §5), and a second, file-shaped
-  // implementation of it would be a second source of truth about acceptance.
-  .addHelpText(
-    'after',
-    '\nSolo (pre-cutover) acceptance:\n' +
-      '  There is no `intent review` verb. `capture` writes candidates; accepting one is the\n' +
-      "  maintainer's own reviewed edit of .coredoc/intent.json (set the item's authority to\n" +
-      '  "accepted"), followed by `coredoc intent validate`. Agents must not make that edit.\n' +
-      '  Reviewed authority with a recorded transition lives in a cloud workspace: import the\n' +
-      '  overlay with `coredoc intent import` and review there.\n',
-  );
-
-intentCmd
-  .command('validate')
-  .description('Validate the project intent overlay (schema + semantics). Never writes the overlay.')
-  .requiredOption('-p, --project <id>', 'Project id')
-  .option('-c, --config <path>', 'Path to config file', 'coredoc.config.json')
-  .action(async (options) => {
-    try {
-      const { runIntentValidate, printValidateResult } = await import('./commands/intent.js');
-      const config = loadConfig(options.config);
-      const result = runIntentValidate({ config, projectId: options.project });
-      printValidateResult(result);
-      // Only an invalid file is a failure: an absent overlay is opt-in state.
-      if (result.status === IntentOverlayStatus.Invalid) process.exit(1);
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    }
-  });
-
-intentCmd
-  .command('status')
-  .description('Show overlay counts plus anchor status and graph-snapshot freshness (reported independently)')
-  .requiredOption('-p, --project <id>', 'Project id')
-  .option('-c, --config <path>', 'Path to config file', 'coredoc.config.json')
-  .action(async (options) => {
-    try {
-      const { createGraphEvidenceResolver, resolveIntentTarget, runIntentStatus, printStatusResult } = await import(
-        './commands/intent.js'
-      );
-      const config = loadConfig(options.config);
-      const target = resolveIntentTarget(config, options.project);
-      const result = await runIntentStatus({
-        config,
-        projectId: options.project,
-        resolveEvidence: createGraphEvidenceResolver(config, target),
-      });
-      printStatusResult(result);
-      // Only an invalid file is a failure: not_configured and zero matches are
-      // valid, non-error states (BR-9).
-      if (result.status === IntentOverlayStatus.Invalid) process.exit(1);
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    }
-  });
-
-intentCmd
-  .command('context')
-  .description('Return bounded, applicable intent context for a task (accepted items by default)')
-  .requiredOption('-p, --project <id>', 'Project id')
-  .option('-c, --config <path>', 'Path to config file', 'coredoc.config.json')
-  .option('--id <intentId>', 'Fetch an exact intent id (repeatable)', (value: string, previous: string[] = []) => [
-    ...previous,
-    value,
-  ])
-  .option('-q, --query <text>', 'Lexical query over intent titles, statements, and payload text')
-  .option(
-    '--node-id <nodeId>',
-    'Stable code node id to find anchored intent for (repeatable)',
-    (value: string, previous: string[] = []) => [...previous, value],
-  )
-  .option(
-    '--domain <id>',
-    'Restrict discovered items to one declared domain (`coredoc intent status` lists them); --id lookups are exempt',
-  )
-  .option('--include-candidates', 'Include candidate (unreviewed) items')
-  .option('--limit <n>', 'Max items to return (1..20)')
-  .action(async (options) => {
-    try {
-      const { createGraphEvidenceResolver, resolveIntentTarget, runIntentContext, printContextResult } = await import(
-        './commands/intent.js'
-      );
-      let limit: number | undefined;
-      if (options.limit !== undefined) {
-        // Fail fast on non-integers rather than letting parseInt silently
-        // truncate ("3.9" -> 3) or accept a numeric prefix ("20abc" -> 20).
-        if (!/^\d+$/.test(options.limit)) {
-          console.error(
-            `Error: --limit must be an integer in ${INTENT_CONTEXT_LIMITS.min}..${INTENT_CONTEXT_LIMITS.max}, ` +
-              `got "${options.limit}"`,
-          );
-          process.exit(1);
-        }
-        limit = Number.parseInt(options.limit, 10);
-      }
-      const config = loadConfig(options.config);
-      const target = resolveIntentTarget(config, options.project);
-      const result = await runIntentContext({
-        config,
-        projectId: options.project,
-        request: {
-          intentIds: options.id,
-          query: options.query,
-          nodeIds: options.nodeId,
-          domain: options.domain,
-          includeCandidates: options.includeCandidates === true,
-          limit,
-        },
-        resolveEvidence: createGraphEvidenceResolver(config, target),
-      });
-      printContextResult(result);
-      // Only an invalid file is a failure: not_configured and zero matches are
-      // valid, non-error states (BR-9).
-      if (result.status === IntentOverlayStatus.Invalid) process.exit(1);
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    }
-  });
-
-// The payload-free index: what is in the overlay, as ids and titles. It reads
-// the file only — no graph — so it stays the cheap orientation call before an
-// exact-id `intent context` fetch.
-intentCmd
-  .command('list')
-  .description('List the declared domains and the overlay items as ids + titles (no payloads, accepted by default)')
-  .requiredOption('-p, --project <id>', 'Project id')
-  .option('-c, --config <path>', 'Path to config file', 'coredoc.config.json')
-  .option('--domain <id>', 'Restrict to one declared domain; an undeclared id is an error naming the declared ones')
-  .option(
-    '--kind <kind>',
-    'Restrict to one intent kind (capability, use_case, flow, business_rule, limitation, decision)',
-  )
-  .option('--include-candidates', 'Include candidate (unreviewed) items; rejected and superseded are never listed')
-  .option('--ids', 'Print matching intent ids only, one per line (machine-readable stdout)')
-  .action(async (options) => {
-    try {
-      const { runIntentList, printListResult } = await import('./commands/intent.js');
-      const config = loadConfig(options.config);
-      const result = runIntentList({
-        config,
-        projectId: options.project,
-        request: {
-          domain: options.domain,
-          // Validated in core against the closed kind set, so the CLI does not
-          // become a second, drifting copy of that list.
-          kind: options.kind as IntentKind | undefined,
-          includeCandidates: options.includeCandidates === true,
-        },
-      });
-      printListResult(result, { idsOnly: options.ids === true });
-      // Only an invalid file is a failure: not_configured and zero matches are
-      // valid, non-error states (BR-9).
-      if (result.status === IntentOverlayStatus.Invalid) process.exit(1);
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    }
-  });
-
-// The one write path over the overlay. Everything it may not do (promote,
-// rewrite an accepted item, append a duplicate for one source identity) is
-// enforced by the composed core flow, not by this registration.
-intentCmd
-  .command('capture')
-  .description(
-    'Capture proposed intent items as candidates (never accepts, never rewrites accepted items; ' +
-      'solo acceptance is a reviewed edit of the overlay — see `coredoc intent --help`)',
-  )
-  .requiredOption('-p, --project <id>', 'Project id')
-  .requiredOption('-i, --input <file>', 'Proposals JSON document ({"items": [...]}); "-" reads stdin')
-  .option('-c, --config <path>', 'Path to config file', 'coredoc.config.json')
-  .action(async (options) => {
-    try {
-      const { runIntentCapture, printCaptureResult } = await import('./commands/intent.js');
-      const config = loadConfig(options.config);
-      printCaptureResult(runIntentCapture({ config, projectId: options.project, input: options.input }));
-    } catch (err) {
-      // Every refusal (invalid overlay, rejected proposals, accepted-item
-      // mutation, project mismatch) reaches here with its actionable message,
-      // and nothing has been written in any of those cases.
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    }
-  });
-
-// The two cloud-facing verbs. Everything else on `intent` reads or writes the
-// local overlay; these two are the onboarding hand-off (§8.1) and the read-only
-// projection (§9). Cloud read, propose and review are MCP and UI surfaces, not
-// CLI verbs (spec §11).
-
-intentCmd
-  .command('import')
-  .description('Import the local overlay into a cloud workspace and cut product-intent authority over to it')
-  .requiredOption('-p, --project <id>', 'Project id')
-  .requiredOption('-w, --workspace-id <id>', 'Cloud workspace that will own product intent')
-  .option('-c, --config <path>', 'Path to config file', 'coredoc.config.json')
-  .option('-y, --yes', 'Confirm the ONE-WAY authority cutover; without it the command prints the plan and refuses')
-  .action(async (options) => {
-    try {
-      const { runIntentImport, printIntentImportResult } = await import('./commands/intent-cloud.js');
-      const config = loadConfig(options.config);
-      printIntentImportResult(
-        await runIntentImport({
-          config,
-          projectId: options.project,
-          workspaceId: options.workspaceId,
-          yes: options.yes === true,
-        }),
-      );
-    } catch (err) {
-      await printIntentCommandError(err);
-      process.exit(1);
-    }
-  });
-
-intentCmd
-  .command('bootstrap-check')
-  .description('Read-only: is this project ready to import its overlay into a cloud workspace? Writes nothing.')
-  .requiredOption('-p, --project <id>', 'Project id')
-  .requiredOption('-w, --workspace-id <id>', 'Cloud workspace the import would target')
-  .option('-c, --config <path>', 'Path to config file', 'coredoc.config.json')
-  .option(
-    '-i, --input <file>',
-    'Also validate a brownfield packet (spec §8.2) with the same parser the propose path uses',
-  )
-  .action(async (options) => {
-    try {
-      const { runIntentBootstrapCheck, printIntentBootstrapCheckResult } = await import('./commands/intent-cloud.js');
-      const config = loadConfig(options.config);
-      const result = await runIntentBootstrapCheck({
-        config,
-        projectId: options.project,
-        workspaceId: options.workspaceId,
-        input: options.input,
-      });
-      printIntentBootstrapCheckResult(result);
-      // Any failed check is a non-zero exit: this verb is meant to gate a
-      // scripted onboarding run, not just to be read.
-      if (!result.ok) process.exit(1);
-    } catch (err) {
-      await printIntentCommandError(err);
-      process.exit(1);
-    }
-  });
+const intentCmd = program.command('intent').description('Cloud workspace product-intent export and release');
 
 intentCmd
   .command('export')
-  .description('Write the workspace intent projection (CloudIntentExportV1) to an explicit path')
+  .description('Write the workspace intent export to an explicit path')
   .requiredOption('-w, --workspace-id <id>', 'Cloud workspace to export')
   .requiredOption(
     '-o, --out <path>',
     'File to write. Required and never inferred: in a multi-repo workspace there is no "the" repo to write into',
   )
+  .option(
+    '--format <format>',
+    '"backup": the hashed projection with history (CloudIntentExportV1); ' +
+      '"workspace": the document `intent/import/workspace` takes',
+    'backup',
+  )
   .action(async (options) => {
     try {
-      const { runIntentExport, printIntentExportResult } = await import('./commands/intent-cloud.js');
-      printIntentExportResult(await runIntentExport({ workspaceId: options.workspaceId, out: options.out }));
+      const { parseIntentExportFormat, runIntentExport, printIntentExportResult } = await import(
+        './commands/intent-cloud.js'
+      );
+      const format = parseIntentExportFormat(options.format);
+      printIntentExportResult(await runIntentExport({ workspaceId: options.workspaceId, out: options.out, format }));
     } catch (err) {
       await printIntentCommandError(err);
       process.exit(1);

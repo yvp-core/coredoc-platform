@@ -1,13 +1,10 @@
 /**
  * Deterministic intent item ids (spec §4.4, BR-16/BR-17).
  *
- * Ported from `deriveIntentId` in `packages/core/src/intent/capture.ts` — same
+ * Ported from `deriveIntentId` in `packages/core/src/intent/derive-id.ts` — same
  * algorithm, same guarantees. It is ported rather than imported because the
- * `@coredoc/core` intent barrel exports `IntentCaptureError` and
- * `CaptureItemResult` from that module and nothing else, `@coredoc/core` has no
- * deep-import subpath for it, and widening a cross-package barrel is outside
- * this change's file surface. `intent-id.test.ts` pins the ported behaviour
- * against the same expectations core's `capture.test.ts` states.
+ * server's refusals are §12 public errors, and `intent-id-parity.test.ts` pins
+ * the two implementations against each other.
  *
  * The two behaviours that matter downstream:
  * - pure and deterministic — the same `(kind, title, takenIds)` always yields

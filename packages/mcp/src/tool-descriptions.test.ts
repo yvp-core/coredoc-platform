@@ -59,7 +59,7 @@ describe('coredoc-mcp skill core', () => {
     // Tools defined in server.ts rather than in TOOL_DESCRIPTIONS (the registry the cloud
     // iterates). Absence from the registry is deliberate — it is what keeps them local —
     // so it must not also mean absence from the agent-facing docs.
-    const locallyDefined = ['get_intent_context', 'run_cypher_query', 'semantic_search'];
+    const locallyDefined = ['run_cypher_query', 'semantic_search'];
     for (const name of locallyDefined) {
       expect(COREDOC_MCP_SKILL, `${name} is dispatchable but appears in no skill doc`).toContain(name);
     }

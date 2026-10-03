@@ -4,14 +4,9 @@ import { fileURLToPath } from 'url';
 import { describe, expect, it } from 'vitest';
 import { INTENT_TASKS, IntentPromptShape, IntentTaskStage, intentTaskById } from './tasks.js';
 
-const FIXTURE_INTENT_PATH = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  'fixture-repo',
-  '.coredoc',
-  'intent.json',
-);
+const FIXTURE_INTENT_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'seed-intent.json');
 
-/** Every item id the fixture overlay actually declares. */
+/** Every item id the seed intent actually declares. */
 function fixtureIntentIds(): Set<string> {
   const file = JSON.parse(fs.readFileSync(FIXTURE_INTENT_PATH, 'utf-8')) as { items: { id: string }[] };
   return new Set(file.items.map((item) => item.id));

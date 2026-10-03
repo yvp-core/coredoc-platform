@@ -20,11 +20,11 @@
  * authoritative and re-validates everything, including the optional per-kind
  * `payload` (D9) which is passed through here as a bounded JSON object rather
  * than re-implemented — one payload validator in the product, and it is the one
- * the server already reaches through `validateIntentFile`.
+ * the server already reaches through `validateIntentPayload`.
  */
 import { z } from 'zod';
 import { ContextConditionsSchema, INTENT_LIMITS } from './schema.js';
-import { canonicalIntentJson } from './storage.js';
+import { canonicalIntentJson } from './canonical-json.js';
 import { INTENT_SLUG_PATTERN, IntentKind, IntentSourceKind } from './types.js';
 
 /**

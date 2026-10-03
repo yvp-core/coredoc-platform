@@ -46,8 +46,6 @@ import { handleListEntrypoints } from './tools/discovery/list-entrypoints.js';
 import { handleDescribeRepository } from './tools/discovery/describe-repository.js';
 import { handleDescribeDbSchema } from './tools/discovery/describe-db-schema.js';
 import { handleGetExtractionCoverage } from './tools/discovery/get-extraction-coverage.js';
-import { handleGetIntentContext } from './tools/intent/get-intent-context.js';
-import { handleIntentRead } from './tools/intent/intent-read.js';
 import { handleTraceCrossRepoCall } from './tools/cross-repo/trace-cross-repo-call.js';
 import { handleListServiceDependencies } from './tools/cross-repo/list-service-dependencies.js';
 
@@ -113,98 +111,6 @@ const SEMANTIC_SEARCH_TOOL = {
   },
 };
 
-/**
- * get_intent_context — LOCAL-ONLY and PERMANENT (no env gate).
- *
- * Its description + schema are authored here, at the single definition site,
- * and deliberately NOT in tool-descriptions.ts / tool-schemas.ts: that shared
- * registry is what the cloud NestJS surface iterates, so absence from it is the
- * mechanism that keeps the pilot's product intent local (LIM-1, spec
- * "Contracts and consumers").
- */
-/**
- * intent_read — listed locally only to refuse with a reason (see
- * `tools/intent/intent-read.ts`); the cloud tool's real schema lives with the
- * cloud server.
- */
-const INTENT_READ_TOOL = {
-  name: 'intent_read',
-  description:
-    'Cloud workspace only. On a local project this answers with an explicit refusal and points to get_intent_context; on a project cut over to a cloud workspace, call intent_read on the workspace MCP.',
-  inputSchema: { type: 'object', properties: {}, additionalProperties: true },
-};
-
-const GET_INTENT_CONTEXT_TOOL = {
-  name: 'get_intent_context',
-  description:
-    'Return the project\'s REVIEWED product intent that applies to your task — capabilities, use cases, flows, business rules, limitations, and decisions a maintainer accepted — together with the current state of the code they are anchored to. Use it before planning or reviewing to learn the rules and non-goals the code alone does not state. Pass `intentIds` when a plan or handoff already routed exact ids (cheapest path, and the only way to retrieve a rejected or superseded item), `query` for a bounded lexical search over intent text, and/or `nodeIds` to find the intent anchored to a specific code node (an anchor on the enclosing class or file matches too, and a file id matches anchors on that file\'s members). Add `domain` to narrow any of that to one declared product area; every returned item reports its own `domain`, so one response tells you which areas exist. Defaults are compact and return ACCEPTED items only; candidates require `includeCandidates: true`. Every response reports authority, per-anchor `anchorStatus` (matched/changed/missing), and per-repo `snapshotFreshness` (current/stale/unknown/unverified — `unverified` means no observed checkout was supplied, so nothing was compared) INDEPENDENTLY — a matched anchor on a stale graph does not mean \'unaffected\', and a code anchor is an implementation touchpoint, never proof that the intent is satisfied. When the project has no overlay the response is `not_configured` (not an error), when the file is invalid it is `invalid` with paths, and when the local graph is unavailable the intent is still returned with `evidence.available: false`. ALWAYS pass at least one selector (`intentIds`, `query`, or `nodeIds`): a call with none returns every accepted item up to the limit — the broadest read there is — and one broad lookup per task stage is the budget; follow up by exact ids the response returned instead of searching again. To ORIENT first, call `mode: "list"`: it returns the declared domains plus the matching items as ids + titles only (no payloads, no anchors) — the cheapest call there is — so browse the index (optionally `format: "ids"`, `domain`, `kind`), then fetch the exact ids you need with the default context mode. Never read `.coredoc/intent.json` directly — this tool and the intent CLI are the only read surfaces; the raw file lacks anchor status and freshness. Once the project is cut over to a cloud workspace this tool refuses and names the workspace: call the workspace MCP `get_intent_context` instead.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      mode: {
-        type: 'string',
-        enum: ['context', 'list'],
-        description:
-          'Which read to perform. "context" (default) returns applicable intent with payloads and code-anchor evidence. "list" returns the payload-free index — the domain registry plus id/title/kind/domain/authority per item — for orienting before an exact-id fetch. List mode takes only `domain`, `kind`, `includeCandidates`, and `format`; passing `intentIds`, `query`, or `nodeIds` there is an ERROR, not an ignored argument.',
-      },
-      format: {
-        type: 'string',
-        enum: ['index', 'ids'],
-        description:
-          'LIST MODE ONLY. "index" (default) returns id + title + kind + domain + authority per item; "ids" returns bare slug ids for a follow-up exact-id fetch.',
-      },
-      kind: {
-        type: 'string',
-        enum: ['capability', 'use_case', 'flow', 'business_rule', 'limitation', 'decision'],
-        description:
-          'LIST MODE ONLY. Restrict the index to one semantic kind; composes with `domain`. An unknown kind is an ERROR naming the valid ones.',
-      },
-      intentIds: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Exact intent ids — kind-prefixed slugs, e.g. ["br-refund-window", "cap-widget-ordering"]. Wins over `query` and is never narrowed by `domain`; the only way to fetch a rejected or superseded item.',
-      },
-      query: {
-        type: 'string',
-        description:
-          'Bounded lexical search over intent titles, statements, and typed payload text. Matching is substring and case-insensitive: every whitespace-separated word must appear (AND), and ONLY when that conjunction matches nothing does it re-match on any single word, ranked by how many words each item hit. Deterministic — there is no fuzzy, stemming, or semantic layer, so a misspelling still matches nothing.',
-      },
-      nodeIds: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Stable code node ids, e.g. "40080b8c38fc:function:src/formatting/money.ts:roundCurrency"; returns the intent items whose stored code anchors reference them. A bare file path is NOT a node id — take ids from coredoc tool responses; a guessed id matches nothing. Anchors on an ENCLOSING scope match too, so a method id also finds intent anchored to its class or its file (not the reverse).',
-      },
-      domain: {
-        type: 'string',
-        description:
-          'Declared product-area id (e.g. "ordering"). Returns only that area\'s items and composes with `query`/`nodeIds`; exact `intentIds` are exempt. An id the overlay does not declare is an ERROR naming the declared ones — never an empty result. Read the `domain` field of any response, or run `coredoc intent status`, to learn the declared ids.',
-      },
-      includeCandidates: {
-        type: 'boolean',
-        description:
-          'Include `candidate` (proposed, not yet reviewed) items. Default false — a candidate is never authoritative and cannot ground a blocking finding.',
-      },
-      limit: {
-        type: 'number',
-        description:
-          'Max items (1..20, default 5; omitted alongside `intentIds`, it covers every id you named). Truncation is reported explicitly.',
-      },
-      // NOT the shared DETAIL_LEVEL_SCHEMA: the code-graph wording ("AI
-      // summaries, refs, callees; default: full") is wrong for this tool in
-      // both dimensions — intent has no such fields, and this tool is
-      // compact-by-default (see BASIC_BY_DEFAULT_TOOLS in detail-level.ts).
-      detailLevel: {
-        type: 'string',
-        enum: ['basic', 'full'],
-        description:
-          'Response granularity: "basic" (DEFAULT) returns each item as identity, domain, title, statement, authority, sources and code-anchor evidence; "full" adds the typed payload of every item (a capability\'s outcome/beneficiary/boundary, a rule\'s condition/requiredOutcome, a flow\'s steps, …). Stay on the default and ask for "full" only when the statement alone is not enough to decide.',
-      },
-    },
-  },
-};
-
 const TOOLS = [
   sharedTool('analyze_change_impact'),
   sharedTool('find_callers'),
@@ -261,9 +167,6 @@ const TOOLS = [
   sharedTool('get_extraction_coverage'),
   sharedTool('trace_cross_repo_call'),
   sharedTool('list_service_dependencies'),
-  // Local-only and permanent: no env gate, but absent from the shared registry.
-  GET_INTENT_CONTEXT_TOOL,
-  INTENT_READ_TOOL,
   // Env-gated: listed only when ENABLE_SEMANTIC_SEARCH is on (module-load check).
   ...(semanticSearchEnabled() ? [SEMANTIC_SEARCH_TOOL] : []),
 ];
@@ -291,37 +194,6 @@ type ToolHandler = (
   repository: IGraphReadRepository,
 ) => Promise<McpResponse<unknown>>;
 
-/**
- * Handler shape for {@link GRAPH_OPTIONAL_TOOLS}: same call, but the graph may
- * be absent. Kept separate because a graph-required handler is (correctly) not
- * assignable to a slot that may be called without one.
- */
-type GraphOptionalToolHandler = (
-  args: Record<string, unknown>,
-  scope: ScopeContext,
-  format: OutputFormat,
-  detailLevel: DetailLevel,
-  detailConfig: DetailLevelConfig,
-  repository?: IGraphReadRepository,
-) => Promise<McpResponse<unknown>>;
-
-/**
- * Tools that answer from a source OTHER than the graph and must therefore
- * survive an unavailable one.
- *
- * `get_intent_context` reads the repo-local intent overlay; the graph only adds
- * code-anchor evidence. Failing the whole call because a project was never
- * pushed would violate BR-9/AC-9 — the handler instead returns the intent with
- * `evidence.available: false`. Every other tool keeps failing closed: for them
- * a missing graph means there is no answer at all.
- */
-const GRAPH_OPTIONAL_HANDLERS: Record<string, GraphOptionalToolHandler> = {
-  get_intent_context: handleGetIntentContext,
-  intent_read: handleIntentRead,
-};
-
-const GRAPH_OPTIONAL_TOOLS = new Set(Object.keys(GRAPH_OPTIONAL_HANDLERS));
-
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
   analyze_change_impact: handleAnalyzeChangeImpact,
   find_callers: handleFindCallers,
@@ -336,7 +208,6 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   get_extraction_coverage: handleGetExtractionCoverage,
   trace_cross_repo_call: handleTraceCrossRepoCall,
   list_service_dependencies: handleListServiceDependencies,
-  ...GRAPH_OPTIONAL_HANDLERS,
   // Env-gated: dispatchable only when ENABLE_SEMANTIC_SEARCH is on (matches TOOLS).
   ...(semanticSearchEnabled() ? { semantic_search: handleSemanticSearch } : {}),
 };
@@ -478,28 +349,9 @@ function projectReadOptions(): { mode: 'read'; backend?: 'ladybug' } {
   return getConfiguredBackend() === 'ladybug' ? { mode: 'read', backend: 'ladybug' } : { mode: 'read' };
 }
 
-/**
- * A graph the caller may legitimately not have: no project is bound, or the
- * bound project was never pushed.
- *
- * Typed separately from every other failure so the graph-optional degradation
- * below can key on ABSENCE OF DATA and nothing else. A corrupt file, a locked
- * database, or a permission-denied read is not evidence that a project was
- * never pushed, and answering both with the same silent `undefined` let an
- * unreadable graph reach the agent as legitimate absence of evidence.
- */
-class GraphUnavailableError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'GraphUnavailableError';
-  }
-}
-
 async function projectDatabaseForScope(scope: ScopeContext | undefined): Promise<ProjectDatabase> {
   if (!scope?.projectId || !scope.configDir) {
-    throw new GraphUnavailableError(
-      'No project bound. Local MCP requires MCP_CONFIG_PATH and COREDOC_SCOPE=project:<id>.',
-    );
+    throw new Error('No project bound. Local MCP requires MCP_CONFIG_PATH and COREDOC_SCOPE=project:<id>.');
   }
   return openProjectDatabase(scope.configDir, scope.projectId, projectReadOptions());
 }
@@ -534,43 +386,12 @@ async function resolveScopedRepository(
   const database = await projectDatabaseForScope(scope);
   const repositories = await database.graph.listAllRepositories();
   if (repositories.length === 0) {
-    throw new GraphUnavailableError(
+    throw new Error(
       `No graph data for project "${database.projectId}". ` +
         `Run \`coredoc push --config "${scope!.configDir}/coredoc.config.json" --project ${database.projectId}\`.`,
     );
   }
   return database.graph;
-}
-
-/**
- * Resolve the graph for `toolName`, degrading to `undefined` ONLY where that is
- * an honest answer.
- *
- * The degradation is spec-required (BR-9/AC-9) but it is a degradation, so it
- * is scoped to {@link GraphUnavailableError} — "no project bound" and "this
- * project was never pushed". Anything else (a corrupt or locked database file,
- * a permission-denied read, a backend that failed to open) is logged with the
- * tool name and rethrown: a graph the server could not READ is not a graph the
- * agent may treat as empty, and failing fast here beats an intent answer that
- * silently claims no code evidence exists.
- */
-async function resolveScopedRepositoryFor(
-  toolName: string,
-  scope: ScopeContext | undefined,
-  injected?: IGraphReadRepository,
-): Promise<IGraphReadRepository | undefined> {
-  try {
-    return await resolveScopedRepository(scope, injected);
-  } catch (error) {
-    if (!GRAPH_OPTIONAL_TOOLS.has(toolName)) throw error;
-    if (error instanceof GraphUnavailableError) return undefined;
-    console.error(
-      `Warning: ${toolName} could not open the project graph — ` +
-        `${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}. ` +
-        `This is a read failure, not an unpushed project; the call is failing rather than reporting no evidence.`,
-    );
-    throw error;
-  }
 }
 
 /**
@@ -692,7 +513,7 @@ export function createServer(repository?: IGraphReadRepository, sessionId?: stri
     // Otherwise, only enable if explicitly requested (default to single-repo)
     const isProjectScope = scopePath.startsWith('project:');
     const includeCrossRepo = isProjectScope || args?.includeCrossRepo === true;
-    // Per-tool default: list-shaped tools (plus explain / get_intent_context)
+    // Per-tool default: list-shaped tools (plus explain)
     // resolve an omitted detailLevel to 'basic'; everything else to 'full'.
     const detailLevel = ((args?.detailLevel as string) || getDefaultDetailLevel(name)) as DetailLevel;
     const detailConfig = resolveDetailLevel(detailLevel);
@@ -767,14 +588,15 @@ export function createServer(repository?: IGraphReadRepository, sessionId?: stri
 
     try {
       // Execute tool handler
-      const scopedRepository = await resolveScopedRepositoryFor(name, scopeResult.scope, repository);
-      if (!scopedRepository && !GRAPH_OPTIONAL_TOOLS.has(name)) {
-        throw new Error(`No graph repository available for tool '${name}'`);
-      }
-      const response = scopedRepository
-        ? await handler(args || {}, scopeResult.scope, format, detailLevel, detailConfig, scopedRepository)
-        : // Guarded above: a missing graph only reaches GRAPH_OPTIONAL_HANDLERS.
-          await GRAPH_OPTIONAL_HANDLERS[name](args || {}, scopeResult.scope, format, detailLevel, detailConfig);
+      const scopedRepository = await resolveScopedRepository(scopeResult.scope, repository);
+      const response = await handler(
+        args || {},
+        scopeResult.scope,
+        format,
+        detailLevel,
+        detailConfig,
+        scopedRepository,
+      );
 
       // Resolve resultCount for metrics:
       //   - list-returning tools set it explicitly via the formatter
@@ -1061,10 +883,9 @@ export async function startServer(): Promise<void> {
         'Local MCP requires MCP_CONFIG_PATH and COREDOC_SCOPE=project:<id>; the id must exist exactly in that config.',
       );
     }
-    // A valid binding with no pushed graph is a supported degraded state (AC-9):
-    // graph-backed tools fail per call with an actionable error, while
-    // graph-optional tools (get_intent_context) still serve overlay data with
-    // evidence marked unavailable. Only a missing/ambiguous binding is fatal.
+    // A valid binding with no pushed graph is a supported degraded state:
+    // graph-backed tools fail per call with an actionable error. Only a
+    // missing/ambiguous binding is fatal.
     try {
       const database = await openProjectDatabase(binding.configDir, binding.projectId, projectReadOptions());
       if ((await database.graph.listAllRepositories()).length === 0) {
