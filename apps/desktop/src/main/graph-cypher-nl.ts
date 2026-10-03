@@ -234,7 +234,7 @@ export async function generateCypherFromNl(opts: {
   const userText = (opts.text ?? '').trim();
   if (!userText) throw new Error('Enter a question to generate a Cypher query.');
 
-  const systemPrompt = `${buildCypherDescription({ dialects: [opts.dialect] })}\n\n${CANVAS_INSTRUCTION}\n${entrypointFilterInstruction(opts.dialect)}\n${CANVAS_SOURCE_INSTRUCTION}\nExample: ${canvasExample(opts.dialect)}\n\n${INSTRUCTION}`;
+  const systemPrompt = `${buildCypherDescription({ dialects: [opts.dialect], inlineVocabulary: true })}\n\n${CANVAS_INSTRUCTION}\n${entrypointFilterInstruction(opts.dialect)}\n${CANVAS_SOURCE_INSTRUCTION}\nExample: ${canvasExample(opts.dialect)}\n\n${INSTRUCTION}`;
   const run = opts.run ?? defaultOneShotRun;
   const raw = await run({ systemPrompt, userText });
   const cypher = cleanCypherResponse(raw);

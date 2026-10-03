@@ -27,6 +27,16 @@
 import { NodeType, EdgeType } from '@coredoc/core/types';
 import type { CypherDialect } from '@coredoc/db';
 
+/**
+ * Claude Code truncates a tool's `description` at this many characters, so the
+ * tail past it never reaches the agent. A description keeps what an agent needs
+ * to call the tool correctly; field-level detail goes in the parameter's
+ * `.describe()` (the input schema is not cut), and longer semantics go in a
+ * skill reference the description names. Both servers' tools/list output is
+ * held to it by a contract test.
+ */
+export const TOOL_DESCRIPTION_CLIENT_CAP = 2048;
+
 export const TOOL_DESCRIPTIONS = {
   // Impact Analysis
   analyze_change_impact:
@@ -63,24 +73,26 @@ export const TOOL_DESCRIPTIONS = {
   // label names) so buildCypherDescription can append exactly the query shape
   // the calling surface serves, without contradicting it.
   run_cypher_query:
-    'Escape hatch for graph questions the fixed tools do not cover — run ONE read-only Cypher query directly against the parsed code graph (aggregations like "functions per repo", custom traversals, property filters, ad-hoc joins of node kinds). Prefer the purpose-built tools when one fits: they are scoped, formatted and cheaper. RESTRICTIONS: read-only and a single statement — mutations and side-effecting/administrative clauses (CREATE, MERGE, SET, DELETE, REMOVE, DROP, FOREACH, CALL, LOAD, INSERT, USE, ATTACH, COPY, EXPORT, IMPORT, INSTALL, SHOW, GRANT, …) and multiple `;`-separated statements are rejected before execution; there is no full-text index, so use search_symbols for name search. RESULT SHAPES: `rows` (default) returns a scalar table — project scalars (`RETURN n.name AS name, count(*) AS total`); returning a whole node, list or map is rejected with projection guidance (aggregates are fine). `graph` returns nodes/edges for subgraph questions. LIMITS: results are capped (default 200, max 500) and the response reports a `truncated` flag when the cap bit; there is no cursor — paginate INSIDE the query with a stable ORDER BY plus SKIP/LIMIT. SCOPE WARNING: `scope` selects WHICH graph is queried, but the Cypher itself is NOT repo-filtered within that graph — add your own `repoId`/repo predicate when you mean one repo. GOTCHA: a node\'s `properties` field is a JSON string, not a map — read it as text (or project the top-level columns instead). SOURCE: function/method source bodies are NOT stored in this graph — by default a NODE\'s `properties`/`sourceCode`, and any `x.*` star projection (it expands to the whole node table), are rejected before execution (a hosted deployment MAY opt in to storing source, in which case `properties` can contain it). A RELATIONSHIP variable bound by a pattern (`MATCH (a)-[r:OPERATES_ON]->(b)`) may project `r.properties` and `r.*`: edge properties are operation metadata, not source. Query the fields that ARE always available instead — `name`, `type`, `filePath`, `startLine`, `endLine`, `summary`, `repoId` — or call describe_db_schema for the full field-level schema.',
+    "Escape hatch for graph questions the fixed tools do not cover — run ONE read-only Cypher query against the parsed code graph (aggregates, custom traversals, property filters). Prefer a purpose-built tool when one fits. RESTRICTIONS: read-only and a single statement — mutating or administrative clauses (CREATE, MERGE, SET, DELETE, DROP, CALL, LOAD, …) and multiple `;`-separated statements are rejected before execution; there is no full-text index, so use search_symbols for name search. RESULT SHAPES: `rows` (default) is a scalar table, and a whole node, list or map is rejected; `graph` returns nodes/edges. LIMITS: default 200, max 500, with a `truncated` flag when the cap bit; no cursor — paginate INSIDE the query with a stable ORDER BY plus SKIP/LIMIT. SCOPE WARNING: `scope` selects WHICH graph is queried, but the Cypher is NOT repo-filtered within it — add a `repoId` predicate for one repo. GOTCHA: a node's `properties` is a JSON string, not a map. SOURCE: source bodies are NOT stored in this graph — a NODE's `properties`/`sourceCode` and any `x.*` star projection are rejected before execution unless the deployment opted in to storing source; a relationship variable may project `r.properties`/`r.*` (edge metadata). Query `name`, `type`, `filePath`, `startLine`, `endLine`, `summary`, `repoId` instead, or call describe_db_schema.",
 } as const;
 
 /** Cypher dialects this tool can document — the guard's vocabulary, not a second copy. */
 export type { CypherDialect };
 
 /**
- * Compact vocabulary line. Built from the enums so it cannot drift from the
- * graph itself; the per-kind meaning lives in the skill reference, not here.
+ * The graph vocabulary a Cypher query is written in, built from the enums so it
+ * cannot drift from the graph. An MCP surface sends it in the `query`
+ * parameter's description (tool-schemas.ts), which the client does not cut; a
+ * prompt with no parameter schema inlines it (see {@link buildCypherDescription}).
  */
-const GRAPH_VOCABULARY =
-  `Node kinds: ${Object.values(NodeType).join(', ')}. ` +
-  `Edge kinds: ${Object.values(EdgeType).join(', ')}. ` +
-  "Full field-level schema: the coredoc-mcp skill's references/graph-schema.md.";
+export const CYPHER_VOCABULARY =
+  `Node kinds: ${Object.values(NodeType).join(', ')}. ` + `Edge kinds: ${Object.values(EdgeType).join(', ')}.`;
+
+const GRAPH_SCHEMA_REFERENCE = "Full schema and worked queries: the coredoc-mcp skill's references/graph-schema.md.";
 
 const DIALECT_SHAPES: Record<CypherDialect, string> = {
   ladybug:
-    "Query shape (Ladybug/Kùzu): ONE node table `GraphNode(id, type, name, properties, summary, repoId, filePath, startLine, endLine)` — filter kinds by property, e.g. `MATCH (n:GraphNode) WHERE n.type = 'function' RETURN n.name AS name`. Each edge kind is its OWN relationship table named after the edge kind (`MATCH (a:GraphNode)-[:CALLS]->(b:GraphNode)`), each carrying `id, confidence, createdBy, properties`.",
+    "Query shape (Ladybug/Kùzu): ONE node table `GraphNode(id, type, name, properties, summary, repoId, filePath, startLine, endLine)`; filter kinds by property (`MATCH (n:GraphNode) WHERE n.type = 'function' RETURN n.name AS name`). Each edge kind is its OWN relationship table (`MATCH (a:GraphNode)-[:CALLS]->(b:GraphNode)`) carrying `id, confidence, createdBy, properties`.",
   neo4j:
     'Query shape (Neo4j): every node carries the shared `CodeNode` label PLUS a per-kind label, so filter by label — `MATCH (n:function) RETURN n.name AS name` — and use `MATCH (n:CodeNode)` to span all kinds. Relationship types are the edge kinds (`MATCH (a:CodeNode)-[:CALLS]->(b:CodeNode)`).',
 };
@@ -89,8 +101,13 @@ const DIALECT_SHAPES: Record<CypherDialect, string> = {
  * Render the `run_cypher_query` description for a surface: the shared base
  * prose plus the query-shape section of each dialect that surface can serve
  * (local renders the active backend; hosted renders Ladybug/Kùzu only).
+ *
+ * An MCP tool description points at the `query` parameter for the node and edge
+ * kinds, keeping it under the client cap. `inlineVocabulary` is for a prompt
+ * that has no parameter schema to point at (the desktop NL-to-Cypher call).
  */
-export function buildCypherDescription(opts: { dialects: CypherDialect[] }): string {
+export function buildCypherDescription(opts: { dialects: CypherDialect[]; inlineVocabulary?: boolean }): string {
+  const vocabulary = opts.inlineVocabulary ? CYPHER_VOCABULARY : 'Node and edge kinds: see the `query` parameter.';
   const shapes = opts.dialects.map((dialect) => DIALECT_SHAPES[dialect]);
-  return [TOOL_DESCRIPTIONS.run_cypher_query, GRAPH_VOCABULARY, ...shapes].join(' ');
+  return [TOOL_DESCRIPTIONS.run_cypher_query, vocabulary, GRAPH_SCHEMA_REFERENCE, ...shapes].join(' ');
 }

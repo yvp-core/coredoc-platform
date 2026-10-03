@@ -5,9 +5,14 @@
 // never capture from code or inference, never invent a node id, never accept on
 // the maintainer's behalf, stop and wait for a decision. Prose like that is
 // deleted by a well-meaning edit without anything failing, so it is asserted
-// here. The tool descriptions in apps/server/src/mcp/tools/intent.tools.ts own
-// the contract (fields, refusals, permissions); the skill must not restate it,
-// and this file does not pin it.
+// here.
+//
+// The contract has two homes. A tool description in
+// apps/server/src/mcp/tools/intent.tools.ts keeps only what an agent needs to
+// call the tool correctly — the client cuts a description at 2,048 characters —
+// and the longer tree and condition semantics live in references/tree.md, which
+// this skill ships and the descriptions name. SKILL.md points at that reference
+// and does not restate it; the reference does not restate the procedure.
 //
 // Assertions target invariants (a rule, a tool name, a section boundary) and
 // tolerate rewording where they can; a failing match means a rule moved or
@@ -18,6 +23,8 @@ import assert from 'node:assert/strict';
 
 const SKILL_URL = new URL('../skills/intent-capture/SKILL.md', import.meta.url);
 const SKILL = readFileSync(SKILL_URL, 'utf8');
+const TREE_URL = new URL('../skills/intent-capture/references/tree.md', import.meta.url);
+const TREE = readFileSync(TREE_URL, 'utf8');
 const DESCRIPTION = SKILL.match(/^description: (.*)$/m)?.[1] ?? '';
 /** SKILL.md byte ceiling: the 2026-10-03 size rounded up to the next 256 B. */
 const BUDGET = 17_920;
@@ -150,8 +157,9 @@ test('the conditions guidance is judgement only', () => {
   assert.match(conditions, /`requiredOutcome` is the outcome when no variant matches/);
   assert.match(conditions, /Custom roles are not dimension values/);
   assert.match(conditions, /No OR across dimensions/);
-  // Declaration and clause syntax belong to the intent_propose / intent_tree descriptions.
+  // Declaration and clause syntax belong to the tool schemas and references/tree.md.
   assert.doesNotMatch(conditions, /dimension\.create/);
+  assert.match(conditions, /`references\/tree\.md`/);
 });
 
 test('bootstrap is opt-in, candidate-only, and rides the ordinary propose path', () => {
@@ -191,9 +199,38 @@ test('the feature layout is short: seeds, proposal first, relations, and placeme
   assert.match(layout, /never one "to hold" one batch/);
   assert.match(layout, /`relation\.put`[^.]*`why`/);
   assert.match(layout, /Placement is not authority/);
-  // Archive, delete and idempotency are the intent_tree description's.
+  assert.match(layout, /`references\/tree\.md`/);
+  // Archive, delete and idempotency are the intent_tree contract's, not this procedure's.
   assert.doesNotMatch(layout, /idempotencyKey|Archive and delete/);
   assert.ok(layout.split('\n').filter(Boolean).length <= 6, '§5 grew past a handful of paragraphs');
+});
+
+test('the tree reference carries the semantics the tool descriptions point at', () => {
+  // Moved out of the intent_tree description, which the client truncated.
+  assert.match(TREE, /`relation\.put \{from: \{kind: domain\|feature, id\}, to: \{kind, id\}, why\}`/);
+  assert.match(TREE, /unordered, and a put on an\s+existing pair re-words `why`/);
+  assert.match(TREE, /`dimension_in_use`, naming the blockers/);
+  assert.match(TREE, /holds dimension clauses only/);
+  assert.match(TREE, /inherits it \(AND\); `\[\]` clears it/);
+  assert.match(TREE, /on the tree once, not on each item/);
+  assert.match(TREE, /`affectedAcceptedItems`/);
+  assert.match(TREE, /explicit maintainer instruction\s+naming the node/);
+  assert.match(TREE, /`\(featureId, repoKey, nodeId\)`/);
+  assert.match(TREE, /`unknown_repo_key`[^.]*registered identities[^.]*: fix the id, do not retry/s);
+  assert.match(TREE, /`layout`\s+replaces the stored one; `\[\]` clears it/);
+  // Condition semantics shared with intent_propose.
+  assert.match(TREE, /`\{text\}` clause is never evaluated/);
+  assert.match(TREE, /\(`variant_overlap`\)/);
+  assert.match(TREE, /\(`condition_item_inactive`\); a candidate target is not evaluated/);
+  assert.match(TREE, /never write a condition and are\s+not a reason to ask the user/);
+});
+
+test('the tree reference holds contract, not procedure', () => {
+  // The session rule is stated once, in SKILL.md §1; the reference points back.
+  assert.match(TREE, /SKILL\.md §1/);
+  assert.doesNotMatch(TREE, /service[- ]token/i);
+  assert.doesNotMatch(TREE, /authorizingSource|intent_review|stop and wait/);
+  assert.ok(Buffer.byteLength(TREE, 'utf8') <= 4_608, 'references/tree.md grew past 4.5 KiB; split or trim it');
 });
 
 test('propose demands a fresh idempotency key and carries the result forward', () => {
@@ -271,4 +308,9 @@ test('the plugin copy is byte-identical to the canonical skill', () => {
   // from it by `pnpm sync:plugin-skills`.
   const canonical = readFileSync(new URL('../../../skills/intent-capture/SKILL.md', import.meta.url), 'utf8');
   assert.equal(SKILL, canonical, 'plugins/coredoc/skills copy has drifted — run `pnpm sync:plugin-skills`');
+  const canonicalTree = readFileSync(
+    new URL('../../../skills/intent-capture/references/tree.md', import.meta.url),
+    'utf8',
+  );
+  assert.equal(TREE, canonicalTree, 'references/tree.md copy has drifted — run `pnpm sync:plugin-skills`');
 });

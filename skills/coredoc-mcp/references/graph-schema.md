@@ -1,8 +1,9 @@
 # Graph Schema Reference (for `run_cypher_query`)
 
 This is the full vocabulary for writing read-only Cypher against the coredoc graph. The
-`run_cypher_query` tool description stays compact and points here — this file is where the
-complete `NodeType`/`EdgeType` list and per-kind property shapes live.
+`run_cypher_query` tool description stays compact and points here, and its `query` parameter
+lists the kind names — this file is where the complete `NodeType`/`EdgeType` list, the
+per-kind property shapes and the full list of rejected clauses live.
 
 Every `run_cypher_query` response names the **serving backend/dialect** in its metadata —
 check that field before assuming which dialect syntax applies.
