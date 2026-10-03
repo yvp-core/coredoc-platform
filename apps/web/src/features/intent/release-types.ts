@@ -122,3 +122,10 @@ export const releaseTriggerExplain: Record<IntentReleaseTrigger, string> = {
   [IntentReleaseTrigger.Merge]: 'A pull request merged into the production branch records the delivery.',
   [IntentReleaseTrigger.Deploy]: 'The CI step after a production deploy records the delivery.',
 };
+
+/** One rule in the delivery selection; `removed` records it as leaving production. */
+export interface ReleaseSelectionItem {
+  id: string;
+  title: string;
+  removed?: boolean;
+}

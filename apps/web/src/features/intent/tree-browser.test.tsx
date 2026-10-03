@@ -169,7 +169,11 @@ describe('IntentTreeBrowser pending proposals', () => {
         domain('bank', [feature('payout', null), feature('limits', 'payout'), feature('report', null)]),
         domain('quiet', []),
       ],
-      pending: { root: 0, domains: { bank: 2 }, features: { limits: 2 } },
+      counts: {
+        root: { items: 0, pending: 0 },
+        domains: { bank: { items: 2, pending: 2 } },
+        features: { limits: { items: 2, pending: 2 } },
+      },
       onlyPending: true,
       onToggleOnlyPending: () => undefined,
     });

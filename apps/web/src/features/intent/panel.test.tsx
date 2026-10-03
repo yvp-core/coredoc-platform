@@ -71,7 +71,8 @@ beforeEach(() => {
         );
       if (u.pathname.endsWith('/tree'))
         return new Response(
-          JSON.stringify({ root: { itemCount: 0, pendingCount: 0 }, domains: treeDomains, nextCursor: null }),
+          // The product-root count is what keeps a domain-less workspace out of onboarding.
+          JSON.stringify({ root: { itemCount: rows.length, pendingCount: 0 }, domains: treeDomains, nextCursor: null }),
         );
       if (u.pathname.endsWith('/document'))
         return new Response(

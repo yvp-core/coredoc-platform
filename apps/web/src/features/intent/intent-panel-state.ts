@@ -10,10 +10,9 @@
  *   first write instead of an apology. Both counts are load-bearing: a product-root
  *   item needs no domain, so a workspace whose last domain was archived still has a
  *   knowledge base and must not be shown the onboarding invitation over it.
- * - **An unknown count is rendered as nothing, never as a number.** The counts on
- *   the structure column are tallied from the item pages that are actually in
- *   hand; while a page is missing, the honest answer is silence, because a count
- *   that says "3" for a scope holding thirty is worse than no count at all.
+ * - **Counts come from the server, not from item pages.** The tree read carries
+ *   every node's counts, so the structure column never tallies a list it may
+ *   only have part of.
  */
 
 import { stagedCard, type IntentStagedCard } from './intent-review-request.js';
@@ -21,11 +20,12 @@ import {
   IntentAuthority,
   IntentReviewAction,
   type IntentFeatureView,
+  type IntentCountedFeature,
   type IntentItemSummary,
+  type IntentNodeCounts,
   type IntentNodeDocument,
   type IntentTreeDomain,
   type IntentTreeResponse,
-  type IntentCountedFeature,
 } from './types.js';
 
 /** The tree node the browse surface is reading: a domain, one of its features, or the product root. */
@@ -51,7 +51,7 @@ export interface IntentBrowseStateInput {
   treeError: boolean;
   /** `null` while nothing has resolved yet; a number once the tree page is in hand. */
   domainCount: number | null;
-  /** Items attached to the product root; `null` while the item page is unresolved. */
+  /** Live items attached to the product root, from the tree read; `null` while unresolved. */
   rootItemCount: number | null;
 }
 
@@ -146,89 +146,41 @@ export function intentItemsInScope(
 
 /* ---------------------------------------------------------------- counts --- */
 
+/** One tree node's live items (candidate or accepted) and the candidates among them. */
 export interface IntentCountCell {
   items: number;
-  candidates: number;
+  pending: number;
 }
 
 /**
- * Counts per tree node, for the scopes the loaded pages actually cover. A node
- * absent from these maps has an UNKNOWN count, which the structure column
- * renders as nothing rather than as a zero.
+ * The structure column's counts, straight from the tree read (see
+ * `IntentTreeService.itemCounts`): a domain counts its whole subtree, a feature
+ * only what is attached to it directly, the root what is attached to no node.
+ * A node absent from these maps was never listed by a read in hand, and is
+ * drawn without a number.
  */
-export interface IntentScopeCounts {
-  /** Product-root items (`domainId: null`), known only from a root-scoped read. */
-  root: IntentCountCell | null;
+export interface IntentTreeCounts {
+  root: IntentCountCell;
   domains: Readonly<Record<string, IntentCountCell>>;
   features: Readonly<Record<string, IntentCountCell>>;
-  /**
-   * These counts come from a COMPLETE read of the WHOLE workspace. Only then is
-   * absence informative: a tree node the read did not mention has nothing in it,
-   * which is how "declared, no items yet" becomes reachable at all. Under a
-   * domain-scoped or still-paging read, absence means unknown.
-   */
-  wholeWorkspace: boolean;
 }
 
-export const EMPTY_INTENT_SCOPE_COUNTS: IntentScopeCounts = {
-  root: null,
-  domains: {},
-  features: {},
-  wholeWorkspace: false,
-};
-
-/** What a node the whole-workspace read never mentioned actually holds. */
-export const ZERO_INTENT_COUNT: IntentCountCell = { items: 0, candidates: 0 };
-
-/**
- * The count to render for one tree node: the tallied cell, a KNOWN ZERO when the
- * whole workspace was read completely and this node was not in it, and `null`
- * (draw nothing) when nobody has read the scope it belongs to.
- */
-export function intentKnownCount(cell: IntentCountCell | undefined, counts: IntentScopeCounts): IntentCountCell | null {
-  if (cell !== undefined) return cell;
-  return counts.wholeWorkspace ? ZERO_INTENT_COUNT : null;
-}
-
-export interface IntentScopeCountsInput {
-  items: readonly IntentItemSummary[] | null;
-  /** The tree scope the loaded pages were read under (`null` = whole workspace). */
-  scopeDomainId: string | null;
-  /** False while the server still has pages — every count is then unknown. */
-  complete: boolean;
-}
-
-export function intentScopeCounts(input: IntentScopeCountsInput): IntentScopeCounts {
-  if (!input.complete || input.items === null) return EMPTY_INTENT_SCOPE_COUNTS;
-
+/** From the tree pages, plus the features a "show all features" read listed past the tree's cap. */
+export function intentTreeCounts(
+  pages: readonly IntentTreeResponse[],
+  moreFeatures: readonly IntentCountedFeature[] = [],
+): IntentTreeCounts {
   const domains: Record<string, IntentCountCell> = {};
   const features: Record<string, IntentCountCell> = {};
-  const root: IntentCountCell = { items: 0, candidates: 0 };
-
-  const bump = (cell: IntentCountCell, item: IntentItemSummary) => {
-    cell.items += 1;
-    if (item.authority === IntentAuthority.Candidate) cell.candidates += 1;
-  };
-
-  for (const item of input.items) {
-    if (item.domainId === null) {
-      bump(root, item);
-      continue;
-    }
-    // A domain-scoped read knows only its own domain; a root-scoped one knows all.
-    const domainCell = domains[item.domainId] ?? { items: 0, candidates: 0 };
-    domains[item.domainId] = domainCell;
-    bump(domainCell, item);
-    if (item.featureId !== null) {
-      const featureCell = features[item.featureId] ?? { items: 0, candidates: 0 };
-      features[item.featureId] = featureCell;
-      bump(featureCell, item);
+  const cell = (node: IntentNodeCounts): IntentCountCell => ({ items: node.itemCount, pending: node.pendingCount });
+  for (const page of pages) {
+    for (const domain of page.domains) {
+      domains[domain.id] = { items: domain.subtreeItemCount, pending: domain.subtreePendingCount };
+      for (const feature of domain.features) features[feature.id] = cell(feature);
     }
   }
-
-  // The root bucket is only knowable from a read that was not filtered to a domain.
-  const wholeWorkspace = input.scopeDomainId === null;
-  return { root: wholeWorkspace ? root : null, domains, features, wholeWorkspace };
+  for (const feature of moreFeatures) features[feature.id] = cell(feature);
+  return { root: cell(pages[0]?.root ?? { itemCount: 0, pendingCount: 0 }), domains, features };
 }
 
 /* --------------------------------------------------------------- filters --- */
@@ -272,30 +224,6 @@ export function groupIntentItemsByKind(
 /** One anchor's identity inside the detail pane — anchors have no surrogate id. */
 export function intentAnchorKey(anchor: { repoKey: string; nodeId: string }): string {
   return `${anchor.repoKey}\n${anchor.nodeId}`;
-}
-
-/** Waiting candidates by tree node; a domain counts its features' candidates too. */
-export interface IntentPendingCounts {
-  root: number;
-  domains: Readonly<Record<string, number>>;
-  features: Readonly<Record<string, number>>;
-}
-
-/** From the tree pages, plus the features a "show all features" read listed past the tree's cap. */
-export function intentPendingCounts(
-  pages: readonly IntentTreeResponse[],
-  moreFeatures: readonly IntentCountedFeature[] = [],
-): IntentPendingCounts {
-  const domains: Record<string, number> = {};
-  const features: Record<string, number> = {};
-  for (const page of pages) {
-    for (const domain of page.domains) {
-      domains[domain.id] = domain.subtreePendingCount;
-      for (const feature of domain.features) features[feature.id] = feature.pendingCount;
-    }
-  }
-  for (const feature of moreFeatures) features[feature.id] = feature.pendingCount;
-  return { root: pages[0]?.root.pendingCount ?? 0, domains, features };
 }
 
 /**

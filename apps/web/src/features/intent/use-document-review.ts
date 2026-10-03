@@ -3,12 +3,11 @@
  * queue behind "Next proposal", and the three decisions
  * (one candidate, every proposal on the page, the predecessor a supersede checks).
  *
- * Writes share the panel's one-write latch and attempt keys with the tree
- * editor, so a review and a tree write can never run at once.
+ * Writes go through the panel's {@link IntentWriter}, shared with the tree
+ * editor and the anchor refresh, so a review and a tree write never run at once.
  */
 
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import type { MutableRefObject } from 'react';
 import { useMemo, useState } from 'react';
 import {
   intentDocumentQueryOptions,
@@ -16,28 +15,25 @@ import {
   intentReviewQueueQueryOptions,
   submitIntentReview,
 } from '@/api/queries/intent';
-import { type IntentAttemptKeys, IntentWriteForm } from './intent-attempt-keys.js';
+import { IntentWriteForm } from './intent-attempt-keys.js';
 import { intentDocumentProposals, type IntentTreeSelection } from './intent-panel-state.js';
+import { messageOf } from './intent-presentation.js';
 import {
-  EMPTY_PROVENANCE_FORM,
   INTENT_REVIEW_BATCH_LIMIT,
   buildReviewRequest,
-  manualProvenancePreset,
+  issueReviewSource,
+  manualReviewSource,
   planReviewBatch,
-  todayIsoDate,
   type IntentDraftDecision,
-  type IntentProvenanceForm,
 } from './intent-review-request.js';
+import type { IntentWriter } from './intent-writer.js';
 import {
   IntentAuthority,
   IntentReviewOutcome,
-  IntentSourceKind,
+  type IntentAuthorizingSource,
   type IntentContextMatch,
   type IntentReviewDecisionResult,
 } from './types.js';
-
-const messageOf = (error: unknown): string | undefined =>
-  error instanceof Error ? error.message : error ? String(error) : undefined;
 
 export interface DocumentReviewInput {
   workspaceId: string;
@@ -46,8 +42,8 @@ export interface DocumentReviewInput {
   /** The document view is showing; the queue and the document are read only then. */
   enabled: boolean;
   detailMatch: IntentContextMatch | null;
-  writeInFlight: MutableRefObject<boolean>;
-  attemptKeys: MutableRefObject<IntentAttemptKeys>;
+  /** The panel's writer: a review and a tree write never run at once. */
+  writer: IntentWriter;
   invalidateIntent: () => Promise<unknown>;
   /** Show a node and open one item in it. */
   onOpen: (selection: IntentTreeSelection, itemId: string) => void;
@@ -59,8 +55,7 @@ export function useDocumentReview({
   selectedItemId,
   enabled,
   detailMatch,
-  writeInFlight,
-  attemptKeys,
+  writer,
   invalidateIntent,
   onOpen,
 }: DocumentReviewInput) {
@@ -82,30 +77,32 @@ export function useDocumentReview({
   const predecessorId = detailMatch?.authority === IntentAuthority.Candidate ? detailMatch.proposedSuccessorOfId : null;
   const predecessorQuery = useQuery(intentItemContextQueryOptions(id, predecessorId));
 
-  const submit = async (drafts: IntentDraftDecision[], provenance: IntentProvenanceForm) => {
-    if (writeInFlight.current) return;
-    // One key per batch attempt: unchanged decisions retry under the same key
-    // (the server replays its answer), while a corrected batch is a new attempt
-    // and gets a new key — the ledger keys on (key, request hash).
-    const key = attemptKeys.current.keyFor(IntentWriteForm.ReviewBatch, { drafts, provenance });
-    const built = buildReviewRequest(provenance, drafts, key);
-    if (!built.ok) {
-      setSubmitError(new Error(built.issues.join(' ')));
-      return;
-    }
-    writeInFlight.current = true;
+  /**
+   * One batch under the writer's key for it: unchanged decisions retry under the
+   * same key (the server replays its answer), while a corrected batch is a new
+   * attempt and gets a new key — the ledger keys on (key, request hash).
+   */
+  const sendBatch = (source: IntentAuthorizingSource, drafts: IntentDraftDecision[]) =>
+    writer.send(IntentWriteForm.ReviewBatch, { drafts, source }, ({ idempotencyKey }) => {
+      const built = buildReviewRequest(source, drafts, idempotencyKey);
+      if (!built.ok) throw new Error(built.issues.join(' '));
+      return submitIntentReview(id, built.request);
+    });
+
+  const submit = async (drafts: IntentDraftDecision[], source: IntentAuthorizingSource) => {
+    if (writer.busy) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const response = await submitIntentReview(id, built.request);
-      setResults(response.decisions);
-      attemptKeys.current.settle(IntentWriteForm.ReviewBatch);
-      await invalidateIntent();
+      await writer.exclusive(async () => {
+        const response = await sendBatch(source, drafts);
+        setResults(response.decisions);
+        await invalidateIntent();
+      });
     } catch (error) {
       // Rendered beside the decision in the detail pane; the pane stays.
       setSubmitError(error);
     } finally {
-      writeInFlight.current = false;
       setSubmitting(false);
     }
   };
@@ -126,37 +123,29 @@ export function useDocumentReview({
 
   /** Approve every proposal the document shows, in batches the review route accepts. */
   const approveAll = async ({ reason, ticket }: { reason: string; ticket: string }): Promise<string> => {
-    if (proposals === null || writeInFlight.current) return 'Another write is still running.';
+    if (proposals === null || writer.busy) return 'Another write is still running.';
     const plan = planReviewBatch({
       cards: proposals.cards,
       predecessorVersions: proposals.predecessorVersions,
       batchReason: reason.trim() || 'Approved in the document view',
     });
-    const provenance: IntentProvenanceForm =
-      ticket.trim() === ''
-        ? manualProvenancePreset(EMPTY_PROVENANCE_FORM, { today: todayIsoDate() })
-        : { ...EMPTY_PROVENANCE_FORM, kind: IntentSourceKind.Issue, ref: ticket.trim(), localId: ticket.trim() };
-    writeInFlight.current = true;
+    const source = ticket.trim() === '' ? manualReviewSource() : issueReviewSource(ticket);
     setSubmitting(true);
     let approved = 0;
     let refused = 0;
     try {
-      for (let start = 0; start < plan.pending.length; start += INTENT_REVIEW_BATCH_LIMIT) {
-        const drafts = plan.pending.slice(start, start + INTENT_REVIEW_BATCH_LIMIT);
-        const key = attemptKeys.current.keyFor(IntentWriteForm.ReviewBatch, { drafts, provenance });
-        const built = buildReviewRequest(provenance, drafts, key);
-        if (!built.ok) return built.issues[0] ?? 'The decision could not be built.';
-        const response = await submitIntentReview(id, built.request);
-        attemptKeys.current.settle(IntentWriteForm.ReviewBatch);
-        for (const result of response.decisions) {
-          if (result.outcome === IntentReviewOutcome.Refused) refused += 1;
-          else approved += 1;
+      await writer.exclusive(async () => {
+        for (let start = 0; start < plan.pending.length; start += INTENT_REVIEW_BATCH_LIMIT) {
+          const response = await sendBatch(source, plan.pending.slice(start, start + INTENT_REVIEW_BATCH_LIMIT));
+          for (const result of response.decisions) {
+            if (result.outcome === IntentReviewOutcome.Refused) refused += 1;
+            else approved += 1;
+          }
         }
-      }
+      });
     } catch (error) {
       return `Stopped after ${approved} approved: ${messageOf(error) ?? 'the request failed'}.`;
     } finally {
-      writeInFlight.current = false;
       setSubmitting(false);
       await invalidateIntent();
     }
@@ -167,8 +156,7 @@ export function useDocumentReview({
     return `${parts.join(', ')}.`;
   };
 
-  const decideOne = (decision: IntentDraftDecision) =>
-    void submit([decision], manualProvenancePreset(EMPTY_PROVENANCE_FORM, { today: todayIsoDate() }));
+  const decideOne = (decision: IntentDraftDecision) => void submit([decision], manualReviewSource());
 
   return {
     documentQuery,

@@ -1,8 +1,42 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IntentReleases } from './releases.js';
 import { useState } from 'react';
+import { DeliverySelectionBar } from './delivery-selection-bar.js';
+import { ItemProductionState } from './item-production-state.js';
+import { ReleaseHistory } from './release-history.js';
+import type { ReleaseSelectionItem } from './release-types.js';
+
+/** The three release surfaces, picked by the view they used to share one component for. */
+function IntentReleases({
+  workspaceId,
+  role,
+  view,
+  itemId,
+  selection = [],
+  onSelectionChange = () => undefined,
+  onOpenItem,
+}: {
+  workspaceId: string;
+  role: string;
+  view: 'history' | 'item' | 'selection';
+  itemId?: string;
+  selection?: ReleaseSelectionItem[];
+  onSelectionChange?: (items: ReleaseSelectionItem[]) => void;
+  onOpenItem?: (id: string) => void;
+}) {
+  if (view === 'history') return <ReleaseHistory workspaceId={workspaceId} role={role} onOpenItem={onOpenItem} />;
+  if (view === 'item') return <ItemProductionState workspaceId={workspaceId} role={role} itemId={itemId ?? ''} />;
+  return (
+    <DeliverySelectionBar
+      workspaceId={workspaceId}
+      role={role}
+      selection={selection}
+      onSelectionChange={onSelectionChange}
+      onOpenItem={onOpenItem}
+    />
+  );
+}
 
 const history = {
   entries: [],
@@ -191,6 +225,18 @@ describe('Intent delivery UI', () => {
     expect(previews).toHaveLength(0);
     fireEvent.click(screen.getByRole('button', { name: /Available Rule br-24/ }));
     expect(onOpenItem).toHaveBeenCalledWith('br-24');
+  });
+  it('reads the release trigger only in the history and a delivery dialog', async () => {
+    const triggerReads = () =>
+      vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/workspaces/test-ws')).length;
+    mount('admin', 'item');
+    await screen.findByRole('button', { name: 'Plan change' });
+    cleanup();
+    mount('admin', 'selection');
+    expect(triggerReads()).toBe(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delivery' }));
+    await screen.findByRole('dialog');
+    await waitFor(() => expect(triggerReads()).toBe(1));
   });
   it('shows unknown explicitly, keeps member read-only', async () => {
     mount('member');
@@ -533,7 +579,8 @@ describe('Intent delivery UI', () => {
     mount('admin', 'selection');
     fireEvent.click(screen.getByRole('button', { name: 'Confirm delivery' }));
     await screen.findByRole('dialog');
-    expect(screen.getByText(/CI step after a deploy/)).toBeInTheDocument();
+    // Only the delivery dialog reads the trigger, so its note lands once that read does.
+    expect(await screen.findByText(/CI step after a deploy/)).toBeInTheDocument();
     expect(screen.getByLabelText('Delivery reference')).toBeInTheDocument();
   });
 });
