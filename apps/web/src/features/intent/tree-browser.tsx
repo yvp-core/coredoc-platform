@@ -5,9 +5,8 @@
  * All fetching lives in the panel; this component only renders what it is
  * handed. Two honesty rules shape the rows:
  *
- * - **A count is shown only when it is known.** The counts are tallied from the
- *   item pages actually in hand; a scope nobody has read shows no number at all
- *   rather than a plausible wrong one.
+ * - **Counts are the server's.** The tree read carries each node's live item
+ *   and proposal counts; a node no read in hand has listed shows no number.
  * - **Archived nodes are hidden by default and the toggle says so.** Archiving
  *   keeps children readable, so "hidden" must not read as "gone".
  */
@@ -15,14 +14,7 @@
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Funnel } from 'lucide-react';
-import {
-  EMPTY_INTENT_SCOPE_COUNTS,
-  intentKnownCount,
-  type IntentCountCell,
-  type IntentPendingCounts,
-  type IntentScopeCounts,
-  type IntentTreeSelection,
-} from './intent-panel-state.js';
+import type { IntentTreeCounts, IntentTreeSelection } from './intent-panel-state.js';
 import { contextConditionText } from './intent-presentation.js';
 import type { IntentDimension, IntentFeatureView, IntentTreeDomain, TreeCondition } from './types.js';
 
@@ -43,8 +35,8 @@ export interface IntentTreeBrowserProps {
   /** Every domain page loaded so far, already flattened by the panel. */
   domains: IntentTreeDomain[] | null;
   dimensions?: IntentDimension[] | null;
-  /** Counts for the scopes the loaded item pages cover; the rest stay silent. */
-  counts?: IntentScopeCounts;
+  /** Item and waiting-proposal counts per node, from the tree read; `null` while unread. */
+  counts?: IntentTreeCounts | null;
   featureExpansion: IntentFeatureExpansion;
   selection: IntentTreeSelection;
   includeArchived: boolean;
@@ -57,8 +49,6 @@ export interface IntentTreeBrowserProps {
   onEditTree: () => void;
   onLoadMoreDomains: () => void;
   onShowAllFeatures: (domainId: string) => void;
-  /** Waiting proposals per node, from the server; `null` while unread. */
-  pending?: IntentPendingCounts | null;
   /** Show only the nodes that hold a waiting proposal (or have one below them). */
   onlyPending?: boolean;
   onToggleOnlyPending?: () => void;
@@ -67,7 +57,7 @@ export interface IntentTreeBrowserProps {
 export function IntentTreeBrowser({
   domains: domainPages,
   dimensions,
-  counts = EMPTY_INTENT_SCOPE_COUNTS,
+  counts = null,
   featureExpansion,
   selection,
   includeArchived,
@@ -79,12 +69,11 @@ export function IntentTreeBrowser({
   onEditTree,
   onLoadMoreDomains,
   onShowAllFeatures,
-  pending = null,
   onlyPending = false,
   onToggleOnlyPending,
 }: IntentTreeBrowserProps) {
-  const filtering = onlyPending && pending !== null;
-  const domains = (domainPages ?? []).filter((domain) => !filtering || (pending?.domains[domain.id] ?? 0) > 0);
+  const filtering = onlyPending && counts !== null;
+  const domains = (domainPages ?? []).filter((domain) => !filtering || (counts?.domains[domain.id]?.pending ?? 0) > 0);
 
   return (
     <>
@@ -93,8 +82,8 @@ export function IntentTreeBrowser({
           label="All product rules"
           title="product root"
           root
-          count={counts.root}
-          pending={pending ? pending.root : undefined}
+          count={counts ? counts.root.items : null}
+          pending={counts ? counts.root.pending : undefined}
           selected={selection.domainId === null && selection.featureId === null}
           onClick={() => onSelect({ domainId: null, featureId: null })}
         />
@@ -104,9 +93,7 @@ export function IntentTreeBrowser({
           // Once the full list is in hand it REPLACES the bounded one the tree
           // route returned, so the reader never compares two lists.
           const features = expanded && featureExpansion.features !== null ? featureExpansion.features : domain.features;
-          // A domain the whole-workspace read never mentioned holds nothing —
-          // that is what makes "declared, no items yet" reachable.
-          const domainCount = intentKnownCount(counts.domains[domain.id], counts);
+          const domainCount = counts?.domains[domain.id] ?? null;
 
           return (
             <div key={domain.id} className="mt-1.5">
@@ -114,8 +101,8 @@ export function IntentTreeBrowser({
                 label={domain.title}
                 title={domain.id}
                 archived={domain.archived}
-                count={domainCount}
-                pending={pending ? (pending.domains[domain.id] ?? 0) : undefined}
+                count={domainCount ? domainCount.items : null}
+                pending={counts ? (domainCount?.pending ?? 0) : undefined}
                 conditions={domain.appliesWhen}
                 selected={selection.domainId === domain.id && selection.featureId === null}
                 onClick={() => onSelect({ domainId: domain.id, featureId: null })}
@@ -129,7 +116,6 @@ export function IntentTreeBrowser({
                 <FeatureList
                   features={features}
                   parentId={null}
-                  pending={pending}
                   filtering={filtering}
                   counts={counts}
                   selection={selection}
@@ -222,7 +208,6 @@ export function IntentTreeBrowser({
 function FeatureList({
   features,
   parentId,
-  pending,
   filtering,
   counts,
   selection,
@@ -230,9 +215,8 @@ function FeatureList({
 }: {
   features: readonly IntentFeatureView[];
   parentId: string | null;
-  pending: IntentPendingCounts | null;
   filtering: boolean;
-  counts: IntentScopeCounts;
+  counts: IntentTreeCounts | null;
   selection: IntentTreeSelection;
   onSelect: (selection: IntentTreeSelection) => void;
 }) {
@@ -240,7 +224,7 @@ function FeatureList({
   const childrenOf = (id: string) => features.filter((feature) => feature.parentFeatureId === id);
   // A feature's count includes its sub-features', the way a domain's includes its features'.
   const waitingIn = (id: string, depth = 0): number =>
-    (pending?.features[id] ?? 0) +
+    (counts?.features[id]?.pending ?? 0) +
     (depth < 8 ? childrenOf(id).reduce((total, child) => total + waitingIn(child.id, depth + 1), 0) : 0);
   const level = features.filter(
     (feature) =>
@@ -258,8 +242,8 @@ function FeatureList({
             label={feature.title}
             title={feature.id}
             archived={feature.archived}
-            count={intentKnownCount(counts.features[feature.id], counts)}
-            pending={pending ? waitingIn(feature.id) : undefined}
+            count={counts?.features[feature.id]?.items ?? null}
+            pending={counts ? waitingIn(feature.id) : undefined}
             conditions={feature.appliesWhen}
             selected={selection.featureId === feature.id}
             onClick={() => onSelect({ domainId: feature.domainId, featureId: feature.id })}
@@ -267,7 +251,6 @@ function FeatureList({
           <FeatureList
             features={features}
             parentId={feature.id}
-            pending={pending}
             filtering={filtering}
             counts={counts}
             selection={selection}
@@ -344,9 +327,9 @@ function TreeRow({
   title: string;
   archived?: boolean;
   conditions?: TreeCondition[];
-  /** `null` when nothing has been read for this scope yet — then no number is drawn. */
-  count: IntentCountCell | null;
-  /** Waiting proposals from the server; when known it replaces the loaded-pages dot. */
+  /** Live items; `null` when no read in hand lists this node — then no number is drawn. */
+  count: number | null;
+  /** Waiting proposals; `undefined` while the counts are unread. */
   pending?: number;
   root?: boolean;
   selected: boolean;
@@ -378,15 +361,9 @@ function TreeRow({
           {pending}
         </span>
       )}
-      {pending === undefined && count !== null && count.candidates > 0 && (
-        // Decorative: the count and the item rows already say "candidate" in words.
-        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-blue" />
-      )}
       {/* The product root's own attached items are normally zero, and a "0" on the
           row the overview counts in full reads as a contradiction. */}
-      {count !== null && (!root || count.items > 0) && (
-        <span className="num shrink-0 text-[11.5px] text-ink-4">{count.items}</span>
-      )}
+      {count !== null && (!root || count > 0) && <span className="num shrink-0 text-[11.5px] text-ink-4">{count}</span>}
     </button>
   );
 }

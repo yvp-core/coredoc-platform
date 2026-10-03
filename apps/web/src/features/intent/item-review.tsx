@@ -1,11 +1,10 @@
 /**
- * Approve or reject one candidate from the detail pane, without the review tab.
+ * Approve or reject one candidate from the detail pane.
  *
- * It submits a one-decision batch through the same `planReviewBatch` the queue
- * uses, so a candidate that replaces an approved item is decided as a supersede
- * with both versions checked. The batch is recorded as the reviewer's own
- * manual decision; a pass that needs a spec or ticket as its authority still
- * goes through the Review tab.
+ * It submits a one-decision batch through the same `planReviewBatch` that
+ * "Approve all" uses, so a candidate that replaces an approved item is decided
+ * as a supersede with both versions checked. The batch is recorded as the
+ * reviewer's own manual decision.
  */
 
 import { Button } from '@/components/ui/button';

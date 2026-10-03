@@ -16,7 +16,7 @@ export interface IntentNodePanelProps {
   /** `null` for a domain selection. */
   feature: IntentDomainView | null;
   dimensions: readonly IntentDimension[] | null;
-  /** Rules attached at or below this node; `null` while not every page is read. */
+  /** Live rules counted for this node by the tree read (a domain's whole subtree); `null` while unread. */
   count: IntentCountCell | null;
   seeds: IntentFeatureSeed[] | null;
   seedsTruncated: boolean;
@@ -64,7 +64,7 @@ export function IntentNodePanel({ domain, feature, dimensions, count, seeds, see
         <p className="num text-ink-2">
           {count === null
             ? 'Not counted yet'
-            : `${count.items} ${count.items === 1 ? 'rule' : 'rules'}${count.candidates > 0 ? ` · ${count.candidates} candidate` : ''}`}
+            : `${count.items} ${count.items === 1 ? 'rule' : 'rules'}${count.pending > 0 ? ` · ${count.pending} candidate` : ''}`}
         </p>
       </section>
 

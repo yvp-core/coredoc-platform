@@ -14,8 +14,8 @@ import { EmptyNote } from '../components/empty-note.js';
 import { PageHead } from '../components/page-head.js';
 import { RoleBadge } from '../components/role-badge.js';
 import { PillTabs } from '../components/ui/pill-tabs.js';
-import { IntentReleases } from '../features/intent/releases.js';
 import { IntentPanel } from '../features/intent/panel.js';
+import { ReleaseHistory } from '../features/intent/release-history.js';
 import { findWorkspace } from './workspace.js';
 
 export function WorkspaceIntent() {
@@ -62,11 +62,10 @@ export function WorkspaceIntent() {
         />
       </div>
       {tab === 'releases' && (
-        <IntentReleases
+        <ReleaseHistory
           key={workspace.id}
           workspaceId={workspace.id}
           role={workspace.role}
-          view="history"
           onOpenItem={(id) => {
             setSelectedItemId(id);
             setTab('browse');

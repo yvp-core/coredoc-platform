@@ -572,3 +572,8 @@ function stripRefsOutsideCode(text: string): string {
     .replace(/[ \t]+([.,;:])/g, '$1')
     .replace(/[ \t]+$/gm, '');
 }
+
+/** An error's message for display; `undefined` for no error. */
+export function messageOf(error: unknown): string | undefined {
+  return error instanceof Error ? error.message : error ? String(error) : undefined;
+}
