@@ -14,7 +14,6 @@ import { DeliverySyncCron } from './delivery-sync.cron.js';
 import { GithubCanonicalProjectionService } from './github-canonical-projection.service.js';
 import { GithubCodeChangePersistenceService } from './github-code-change-persistence.service.js';
 import { GithubImporterService } from './github-importer.service.js';
-import { GithubIntentReleaseService } from '../intent/github-intent-release.service.js';
 import { JiraCanonicalProjectionService } from './jira-canonical-projection.service.js';
 import { JiraImporterService } from './jira-importer.service.js';
 import { RenormalizeService } from './renormalize.service.js';
@@ -33,7 +32,6 @@ const deliveryCoreProviders = [
   JiraCanonicalProjectionService,
   GithubCanonicalProjectionService,
   GithubCodeChangePersistenceService,
-  GithubIntentReleaseService,
 ];
 
 @Module({

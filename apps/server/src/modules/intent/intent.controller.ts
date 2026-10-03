@@ -6,7 +6,6 @@
  * → `PermissionsGuard` — and each route adds what it needs on top:
  *
  * - reads: `@WorkspaceRole('member')` + `@RequirePermission(IntentRead)`;
- * - propose: `@WorkspaceRole('member')` + `@RequirePermission(IntentPropose)`;
  * - tree writes: `@WorkspaceRole('member')` + `UserSessionGuard` (BR-1: any member, own session).
  *
  * The tree routes carry no `@RequirePermission` ON PURPOSE. No token permission
@@ -54,17 +53,11 @@ import {
   DeleteIntentFeatureSeedSchema,
   IntentExceptionFilter,
   ListIntentDimensionsQuerySchema,
-  ProposeIntentItemsSchema,
   PutIntentFeatureSeedSchema,
   UpdateIntentDimensionSchema,
   UpdateIntentDomainSchema,
   UpdateIntentFeatureSchema,
   intentContractPipe,
-} from './contract/index.js';
-import { parseIntentPageLimit } from './intent-cursor.js';
-import type { IntentActor } from './intent-idempotency.js';
-import { IntentItemService } from './intent-item.service.js';
-import {
   DeleteIntentDomainSchema,
   DeleteIntentFeatureSchema,
   IntentNodeDocumentQuerySchema,
@@ -73,8 +66,10 @@ import {
   ListIntentItemsQuerySchema,
   ListIntentSourcesQuerySchema,
   ListIntentTreeQuerySchema,
-} from './intent-module-operations.js';
-import { IntentProposeService } from './intent-propose.service.js';
+} from './contract/index.js';
+import { parseIntentPageLimit } from './intent-cursor.js';
+import type { IntentActor } from './intent-idempotency.js';
+import { IntentItemService } from './intent-item.service.js';
 import { IntentReadService } from './intent-read.service.js';
 import { assertPathMatchesBody } from './intent-state-errors.js';
 import { IntentTreeService } from './intent-tree.service.js';
@@ -97,7 +92,6 @@ export class IntentController {
   constructor(
     private readonly tree: IntentTreeService,
     private readonly items: IntentItemService,
-    private readonly propose: IntentProposeService,
     private readonly reads: IntentReadService,
   ) {}
 
@@ -376,19 +370,5 @@ export class IntentController {
   ) {
     assertPathMatchesBody(featureId, input.featureId, 'featureId');
     return this.tree.deleteSeed(workspaceId, actorOf(user, role), input);
-  }
-
-  /* ------------------------------------------------------------ propose --- */
-
-  @Post('items/propose')
-  @WorkspaceRole('member')
-  @RequirePermission(TokenPermission.IntentPropose)
-  async proposeItems(
-    @Param('workspaceId') workspaceId: string,
-    @CurrentUser() user: AuthUser,
-    @WorkspaceRoleValue() role: WorkspaceMemberRole | undefined,
-    @Body(intentContractPipe(ProposeIntentItemsSchema)) body: z.infer<typeof ProposeIntentItemsSchema>,
-  ) {
-    return this.propose.propose(workspaceId, actorOf(user, role), body);
   }
 }

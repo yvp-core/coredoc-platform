@@ -18,8 +18,9 @@
  * Pool `forks` + `--no-file-parallelism` (see `scripts/test-postgres-integration.sh`):
  * the Ladybug native module.
  *
- * The last block runs the SAME service through the `intent_anchor` MCP tool
- * instead of the REST route. It is here rather than in a suite of its own
+ * Only the refresh still has a REST route; add, remove and preview call
+ * `IntentAnchorService` directly (the service the MCP tool shares). The last
+ * block runs the SAME service through the `intent_anchor` MCP tool itself. It is here rather than in a suite of its own
  * because the fact worth proving is cross-surface: the tool has no route path
  * to assert ids against and no Nest guard stack, so only an end-to-end call
  * shows that its own gate and its shared operation schema land the identical
@@ -56,7 +57,15 @@ import { IntentAnchorController } from './intent-anchor.controller.js';
 import { IntentAnchorService } from './intent-anchor.service.js';
 
 import { IntentTreeService } from './intent-tree.service.js';
-import { IntentErrorCode } from './contract/index.js';
+import {
+  AddIntentAnchorSchema,
+  IntentErrorCode,
+  IntentPublicException,
+  PreviewIntentAnchorQuerySchema,
+  RemoveIntentAnchorSchema,
+  parseContract,
+  renderIntentPublicError,
+} from './contract/index.js';
 
 const TEST_DATABASE_URL = process.env.INTENT_ANCHOR_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
@@ -95,6 +104,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
   let directory: string;
   let fixture: IntentGraphFixture;
   let opened: OpenedIntentGraphFixture;
+  let anchors: IntentAnchorService;
   /** Set to make the stubbed lease fail, for the "a write never degrades" case. */
   let leaseError: unknown;
 
@@ -196,6 +206,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
       })
       .compile();
 
+    anchors = moduleRef.get(IntentAnchorService);
     app = moduleRef.createNestApplication();
     app.setGlobalPrefix('api/v1');
     await app.init();
@@ -243,6 +254,49 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
     };
   }
 
+  /**
+   * Add, remove and preview have no REST route; they run through the service the
+   * `intent_anchor` MCP tool calls, after the same contract parse. A refusal is
+   * rendered as the public error body, so assertions read `{ status, body }`.
+   */
+  async function viaService(call: () => Promise<unknown>, expected?: number): Promise<{ status: number; body: any }> {
+    let result: { status: number; body: any };
+    try {
+      result = { status: 201, body: JSON.parse(JSON.stringify(await call())) };
+    } catch (error) {
+      if (!(error instanceof IntentPublicException)) throw error;
+      const { status, error: rendered } = renderIntentPublicError(error);
+      result = { status, body: { statusCode: status, ...rendered } };
+    }
+    if (expected !== undefined) expect(result.status, JSON.stringify(result.body)).toBe(expected);
+    return result;
+  }
+
+  function actor() {
+    return { id: principal.user.id, role: principal.user.id === MEMBER.id ? 'member' : 'owner' };
+  }
+
+  function addAnchor(input: unknown, expected?: number) {
+    return viaService(() => anchors.add(workspaceId, actor(), parseContract(AddIntentAnchorSchema, input)), expected);
+  }
+
+  function removeAnchor(input: unknown, expected?: number) {
+    return viaService(
+      () => anchors.remove(workspaceId, actor(), parseContract(RemoveIntentAnchorSchema, input)),
+      expected,
+    );
+  }
+
+  /** A read: answers 200 on success, as the route did. */
+  async function previewAnchor(query: unknown, expected?: number) {
+    const result = await viaService(() =>
+      anchors.preview(workspaceId, parseContract(PreviewIntentAnchorQuerySchema, query)),
+    );
+    if (result.status === 201) result.status = 200;
+    if (expected !== undefined) expect(result.status, JSON.stringify(result.body)).toBe(expected);
+    return result;
+  }
+
   async function anchorsOf(itemId: string) {
     return prisma.intentAnchor.findMany({ where: { workspaceId, itemId }, orderBy: { nodeId: 'asc' } });
   }
@@ -251,10 +305,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
 
   describe('add / refresh / remove', () => {
     it('stores the SERVER-resolved node type and baseline, and audits the write', async () => {
-      const response = await api()
-        .post(`${base()}/${ACCEPTED_ITEM}/anchors`)
-        .send(anchorBody({ rationale: 'the guard this rule is about' }))
-        .expect(201);
+      const response = await addAnchor(anchorBody({ rationale: 'the guard this rule is about' }), 201);
 
       expect(response.body.created).toBe(true);
       expect(response.body.graphVersionId).toBe(VERSION_ID);
@@ -282,10 +333,10 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
 
     it('previews the same resolution without writing anything', async () => {
       const before = await anchorsOf(CANDIDATE_ITEM);
-      const preview = await api()
-        .get(`${base()}/${ACCEPTED_ITEM}/anchors/preview`)
-        .query({ itemId: ACCEPTED_ITEM, repoKey: REPO_KEY_A, nodeId: fixture.repoA.handler })
-        .expect(200);
+      const preview = await previewAnchor(
+        { itemId: ACCEPTED_ITEM, repoKey: REPO_KEY_A, nodeId: fixture.repoA.handler },
+        200,
+      );
 
       expect(preview.body.wouldCreate).toBe(true);
       expect(preview.body.target).toEqual({
@@ -319,15 +370,15 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
       expect(refreshed.body.previousCapturedVersionedId).toBe('stale@000000');
       expect(refreshed.body.anchor.capturedVersionedId).toBe(fixture.versionedIds[fixture.repoA.guard]);
 
-      await api()
-        .post(`${base()}/${ACCEPTED_ITEM}/anchors/delete`)
-        .send({
+      await removeAnchor(
+        {
           idempotencyKey: nextKey('anchor'),
           itemId: ACCEPTED_ITEM,
           repoKey: REPO_KEY_A,
           nodeId: identity.nodeId,
-        })
-        .expect(201);
+        },
+        201,
+      );
       expect(await anchorsOf(ACCEPTED_ITEM)).toHaveLength(0);
       const operations =
         // `id` is a random uuid; the trail's order is its timestamps.
@@ -342,15 +393,15 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
 
     it('replays a spent idempotency key without writing twice', async () => {
       const body = anchorBody({ nodeId: fixture.repoA.handler });
-      const first = await api().post(`${base()}/${ACCEPTED_ITEM}/anchors`).send(body).expect(201);
-      const replay = await api().post(`${base()}/${ACCEPTED_ITEM}/anchors`).send(body).expect(201);
+      const first = await addAnchor(body, 201);
+      const replay = await addAnchor(body, 201);
       expect(replay.body).toEqual(first.body);
       expect(await prisma.intentAnchor.count({ where: { workspaceId, nodeId: fixture.repoA.handler } })).toBe(1);
     });
 
     it('refuses a body whose item id disagrees with the route path', async () => {
       const response = await api()
-        .post(`${base()}/${ACCEPTED_ITEM}/anchors`)
+        .post(`${base()}/${ACCEPTED_ITEM}/anchors/refresh`)
         .send(anchorBody({ itemId: CANDIDATE_ITEM }))
         .expect(400);
       expect(response.body.code).toBe(IntentErrorCode.PathBodyMismatch);
@@ -361,10 +412,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
 
   describe('repo identity gate', () => {
     it('refuses an unregistered repo key, enumerating what IS registered', async () => {
-      const response = await api()
-        .post(`${base()}/${ACCEPTED_ITEM}/anchors`)
-        .send(anchorBody({ repoKey: 'github.com/acme/ghost' }))
-        .expect(400);
+      const response = await addAnchor(anchorBody({ repoKey: 'github.com/acme/ghost' }), 400);
       expect(response.body.code).toBe(IntentErrorCode.UnknownRepoKey);
       expect(response.body.message).toContain(REPO_KEY_A);
       expect(response.body.message).toContain('unbound (reports-web');
@@ -372,18 +420,12 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
     });
 
     it('refuses a repo that is connected but carries no durable identity', async () => {
-      const response = await api()
-        .post(`${base()}/${ACCEPTED_ITEM}/anchors`)
-        .send(anchorBody({ repoKey: 'reports-web', nodeId: fixture.repoB.guard }))
-        .expect(400);
+      const response = await addAnchor(anchorBody({ repoKey: 'reports-web', nodeId: fixture.repoB.guard }), 400);
       expect(response.body.code).toBe(IntentErrorCode.UnknownRepoKey);
     });
 
     it('refuses a node that lives in a DIFFERENT registered repository', async () => {
-      const response = await api()
-        .post(`${base()}/${ACCEPTED_ITEM}/anchors`)
-        .send(anchorBody({ nodeId: fixture.repoB.guard }))
-        .expect(404);
+      const response = await addAnchor(anchorBody({ nodeId: fixture.repoB.guard }), 404);
       expect(response.body.code).toBe(IntentErrorCode.AnchorNodeMissing);
     });
   });
@@ -392,10 +434,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
 
   describe('covered node types', () => {
     it('refuses a Route and names the covered list — seeds admit routes, anchors do not', async () => {
-      const response = await api()
-        .post(`${base()}/${ACCEPTED_ITEM}/anchors`)
-        .send(anchorBody({ nodeId: fixture.repoA.route }))
-        .expect(400);
+      const response = await addAnchor(anchorBody({ nodeId: fixture.repoA.route }), 400);
       expect(response.body.code).toBe(IntentErrorCode.AnchorNodeTypeUnsupported);
       expect(response.body.message).toContain(NodeType.Function);
       expect(await anchorsOf(ACCEPTED_ITEM)).not.toContainEqual(
@@ -404,18 +443,12 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
     });
 
     it('refuses a Package for the same reason', async () => {
-      const response = await api()
-        .post(`${base()}/${ACCEPTED_ITEM}/anchors`)
-        .send(anchorBody({ nodeId: fixture.repoA.appPackage }))
-        .expect(400);
+      const response = await addAnchor(anchorBody({ nodeId: fixture.repoA.appPackage }), 400);
       expect(response.body.code).toBe(IntentErrorCode.AnchorNodeTypeUnsupported);
     });
 
     it('anchors a File, which the versioned-anchor contract does cover', async () => {
-      const response = await api()
-        .post(`${base()}/${ACCEPTED_ITEM}/anchors`)
-        .send(anchorBody({ nodeId: fixture.repoA.guardsFile }))
-        .expect(201);
+      const response = await addAnchor(anchorBody({ nodeId: fixture.repoA.guardsFile }), 201);
       expect(response.body.anchor.nodeType).toBe(NodeType.File);
     });
   });
@@ -424,27 +457,26 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
 
   describe('preconditions', () => {
     it('refuses every anchor operation on a candidate', async () => {
-      for (const path of ['anchors', 'anchors/refresh', 'anchors/delete']) {
-        const response = await api()
-          .post(`${base()}/${CANDIDATE_ITEM}/${path}`)
-          .send(anchorBody({ itemId: CANDIDATE_ITEM }))
-          .expect(400);
+      const refresh = await api()
+        .post(`${base()}/${CANDIDATE_ITEM}/anchors/refresh`)
+        .send(anchorBody({ itemId: CANDIDATE_ITEM }))
+        .expect(400);
+      expect(refresh.body.code).toBe(IntentErrorCode.ItemNotAccepted);
+      for (const write of [addAnchor, removeAnchor]) {
+        const response = await write(anchorBody({ itemId: CANDIDATE_ITEM }), 400);
         expect(response.body.code).toBe(IntentErrorCode.ItemNotAccepted);
       }
       expect(await anchorsOf(CANDIDATE_ITEM)).toHaveLength(0);
     });
 
     it('refuses an item this workspace does not hold', async () => {
-      const response = await api()
-        .post(`${base()}/ghost-item/anchors`)
-        .send(anchorBody({ itemId: 'ghost-item' }))
-        .expect(404);
+      const response = await addAnchor(anchorBody({ itemId: 'ghost-item' }), 404);
       expect(response.body.code).toBe(IntentErrorCode.ItemNotFound);
     });
 
     it('refuses the write, rather than degrading, when no snapshot can be read', async () => {
       leaseError = new WorkspaceGraphContextError('ACTIVE_VERSION_MISSING', 'no active graph version');
-      const response = await api().post(`${base()}/${ACCEPTED_ITEM}/anchors`).send(anchorBody()).expect(503);
+      const response = await addAnchor(anchorBody(), 503);
       expect(response.body.code).toBe(IntentErrorCode.AnchorGraphUnavailable);
       expect(response.body.message).toContain('Retry once a snapshot is available');
     });
@@ -500,14 +532,12 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
       );
 
       await locked;
-      const response = await api()
-        .post(`${base()}/${itemId}/anchors`)
-        .send({
-          idempotencyKey: nextKey('race'),
-          itemId,
-          repoKey: REPO_KEY_A,
-          nodeId: fixture.repoA.guard,
-        });
+      const response = await addAnchor({
+        idempotencyKey: nextKey('race'),
+        itemId,
+        repoKey: REPO_KEY_A,
+        nodeId: fixture.repoA.guard,
+      });
       await supersede;
 
       expect(response.status).toBe(400);
@@ -522,27 +552,19 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
   /* -------------------------------------------------------------- gates --- */
 
   describe('authorization', () => {
-    it('admits an anchor write by a plain member (BR-1)', async () => {
+    it('admits an anchor refresh by a plain member (BR-1)', async () => {
       principal = { user: MEMBER };
-      // The gate is the claim; an earlier test may already hold this anchor, so any non-403 answer passes.
-      const response = await api().post(`${base()}/${ACCEPTED_ITEM}/anchors`).send(anchorBody());
+      // The gate is the claim; whether the anchor exists by now is not, so any non-403 answer passes.
+      const response = await api().post(`${base()}/${ACCEPTED_ITEM}/anchors/refresh`).send(anchorBody());
       expect(response.status).not.toBe(403);
     });
 
-    it('refuses an anchor write by ANY service token, whatever its permissions', async () => {
+    it('refuses an anchor refresh by ANY service token, whatever its permissions', async () => {
       principal = {
         user: OWNER,
         serviceToken: { permissions: [TokenPermission.WorkspaceManage, TokenPermission.IntentPropose] },
       };
-      await api().post(`${base()}/${ACCEPTED_ITEM}/anchors`).send(anchorBody()).expect(403);
-    });
-
-    it('lets a member PREVIEW: it is a read of graph facts they can already see', async () => {
-      principal = { user: MEMBER };
-      await api()
-        .get(`${base()}/${ACCEPTED_ITEM}/anchors/preview`)
-        .query({ itemId: ACCEPTED_ITEM, repoKey: REPO_KEY_A, nodeId: fixture.repoA.guard })
-        .expect(200);
+      await api().post(`${base()}/${ACCEPTED_ITEM}/anchors/refresh`).send(anchorBody()).expect(403);
     });
   });
 

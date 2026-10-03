@@ -1,16 +1,16 @@
 import { infiniteQueryOptions, queryOptions } from '@tanstack/react-query';
 import { request } from '../client.js';
-import { IntentReleaseTrigger } from '../../features/intent/release-types.js';
 import type {
   IntentReleaseAction,
   IntentReleaseHistory,
   IntentReleasePreview,
+  IntentReleaseTrigger,
   IntentReleaseWrite,
 } from '../../features/intent/release-types.js';
 
 const path = (workspaceId: string, suffix: string) =>
   `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/intent/${suffix}`;
-export const readIntentReleasePreview = (workspaceId: string, itemId: string) =>
+const readIntentReleasePreview = (workspaceId: string, itemId: string) =>
   request<IntentReleasePreview>(path(workspaceId, `items/${encodeURIComponent(itemId)}/release-preview`));
 export const readIntentReleasePreviews = (workspaceId: string, itemIds: string[]) =>
   request<IntentReleasePreview[]>(path(workspaceId, 'items/release-preview'), {
@@ -51,17 +51,16 @@ export const writeIntentRelease = (workspaceId: string, action: IntentReleaseAct
 
 /**
  * The workspace's release trigger (amendment §2). `GET /workspaces/:id` is the
- * only read that carries it — `/config` does not — and an absent field (old
- * server) reads as `manual`, today's behaviour.
+ * only read that carries it — `/config` does not.
  */
 export const intentReleaseTriggerOptions = (workspaceId: string) =>
   queryOptions({
     queryKey: ['intent', 'release-trigger', workspaceId],
     queryFn: async (): Promise<IntentReleaseTrigger> => {
-      const workspace = await request<{ intentReleaseTrigger?: IntentReleaseTrigger }>(
+      const workspace = await request<{ intentReleaseTrigger: IntentReleaseTrigger }>(
         `/api/v1/workspaces/${encodeURIComponent(workspaceId)}`,
       );
-      return workspace.intentReleaseTrigger ?? IntentReleaseTrigger.Manual;
+      return workspace.intentReleaseTrigger;
     },
     staleTime: 30_000,
   });

@@ -2,9 +2,8 @@
  * Derivation half of the cloud intent service (spec §6).
  *
  * Self-contained on purpose: it exports {@link IntentDerivationService} and
- * imports nothing from the rest of the intent module, so the item-lifecycle and
- * context-read layers can be wired to it later without this module having to
- * know they exist.
+ * imports nothing from the rest of the intent module, so the context read
+ * depends on it without this module having to know that it exists.
  *
  * `WorkspaceMcpContextService` is DECLARED here rather than imported from
  * `McpModule` (which does not export it), following `GraphModule`'s precedent:

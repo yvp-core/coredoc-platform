@@ -26,7 +26,6 @@ import { IntentImportController } from './intent-import.controller.js';
 import { IntentImportService } from './intent-import.service.js';
 import { IntentWorkspaceImportService } from './intent-workspace-import.js';
 import { IntentItemService } from './intent-item.service.js';
-import { IntentProposeService } from './intent-propose.service.js';
 import { IntentReadService } from './intent-read.service.js';
 import { IntentHandoffProcessor } from './intent-handoff-processor.service.js';
 import { IntentReleaseController } from './intent-release.controller.js';
@@ -95,34 +94,10 @@ const TABLE: Case[] = [
     },
   ],
   [
-    'IntentController',
-    'a proposal whose appliesWhen clause names a dimension but no values',
-    'POST',
-    `${BASE}/items/propose`,
-    {
-      idempotencyKey: 'k',
-      items: [
-        {
-          kind: 'business_rule',
-          title: 'Weekly overtime threshold',
-          statement: 'Hours above the weekly threshold count as overtime.',
-          appliesWhen: [{ dimension: 'country' }],
-          sources: [{ kind: 'spec', ref: 'spec/overtime', localId: 'BR-1' }],
-        },
-      ],
-    },
-    {
-      statusCode: 400,
-      code: 'schema_violation',
-      message: 'Invalid input',
-      path: ['items', '0', 'appliesWhen', '0'],
-    },
-  ],
-  [
     'IntentAnchorController',
-    'an anchor add with an unslugged item id and no target',
+    'an anchor refresh with an unslugged item id and no target',
     'POST',
-    `${BASE}/items/${ITEM_ID}/anchors`,
+    `${BASE}/items/${ITEM_ID}/anchors/refresh`,
     { itemId: ITEM_ID, idempotencyKey: 'k' },
     {
       statusCode: 400,
@@ -293,7 +268,6 @@ describe('intent request-validation parity', () => {
       providers: [
         IntentTreeService,
         IntentItemService,
-        IntentProposeService,
         IntentReadService,
         IntentAnchorService,
         IntentContextService,

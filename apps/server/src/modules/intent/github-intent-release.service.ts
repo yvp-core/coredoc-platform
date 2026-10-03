@@ -1,4 +1,3 @@
-import { resolveIntentReleaseTrigger } from './intent-release-trigger.js';
 /** Reconciles PR-backed plans from structured handoffs and wakes the server worker.
  * Merge delivery is owned by IntentHandoffProcessor; PR prose and historical attrs
  * never supply declarations after cutover. This hook cannot fail ordinary import.
@@ -9,7 +8,7 @@ import { CodeChangeState, DeliveryProvider, IntentReleaseTrigger } from '../../g
 import type { IntentActor } from './intent-idempotency.js';
 import { ReleaseActorKind, type ReleasePr } from './intent-release.fold.js';
 import { IntentErrorCode, IntentPublicException } from './contract/index.js';
-import { IntentReleaseService, readReleaseSnapshot } from './intent-release.service.js';
+import { IntentReleaseService, readReleaseSnapshot, resolveIntentReleaseTrigger } from './intent-release.service.js';
 import type { HandoffPayload } from './intent-handoff.operations.js';
 type IntentTrailerRef = { itemId: string; version: number };
 import { IntentPlanEventKind, intentPlanEvents, type IntentPlanItemState } from './intent-plan-transitions.js';

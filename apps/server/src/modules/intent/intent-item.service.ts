@@ -10,6 +10,7 @@
  * Every entry carries its `version`, because that is the token a reviewer or an
  * updating proposal has to hand back (spec §5).
  */
+import { IntentAuthority } from '@coredoc/core';
 import { readReleaseSnapshot } from './intent-release.service.js';
 import {
   IntentAuditOperation,
@@ -20,13 +21,12 @@ import {
   type IntentTransaction,
 } from './intent-idempotency.js';
 import { IntentAuditEntityKind, Prisma } from '../../generated/prisma/client.js';
-import { IntentErrorCode, type UpdateIntentSourceInput } from './contract/index.js';
+import { IntentErrorCode, type UpdateIntentSourceInput, type ListIntentItemsQuery } from './contract/index.js';
 import { intentNotFound } from './intent-state-errors.js';
 import { listConditionsOf } from './intent-context.service.js';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import { IntentCursorScope, decodeIntentCursor, paginate } from './intent-cursor.js';
-import type { ListIntentItemsQuery } from './intent-module-operations.js';
 
 @Injectable()
 export class IntentItemService {
@@ -71,7 +71,7 @@ export class IntentItemService {
                 {
                   OR: [
                     { authority: { in: query.authorities } },
-                    ...(state && query.authorities.includes('accepted')
+                    ...(state && query.authorities.includes(IntentAuthority.Accepted)
                       ? [{ authority: 'superseded' as const, id: { in: state.effectiveIds } }]
                       : []),
                   ],

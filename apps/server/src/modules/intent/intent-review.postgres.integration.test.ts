@@ -157,7 +157,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent review lifecycle (PostgreSQL integra
   /**
    * Seed one candidate directly.
    *
-   * Rows rather than a `POST items/propose` call: this suite is about what
+   * Rows rather than a propose call: this suite is about what
    * REVIEW does to an item, and propose has its own suite. Going through the
    * propose service here would drag its whole dependency graph — and every
    * future change to it — into a file that has nothing to say about proposing.

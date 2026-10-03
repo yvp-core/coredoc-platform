@@ -32,7 +32,7 @@ import {
 } from '../../../mcp/workspace-mcp-context.service.js';
 import { IntentGraphUnavailableCode, IntentMatchReason, type DerivableIntentItem } from './derivation-contract.js';
 import { graphRemediation } from './graph-degradation.js';
-import { IntentDerivationService } from './intent-derivation.service.js';
+import { type DeriveNodeContextRequest, IntentDerivationService } from './intent-derivation.service.js';
 
 const WORKSPACE_ID = 'ws-1';
 const VERSION_ID = 'v-2026-09-01';
@@ -163,33 +163,26 @@ const ORDERS_FEATURE = () => ({
   seeds: [{ repoKey: REPO_KEY_A, nodeId: fixture.repoA.route }],
 });
 
-describe('deriveFeatureContext — readable snapshot', () => {
-  it('returns the guard rule with its derived reason, evidence and provenance', async () => {
-    const result = await service().deriveFeatureContext(WORKSPACE_ID, {
-      feature: ORDERS_FEATURE(),
-      items: [guardRule()],
-    });
+/** A node read at the orders handler; the evidence, freshness and degradation paths are shared. */
+function deriveAtHandler(
+  derivation: IntentDerivationService,
+  items: DerivableIntentItem[],
+  extra: Partial<DeriveNodeContextRequest> = {},
+) {
+  return derivation.deriveNodeContext(WORKSPACE_ID, {
+    nodes: [{ repoKey: REPO_KEY_A, nodeId: fixture.repoA.handler }],
+    items,
+    features: [ORDERS_FEATURE()],
+    ...extra,
+  });
+}
 
-    expect(result.applicable).toEqual([
-      {
-        itemId: 'br-admin-only',
-        reasons: [IntentMatchReason.AnchorCalledByArea],
-        matchedAnchors: [expect.objectContaining({ nodeId: fixture.repoA.guard })],
-      },
-    ]);
-    expect(result.evidence.available).toBe(true);
-    expect(result.evidence.items?.[0]?.anchors[0]?.status).toBe(AnchorStatus.Matched);
+describe('readable snapshot', () => {
+  it('carries per-repo provenance assembled from the version and the push metadata', async () => {
+    const result = await deriveAtHandler(service(), [guardRule()]);
+
     expect(result.degradation).toBeUndefined();
     expect(result.truncated).toBe(false);
-    expect(result.area?.repos[0]?.calledNodeIds).toContain(fixture.repoA.guard);
-  });
-
-  it('carries per-repo provenance assembled from the version and the push metadata', async () => {
-    const result = await service().deriveFeatureContext(WORKSPACE_ID, {
-      feature: ORDERS_FEATURE(),
-      items: [guardRule()],
-    });
-
     expect(result.evidence.repos).toEqual([
       expect.objectContaining({
         repoKey: REPO_KEY_A,
@@ -208,22 +201,15 @@ describe('deriveFeatureContext — readable snapshot', () => {
 
   describe('anchorStatus matrix (§6.4)', () => {
     it('reports matched when the captured versioned id reproduces', async () => {
-      const result = await service().deriveFeatureContext(WORKSPACE_ID, {
-        feature: ORDERS_FEATURE(),
-        items: [guardRule()],
-      });
+      const result = await deriveAtHandler(service(), [guardRule()]);
 
       expect(result.evidence.items?.[0]?.anchors[0]?.status).toBe(AnchorStatus.Matched);
     });
 
     it('reports changed when the node exists with a different versioned id', async () => {
-      const result = await service().deriveFeatureContext(WORKSPACE_ID, {
-        feature: ORDERS_FEATURE(),
-        items: [guardRule('stale-checksum')],
-      });
+      const result = await deriveAtHandler(service(), [guardRule('stale-checksum')]);
 
-      const anchor = result.evidence.items?.[0]?.anchors[0];
-      expect(anchor?.status).toBe(AnchorStatus.Changed);
+      expect(result.evidence.items?.[0]?.anchors[0]?.status).toBe(AnchorStatus.Changed);
       // Still applicable: the code moved on, the rule did not stop applying.
       expect(result.applicable[0]?.reasons).toContain(IntentMatchReason.AnchorCalledByArea);
     });
@@ -242,19 +228,15 @@ describe('deriveFeatureContext — readable snapshot', () => {
         ],
       };
 
-      const result = await service().deriveFeatureContext(WORKSPACE_ID, {
-        feature: ORDERS_FEATURE(),
-        items: [item],
-      });
+      const result = await deriveAtHandler(service(), [item]);
 
       expect(result.evidence.items?.[0]?.anchors[0]?.status).toBe(AnchorStatus.Missing);
     });
 
     it('reports an item with no anchors as unmapped rather than as a failed anchor', async () => {
-      const result = await service().deriveFeatureContext(WORKSPACE_ID, {
-        feature: ORDERS_FEATURE(),
-        items: [{ id: 'cap-plain', attachment: { domainId: 'commerce', featureId: 'orders' }, anchors: [] }],
-      });
+      const result = await deriveAtHandler(service(), [
+        { id: 'cap-plain', attachment: { domainId: 'commerce', featureId: 'orders' }, anchors: [] },
+      ]);
 
       expect(result.evidence.items?.[0]).toEqual({ itemId: 'cap-plain', anchors: [], unmapped: true });
     });
@@ -262,11 +244,7 @@ describe('deriveFeatureContext — readable snapshot', () => {
 
   describe('freshness matrix (§6.3)', () => {
     async function freshnessFor(observedCheckouts: Record<string, { commit?: string; dirty: boolean }> | undefined) {
-      const result = await service().deriveFeatureContext(WORKSPACE_ID, {
-        feature: ORDERS_FEATURE(),
-        items: [guardRule()],
-        ...(observedCheckouts ? { observedCheckouts } : {}),
-      });
+      const result = await deriveAtHandler(service(), [guardRule()], observedCheckouts ? { observedCheckouts } : {});
       return result.evidence.repos.find((repo) => repo.repoKey === REPO_KEY_A)?.snapshotFreshness;
     }
 
@@ -293,9 +271,7 @@ describe('deriveFeatureContext — readable snapshot', () => {
     });
 
     it('leaves a repo the caller said nothing about unverified even when another was observed', async () => {
-      const result = await service().deriveFeatureContext(WORKSPACE_ID, {
-        feature: ORDERS_FEATURE(),
-        items: [guardRule()],
+      const result = await deriveAtHandler(service(), [guardRule()], {
         observedCheckouts: { [REPO_KEY_A]: { commit: fixture.repoA.gitCommitHash, dirty: false } },
       });
 
@@ -306,39 +282,11 @@ describe('deriveFeatureContext — readable snapshot', () => {
   });
 });
 
-describe('deriveFeatureContext — degradation (§6.3)', () => {
-  it('degrades to attachment-only with evidence.available false when no snapshot is published', async () => {
-    const degraded = service({
-      error: new WorkspaceGraphContextError('ACTIVE_VERSION_MISSING', 'no active version'),
-    });
-
-    const result = await degraded.deriveFeatureContext(WORKSPACE_ID, {
-      feature: ORDERS_FEATURE(),
-      items: [
-        guardRule(),
-        { id: 'cap-attached', attachment: { domainId: 'commerce', featureId: 'orders' }, anchors: [] },
-      ],
-    });
-
-    // The anchor-derived hit is gone; the attached one is not.
-    expect(result.applicable).toEqual([
-      { itemId: 'cap-attached', reasons: [IntentMatchReason.Attached], matchedAnchors: [] },
-    ]);
-    expect(result.evidence.available).toBe(false);
-    expect(result.degradation).toEqual({
-      code: IntentGraphUnavailableCode.ActiveVersionMissing,
-      remediation: graphRemediation(IntentGraphUnavailableCode.ActiveVersionMissing),
-    });
-    expect(result.area).toBeUndefined();
-  });
-
+describe('degradation (§6.3)', () => {
   it('names WHICH graph was unavailable by still reporting provenance', async () => {
     const degraded = service({ error: new WorkspaceFileCacheError('NOT_FOUND', 'object missing') });
 
-    const result = await degraded.deriveFeatureContext(WORKSPACE_ID, {
-      feature: ORDERS_FEATURE(),
-      items: [guardRule()],
-    });
+    const result = await deriveAtHandler(degraded, [guardRule()]);
 
     expect(result.degradation?.code).toBe(IntentGraphUnavailableCode.GraphObjectMissing);
     expect(result.evidence.repos.map((repo) => repo.repoKey)).toEqual([REPO_KEY_A, REPO_KEY_B]);
@@ -346,28 +294,22 @@ describe('deriveFeatureContext — degradation (§6.3)', () => {
   });
 
   it('keeps evidence when the snapshot is readable but the backend cannot traverse in batches', async () => {
-    const result = await service({ withoutBatchTraversal: true }).deriveFeatureContext(WORKSPACE_ID, {
-      feature: ORDERS_FEATURE(),
-      items: [
-        guardRule(),
-        { id: 'cap-attached', attachment: { domainId: 'commerce', featureId: 'orders' }, anchors: [] },
-      ],
-    });
+    const result = await deriveAtHandler(service({ withoutBatchTraversal: true }), [guardRule()]);
 
     // anchorStatus still resolves — the snapshot IS readable — but the
     // anchor-derived reason cannot be computed, and the response says why.
     expect(result.evidence.available).toBe(true);
     expect(result.evidence.items?.[0]?.anchors[0]?.status).toBe(AnchorStatus.Matched);
-    expect(result.applicable.map((hit) => hit.itemId)).toEqual(['cap-attached']);
-    expect(result.degradation?.code).toBe(IntentGraphUnavailableCode.BatchTraversalUnsupported);
+    expect(result.degradation).toEqual({
+      code: IntentGraphUnavailableCode.BatchTraversalUnsupported,
+      remediation: graphRemediation(IntentGraphUnavailableCode.BatchTraversalUnsupported),
+    });
   });
 
   it('rethrows a failure that is not a graph-plane failure instead of laundering it', async () => {
     const broken = service({ error: new Error('DI is on fire') });
 
-    await expect(broken.deriveFeatureContext(WORKSPACE_ID, { feature: ORDERS_FEATURE(), items: [] })).rejects.toThrow(
-      'DI is on fire',
-    );
+    await expect(deriveAtHandler(broken, [])).rejects.toThrow('DI is on fire');
   });
 
   it('rethrows a PROGRAMMING error raised inside the lease, rather than calling the graph unavailable', async () => {
@@ -376,18 +318,13 @@ describe('deriveFeatureContext — degradation (§6.3)', () => {
     // and sent the reader off to republish a snapshot that was fine.
     const broken = service({ queryError: new TypeError("Cannot read properties of undefined (reading 'node')") });
 
-    await expect(
-      broken.deriveFeatureContext(WORKSPACE_ID, { feature: ORDERS_FEATURE(), items: [guardRule()] }),
-    ).rejects.toBeInstanceOf(TypeError);
+    await expect(deriveAtHandler(broken, [guardRule()])).rejects.toBeInstanceOf(TypeError);
   });
 
   it('degrades a real query failure raised inside the lease', async () => {
     const broken = service({ queryError: new Error('kuzu: relation scan failed') });
 
-    const result = await broken.deriveFeatureContext(WORKSPACE_ID, {
-      feature: ORDERS_FEATURE(),
-      items: [guardRule()],
-    });
+    const result = await deriveAtHandler(broken, [guardRule()]);
     expect(result.evidence.available).toBe(false);
     expect(result.degradation?.code).toBe(IntentGraphUnavailableCode.GraphQueryFailed);
   });
@@ -395,24 +332,19 @@ describe('deriveFeatureContext — degradation (§6.3)', () => {
   it('keeps a TYPED cache failure raised inside the lease under its own code', async () => {
     const broken = service({ queryError: new WorkspaceFileCacheError('NOT_FOUND', 'object evicted mid-read') });
 
-    const result = await broken.deriveFeatureContext(WORKSPACE_ID, {
-      feature: ORDERS_FEATURE(),
-      items: [guardRule()],
-    });
+    const result = await deriveAtHandler(broken, [guardRule()]);
     expect(result.degradation?.code).toBe(IntentGraphUnavailableCode.GraphObjectMissing);
   });
 });
 
 describe('query budget', () => {
   it('counts the anchor-evidence lookups, not just the traversal steps', async () => {
-    const seedless = { id: 'orders', domainId: 'commerce', seeds: [] };
-
-    // No anchors: evidence issues no graph query at all.
-    const unanchored = await service().deriveFeatureContext(WORKSPACE_ID, { feature: seedless, items: [] });
+    // No anchors and no candidate features: nothing issues a graph query.
+    const unanchored = await deriveAtHandler(service(), [], { features: [] });
     // One anchor in one repository: a repo overview plus a node lookup, both of
     // which used to be invisible to the budget that claims to bound this
     // request's graph work.
-    const anchored = await service().deriveFeatureContext(WORKSPACE_ID, { feature: seedless, items: [guardRule()] });
+    const anchored = await deriveAtHandler(service(), [guardRule()], { features: [] });
 
     expect(unanchored.queriesUsed).toBe(0);
     expect(anchored.queriesUsed).toBeGreaterThan(unanchored.queriesUsed);
@@ -420,11 +352,7 @@ describe('query budget', () => {
   });
 
   it('reports the budget as tripped when evidence alone spends it, and still resolves evidence', async () => {
-    const result = await service().deriveFeatureContext(WORKSPACE_ID, {
-      feature: ORDERS_FEATURE(),
-      items: [guardRule()],
-      bounds: { queryBudget: 1 },
-    });
+    const result = await deriveAtHandler(service(), [guardRule()], { bounds: { queryBudget: 1 } });
 
     // Evidence is not optional (§6.4): the spent budget cuts the traversal that
     // follows it and says so, it never leaves a returned anchor without status.

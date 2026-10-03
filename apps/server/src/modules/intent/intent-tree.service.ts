@@ -58,15 +58,16 @@ import {
 } from './intent-idempotency.js';
 import { INTENT_SEED_NODE_ID_KINDS, nodeIdKindOf } from './intent-node-types.js';
 import { assertWorkspaceIntentRepoKeys } from './intent-repo-keys.js';
-import type {
-  DeleteIntentDomainInput,
-  DeleteIntentFeatureInput,
-  ListIntentFeatureSeedsQuery,
-  ListIntentFeaturesQuery,
-  ListIntentTreeQuery,
-} from './intent-module-operations.js';
 import { intentNotFound, intentStateError } from './intent-state-errors.js';
-import { INTENT_CONTRACT_LIMITS, IntentErrorCode } from './contract/index.js';
+import {
+  INTENT_CONTRACT_LIMITS,
+  IntentErrorCode,
+  type DeleteIntentDomainInput,
+  type DeleteIntentFeatureInput,
+  type ListIntentFeatureSeedsQuery,
+  type ListIntentFeaturesQuery,
+  type ListIntentTreeQuery,
+} from './contract/index.js';
 
 /** How deep features may nest under one another. */
 export const INTENT_FEATURE_MAX_DEPTH = 8;

@@ -11,7 +11,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   stripSourceRefs,
-  authoringHintText,
   canonicalPreviewContext,
   conditionChips,
   conditionDimensions,
@@ -27,7 +26,7 @@ import {
   variantWhenCell,
   variantWhenText,
 } from './intent-presentation.js';
-import { AuthoringHintKind, IntentContextMatchState, type IntentDimension } from './types.js';
+import { IntentContextMatchState, type IntentDimension } from './types.js';
 
 describe('humanizeIntentKey', () => {
   it('spaces camelCase and snake_case keys alike', () => {
@@ -178,41 +177,6 @@ describe('intentDetailFields: unparsed variants (AC-8)', () => {
     const payload = { variants: [{ outcome: '40h' }] };
     const fields = intentDetailFields(payload);
     expect(fields.find((f) => f.key === 'variants')).toBeUndefined();
-  });
-});
-
-describe('authoringHintText (intent-dimensions-inheritance BR-3, BR-5)', () => {
-  it('renders a missing-condition hint naming the matched mention and the dimension value', () => {
-    expect(
-      authoringHintText({
-        kind: AuthoringHintKind.MissingCondition,
-        dimension: 'country',
-        value: 'br',
-        matched: 'Brazilian',
-      }),
-    ).toBe('Mentions “Brazilian” (country = br) but has no country condition');
-  });
-
-  it('renders an ambiguous-variants hint 1-based, with the shared context', () => {
-    expect(
-      authoringHintText({
-        kind: AuthoringHintKind.AmbiguousVariants,
-        variants: [0, 1],
-        context: { country: 'de', product: 'shifts' },
-      }),
-    ).toBe('Variants 1 and 2 both match country = de; product = shifts — add a more specific variant');
-  });
-
-  it('renders a dead-variant hint 1-based', () => {
-    expect(authoringHintText({ kind: AuthoringHintKind.DeadVariant, variant: 2 })).toBe(
-      "Variant 3 can never apply under the item's conditions",
-    );
-  });
-
-  it('renders an unaccepted condition-item hint naming the target', () => {
-    expect(authoringHintText({ kind: AuthoringHintKind.UnacceptedConditionItem, item: 'cap-dsr' })).toBe(
-      'Applies where cap-dsr applies, but cap-dsr is not accepted yet — until it is, this condition filters nothing',
-    );
   });
 });
 

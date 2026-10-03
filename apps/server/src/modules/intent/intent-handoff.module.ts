@@ -1,4 +1,3 @@
-import { GithubIntentReleaseService } from './github-intent-release.service.js';
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../database/database.module.js';
 import { WorkspaceMcpContextService } from '../../mcp/workspace-mcp-context.service.js';
@@ -15,7 +14,6 @@ import { IntentHandoffProcessor } from './intent-handoff-processor.service.js';
     IntentHandoffGithubService,
     IntentHandoffAnchorsService,
     IntentHandoffProcessor,
-    GithubIntentReleaseService,
     WorkspaceMcpContextService,
   ],
   exports: [IntentHandoffService, IntentHandoffProcessor],

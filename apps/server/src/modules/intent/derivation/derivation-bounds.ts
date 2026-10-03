@@ -39,7 +39,7 @@ export interface DerivationBounds {
 }
 
 /**
- * Defaults, chosen against the spike fixture (SPIKE.md): a 1268-node closure
+ * Defaults, chosen against the spike fixture: a 1268-node closure
  * over 60 files costs 5 queries and ~90 ms, so a 5000-node envelope is roughly
  * 4× the measured shape of a large feature — wide enough that a normal feature
  * never trips it, narrow enough that a pathological seed (a whole monorepo

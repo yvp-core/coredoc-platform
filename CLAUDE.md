@@ -74,8 +74,9 @@ read [DESIGN.md](DESIGN.md) and [the design workflow](docs/agents/design-system.
 - Extraction profiles are authored via the `author-profile` skill and Agent SDK.
   Its model configuration is product behavior, separate from the contributor's
   chosen coding-agent model; do not invent or pin a model ID in these instructions.
-- Read relevant product intent through the workspace MCP `get_intent_context` when
-  cloud authority is configured. Local projects use `coredoc intent context/status
+- Read relevant product intent through the workspace MCP when cloud authority is
+  configured: `intent_read` for product questions, `get_intent_context` for the
+  rules that apply to code. Local projects use `coredoc intent context/status
   --project <id>` or the local MCP tool. After cloud cutover, the local
   `.coredoc/intent.json` is a frozen snapshot, not current authority.
 - Use the intent-capture workflow when asked to record a reviewed product decision.

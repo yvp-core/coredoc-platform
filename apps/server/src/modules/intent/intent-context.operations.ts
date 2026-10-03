@@ -2,10 +2,10 @@
  * Request shape of the agent CONTEXT read (spec §7), and the vocabulary its
  * answers speak.
  *
- * It lives here rather than in `contract/` for the reason `intent-anchor.operations.ts`
- * gives: `contract/` is the shared REST+MCP *operation* surface, and this is a
- * transport-shaped query — repeated/comma query parameters, a page cursor, an
- * observed-checkout encoding — none of which an MCP tool expresses this way. The
+ * It lives here rather than in `contract/` because it is a transport-shaped
+ * query with its own normalising — repeated/comma query parameters, a page
+ * cursor, an observed-checkout encoding — none of which an MCP tool expresses
+ * this way. The
  * primitives (`slugId`, bounds, `parseContract`) still come from `contract/`, so
  * a slug or a node id cannot mean two different things on the two surfaces.
  *

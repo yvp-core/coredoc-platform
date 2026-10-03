@@ -111,7 +111,7 @@ test('placement is one node, and makes a missing node the agent\'s to create', (
   assert.match(source, /one `domainId`, or one `featureId` \(a `domainId` beside it must be its domain\)/);
   // Read the tree first, reuse an honest fit, otherwise create the node and
   // say so — not a round trip through the maintainer.
-  assert.match(source, /Read the tree with `get_intent_context` first/);
+  assert.match(source, /Read the tree with `intent_read tree` first/);
   assert.match(source, /is yours to create per §5 before you propose into it/);
   assert.match(source, /reuse a node that honestly fits first/);
   assert.match(source, /name what you created and placed there/);

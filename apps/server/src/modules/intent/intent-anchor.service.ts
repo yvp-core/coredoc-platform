@@ -41,9 +41,9 @@ import {
   type AddIntentAnchorInput,
   type RefreshIntentAnchorInput,
   type RemoveIntentAnchorInput,
+  type PreviewIntentAnchorQuery,
 } from './contract/index.js';
 import { IntentAnchorTargetService, type ResolvedAnchorTarget } from './intent-anchor-target.js';
-import type { PreviewIntentAnchorQuery } from './intent-anchor.operations.js';
 import {
   IntentAuditOperation,
   IntentOperation,

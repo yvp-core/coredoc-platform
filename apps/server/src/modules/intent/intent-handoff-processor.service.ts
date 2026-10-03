@@ -10,10 +10,9 @@ import { IntentHandoffAnchorsService } from './intent-handoff-anchors.service.js
 import { IntentHandoffGithubService } from './intent-handoff-github.service.js';
 import { handoffEnvelope, type IntentDeployment, type HandoffSnapshot } from './intent-handoff.operations.js';
 import { handoffPayload, handoffResults, lockHandoff } from './intent-handoff.service.js';
-import { IntentReleaseService } from './intent-release.service.js';
+import { IntentReleaseService, resolveIntentReleaseTrigger } from './intent-release.service.js';
 import type { IntentActor } from './intent-idempotency.js';
 import { ReleaseActorKind, type ReleaseEvent } from './intent-release.fold.js';
-import { resolveIntentReleaseTrigger } from './intent-release-trigger.js';
 
 const actor = { id: 'system:intent-handoff', role: 'system' };
 /** The record response (fresh or replayed); only the fields this file reads are typed. */

@@ -93,11 +93,10 @@ export function intentTreeNames(
  * Where an item sits relative to the selected tree node.
  *
  * DERIVED HERE, not read from the server. The scoped context read reports the
- * server's own applicability reason (`attached` / `inherited`), but the desktop's
- * `IntentContextQuery` mirror carries no `domain`/`feature` selector, so the
- * browse surface cannot reach it — see the B2 findings. The item index does
- * carry `domainId`/`featureId` on every row, which is exactly what these four
- * cases need.
+ * server's own applicability reason (`attached` / `inherited`), but the browse
+ * list reads the item index, not the context read. The index carries
+ * `domainId`/`featureId` on every row, which is exactly what these four cases
+ * need.
  */
 export enum IntentItemScope {
   /** Attached directly to the selected node. */
@@ -233,7 +232,7 @@ export function intentScopeCounts(input: IntentScopeCountsInput): IntentScopeCou
 /* --------------------------------------------------------------- filters --- */
 
 export interface IntentItemFilter {
-  /** Matched against title and id — the index carries no statement (see findings). */
+  /** Sent to the items route, which matches it against title, id and statement. */
   search: string;
   /** Empty means every kind; otherwise only these. */
   kinds: readonly string[];
@@ -249,29 +248,6 @@ export const DEFAULT_INTENT_ITEM_FILTER: IntentItemFilter = {
   includeCandidates: true,
   includeResolved: false,
 };
-
-export function filterIntentItems(items: readonly IntentItemSummary[], filter: IntentItemFilter): IntentItemSummary[] {
-  const needle = filter.search.trim().toLowerCase();
-  return items.filter((item) => {
-    if (filter.kinds.length > 0 && !filter.kinds.includes(item.kind)) return false;
-    if (item.authority === IntentAuthority.Candidate && !filter.includeCandidates) return false;
-    if (
-      (item.authority === IntentAuthority.Rejected || item.authority === IntentAuthority.Superseded) &&
-      !filter.includeResolved
-    ) {
-      return false;
-    }
-    if (needle === '') return true;
-    return item.title.toLowerCase().includes(needle) || item.id.toLowerCase().includes(needle);
-  });
-}
-
-/** How many items of each kind are in scope, for the kind chips. Only kinds present. */
-export function intentKindCounts(items: readonly IntentItemSummary[]): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const item of items) counts[item.kind] = (counts[item.kind] ?? 0) + 1;
-  return counts;
-}
 
 /** Items grouped by kind, in the browse filter's kind order. */
 export function groupIntentItemsByKind(
@@ -289,35 +265,6 @@ export function groupIntentItemsByKind(
     ...[...groups.keys()].filter((k) => !order.includes(k)),
   ];
   return ordered.map((kind) => ({ kind, items: groups.get(kind) as IntentItemSummary[] }));
-}
-
-/* ---------------------------------------------------------- authority mix --- */
-
-export interface IntentAuthorityTally {
-  accepted: number;
-  candidate: number;
-  rejected: number;
-  superseded: number;
-  total: number;
-}
-
-/** The authority strip's segments, counted over whatever items are loaded. */
-export function intentAuthorityTally(items: readonly IntentItemSummary[] | null): IntentAuthorityTally {
-  const tally: IntentAuthorityTally = { accepted: 0, candidate: 0, rejected: 0, superseded: 0, total: 0 };
-  for (const item of items ?? []) {
-    tally.total += 1;
-    if (item.authority === IntentAuthority.Accepted) tally.accepted += 1;
-    else if (item.authority === IntentAuthority.Candidate) tally.candidate += 1;
-    else if (item.authority === IntentAuthority.Rejected) tally.rejected += 1;
-    else if (item.authority === IntentAuthority.Superseded) tally.superseded += 1;
-  }
-  return tally;
-}
-
-/** Percentage of the tally one segment covers; 0 for an empty tally, never NaN. */
-export function authorityShare(count: number, total: number): number {
-  if (total <= 0) return 0;
-  return Math.round((count / total) * 100);
 }
 
 /** One anchor's identity inside the detail pane — anchors have no surrogate id. */

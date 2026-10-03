@@ -56,11 +56,11 @@ import {
   findSpentIntentRequest,
   hashIntentRequest,
   runIntentMutation,
+  updateItemWithVersion,
   type IntentActor,
   type IntentAuditRecord,
   type IntentTransaction,
 } from './intent-idempotency.js';
-import { updateItemWithVersion } from './intent-optimistic.js';
 import { ProposalOutcome, planProposal, sourceIdentity, type ExistingItemFacts } from './intent-propose.plan.js';
 import { intentNotFound, intentStateError } from './intent-state-errors.js';
 import { IntentErrorCode } from './contract/index.js';
