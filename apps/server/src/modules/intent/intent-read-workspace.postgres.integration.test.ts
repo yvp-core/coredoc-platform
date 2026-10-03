@@ -5,7 +5,7 @@
  * `POST …/intent/import/workspace` (real guards, AuthGuard stubbed), and the
  * reads are then checked on the rows it wrote: the tree counts, a node read
  * that holds every item with its delivery status and open questions, related
- * nodes with their reasons, search over payload and source refs, relation
+ * nodes with their reasons, search, relation
  * writes, and relation cleanup when a feature is deleted.
  */
 import 'dotenv/config';
@@ -342,6 +342,35 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
     expect(text).toContain('- time-tracking: Time tracking and attendance (empty)\n  - punches: Punches (empty)');
   });
 
+  it('counts the live items and the waiting candidates attached directly to each tree node', async () => {
+    const page = await tree.getTree(workspaceId, {}, 50);
+    const counts = Object.fromEntries(
+      page.domains.flatMap((domain) => [
+        [domain.id, [domain.itemCount, domain.pendingCount]],
+        ...domain.features.map((feature) => [feature.id, [feature.itemCount, feature.pendingCount]]),
+      ]),
+    );
+    expect(page.root).toEqual({ itemCount: 0, pendingCount: 0 });
+    expect(counts).toEqual({
+      // The domain's own rule only: its features' items count for them, and superseded is history.
+      auth: [1, 0],
+      sessions: [5, 0],
+      'session-timeouts': [0, 0],
+      'sign-in': [0, 0],
+      'time-tracking': [0, 0],
+      punches: [1, 1],
+    });
+    // A domain's subtree adds all its features, so a badge never depends on which features a page lists.
+    expect(page.domains.map((domain) => [domain.id, domain.subtreeItemCount, domain.subtreePendingCount])).toEqual([
+      ['auth', 6, 0],
+      ['time-tracking', 1, 1],
+    ]);
+    const listed = await tree.listFeatures(workspaceId, { domainId: 'time-tracking' }, 50);
+    expect(listed.features.map((feature) => [feature.id, feature.itemCount, feature.pendingCount])).toEqual([
+      ['punches', 1, 1],
+    ]);
+  });
+
   it('renders a feature as its document: layout order, sub-headings, item bodies, replacements', async () => {
     const text = await reads.node(workspaceId, { feature: 'sessions' });
     const [document, footer] = text.split('\n\n---\n');
@@ -464,22 +493,32 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
     expect(body.message).toContain('nearest: time-tracking');
   });
 
-  it('searches every word across payload and source refs, with a total and paging', async () => {
-    const byPayload = await reads.search(workspaceId, { query: 'uploaded kiosk' });
-    expect(byPayload).toContain('1 items match every word of "uploaded kiosk"');
-    expect(byPayload).toContain('- br-session-kiosk-logout-uploads-first [business_rule] feature sessions');
+  it('searches every word across title, statement, body and rationale, with a total and paging', async () => {
+    const byStatement = await reads.search(workspaceId, { query: 'uploads kiosk' });
+    expect(byStatement).toContain('2 items match every word of "uploads kiosk"\n');
+    expect(byStatement).toContain('- br-session-kiosk-logout-uploads-first [business_rule] feature sessions');
 
     const byBody = await reads.search(workspaceId, { query: 'clears data' });
     expect(byBody).toContain('flow-session-kiosk-logout');
 
+    // "uploaded" is only in a payload, which is not searched: no item has every word, so any word answers.
+    const anyWord = await reads.search(workspaceId, { query: 'uploaded kiosk' });
+    expect(anyWord).toContain(
+      `2 items match any word of "uploaded kiosk" (matched: 'any': no item matches every word)`,
+    );
+    expect(anyWord).toContain('- br-session-kiosk-logout-uploads-first');
+    expect(anyWord).toContain('- flow-session-kiosk-logout');
+
     const byProse = await reads.search(workspaceId, { query: 'device session' });
-    expect(byProse).toContain('0 items match every word of "device session"');
+    expect(byProse).toContain('items match any word of "device session"');
     expect(byProse).toContain('1 nodes match in their prose:\n- feature sessions: Sessions and logout. ');
     expect(byProse).toContain('Phones keep one device session.');
     expect(await reads.search(workspaceId, { query: 'device session', kind: ['flow'] })).not.toContain('prose');
 
-    const bySource = await reads.search(workspaceId, { query: 'acme-302' });
-    expect(bySource).toContain('dec-session-unsynced-punches');
+    expect(await reads.search(workspaceId, { query: 'acme-302' })).toContain('0 items match every word');
+    const bySource = await reads.search(workspaceId, { query: 'ref:tracker:ACME-302 logout' });
+    expect(bySource).toContain('1 items match every word');
+    expect(bySource).toContain('- dec-session-unsynced-punches');
 
     const paged = await reads.search(workspaceId, { query: 'logout', limit: 1 });
     expect(paged).toContain('3 items match every word of "logout"');

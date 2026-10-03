@@ -31,14 +31,30 @@ const item = (id: string, extra: Partial<IntentDocumentItem> = {}): IntentDocume
 });
 
 describe('intentPendingCounts', () => {
-  it('sums features into their domain and keeps the product root apart', () => {
+  it("takes the domain's subtree count, each feature's own, and keeps the product root apart", () => {
+    const node = { title: '', statement: '', archived: false, createdAt: '', updatedAt: '', itemCount: 0 };
     expect(
-      intentPendingCounts([
-        { domainId: null, featureId: null, waiting: 2 },
-        { domainId: 'billing', featureId: null, waiting: 1 },
-        { domainId: 'billing', featureId: 'refunds', waiting: 3 },
-      ]),
-    ).toEqual({ root: 2, domains: { billing: 4 }, features: { refunds: 3 } });
+      intentPendingCounts(
+        [
+          {
+            root: { itemCount: 2, pendingCount: 2 },
+            domains: [
+              {
+                ...node,
+                id: 'billing',
+                pendingCount: 1,
+                subtreeItemCount: 0,
+                subtreePendingCount: 5,
+                featuresTruncated: false,
+                features: [{ ...node, id: 'refunds', domainId: 'billing', parentFeatureId: null, pendingCount: 3 }],
+              },
+            ],
+            nextCursor: null,
+          },
+        ],
+        [{ ...node, id: 'chargebacks', domainId: 'billing', parentFeatureId: null, pendingCount: 1 }],
+      ),
+    ).toEqual({ root: 2, domains: { billing: 5 }, features: { refunds: 3, chargebacks: 1 } });
   });
 });
 

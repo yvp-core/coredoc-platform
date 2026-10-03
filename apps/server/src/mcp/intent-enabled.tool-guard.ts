@@ -1,6 +1,7 @@
 import { CanActivate, type ExecutionContext, Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../database/prisma.service.js';
+import { isIntentEnabled } from '../modules/intent/intent-enabled.guard.js';
 
 /**
  * Per-workspace gate for the cloud intent MCP tools.
@@ -31,10 +32,6 @@ export class IntentEnabledToolGuard implements CanActivate {
     const workspaceId = request?.workspaceId as string | undefined;
     if (!workspaceId) return false;
 
-    const workspace = await this.prisma.workspace.findUnique({
-      where: { id: workspaceId },
-      select: { intentEnabled: true },
-    });
-    return workspace?.intentEnabled === true;
+    return isIntentEnabled(this.prisma, workspaceId);
   }
 }

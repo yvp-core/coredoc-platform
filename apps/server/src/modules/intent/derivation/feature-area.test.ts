@@ -185,7 +185,7 @@ describe('area composition (§6.1)', () => {
     expect(sliceB?.coreNodeIds.has(repoA.guard)).toBe(false);
   });
 
-  it('reports a seed repo the workspace never registered instead of dropping it', async () => {
+  it('computes no slice for a seed repo the workspace never registered', async () => {
     const { repoA } = fixture;
 
     const area = await computeFeatureArea({
@@ -198,7 +198,6 @@ describe('area composition (§6.1)', () => {
       budget: budget(),
     });
 
-    expect(area.unresolvedRepoKeys).toEqual(['github.com/acme/never-registered']);
     expect(area.slices).toHaveLength(1);
   });
 });

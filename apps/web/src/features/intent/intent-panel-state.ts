@@ -24,6 +24,8 @@ import {
   type IntentItemSummary,
   type IntentNodeDocument,
   type IntentTreeDomain,
+  type IntentTreeResponse,
+  type IntentCountedFeature,
 } from './types.js';
 
 /** The tree node the browse surface is reading: a domain, one of its features, or the product root. */
@@ -279,18 +281,21 @@ export interface IntentPendingCounts {
   features: Readonly<Record<string, number>>;
 }
 
+/** From the tree pages, plus the features a "show all features" read listed past the tree's cap. */
 export function intentPendingCounts(
-  nodes: readonly { domainId: string | null; featureId: string | null; waiting: number }[],
+  pages: readonly IntentTreeResponse[],
+  moreFeatures: readonly IntentCountedFeature[] = [],
 ): IntentPendingCounts {
-  let root = 0;
   const domains: Record<string, number> = {};
   const features: Record<string, number> = {};
-  for (const node of nodes) {
-    if (node.domainId === null) root += node.waiting;
-    else domains[node.domainId] = (domains[node.domainId] ?? 0) + node.waiting;
-    if (node.featureId !== null) features[node.featureId] = (features[node.featureId] ?? 0) + node.waiting;
+  for (const page of pages) {
+    for (const domain of page.domains) {
+      domains[domain.id] = domain.subtreePendingCount;
+      for (const feature of domain.features) features[feature.id] = feature.pendingCount;
+    }
   }
-  return { root, domains, features };
+  for (const feature of moreFeatures) features[feature.id] = feature.pendingCount;
+  return { root: pages[0]?.root.pendingCount ?? 0, domains, features };
 }
 
 /**

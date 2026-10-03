@@ -77,7 +77,6 @@ import {
   nodeSelectionTruncated,
   graphRepoHashOfNodeId,
   hasSelector,
-  likePattern,
   mergeFeatureCandidates,
   mergeDerivationCandidates,
   mergeMatches,
@@ -89,6 +88,8 @@ import { readIntentPendingReview } from './intent-review-queue.service.js';
 import { IntentErrorCode } from './contract/index.js';
 import { intentStateError } from './intent-state-errors.js';
 import { INTENT_NODE_SCAN, unknownNodeError } from './intent-node-suggest.js';
+import { IntentLexicalMatch, lexicalHits, lexicalPredicate, matchLexically } from './intent-lexical.js';
+import { treeConditionsOf } from './intent-tree.service.js';
 
 /** Effectivity plus every per-repo delivery (BR-5); `deliveries` is omitted when there are none. */
 function releaseFacts(release: ReleaseSnapshot, id: string) {
@@ -177,12 +178,6 @@ const contextDigest = (context: IntentContext): string =>
 const conditionsOf = (value: unknown): ContextCondition[] | undefined =>
   Array.isArray(value) ? (value as ContextCondition[]) : undefined;
 
-/** Stored tree `applies_when`; an empty list is treated as none. */
-const treeConditionsOf = (node: { appliesWhen: unknown } | null): ContextCondition[] | undefined => {
-  const conditions = conditionsOf(node?.appliesWhen);
-  return conditions && conditions.length > 0 ? conditions : undefined;
-};
-
 /** Relation selects that load the attachment's tree conditions, one batched query per level. */
 const TREE_CONDITIONS_SELECT = {
   domain: { select: { appliesWhen: true } },
@@ -202,7 +197,8 @@ export function listConditionsOf(row: {
   feature: { appliesWhen: unknown } | null;
 }) {
   const own = conditionsOf(row.appliesWhen) ?? [];
-  const inherited = treeConditionsOf(row.domain) !== undefined || treeConditionsOf(row.feature) !== undefined;
+  const inherited =
+    treeConditionsOf(row.domain?.appliesWhen) !== undefined || treeConditionsOf(row.feature?.appliesWhen) !== undefined;
   const variants = (row.payload as { variants?: unknown } | null)?.variants;
   const variantCount = row.kind === IntentKind.BusinessRule && Array.isArray(variants) ? variants.length : 0;
   if (own.length === 0 && !inherited && variantCount === 0) return undefined;
@@ -368,8 +364,8 @@ export class IntentContextService {
     const conditioned = rows.filter(
       (row) =>
         (conditionsOf(row.appliesWhen)?.length ?? 0) > 0 ||
-        treeConditionsOf(row.domain) !== undefined ||
-        treeConditionsOf(row.feature) !== undefined ||
+        treeConditionsOf(row.domain?.appliesWhen) !== undefined ||
+        treeConditionsOf(row.feature?.appliesWhen) !== undefined ||
         variantsOf(row).length > 0,
     );
     if (conditioned.length === 0) return undefined;
@@ -394,8 +390,8 @@ export class IntentContextService {
     const used = new Set(
       [...conditioned, ...referenced].flatMap((row) => [
         ...dimensionsOfClauses(conditionsOf(row.appliesWhen)),
-        ...dimensionsOfClauses(treeConditionsOf(row.domain)),
-        ...dimensionsOfClauses(treeConditionsOf(row.feature)),
+        ...dimensionsOfClauses(treeConditionsOf(row.domain?.appliesWhen)),
+        ...dimensionsOfClauses(treeConditionsOf(row.feature?.appliesWhen)),
       ]),
     );
     for (const variant of conditioned.flatMap(variantsOf)) {
@@ -552,8 +548,8 @@ export class IntentContextService {
         {
           authority: ref.authority as IntentAuthority,
           appliesWhen: composeEffectiveConditions({
-            [ConditionLevel.Domain]: treeConditionsOf(ref.domain),
-            [ConditionLevel.Feature]: treeConditionsOf(ref.feature),
+            [ConditionLevel.Domain]: treeConditionsOf(ref.domain?.appliesWhen),
+            [ConditionLevel.Feature]: treeConditionsOf(ref.feature?.appliesWhen),
             [ConditionLevel.Item]: conditionsOf(ref.appliesWhen),
           }),
         },
@@ -564,8 +560,8 @@ export class IntentContextService {
         row.id,
         evaluateEffectiveConditions(
           {
-            [ConditionLevel.Domain]: treeConditionsOf(row.domain),
-            [ConditionLevel.Feature]: treeConditionsOf(row.feature),
+            [ConditionLevel.Domain]: treeConditionsOf(row.domain?.appliesWhen),
+            [ConditionLevel.Feature]: treeConditionsOf(row.feature?.appliesWhen),
             [ConditionLevel.Item]: conditionsOf(row.appliesWhen),
           },
           filter.context,
@@ -708,57 +704,25 @@ export class IntentContextService {
   }
 
   /**
-   * Lexical selection over title, statement, and rationale.
-   *
-   * `ILIKE '%token%'` is what the `pg_trgm` GIN indexes on `title` and
-   * `statement` accelerate (migration 20260901102000); `rationale` rides in the
-   * same disjunction unindexed, because this query path searches all three
-   * fields and narrowing it to the two indexed ones would silently answer a
-   * different question. The task path (`selectTaskText`) differs on purpose: it
-   * uses rationale only for ranking (weight C) and gates on title or statement.
-   * Tokens are parameterised and wildcard-escaped.
+   * The shared lexical matcher (`intent-lexical.ts`), ranked for context: an
+   * all-word answer by authority, an any-word fallback by words hit first.
+   * The task path (`selectTaskText`) is a different, full-text retrieval.
    */
-  private tokenPredicate(token: string): Prisma.Sql {
-    const pattern = likePattern(token);
-    return Prisma.sql`(i.title ILIKE ${pattern} OR i.statement ILIKE ${pattern} OR COALESCE(i.rationale, '') ILIKE ${pattern})`;
-  }
-
-  private async selectLexical(
-    where: Prisma.Sql[],
-    tokens: readonly string[],
-    take: number,
-    allowFallback: boolean,
-  ): Promise<{ rows: CandidateIdRow[]; fallback: boolean }> {
-    // Conjunction first, for precision: every token must appear somewhere.
-    const conjunctive = await this.selectIds(
-      [...where, ...tokens.map((token) => this.tokenPredicate(token))],
-      Prisma.sql`"authorityRank", i.id`,
-      take,
+  private selectLexical(where: Prisma.Sql[], tokens: readonly string[], take: number, allowFallback: boolean) {
+    return matchLexically<CandidateIdRow>(
+      tokens,
+      (predicate, match) =>
+        match === IntentLexicalMatch.All
+          ? this.selectIds([...where, predicate], Prisma.sql`"authorityRank", i.id`, take)
+          : this.prisma.$queryRaw<CandidateIdRow[]>`
+              SELECT i.id AS id, ${this.rankExpression} AS "authorityRank", (${lexicalHits(tokens)})::int AS hits
+              FROM intent_items i
+              WHERE ${Prisma.join([...where, predicate], ' AND ')}
+              ORDER BY hits DESC, "authorityRank", i.id
+              LIMIT ${take}
+            `,
+      allowFallback,
     );
-    if (conjunctive.length > 0 || tokens.length < 2 || !allowFallback) {
-      return { rows: conjunctive, fallback: false };
-    }
-
-    // The disjunctive FALLBACK, from an EMPTY conjunctive result only, ranked by
-    // how many tokens each item hit. A multi-word query that matched nothing
-    // otherwise answers "this workspace has no product intent here", which is a
-    // different and usually false statement (core's rule; never mixed).
-    const hits = Prisma.join(
-      tokens.map((token) => Prisma.sql`(CASE WHEN ${this.tokenPredicate(token)} THEN 1 ELSE 0 END)`),
-      ' + ',
-    );
-    const anyToken = Prisma.sql`(${Prisma.join(
-      tokens.map((token) => this.tokenPredicate(token)),
-      ' OR ',
-    )})`;
-    const rows = await this.prisma.$queryRaw<CandidateIdRow[]>`
-      SELECT i.id AS id, ${this.rankExpression} AS "authorityRank", (${hits})::int AS hits
-      FROM intent_items i
-      WHERE ${Prisma.join([...where, anyToken], ' AND ')}
-      ORDER BY hits DESC, "authorityRank", i.id
-      LIMIT ${take}
-    `;
-    return { rows, fallback: true };
   }
 
   /** Rank all lexical candidates before the bound; no alphabetical pre-scan. */
@@ -1150,7 +1114,7 @@ export class IntentContextService {
       }
     } else if (!request.task && tokens.length > 0) {
       const lexical = await this.selectLexical(where, tokens, scan + 1, true);
-      fallback = lexical.fallback;
+      fallback = lexical.matched === IntentLexicalMatch.Any;
       scanTruncated = lexical.rows.length > scan;
       discovered = lexical.rows.slice(0, scan).map((row) => ({ ...row, reason: IntentContextMatchReason.Text }));
     } else if (!request.task && scope) {
@@ -1221,6 +1185,8 @@ export class IntentContextService {
       omittedCount: ordered.length - selected.length,
       totalMatched: ordered.length,
       scanTruncated,
+      // No item held every query word, so these hold at least one.
+      ...(fallback ? { matched: IntentLexicalMatch.Any } : {}),
       unknownIntentIds: this.unknownIntentIds(request, exact),
       unresolvedNodeIds,
       ...(request.task ? { unresolvedFiles } : {}),
@@ -1356,7 +1322,7 @@ export class IntentContextService {
       // empty later page stays empty instead of re-answering with any-token hits.
       const lexical = await this.selectLexical([...where, ...keyset], tokens, bound + 1, cursor === null);
       rows = lexical.rows;
-      fallback = lexical.fallback;
+      fallback = lexical.matched === IntentLexicalMatch.Any;
       reason = IntentContextMatchReason.Text;
     } else if (take > 0 && (scope !== undefined || !hasSelector(request))) {
       // Same guard the context mode applies: an id selector that matched nothing
@@ -1389,7 +1355,7 @@ export class IntentContextService {
     if (!cursor && !filter && !fallback) {
       const discoveredWhere =
         tokens.length > 0
-          ? [...where, ...tokens.map((token) => this.tokenPredicate(token))]
+          ? [...where, lexicalPredicate(tokens, IntentLexicalMatch.All)]
           : scope !== undefined || !hasSelector(request)
             ? where
             : undefined;
@@ -1409,6 +1375,7 @@ export class IntentContextService {
       limit,
       entries: await this.listEntries(workspaceId, matches, scope, filter),
       nextCursor,
+      ...(fallback ? { matched: IntentLexicalMatch.Any } : {}),
       // True whenever this page is not the whole answer: a caller told to check
       // `truncated` must not read page one of many as complete.
       truncated,
@@ -1546,8 +1513,8 @@ export class IntentContextService {
     filter: ContextFilter | undefined,
   ) {
     const item = items.get(match.id) as HydratedItem;
-    const inheritedDomain = treeConditionsOf(item.domain);
-    const inheritedFeature = treeConditionsOf(item.feature);
+    const inheritedDomain = treeConditionsOf(item.domain?.appliesWhen);
+    const inheritedFeature = treeConditionsOf(item.feature?.appliesWhen);
     return {
       id: item.id,
       kind: item.kind,
@@ -1612,7 +1579,9 @@ export class IntentContextService {
   private contextMatchOf(item: HydratedItem, filter: ContextFilter, full: boolean) {
     const { state, open, reasons, openBy } = filter.evaluations.get(item.id) as EffectiveConditionsEvaluation;
     // The open levels only say something once a tree level takes part; without one the bytes stay as before.
-    const inherits = treeConditionsOf(item.domain) !== undefined || treeConditionsOf(item.feature) !== undefined;
+    const inherits =
+      treeConditionsOf(item.domain?.appliesWhen) !== undefined ||
+      treeConditionsOf(item.feature?.appliesWhen) !== undefined;
     const levels = inherits && openBy ? { openBy } : {};
     if (!full) return { state, open, ...levels };
     const variants =

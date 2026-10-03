@@ -36,7 +36,7 @@ import type {
   IntentFeatureSeed,
   IntentFeatureSeedsResponse,
   IntentFeatureUpdateInput,
-  IntentFeatureView,
+  IntentCountedFeature,
   IntentFeaturesQuery,
   IntentFeaturesResponse,
   IntentItemsQuery,
@@ -52,7 +52,6 @@ import type {
   IntentTransitionsResponse,
   IntentTreeResponse,
   IntentNodeDocument,
-  IntentPendingNodesResponse,
 } from '../../features/intent/types.js';
 
 /** How many items a browse page and a transitions page ask for. */
@@ -204,14 +203,6 @@ export const intentItemsQueryOptions = (workspaceId: string, query: IntentItemsQ
  * The review queue: one page of waiting candidates, plus the filter's `total`
  * and the workspace's waiting summary, from the server's own route.
  */
-/** Waiting candidates per tree node, for the browse tree's counts. */
-export const intentPendingNodesQueryOptions = (workspaceId: string) =>
-  queryOptions({
-    queryKey: ['intent', 'review-nodes', workspaceId] as const,
-    queryFn: () => get<IntentPendingNodesResponse>(intentPath(workspaceId, 'review-queue/nodes')),
-    staleTime: 30_000,
-  });
-
 export const intentReviewQueueQueryOptions = (workspaceId: string, filter: IntentReviewQueueFilter = {}) =>
   infiniteQueryOptions({
     queryKey: [
@@ -351,7 +342,7 @@ export const intentDomainFeaturesQueryOptions = (workspaceId: string, domainId: 
     queryKey: ['intent', 'domain-features', workspaceId, domainId] as const,
     queryFn: () => {
       if (domainId === null) throw new Error('No domain selected');
-      return fetchAllPages<IntentFeatureView>(async (cursor) => {
+      return fetchAllPages<IntentCountedFeature>(async (cursor) => {
         const query: IntentFeaturesQuery = { domainId, ...pageQuery(cursor) };
         const page = await get<IntentFeaturesResponse>(intentPath(workspaceId, 'features', intentQuery({ ...query })));
         return { rows: page.features, nextCursor: page.nextCursor };

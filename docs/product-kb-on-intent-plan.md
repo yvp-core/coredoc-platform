@@ -168,9 +168,10 @@ because a queue card shows an item out of the node it belongs to. Prototypes tha
   `---` line. A replaced item keeps its slot while it is still in production. A node reads
   400 current items per answer; past that it says TRUNCATED and continues with `after` (item
   id). Superseded history is read separately, so it cannot crowd current items out.
-  Search ANDs
-  every word over statement, body, payload strings, rationale, title and source refs, with a
-  total and an `after` cursor.
+  Search uses the lexical matcher `get_intent_context`'s `query` shares
+  (`intent-lexical.ts`): every word over title, statement, body and rationale, a `ref:<value>`
+  word for an exact source ref, and an any-word fallback flagged `matched: 'any'` when no item
+  holds every word; with a total and an `after` cursor.
 - Document shape: `layout` on domains and features and `body` on items (migration
   `20261002130000_intent_node_layout_item_body`), writable through `intent_tree`
   create/update, `intent_propose` and the workspace import, carried by the export, and part
@@ -219,16 +220,18 @@ because a queue card shows an item out of the node it belongs to. Prototypes tha
   `(jira:PROD-1, 2022-01-27)` are hidden; prose blocks and item bodies are stripped whole, so
   a group that wraps onto the next line goes too. URLs, Markdown link targets `](…)` and
   fenced code or diagram blocks are never touched.
-- Review in browse: `GET intent/review-queue/nodes` (waiting candidates per node, separate
-  from the summary every context read carries); the detail pane decides one candidate
+- Review in browse: the tree read's `pendingCount` per node (`root` for the product root),
+  separate from the summary every context read carries; the detail pane decides one candidate
   (accept, or supersede with both versions); "Approve all" plans the document's proposals
   with `planReviewBatch`. A manual decision's source ref is always `cloud-review` (the
   server records who decided from the token; an email was refused as intent content).
 - Roles: `product` in `WorkspaceMemberRole`, assignable; self-scoped reads (analytics,
   metrics, agent sessions, delivery and feedback filters) now scope every role below admin,
   so a new role fails closed instead of seeing the whole workspace.
-- Not done: payload search inside `get_intent_context` (search covers payload through
-  `intent_read` instead), item and relation counts in the tree read (1.3), alias matching in
+- Tree counts (1.3): every tree node carries `itemCount` (candidate or accepted items attached
+  directly to it) and `pendingCount` (the candidates among them).
+- Not done: payload search (neither `get_intent_context` nor `intent_read` searches payload),
+  relation counts in the tree read (1.3), alias matching in
   unknown-id suggestions (1.4), history reads (2.5), code refs as anchors (2.4; they import
   as `manual` sources, and the workspace document carries no anchors), queues by origin (4.3), stored review notes (4.2), authoring hints in
   the browse detail pane (only the removed review tab showed them), a ticket on single-item

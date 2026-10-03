@@ -1,9 +1,4 @@
-/**
- * Deterministic intent item ids (BR-16/BR-17).
- *
- * The cloud server ports this algorithm in `apps/server/src/modules/intent/intent-id.ts`
- * and pins it against this implementation in `intent-id-parity.test.ts`.
- */
+/** Deterministic intent item ids (BR-16/BR-17). */
 import { INTENT_ID_MAX_LENGTH, INTENT_ID_PREFIX_BY_KIND, type IntentKind } from './types.js';
 
 export enum IntentIdDerivationErrorCode {
@@ -17,6 +12,8 @@ export class IntentIdDerivationError extends Error {
   constructor(
     readonly code: IntentIdDerivationErrorCode,
     message: string,
+    /** For `IdWouldTruncate`: the stub id the title would have been cut to. */
+    readonly shortenedId?: string,
   ) {
     super(message);
     this.name = 'IntentIdDerivationError';
@@ -62,6 +59,7 @@ export function deriveIntentId(kind: IntentKind, title: string, takenIds: Iterab
       IntentIdDerivationErrorCode.IdWouldTruncate,
       `title '${title}' does not fit an intent id: its slug is longer than ${INTENT_ID_MAX_LENGTH} characters, so the ` +
         `id would be shortened to '${base}' and lose words; supply a shorter title or an explicit '${prefix}-<slug>' id`,
+      base,
     );
   }
   if (!taken.has(base)) return base;

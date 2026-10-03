@@ -19,7 +19,14 @@
  */
 import { isDeepStrictEqual } from 'node:util';
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { IntentAuditEntityKind, IntentNodeKind, Prisma } from '../../generated/prisma/client.js';
+import {
+  IntentAuditEntityKind,
+  IntentNodeKind,
+  Prisma,
+  type IntentDimension as IntentDimensionRow,
+  type IntentDomain as IntentDomainRow,
+  type IntentFeature as IntentFeatureRow,
+} from '../../generated/prisma/client.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import {
   INTENT_LIMITS,
@@ -92,6 +99,12 @@ export interface IntentTreeFeatureView extends IntentTreeDomainView {
   parentFeatureId: string | null;
 }
 
+/** A tree node's item counts; see `IntentTreeService.itemCounts`. */
+export interface IntentNodeCounts {
+  itemCount: number;
+  pendingCount: number;
+}
+
 export interface IntentTreeDimensionView {
   id: string;
   title: string;
@@ -142,14 +155,61 @@ export class IntentTreeService {
       },
     });
     const { page, nextCursor } = paginate(rows, limit, IntentCursorScope.TreeDomains, (row) => [row.id]);
+    const counts = await this.itemCounts(workspaceId, {
+      OR: [{ domainId: { in: page.map((domain) => domain.id) } }, { domainId: null }],
+    });
 
     return {
+      root: counts.of(null, null),
       domains: page.map((domain) => ({
         ...domainView(domain),
-        features: domain.features.slice(0, INTENT_TREE_FEATURES_PER_DOMAIN).map(featureView),
+        ...counts.of(domain.id, null),
+        ...counts.subtreeOf(domain.id),
+        features: domain.features
+          .slice(0, INTENT_TREE_FEATURES_PER_DOMAIN)
+          .map((feature) => ({ ...featureView(feature), ...counts.of(domain.id, feature.id) })),
         featuresTruncated: domain.features.length > INTENT_TREE_FEATURES_PER_DOMAIN,
       })),
       nextCursor,
+    };
+  }
+
+  /**
+   * The tree's counts. `itemCount` is the live items (candidate or accepted;
+   * rejected and superseded are history) attached DIRECTLY to a node: an item
+   * attached to a feature counts for that feature only, not for its domain or
+   * its parent feature, and the product root counts the items attached to no
+   * node. `pendingCount` is the candidates among them, waiting for review.
+   * A domain's `subtree*` counts add every one of its features, archived ones
+   * and those past the per-domain page cap included.
+   */
+  private async itemCounts(workspaceId: string, where: Prisma.IntentItemWhereInput) {
+    const rows = await this.prisma.intentItem.groupBy({
+      by: ['domainId', 'featureId', 'authority'],
+      where: { workspaceId, authority: { in: ['candidate', 'accepted'] }, ...where },
+      _count: { _all: true },
+    });
+    const byNode = new Map<string, IntentNodeCounts>();
+    const bySubtree = new Map<string, IntentNodeCounts>();
+    const add = (map: Map<string, IntentNodeCounts>, key: string, count: number, pending: boolean) => {
+      const node = map.get(key) ?? { itemCount: 0, pendingCount: 0 };
+      node.itemCount += count;
+      if (pending) node.pendingCount += count;
+      map.set(key, node);
+    };
+    const keyOf = (domainId: string | null, featureId: string | null) => `${domainId ?? ''}/${featureId ?? ''}`;
+    for (const row of rows) {
+      const pending = row.authority === 'candidate';
+      add(byNode, keyOf(row.domainId, row.featureId), row._count._all, pending);
+      if (row.domainId !== null) add(bySubtree, row.domainId, row._count._all, pending);
+    }
+    return {
+      of: (domainId: string | null, featureId: string | null): IntentNodeCounts =>
+        byNode.get(keyOf(domainId, featureId)) ?? { itemCount: 0, pendingCount: 0 },
+      subtreeOf: (domainId: string) => {
+        const subtree = bySubtree.get(domainId);
+        return { subtreeItemCount: subtree?.itemCount ?? 0, subtreePendingCount: subtree?.pendingCount ?? 0 };
+      },
     };
   }
 
@@ -189,11 +249,15 @@ export class IntentTreeService {
       take: limit + 1,
     });
     const { page, nextCursor } = paginate(rows, limit, IntentCursorScope.Features, (row) => [row.id]);
-    return { features: page.map(featureView), nextCursor };
+    const counts = await this.itemCounts(workspaceId, { featureId: { in: page.map((feature) => feature.id) } });
+    return {
+      features: page.map((feature) => ({ ...featureView(feature), ...counts.of(feature.domainId, feature.id) })),
+      nextCursor,
+    };
   }
 
   async listSeeds(workspaceId: string, featureId: string, query: ListIntentFeatureSeedsQuery, limit: number) {
-    await this.readFeature(this.prisma, workspaceId, featureId, ['featureId']);
+    await readFeature(this.prisma, workspaceId, featureId, ['featureId']);
     const cursor = decodeIntentCursor(query.cursor, IntentCursorScope.FeatureSeeds, 1);
     const rows = await this.prisma.intentFeatureSeed.findMany({
       where: { workspaceId, featureId, ...(cursor ? { id: { gt: BigInt(cursor[0] as string) } } : {}) },
@@ -213,414 +277,45 @@ export class IntentTreeService {
     };
   }
 
-  /* ------------------------------------------------------------ domains --- */
+  /* ---------------------------------------------- domains, features, dimensions --- */
 
-  async createDomain(workspaceId: string, actor: IntentActor, input: CreateIntentDomainInput) {
-    return runIntentMutation(
-      this.prisma,
-      {
-        workspaceId,
-        actor,
-        operation: IntentOperation.DomainCreate,
-        idempotencyKey: input.idempotencyKey,
-        request: input,
-      },
-      async (tx) => {
-        await validateTreeConditions(tx, workspaceId, input.appliesWhen);
-        const existing = await tx.intentDomain.findUnique({
-          where: { workspaceId_id: { workspaceId, id: input.id } },
-          select: { id: true },
-        });
-        if (existing) {
-          throw intentStateError(
-            IntentErrorCode.TreeNodeExists,
-            `Domain '${input.id}' already exists in this workspace. Ids are immutable; update it instead of re-creating it.`,
-            ['id'],
-          );
-        }
-
-        const created = await tx.intentDomain.create({
-          data: {
-            workspaceId,
-            id: input.id,
-            title: input.title,
-            statement: input.statement ?? EMPTY_STATEMENT,
-            ...treeConditionsData(input.appliesWhen),
-            ...layoutData(input.layout),
-            createdBy: actor.id,
-            updatedBy: actor.id,
-          },
-        });
-        return {
-          response: {
-            domain: domainView(created),
-            ...(await conditionImpact(tx, workspaceId, { domainId: created.id }, null, created)),
-          },
-          audits: [
-            {
-              entityKind: IntentAuditEntityKind.domain,
-              entityId: created.id,
-              operation: IntentAuditOperation.Create,
-              after: { title: created.title, archived: created.archived, ...auditedConditions(created) },
-            } satisfies IntentAuditRecord,
-          ],
-        };
-      },
-    );
+  createDomain(workspaceId: string, actor: IntentActor, input: CreateIntentDomainInput) {
+    return this.create(DOMAIN, workspaceId, actor, input);
   }
 
-  async updateDomain(workspaceId: string, actor: IntentActor, input: UpdateIntentDomainInput) {
-    return runIntentMutation(
-      this.prisma,
-      {
-        workspaceId,
-        actor,
-        operation: IntentOperation.DomainUpdate,
-        idempotencyKey: input.idempotencyKey,
-        request: input,
-      },
-      async (tx) => {
-        const before = await this.readDomain(tx, workspaceId, input.id, ['id']);
-        await validateTreeConditions(tx, workspaceId, input.appliesWhen);
-        const updated = await tx.intentDomain.update({
-          where: { workspaceId_id: { workspaceId, id: input.id } },
-          data: {
-            ...(input.title !== undefined ? { title: input.title } : {}),
-            ...(input.statement !== undefined ? { statement: input.statement } : {}),
-            ...treeConditionsData(input.appliesWhen),
-            ...layoutData(input.layout),
-            updatedBy: actor.id,
-          },
-        });
-        return {
-          response: {
-            domain: domainView(updated),
-            ...(await conditionImpact(tx, workspaceId, { domainId: updated.id }, before, updated)),
-          },
-          audits: [
-            {
-              entityKind: IntentAuditEntityKind.domain,
-              entityId: updated.id,
-              operation: IntentAuditOperation.Update,
-              before: { title: before.title, ...(input.appliesWhen !== undefined ? auditedConditions(before) : {}) },
-              after: { title: updated.title, ...(input.appliesWhen !== undefined ? auditedConditions(updated) : {}) },
-            } satisfies IntentAuditRecord,
-          ],
-        };
-      },
-    );
+  updateDomain(workspaceId: string, actor: IntentActor, input: UpdateIntentDomainInput) {
+    return this.update(DOMAIN, workspaceId, actor, input);
   }
 
-  async archiveDomain(workspaceId: string, actor: IntentActor, input: ArchiveIntentDomainInput) {
-    return runIntentMutation(
-      this.prisma,
-      {
-        workspaceId,
-        actor,
-        operation: IntentOperation.DomainArchive,
-        idempotencyKey: input.idempotencyKey,
-        request: input,
-      },
-      async (tx) => {
-        const before = await this.readDomain(tx, workspaceId, input.id, ['id']);
-        const updated = await tx.intentDomain.update({
-          where: { workspaceId_id: { workspaceId, id: input.id } },
-          data: { archived: input.archived, updatedBy: actor.id },
-        });
-        return {
-          response: { domain: domainView(updated) },
-          audits: [
-            {
-              entityKind: IntentAuditEntityKind.domain,
-              entityId: updated.id,
-              operation: input.archived ? IntentAuditOperation.Archive : IntentAuditOperation.Unarchive,
-              before: { archived: before.archived },
-              after: { archived: updated.archived },
-            } satisfies IntentAuditRecord,
-          ],
-        };
-      },
-    );
+  archiveDomain(workspaceId: string, actor: IntentActor, input: ArchiveIntentDomainInput) {
+    return this.archive(DOMAIN, workspaceId, actor, input);
+  }
+
+  /** Refused while the domain still holds features or attached items. */
+  deleteDomain(workspaceId: string, actor: IntentActor, input: DeleteIntentDomainInput) {
+    return this.remove(DOMAIN, workspaceId, actor, input);
+  }
+
+  createFeature(workspaceId: string, actor: IntentActor, input: CreateIntentFeatureInput) {
+    return this.create(FEATURE, workspaceId, actor, input);
+  }
+
+  updateFeature(workspaceId: string, actor: IntentActor, input: UpdateIntentFeatureInput) {
+    return this.update(FEATURE, workspaceId, actor, input);
+  }
+
+  archiveFeature(workspaceId: string, actor: IntentActor, input: ArchiveIntentFeatureInput) {
+    return this.archive(FEATURE, workspaceId, actor, input);
   }
 
   /**
-   * Delete a domain, refusing while it still holds features or attached items.
-   *
-   * The blockers are counted and named INSIDE the transaction that deletes, so
-   * the message a maintainer reads is the state the delete actually saw. The
-   * database says the same thing independently (the child FKs are `NoAction`),
-   * and that refusal is mapped too — the pre-check is for a usable message, not
-   * for correctness.
+   * Refused while sub-features or items are attached. Seeds are NOT blockers:
+   * they are part of the feature's own definition and cascade with it
+   * (`onDelete: Cascade`); the cascaded count is recorded in the audit row.
    */
-  async deleteDomain(workspaceId: string, actor: IntentActor, input: DeleteIntentDomainInput) {
-    return runIntentMutation(
-      this.prisma,
-      {
-        workspaceId,
-        actor,
-        operation: IntentOperation.DomainDelete,
-        idempotencyKey: input.idempotencyKey,
-        request: input,
-      },
-      async (tx) => {
-        const before = await this.readDomain(tx, workspaceId, input.id, ['id']);
-        const features = await tx.intentFeature.findMany({
-          where: { workspaceId, domainId: input.id },
-          select: { id: true },
-          orderBy: { id: 'asc' },
-          take: 20,
-        });
-        const items = await tx.intentItem.findMany({
-          where: { workspaceId, domainId: input.id },
-          select: { id: true },
-          orderBy: { id: 'asc' },
-          take: 20,
-        });
-        assertEmpty('Domain', input.id, [
-          ...features.map((row) => `feature ${row.id}`),
-          ...items.map((row) => `item ${row.id}`),
-        ]);
-
-        const relationCount = await deleteNodeRelations(tx, workspaceId, { kind: 'domain', id: input.id });
-        await withForeignKeyRefusal('Domain', input.id, () =>
-          tx.intentDomain.delete({ where: { workspaceId_id: { workspaceId, id: input.id } } }),
-        );
-        return {
-          response: { deleted: { kind: 'domain', id: input.id, removedRelationCount: relationCount } },
-          audits: [
-            {
-              entityKind: IntentAuditEntityKind.domain,
-              entityId: input.id,
-              operation: IntentAuditOperation.Delete,
-              before: { title: before.title, archived: before.archived },
-              after: { removedRelationCount: relationCount },
-            } satisfies IntentAuditRecord,
-          ],
-        };
-      },
-    );
+  deleteFeature(workspaceId: string, actor: IntentActor, input: DeleteIntentFeatureInput) {
+    return this.remove(FEATURE, workspaceId, actor, input);
   }
-
-  /* ----------------------------------------------------------- features --- */
-
-  async createFeature(workspaceId: string, actor: IntentActor, input: CreateIntentFeatureInput) {
-    return runIntentMutation(
-      this.prisma,
-      {
-        workspaceId,
-        actor,
-        operation: IntentOperation.FeatureCreate,
-        idempotencyKey: input.idempotencyKey,
-        request: input,
-      },
-      async (tx) => {
-        await this.readDomain(tx, workspaceId, input.domainId, ['domainId']);
-        if (input.parentFeatureId !== undefined)
-          await this.assertParent(tx, workspaceId, input.id, input.domainId, input.parentFeatureId);
-        await validateTreeConditions(tx, workspaceId, input.appliesWhen);
-        const existing = await tx.intentFeature.findUnique({
-          where: { workspaceId_id: { workspaceId, id: input.id } },
-          select: { id: true },
-        });
-        if (existing) {
-          throw intentStateError(
-            IntentErrorCode.TreeNodeExists,
-            `Feature '${input.id}' already exists in this workspace. Ids are immutable; update it instead of re-creating it.`,
-            ['id'],
-          );
-        }
-
-        const created = await tx.intentFeature.create({
-          data: {
-            workspaceId,
-            id: input.id,
-            domainId: input.domainId,
-            ...(input.parentFeatureId !== undefined ? { parentFeatureId: input.parentFeatureId } : {}),
-            title: input.title,
-            statement: input.statement ?? EMPTY_STATEMENT,
-            ...treeConditionsData(input.appliesWhen),
-            ...layoutData(input.layout),
-            createdBy: actor.id,
-            updatedBy: actor.id,
-          },
-        });
-        return {
-          response: {
-            feature: featureView(created),
-            ...(await conditionImpact(tx, workspaceId, { featureId: created.id }, null, created)),
-          },
-          audits: [
-            {
-              entityKind: IntentAuditEntityKind.feature,
-              entityId: created.id,
-              operation: IntentAuditOperation.Create,
-              after: {
-                domainId: created.domainId,
-                ...(created.parentFeatureId ? { parentFeatureId: created.parentFeatureId } : {}),
-                title: created.title,
-                archived: created.archived,
-                ...auditedConditions(created),
-              },
-            } satisfies IntentAuditRecord,
-          ],
-        };
-      },
-    );
-  }
-
-  async updateFeature(workspaceId: string, actor: IntentActor, input: UpdateIntentFeatureInput) {
-    return runIntentMutation(
-      this.prisma,
-      {
-        workspaceId,
-        actor,
-        operation: IntentOperation.FeatureUpdate,
-        idempotencyKey: input.idempotencyKey,
-        request: input,
-      },
-      async (tx) => {
-        const before = await this.readFeature(tx, workspaceId, input.id, ['id']);
-        if (input.parentFeatureId)
-          await this.assertParent(tx, workspaceId, input.id, before.domainId, input.parentFeatureId);
-        await validateTreeConditions(tx, workspaceId, input.appliesWhen);
-        const updated = await tx.intentFeature.update({
-          where: { workspaceId_id: { workspaceId, id: input.id } },
-          data: {
-            ...(input.title !== undefined ? { title: input.title } : {}),
-            ...(input.parentFeatureId !== undefined ? { parentFeatureId: input.parentFeatureId } : {}),
-            ...(input.statement !== undefined ? { statement: input.statement } : {}),
-            ...treeConditionsData(input.appliesWhen),
-            ...layoutData(input.layout),
-            updatedBy: actor.id,
-          },
-        });
-        return {
-          response: {
-            feature: featureView(updated),
-            ...(await conditionImpact(tx, workspaceId, { featureId: updated.id }, before, updated)),
-          },
-          audits: [
-            {
-              entityKind: IntentAuditEntityKind.feature,
-              entityId: updated.id,
-              operation: IntentAuditOperation.Update,
-              before: {
-                title: before.title,
-                ...(input.parentFeatureId !== undefined ? { parentFeatureId: before.parentFeatureId } : {}),
-                ...(input.appliesWhen !== undefined ? auditedConditions(before) : {}),
-              },
-              after: {
-                title: updated.title,
-                ...(input.parentFeatureId !== undefined ? { parentFeatureId: updated.parentFeatureId } : {}),
-                ...(input.appliesWhen !== undefined ? auditedConditions(updated) : {}),
-              },
-            } satisfies IntentAuditRecord,
-          ],
-        };
-      },
-    );
-  }
-
-  async archiveFeature(workspaceId: string, actor: IntentActor, input: ArchiveIntentFeatureInput) {
-    return runIntentMutation(
-      this.prisma,
-      {
-        workspaceId,
-        actor,
-        operation: IntentOperation.FeatureArchive,
-        idempotencyKey: input.idempotencyKey,
-        request: input,
-      },
-      async (tx) => {
-        const before = await this.readFeature(tx, workspaceId, input.id, ['id']);
-        const updated = await tx.intentFeature.update({
-          where: { workspaceId_id: { workspaceId, id: input.id } },
-          data: { archived: input.archived, updatedBy: actor.id },
-        });
-        return {
-          response: { feature: featureView(updated) },
-          audits: [
-            {
-              entityKind: IntentAuditEntityKind.feature,
-              entityId: updated.id,
-              operation: input.archived ? IntentAuditOperation.Archive : IntentAuditOperation.Unarchive,
-              before: { archived: before.archived },
-              after: { archived: updated.archived },
-            } satisfies IntentAuditRecord,
-          ],
-        };
-      },
-    );
-  }
-
-  /**
-   * Delete a feature, refusing while items are still attached to it.
-   *
-   * Seeds are NOT blockers: they are part of the feature's own definition and
-   * cascade with it (`intent_feature_seeds` → feature is `onDelete: Cascade`),
-   * whereas an item is reviewed content that must never vanish as a side
-   * effect. The count of cascaded seeds is recorded in the audit row.
-   */
-  async deleteFeature(workspaceId: string, actor: IntentActor, input: DeleteIntentFeatureInput) {
-    return runIntentMutation(
-      this.prisma,
-      {
-        workspaceId,
-        actor,
-        operation: IntentOperation.FeatureDelete,
-        idempotencyKey: input.idempotencyKey,
-        request: input,
-      },
-      async (tx) => {
-        const before = await this.readFeature(tx, workspaceId, input.id, ['id']);
-        const [children, items] = await Promise.all([
-          tx.intentFeature.findMany({
-            where: { workspaceId, parentFeatureId: input.id },
-            select: { id: true },
-            orderBy: { id: 'asc' },
-            take: 20,
-          }),
-          tx.intentItem.findMany({
-            where: { workspaceId, featureId: input.id },
-            select: { id: true },
-            orderBy: { id: 'asc' },
-            take: 20,
-          }),
-        ]);
-        assertEmpty('Feature', input.id, [
-          ...children.map((row) => `feature ${row.id}`),
-          ...items.map((row) => `item ${row.id}`),
-        ]);
-
-        const seedCount = await tx.intentFeatureSeed.count({ where: { workspaceId, featureId: input.id } });
-        const relationCount = await deleteNodeRelations(tx, workspaceId, { kind: 'feature', id: input.id });
-        await withForeignKeyRefusal('Feature', input.id, () =>
-          tx.intentFeature.delete({ where: { workspaceId_id: { workspaceId, id: input.id } } }),
-        );
-        return {
-          response: {
-            deleted: {
-              kind: 'feature',
-              id: input.id,
-              cascadedSeedCount: seedCount,
-              removedRelationCount: relationCount,
-            },
-          },
-          audits: [
-            {
-              entityKind: IntentAuditEntityKind.feature,
-              entityId: input.id,
-              operation: IntentAuditOperation.Delete,
-              before: { domainId: before.domainId, title: before.title, archived: before.archived },
-              after: { cascadedSeedCount: seedCount, removedRelationCount: relationCount },
-            } satisfies IntentAuditRecord,
-          ],
-        };
-      },
-    );
-  }
-
-  /* --------------------------------------------------------- dimensions --- */
 
   /**
    * The whole registry, unpaged: it is bounded by `INTENT_LIMITS.dimensions` in
@@ -634,135 +329,110 @@ export class IntentTreeService {
     return { dimensions: rows.map(dimensionView) };
   }
 
-  async createDimension(workspaceId: string, actor: IntentActor, input: CreateIntentDimensionInput) {
-    return runIntentMutation(
-      this.prisma,
-      {
-        workspaceId,
-        actor,
-        operation: IntentOperation.DimensionCreate,
-        idempotencyKey: input.idempotencyKey,
-        request: input,
-      },
-      async (tx) => {
-        // Serializes creates per workspace so two at `limit - 1` cannot both pass the count.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${workspaceId}::text || ':intent-dimensions', 0))`;
-        const existing = await tx.intentDimension.findUnique({
-          where: { workspaceId_id: { workspaceId, id: input.id } },
-          select: { id: true },
-        });
-        if (existing) {
-          throw intentStateError(
-            IntentErrorCode.TreeNodeExists,
-            `Dimension '${input.id}' already exists in this workspace. Ids are immutable; update it instead of re-creating it.`,
-            ['id'],
-          );
-        }
-        // Archived dimensions count: un-archiving must not overflow the registry.
-        if ((await tx.intentDimension.count({ where: { workspaceId } })) >= INTENT_LIMITS.dimensions) {
-          throw intentStateError(
-            IntentErrorCode.SchemaViolation,
-            `This workspace already declares ${INTENT_LIMITS.dimensions} dimensions (archived included), the most it may hold. Delete an unused one first.`,
-            ['id'],
-          );
-        }
-        const created = await tx.intentDimension.create({
-          data: {
-            workspaceId,
-            id: input.id,
-            title: input.title,
-            values: input.values,
-            multi: input.multi ?? false,
-            createdBy: actor.id,
-            updatedBy: actor.id,
-          },
-        });
-        return {
-          response: { dimension: dimensionView(created) },
-          audits: [
-            {
-              entityKind: IntentAuditEntityKind.dimension,
-              entityId: created.id,
-              operation: IntentAuditOperation.Create,
-              after: { title: created.title, values: valueIds(created.values), multi: created.multi },
-            } satisfies IntentAuditRecord,
-          ],
-        };
-      },
-    );
+  createDimension(workspaceId: string, actor: IntentActor, input: CreateIntentDimensionInput) {
+    return this.create(DIMENSION, workspaceId, actor, input);
   }
 
-  async updateDimension(workspaceId: string, actor: IntentActor, input: UpdateIntentDimensionInput) {
-    return runIntentMutation(
-      this.prisma,
-      {
-        workspaceId,
-        actor,
-        operation: IntentOperation.DimensionUpdate,
-        idempotencyKey: input.idempotencyKey,
-        request: input,
-      },
-      async (tx) => {
-        const before = await this.readDimension(tx, workspaceId, input.id, ['id']);
-        if (input.values !== undefined) {
-          const kept = new Set(input.values.map((value) => value.id));
-          const dropped = valueIds(before.values).filter((id) => !kept.has(id));
-          if (dropped.length > 0) {
-            await assertDimensionUnused(tx, workspaceId, input.id, dropped, ['values']);
-          }
-        }
-        // Flipping `multi` changes how every stored clause and variant on it reads.
-        if (input.multi !== undefined && input.multi !== before.multi) {
-          await assertDimensionUnused(tx, workspaceId, input.id, null, ['multi']);
-        }
-        const updated = await tx.intentDimension.update({
-          where: { workspaceId_id: { workspaceId, id: input.id } },
-          data: {
-            ...(input.title !== undefined ? { title: input.title } : {}),
-            ...(input.values !== undefined ? { values: input.values } : {}),
-            ...(input.multi !== undefined ? { multi: input.multi } : {}),
-            updatedBy: actor.id,
-          },
-        });
-        return {
-          response: { dimension: dimensionView(updated) },
-          audits: [
-            {
-              entityKind: IntentAuditEntityKind.dimension,
-              entityId: updated.id,
-              operation: IntentAuditOperation.Update,
-              before: { title: before.title, values: valueIds(before.values), multi: before.multi },
-              after: { title: updated.title, values: valueIds(updated.values), multi: updated.multi },
-            } satisfies IntentAuditRecord,
-          ],
-        };
-      },
-    );
+  updateDimension(workspaceId: string, actor: IntentActor, input: UpdateIntentDimensionInput) {
+    return this.update(DIMENSION, workspaceId, actor, input);
   }
 
   /** Un-archiving is always allowed; archiving is refused while items reference the dimension (BR-7). */
-  async archiveDimension(workspaceId: string, actor: IntentActor, input: ArchiveIntentDimensionInput) {
+  archiveDimension(workspaceId: string, actor: IntentActor, input: ArchiveIntentDimensionInput) {
+    return this.archive(DIMENSION, workspaceId, actor, input);
+  }
+
+  deleteDimension(workspaceId: string, actor: IntentActor, input: DeleteIntentDimensionInput) {
+    return this.remove(DIMENSION, workspaceId, actor, input);
+  }
+
+  private create<K extends string, Row extends TreeNodeRow, View, C extends TreeNodeInput, U extends TreeNodeInput>(
+    kind: TreeNodeKind<K, Row, View, C, U>,
+    workspaceId: string,
+    actor: IntentActor,
+    input: C,
+  ) {
     return runIntentMutation(
       this.prisma,
-      {
-        workspaceId,
-        actor,
-        operation: IntentOperation.DimensionArchive,
-        idempotencyKey: input.idempotencyKey,
-        request: input,
-      },
+      { workspaceId, actor, operation: kind.operations.create, idempotencyKey: input.idempotencyKey, request: input },
       async (tx) => {
-        const before = await this.readDimension(tx, workspaceId, input.id, ['id']);
-        if (input.archived) await assertDimensionUnused(tx, workspaceId, input.id, null, ['id']);
-        const updated = await tx.intentDimension.update({
-          where: { workspaceId_id: { workspaceId, id: input.id } },
-          data: { archived: input.archived, updatedBy: actor.id },
-        });
+        await kind.beforeCreate(tx, workspaceId, input);
+        if (await kind.exists(tx, workspaceId, input.id)) {
+          throw intentStateError(
+            IntentErrorCode.TreeNodeExists,
+            `${kind.label} '${input.id}' already exists in this workspace. Ids are immutable; update it instead of re-creating it.`,
+            ['id'],
+          );
+        }
+        const created = await kind.insert(tx, workspaceId, actor.id, input);
         return {
-          response: { dimension: dimensionView(updated) },
+          response: {
+            ...nodeResponse(kind, created),
+            ...(await kind.impact(tx, workspaceId, null, created)),
+          },
           audits: [
             {
-              entityKind: IntentAuditEntityKind.dimension,
+              entityKind: kind.entityKind,
+              entityId: created.id,
+              operation: IntentAuditOperation.Create,
+              after: kind.createdAudit(created),
+            } satisfies IntentAuditRecord,
+          ],
+        };
+      },
+    );
+  }
+
+  private update<K extends string, Row extends TreeNodeRow, View, C extends TreeNodeInput, U extends TreeNodeInput>(
+    kind: TreeNodeKind<K, Row, View, C, U>,
+    workspaceId: string,
+    actor: IntentActor,
+    input: U,
+  ) {
+    return runIntentMutation(
+      this.prisma,
+      { workspaceId, actor, operation: kind.operations.update, idempotencyKey: input.idempotencyKey, request: input },
+      async (tx) => {
+        const before = await kind.read(tx, workspaceId, input.id, ['id']);
+        await kind.beforeUpdate(tx, workspaceId, input, before);
+        const updated = await kind.update(tx, workspaceId, actor.id, input);
+        return {
+          response: {
+            ...nodeResponse(kind, updated),
+            ...(await kind.impact(tx, workspaceId, before, updated)),
+          },
+          audits: [
+            {
+              entityKind: kind.entityKind,
+              entityId: updated.id,
+              operation: IntentAuditOperation.Update,
+              before: kind.updateAudit(before, input),
+              after: kind.updateAudit(updated, input),
+            } satisfies IntentAuditRecord,
+          ],
+        };
+      },
+    );
+  }
+
+  private archive<K extends string, Row extends TreeNodeRow, View, C extends TreeNodeInput, U extends TreeNodeInput>(
+    kind: TreeNodeKind<K, Row, View, C, U>,
+    workspaceId: string,
+    actor: IntentActor,
+    input: TreeNodeInput & { archived: boolean },
+  ) {
+    return runIntentMutation(
+      this.prisma,
+      { workspaceId, actor, operation: kind.operations.archive, idempotencyKey: input.idempotencyKey, request: input },
+      async (tx) => {
+        const before = await kind.read(tx, workspaceId, input.id, ['id']);
+        if (input.archived) await kind.beforeArchive(tx, workspaceId, input.id);
+        const updated = await kind.setArchived(tx, workspaceId, actor.id, input.id, input.archived);
+        return {
+          response: nodeResponse(kind, updated),
+          audits: [
+            {
+              entityKind: kind.entityKind,
               entityId: updated.id,
               operation: input.archived ? IntentAuditOperation.Archive : IntentAuditOperation.Unarchive,
               before: { archived: before.archived },
@@ -774,28 +444,33 @@ export class IntentTreeService {
     );
   }
 
-  async deleteDimension(workspaceId: string, actor: IntentActor, input: DeleteIntentDimensionInput) {
+  /**
+   * The blockers are found and named INSIDE the transaction that deletes, so the
+   * message a maintainer reads is the state the delete actually saw.
+   */
+  private remove<K extends string, Row extends TreeNodeRow, View, C extends TreeNodeInput, U extends TreeNodeInput>(
+    kind: TreeNodeKind<K, Row, View, C, U>,
+    workspaceId: string,
+    actor: IntentActor,
+    input: TreeNodeInput,
+  ) {
     return runIntentMutation(
       this.prisma,
-      {
-        workspaceId,
-        actor,
-        operation: IntentOperation.DimensionDelete,
-        idempotencyKey: input.idempotencyKey,
-        request: input,
-      },
+      { workspaceId, actor, operation: kind.operations.delete, idempotencyKey: input.idempotencyKey, request: input },
       async (tx) => {
-        const before = await this.readDimension(tx, workspaceId, input.id, ['id']);
-        await assertDimensionUnused(tx, workspaceId, input.id, null, ['id']);
-        await tx.intentDimension.delete({ where: { workspaceId_id: { workspaceId, id: input.id } } });
+        const before = await kind.read(tx, workspaceId, input.id, ['id']);
+        await kind.assertDeletable(tx, workspaceId, input.id);
+        const counts = await kind.delete(tx, workspaceId, input.id);
+        const hasCounts = Object.keys(counts).length > 0;
         return {
-          response: { deleted: { kind: 'dimension', id: input.id } },
+          response: { deleted: { kind: kind.key, id: input.id, ...counts } },
           audits: [
             {
-              entityKind: IntentAuditEntityKind.dimension,
+              entityKind: kind.entityKind,
               entityId: input.id,
               operation: IntentAuditOperation.Delete,
-              before: { title: before.title, values: valueIds(before.values), archived: before.archived },
+              before: kind.deletedAudit(before),
+              ...(hasCounts ? { after: counts } : {}),
             } satisfies IntentAuditRecord,
           ],
         };
@@ -814,7 +489,7 @@ export class IntentTreeService {
       this.prisma,
       { workspaceId, actor, operation: IntentOperation.SeedPut, idempotencyKey: input.idempotencyKey, request: input },
       async (tx) => {
-        await this.readFeature(tx, workspaceId, input.featureId, ['featureId']);
+        await readFeature(tx, workspaceId, input.featureId, ['featureId']);
         assertSeedNodeId(input.nodeId);
         await assertWorkspaceIntentRepoKeys(tx, workspaceId, [input.repoKey], ['repoKey']);
 
@@ -929,8 +604,8 @@ export class IntentTreeService {
       },
       async (tx) => {
         const [from, to] = canonicalRelationEndpoints(input.from, input.to);
-        await this.readNode(tx, workspaceId, input.from, ['from']);
-        await this.readNode(tx, workspaceId, input.to, ['to']);
+        await readNode(tx, workspaceId, input.from, ['from']);
+        await readNode(tx, workspaceId, input.to, ['to']);
 
         const identity = relationIdentity(workspaceId, from, to);
         const existing = await tx.intentNodeRelation.findUnique({ where: identity });
@@ -999,132 +674,422 @@ export class IntentTreeService {
       },
     );
   }
+}
 
-  /* ------------------------------------------------------------ helpers --- */
+/* ------------------------------------------------------- node kinds --- */
 
-  private async readNode(
-    reader: Pick<IntentTransaction, 'intentDomain' | 'intentFeature'>,
-    workspaceId: string,
-    node: IntentNodeRefInput,
-    path: string[],
-  ) {
-    return node.kind === 'domain'
-      ? this.readDomain(reader, workspaceId, node.id, [...path, 'id'])
-      : this.readFeature(reader, workspaceId, node.id, [...path, 'id']);
-  }
+type TreeNodeRow = { id: string; title: string; archived: boolean };
+type TreeNodeInput = { id: string; idempotencyKey: string };
 
-  private async readDomain(
-    reader: Pick<IntentTransaction, 'intentDomain'>,
-    workspaceId: string,
-    id: string,
-    path: string[],
-  ) {
-    const domain = await reader.intentDomain.findUnique({ where: { workspaceId_id: { workspaceId, id } } });
-    if (!domain) {
-      throw intentNotFound(IntentErrorCode.DomainNotFound, `Domain '${id}' does not exist in this workspace`, path);
-    }
-    return domain;
-  }
-
-  /**
-   * Every dimension mutation reads its row through here, under FOR UPDATE, so
-   * the snapshot it diffs (dropped values, `multi`) and `assertDimensionUnused`'s
-   * scan both see the state it writes over. BR-7 race: propose and tree writes
-   * take FOR SHARE on the same row, so a concurrent reference either commits
-   * first and is seen by the scan, or waits and then sees the change.
-   */
-  private async readDimension(
-    tx: Pick<IntentTransaction, 'intentDimension' | '$queryRaw'>,
-    workspaceId: string,
-    id: string,
-    path: string[],
-  ) {
-    await tx.$queryRaw`SELECT 1 FROM intent_dimensions WHERE workspace_id = ${workspaceId}::uuid AND id = ${id} FOR UPDATE`;
-    const dimension = await tx.intentDimension.findUnique({ where: { workspaceId_id: { workspaceId, id } } });
-    if (!dimension) {
-      throw intentNotFound(
-        IntentErrorCode.DimensionNotFound,
-        `Dimension '${id}' does not exist in this workspace`,
-        path,
-      );
-    }
-    return dimension;
-  }
-
-  /**
-   * The parent must exist in the same domain, must not be the feature itself or
-   * below it, and the move must keep every feature within
-   * {@link INTENT_FEATURE_MAX_DEPTH} ancestors — the moved feature's own subtree
-   * included. A workspace lock serialises re-parenting, so two concurrent moves
-   * cannot each pass the cycle check and close a loop together.
-   */
-  private async assertParent(
+/**
+ * What differs between domains, features and dimensions; the create, update,
+ * archive and delete flows around it are shared. Every hook runs inside the
+ * mutation's transaction, in the order the flow names.
+ */
+interface TreeNodeKind<
+  K extends string,
+  Row extends TreeNodeRow,
+  View,
+  C extends TreeNodeInput,
+  U extends TreeNodeInput,
+> {
+  /** The response key and the `deleted.kind`. */
+  key: K;
+  /** How errors name the node. */
+  label: string;
+  entityKind: IntentAuditRecord['entityKind'];
+  operations: { create: IntentOperation; update: IntentOperation; archive: IntentOperation; delete: IntentOperation };
+  view(row: Row): View;
+  /** Reads the row or throws the kind's not-found error. */
+  read(tx: IntentTransaction, workspaceId: string, id: string, path: string[]): Promise<Row>;
+  exists(tx: IntentTransaction, workspaceId: string, id: string): Promise<boolean>;
+  /** Runs before the duplicate-id check. */
+  beforeCreate(tx: IntentTransaction, workspaceId: string, input: C): Promise<void>;
+  insert(tx: IntentTransaction, workspaceId: string, actorId: string, input: C): Promise<Row>;
+  createdAudit(row: Row): Record<string, unknown>;
+  /** Runs after the row is read, before it is written. */
+  beforeUpdate(tx: IntentTransaction, workspaceId: string, input: U, before: Row): Promise<void>;
+  update(tx: IntentTransaction, workspaceId: string, actorId: string, input: U): Promise<Row>;
+  /** Applied to both sides of an update. */
+  updateAudit(row: Row, input: U): Record<string, unknown>;
+  /** Extra response fields for a create or update. */
+  impact(
     tx: IntentTransaction,
     workspaceId: string,
-    featureId: string,
-    domainId: string,
-    parentId: string,
-  ) {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${workspaceId}::text || ':intent-feature-tree', 0))`;
-    const parent = await this.readFeature(tx, workspaceId, parentId, ['parentFeatureId']);
-    if (parent.domainId !== domainId) {
+    before: Row | null,
+    after: Row,
+  ): Promise<{ affectedAcceptedItems?: number }>;
+  /** Runs before archiving (never before un-archiving). */
+  beforeArchive(tx: IntentTransaction, workspaceId: string, id: string): Promise<void>;
+  setArchived(tx: IntentTransaction, workspaceId: string, actorId: string, id: string, archived: boolean): Promise<Row>;
+  assertDeletable(tx: IntentTransaction, workspaceId: string, id: string): Promise<void>;
+  /** Deletes the row; the counts are reported in the response and as the audit's `after`. */
+  delete(tx: IntentTransaction, workspaceId: string, id: string): Promise<Record<string, number>>;
+  deletedAudit(row: Row): Record<string, unknown>;
+}
+
+const noCheck = (): Promise<void> => Promise.resolve();
+const noImpact = async () => ({});
+
+function nodeResponse<K extends string, Row extends TreeNodeRow, View>(
+  kind: { key: K; view(row: Row): View },
+  row: Row,
+): Record<K, View> {
+  return { [kind.key]: kind.view(row) } as Record<K, View>;
+}
+
+const nodeKey = (workspaceId: string, id: string) => ({ workspaceId_id: { workspaceId, id } });
+
+const DOMAIN: TreeNodeKind<
+  'domain',
+  IntentDomainRow,
+  IntentTreeDomainView,
+  CreateIntentDomainInput,
+  UpdateIntentDomainInput
+> = {
+  key: 'domain',
+  label: 'Domain',
+  entityKind: IntentAuditEntityKind.domain,
+  operations: {
+    create: IntentOperation.DomainCreate,
+    update: IntentOperation.DomainUpdate,
+    archive: IntentOperation.DomainArchive,
+    delete: IntentOperation.DomainDelete,
+  },
+  view: domainView,
+  read: readDomain,
+  exists: async (tx, workspaceId, id) =>
+    (await tx.intentDomain.findUnique({ where: nodeKey(workspaceId, id), select: { id: true } })) !== null,
+  beforeCreate: (tx, workspaceId, input) => validateTreeConditions(tx, workspaceId, input.appliesWhen),
+  insert: (tx, workspaceId, actorId, input) =>
+    tx.intentDomain.create({
+      data: {
+        workspaceId,
+        id: input.id,
+        title: input.title,
+        statement: input.statement ?? EMPTY_STATEMENT,
+        ...treeConditionsData(input.appliesWhen),
+        ...layoutData(input.layout),
+        createdBy: actorId,
+        updatedBy: actorId,
+      },
+    }),
+  createdAudit: (row) => ({ title: row.title, archived: row.archived, ...auditedConditions(row) }),
+  beforeUpdate: (tx, workspaceId, input) => validateTreeConditions(tx, workspaceId, input.appliesWhen),
+  update: (tx, workspaceId, actorId, input) =>
+    tx.intentDomain.update({
+      where: nodeKey(workspaceId, input.id),
+      data: {
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.statement !== undefined ? { statement: input.statement } : {}),
+        ...treeConditionsData(input.appliesWhen),
+        ...layoutData(input.layout),
+        updatedBy: actorId,
+      },
+    }),
+  updateAudit: (row, input) => ({
+    title: row.title,
+    ...(input.appliesWhen !== undefined ? auditedConditions(row) : {}),
+  }),
+  impact: (tx, workspaceId, before, after) => conditionImpact(tx, workspaceId, { domainId: after.id }, before, after),
+  beforeArchive: noCheck,
+  setArchived: (tx, workspaceId, actorId, id, archived) =>
+    tx.intentDomain.update({ where: nodeKey(workspaceId, id), data: { archived, updatedBy: actorId } }),
+  assertDeletable: (tx, workspaceId, id) =>
+    assertNodeEmpty(tx, workspaceId, 'Domain', id, { features: { domainId: id }, items: { domainId: id } }),
+  delete: async (tx, workspaceId, id) => ({
+    removedRelationCount: await deleteTreeNode(tx, workspaceId, { kind: 'domain', id }, 'Domain', () =>
+      tx.intentDomain.delete({ where: nodeKey(workspaceId, id) }),
+    ),
+  }),
+  deletedAudit: (row) => ({ title: row.title, archived: row.archived }),
+};
+
+const FEATURE: TreeNodeKind<
+  'feature',
+  IntentFeatureRow,
+  IntentTreeFeatureView,
+  CreateIntentFeatureInput,
+  UpdateIntentFeatureInput
+> = {
+  key: 'feature',
+  label: 'Feature',
+  entityKind: IntentAuditEntityKind.feature,
+  operations: {
+    create: IntentOperation.FeatureCreate,
+    update: IntentOperation.FeatureUpdate,
+    archive: IntentOperation.FeatureArchive,
+    delete: IntentOperation.FeatureDelete,
+  },
+  view: featureView,
+  read: readFeature,
+  exists: async (tx, workspaceId, id) =>
+    (await tx.intentFeature.findUnique({ where: nodeKey(workspaceId, id), select: { id: true } })) !== null,
+  beforeCreate: async (tx, workspaceId, input) => {
+    await readDomain(tx, workspaceId, input.domainId, ['domainId']);
+    if (input.parentFeatureId !== undefined)
+      await assertParent(tx, workspaceId, input.id, input.domainId, input.parentFeatureId);
+    await validateTreeConditions(tx, workspaceId, input.appliesWhen);
+  },
+  insert: (tx, workspaceId, actorId, input) =>
+    tx.intentFeature.create({
+      data: {
+        workspaceId,
+        id: input.id,
+        domainId: input.domainId,
+        ...(input.parentFeatureId !== undefined ? { parentFeatureId: input.parentFeatureId } : {}),
+        title: input.title,
+        statement: input.statement ?? EMPTY_STATEMENT,
+        ...treeConditionsData(input.appliesWhen),
+        ...layoutData(input.layout),
+        createdBy: actorId,
+        updatedBy: actorId,
+      },
+    }),
+  createdAudit: (row) => ({
+    domainId: row.domainId,
+    ...(row.parentFeatureId ? { parentFeatureId: row.parentFeatureId } : {}),
+    title: row.title,
+    archived: row.archived,
+    ...auditedConditions(row),
+  }),
+  beforeUpdate: async (tx, workspaceId, input, before) => {
+    if (input.parentFeatureId) await assertParent(tx, workspaceId, input.id, before.domainId, input.parentFeatureId);
+    await validateTreeConditions(tx, workspaceId, input.appliesWhen);
+  },
+  update: (tx, workspaceId, actorId, input) =>
+    tx.intentFeature.update({
+      where: nodeKey(workspaceId, input.id),
+      data: {
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.parentFeatureId !== undefined ? { parentFeatureId: input.parentFeatureId } : {}),
+        ...(input.statement !== undefined ? { statement: input.statement } : {}),
+        ...treeConditionsData(input.appliesWhen),
+        ...layoutData(input.layout),
+        updatedBy: actorId,
+      },
+    }),
+  updateAudit: (row, input) => ({
+    title: row.title,
+    ...(input.parentFeatureId !== undefined ? { parentFeatureId: row.parentFeatureId } : {}),
+    ...(input.appliesWhen !== undefined ? auditedConditions(row) : {}),
+  }),
+  impact: (tx, workspaceId, before, after) => conditionImpact(tx, workspaceId, { featureId: after.id }, before, after),
+  beforeArchive: noCheck,
+  setArchived: (tx, workspaceId, actorId, id, archived) =>
+    tx.intentFeature.update({ where: nodeKey(workspaceId, id), data: { archived, updatedBy: actorId } }),
+  assertDeletable: (tx, workspaceId, id) =>
+    assertNodeEmpty(tx, workspaceId, 'Feature', id, { features: { parentFeatureId: id }, items: { featureId: id } }),
+  delete: async (tx, workspaceId, id) => {
+    const cascadedSeedCount = await tx.intentFeatureSeed.count({ where: { workspaceId, featureId: id } });
+    const removedRelationCount = await deleteTreeNode(tx, workspaceId, { kind: 'feature', id }, 'Feature', () =>
+      tx.intentFeature.delete({ where: nodeKey(workspaceId, id) }),
+    );
+    return { cascadedSeedCount, removedRelationCount };
+  },
+  deletedAudit: (row) => ({ domainId: row.domainId, title: row.title, archived: row.archived }),
+};
+
+const DIMENSION: TreeNodeKind<
+  'dimension',
+  IntentDimensionRow,
+  IntentTreeDimensionView,
+  CreateIntentDimensionInput,
+  UpdateIntentDimensionInput
+> = {
+  key: 'dimension',
+  label: 'Dimension',
+  entityKind: IntentAuditEntityKind.dimension,
+  operations: {
+    create: IntentOperation.DimensionCreate,
+    update: IntentOperation.DimensionUpdate,
+    archive: IntentOperation.DimensionArchive,
+    delete: IntentOperation.DimensionDelete,
+  },
+  view: dimensionView,
+  read: readDimension,
+  exists: async (tx, workspaceId, id) =>
+    (await tx.intentDimension.findUnique({ where: nodeKey(workspaceId, id), select: { id: true } })) !== null,
+  // Serializes creates per workspace so two at `limit - 1` cannot both pass the count.
+  beforeCreate: async (tx, workspaceId) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${workspaceId}::text || ':intent-dimensions', 0))`;
+  },
+  insert: async (tx, workspaceId, actorId, input) => {
+    // Archived dimensions count: un-archiving must not overflow the registry.
+    if ((await tx.intentDimension.count({ where: { workspaceId } })) >= INTENT_LIMITS.dimensions) {
       throw intentStateError(
-        IntentErrorCode.FeatureDomainMismatch,
-        `Feature '${parentId}' is in domain '${parent.domainId}'; a feature can only sit under a feature of its own domain '${domainId}'.`,
-        ['parentFeatureId'],
+        IntentErrorCode.SchemaViolation,
+        `This workspace already declares ${INTENT_LIMITS.dimensions} dimensions (archived included), the most it may hold. Delete an unused one first.`,
+        ['id'],
       );
     }
-    const tooDeep = () =>
-      intentStateError(
+    return tx.intentDimension.create({
+      data: {
+        workspaceId,
+        id: input.id,
+        title: input.title,
+        values: input.values,
+        multi: input.multi ?? false,
+        createdBy: actorId,
+        updatedBy: actorId,
+      },
+    });
+  },
+  createdAudit: (row) => ({ title: row.title, values: valueIds(row.values), multi: row.multi }),
+  beforeUpdate: async (tx, workspaceId, input, before) => {
+    if (input.values !== undefined) {
+      const kept = new Set(input.values.map((value) => value.id));
+      const dropped = valueIds(before.values).filter((id) => !kept.has(id));
+      if (dropped.length > 0) await assertDimensionUnused(tx, workspaceId, input.id, dropped, ['values']);
+    }
+    // Flipping `multi` changes how every stored clause and variant on it reads.
+    if (input.multi !== undefined && input.multi !== before.multi) {
+      await assertDimensionUnused(tx, workspaceId, input.id, null, ['multi']);
+    }
+  },
+  update: (tx, workspaceId, actorId, input) =>
+    tx.intentDimension.update({
+      where: nodeKey(workspaceId, input.id),
+      data: {
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.values !== undefined ? { values: input.values } : {}),
+        ...(input.multi !== undefined ? { multi: input.multi } : {}),
+        updatedBy: actorId,
+      },
+    }),
+  updateAudit: (row) => ({ title: row.title, values: valueIds(row.values), multi: row.multi }),
+  impact: noImpact,
+  beforeArchive: (tx, workspaceId, id) => assertDimensionUnused(tx, workspaceId, id, null, ['id']),
+  setArchived: (tx, workspaceId, actorId, id, archived) =>
+    tx.intentDimension.update({ where: nodeKey(workspaceId, id), data: { archived, updatedBy: actorId } }),
+  assertDeletable: (tx, workspaceId, id) => assertDimensionUnused(tx, workspaceId, id, null, ['id']),
+  delete: async (tx, workspaceId, id) => {
+    await tx.intentDimension.delete({ where: nodeKey(workspaceId, id) });
+    return {};
+  },
+  deletedAudit: (row) => ({ title: row.title, values: valueIds(row.values), archived: row.archived }),
+};
+
+/* ------------------------------------------------------------ readers --- */
+
+function readNode(
+  reader: Pick<IntentTransaction, 'intentDomain' | 'intentFeature'>,
+  workspaceId: string,
+  node: IntentNodeRefInput,
+  path: string[],
+) {
+  return node.kind === 'domain'
+    ? readDomain(reader, workspaceId, node.id, [...path, 'id'])
+    : readFeature(reader, workspaceId, node.id, [...path, 'id']);
+}
+
+async function readDomain(
+  reader: Pick<IntentTransaction, 'intentDomain'>,
+  workspaceId: string,
+  id: string,
+  path: string[],
+): Promise<IntentDomainRow> {
+  const domain = await reader.intentDomain.findUnique({ where: nodeKey(workspaceId, id) });
+  if (!domain) {
+    throw intentNotFound(IntentErrorCode.DomainNotFound, `Domain '${id}' does not exist in this workspace`, path);
+  }
+  return domain;
+}
+
+async function readFeature(
+  reader: Pick<IntentTransaction, 'intentFeature'>,
+  workspaceId: string,
+  id: string,
+  path: string[],
+): Promise<IntentFeatureRow> {
+  const feature = await reader.intentFeature.findUnique({ where: nodeKey(workspaceId, id) });
+  if (!feature) {
+    throw intentNotFound(IntentErrorCode.FeatureNotFound, `Feature '${id}' does not exist in this workspace`, path);
+  }
+  return feature;
+}
+
+/**
+ * Every dimension mutation reads its row through here, under FOR UPDATE, so
+ * the snapshot it diffs (dropped values, `multi`) and `assertDimensionUnused`'s
+ * scan both see the state it writes over. BR-7 race: propose and tree writes
+ * take FOR SHARE on the same row, so a concurrent reference either commits
+ * first and is seen by the scan, or waits and then sees the change.
+ */
+async function readDimension(
+  tx: Pick<IntentTransaction, 'intentDimension' | '$queryRaw'>,
+  workspaceId: string,
+  id: string,
+  path: string[],
+): Promise<IntentDimensionRow> {
+  await tx.$queryRaw`SELECT 1 FROM intent_dimensions WHERE workspace_id = ${workspaceId}::uuid AND id = ${id} FOR UPDATE`;
+  const dimension = await tx.intentDimension.findUnique({ where: nodeKey(workspaceId, id) });
+  if (!dimension) {
+    throw intentNotFound(IntentErrorCode.DimensionNotFound, `Dimension '${id}' does not exist in this workspace`, path);
+  }
+  return dimension;
+}
+
+/**
+ * The parent must exist in the same domain, must not be the feature itself or
+ * below it, and the move must keep every feature within
+ * {@link INTENT_FEATURE_MAX_DEPTH} ancestors — the moved feature's own subtree
+ * included. A workspace lock serialises re-parenting, so two concurrent moves
+ * cannot each pass the cycle check and close a loop together.
+ */
+async function assertParent(
+  tx: IntentTransaction,
+  workspaceId: string,
+  featureId: string,
+  domainId: string,
+  parentId: string,
+) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${workspaceId}::text || ':intent-feature-tree', 0))`;
+  const parent = await readFeature(tx, workspaceId, parentId, ['parentFeatureId']);
+  if (parent.domainId !== domainId) {
+    throw intentStateError(
+      IntentErrorCode.FeatureDomainMismatch,
+      `Feature '${parentId}' is in domain '${parent.domainId}'; a feature can only sit under a feature of its own domain '${domainId}'.`,
+      ['parentFeatureId'],
+    );
+  }
+  const tooDeep = () =>
+    intentStateError(
+      IntentErrorCode.FeatureParentCycle,
+      `Features nest at most ${INTENT_FEATURE_MAX_DEPTH} levels below the top; this move would go deeper.`,
+      ['parentFeatureId'],
+    );
+
+  // Ancestors the moved feature would have: the parent and everything above it.
+  let ancestors = 0;
+  let cursor: string | null = parent.id;
+  while (cursor !== null) {
+    if (cursor === featureId) {
+      throw intentStateError(
         IntentErrorCode.FeatureParentCycle,
-        `Features nest at most ${INTENT_FEATURE_MAX_DEPTH} levels below the top; this move would go deeper.`,
+        `Feature '${featureId}' cannot sit under '${parentId}': that is the feature itself or one of its own sub-features.`,
         ['parentFeatureId'],
       );
-
-    // Ancestors the moved feature would have: the parent and everything above it.
-    let ancestors = 0;
-    let cursor: string | null = parent.id;
-    while (cursor !== null) {
-      if (cursor === featureId) {
-        throw intentStateError(
-          IntentErrorCode.FeatureParentCycle,
-          `Feature '${featureId}' cannot sit under '${parentId}': that is the feature itself or one of its own sub-features.`,
-          ['parentFeatureId'],
-        );
-      }
-      ancestors += 1;
-      if (ancestors > INTENT_FEATURE_MAX_DEPTH) throw tooDeep();
-      const row: { parentFeatureId: string | null } | null = await tx.intentFeature.findUnique({
-        where: { workspaceId_id: { workspaceId, id: cursor } },
-        select: { parentFeatureId: true },
-      });
-      cursor = row?.parentFeatureId ?? null;
     }
-
-    // Its deepest descendant moves down with it.
-    let level = [featureId];
-    for (let height = 1; level.length > 0; height += 1) {
-      const children = await tx.intentFeature.findMany({
-        where: { workspaceId, parentFeatureId: { in: level } },
-        select: { id: true },
-      });
-      if (children.length === 0) break;
-      if (ancestors + height > INTENT_FEATURE_MAX_DEPTH) throw tooDeep();
-      level = children.map((child) => child.id);
-    }
+    ancestors += 1;
+    if (ancestors > INTENT_FEATURE_MAX_DEPTH) throw tooDeep();
+    const row: { parentFeatureId: string | null } | null = await tx.intentFeature.findUnique({
+      where: nodeKey(workspaceId, cursor),
+      select: { parentFeatureId: true },
+    });
+    cursor = row?.parentFeatureId ?? null;
   }
 
-  private async readFeature(
-    reader: Pick<IntentTransaction, 'intentFeature'>,
-    workspaceId: string,
-    id: string,
-    path: string[],
-  ) {
-    const feature = await reader.intentFeature.findUnique({ where: { workspaceId_id: { workspaceId, id } } });
-    if (!feature) {
-      throw intentNotFound(IntentErrorCode.FeatureNotFound, `Feature '${id}' does not exist in this workspace`, path);
-    }
-    return feature;
+  // Its deepest descendant moves down with it.
+  let level = [featureId];
+  for (let height = 1; level.length > 0; height += 1) {
+    const children = await tx.intentFeature.findMany({
+      where: { workspaceId, parentFeatureId: { in: level } },
+      select: { id: true },
+    });
+    if (children.length === 0) break;
+    if (ancestors + height > INTENT_FEATURE_MAX_DEPTH) throw tooDeep();
+    level = children.map((child) => child.id);
   }
 }
 
@@ -1261,7 +1226,7 @@ function dimensionView(row: {
 }
 
 /** Stored tree `applies_when`: NULL (or, defensively, an empty list) is an unconditioned node. */
-export function treeConditionsOf(value: Prisma.JsonValue | undefined): ContextCondition[] | undefined {
+export function treeConditionsOf(value: unknown): ContextCondition[] | undefined {
   return Array.isArray(value) && value.length > 0 ? (value as unknown as ContextCondition[]) : undefined;
 }
 
@@ -1438,14 +1403,52 @@ async function assertDimensionUnused(
   );
 }
 
-/** The structured "still occupied" refusal, naming what has to go first. */
-function assertEmpty(kind: string, id: string, blockers: string[]): void {
+/**
+ * Delete is refused while anything hangs off the node, naming the first
+ * blockers. The database refuses independently (the child FKs are `NoAction`,
+ * see {@link withForeignKeyRefusal}); this pre-check is for a usable message.
+ */
+async function assertNodeEmpty(
+  tx: IntentTransaction,
+  workspaceId: string,
+  label: string,
+  id: string,
+  occupants: { features: Prisma.IntentFeatureWhereInput; items: Prisma.IntentItemWhereInput },
+): Promise<void> {
+  const [features, items] = await Promise.all([
+    tx.intentFeature.findMany({
+      where: { workspaceId, ...occupants.features },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+      take: 20,
+    }),
+    tx.intentItem.findMany({
+      where: { workspaceId, ...occupants.items },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+      take: 20,
+    }),
+  ]);
+  const blockers = [...features.map((row) => `feature ${row.id}`), ...items.map((row) => `item ${row.id}`)];
   if (blockers.length === 0) return;
   throw intentStateError(
     IntentErrorCode.TreeNodeNotEmpty,
-    `${kind} '${id}' still holds ${blockers.join(', ')}. Archive it, or move its contents first — reviewed intent is never deleted as a side effect.`,
+    `${label} '${id}' still holds ${blockers.join(', ')}. Archive it, or move its contents first — reviewed intent is never deleted as a side effect.`,
     ['id'],
   );
+}
+
+/** Drop the node's relations, then the node; answers how many relations went with it. */
+async function deleteTreeNode(
+  tx: IntentTransaction,
+  workspaceId: string,
+  node: IntentNodeRefInput,
+  label: string,
+  remove: () => Promise<unknown>,
+): Promise<number> {
+  const removedRelationCount = await deleteNodeRelations(tx, workspaceId, node);
+  await withForeignKeyRefusal(label, node.id, remove);
+  return removedRelationCount;
 }
 
 /**

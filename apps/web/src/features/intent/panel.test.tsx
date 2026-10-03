@@ -69,8 +69,10 @@ beforeEach(() => {
         return new Response(
           JSON.stringify({ sources: [{ kind: 'spec', ref: 'spec/uploads', title: 'Uploads spec' }], truncated: false }),
         );
-      if (u.pathname.endsWith('/tree')) return new Response(JSON.stringify({ domains: treeDomains, nextCursor: null }));
-      if (u.pathname.endsWith('/review-queue/nodes')) return new Response(JSON.stringify({ nodes: [] }));
+      if (u.pathname.endsWith('/tree'))
+        return new Response(
+          JSON.stringify({ root: { itemCount: 0, pendingCount: 0 }, domains: treeDomains, nextCursor: null }),
+        );
       if (u.pathname.endsWith('/document'))
         return new Response(
           JSON.stringify({
@@ -319,6 +321,10 @@ it('opens the node panel for a selected domain, and returns to it from a rule', 
       createdAt: '2026-09-01T00:00:00.000Z',
       updatedAt: '2026-09-01T00:00:00.000Z',
       appliesWhen: [{ dimension: 'country', notIn: ['br'] }],
+      itemCount: 0,
+      pendingCount: 0,
+      subtreeItemCount: 0,
+      subtreePendingCount: 0,
       features: [],
       featuresTruncated: false,
     },

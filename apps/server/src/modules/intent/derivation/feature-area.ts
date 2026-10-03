@@ -174,7 +174,6 @@ async function computeRepoSlice(
     graphRepoHash,
     coreNodeIds: core,
     calledNodeIds: new Set(called.admitted),
-    calleesTruncated: called.incomplete,
   };
 }
 
@@ -189,24 +188,17 @@ export interface ComputeFeatureAreaInput {
 export async function computeFeatureArea(input: ComputeFeatureAreaInput): Promise<FeatureArea> {
   const { traversal, feature, graphRepoHashByKey, budget } = input;
   const slices: FeatureAreaRepoSlice[] = [];
-  const unresolvedRepoKeys: string[] = [];
 
   for (const [repoKey, seedIds] of [...groupSeedsByRepoKey(feature.seeds)].sort(([a], [b]) => a.localeCompare(b))) {
     const graphRepoHash = graphRepoHashByKey.get(repoKey);
-    if (!graphRepoHash) {
-      // A seed naming a repo the workspace registry does not know is REPORTED,
-      // never silently skipped: an area that is quietly missing a repository
-      // looks identical to a feature that has no code there (§6.5).
-      unresolvedRepoKeys.push(repoKey);
-      continue;
-    }
+    // A seed naming a repo the workspace registry does not know contributes no slice.
+    if (!graphRepoHash) continue;
     slices.push(await computeRepoSlice(traversal, repoKey, graphRepoHash, seedIds, budget));
   }
 
   return {
     featureId: feature.id,
     slices,
-    unresolvedRepoKeys,
     truncated: budget.truncated,
     limits: budget.limits,
     queriesUsed: budget.queriesUsed,

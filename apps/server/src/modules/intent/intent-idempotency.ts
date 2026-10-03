@@ -242,6 +242,29 @@ export async function findSpentIntentRequest(
   return { response: existing.response };
 }
 
+/** One audit row, for a write that records its trail outside {@link runIntentMutation}. */
+export async function writeIntentAudit(
+  tx: IntentTransaction,
+  workspaceId: string,
+  actor: IntentActor,
+  audit: IntentAuditRecord,
+): Promise<void> {
+  assertBoundedProjection(audit.before, 'before');
+  assertBoundedProjection(audit.after, 'after');
+  await tx.intentAuditEvent.create({
+    data: {
+      workspaceId,
+      entityKind: audit.entityKind,
+      entityId: audit.entityId,
+      operation: audit.operation,
+      actorId: actor.id,
+      actorRole: actor.role,
+      before: json(audit.before),
+      after: json(audit.after),
+    },
+  });
+}
+
 /** Write the audit rows and the ledger row. Same `tx` as the change, by construction. */
 async function auditAndRemember(
   tx: IntentTransaction,
@@ -261,22 +284,7 @@ async function auditAndRemember(
   // little and would have changed the write shape every mutation in the module
   // depends on. The rows that scale with the document are inserted in chunks at
   // their own call site in `intent-workspace-import`.
-  for (const audit of args.audits) {
-    assertBoundedProjection(audit.before, 'before');
-    assertBoundedProjection(audit.after, 'after');
-    await tx.intentAuditEvent.create({
-      data: {
-        workspaceId: args.workspaceId,
-        entityKind: audit.entityKind,
-        entityId: audit.entityId,
-        operation: audit.operation,
-        actorId: args.actor.id,
-        actorRole: args.actor.role,
-        before: json(audit.before),
-        after: json(audit.after),
-      },
-    });
-  }
+  for (const audit of args.audits) await writeIntentAudit(tx, args.workspaceId, args.actor, audit);
 
   await tx.intentMutationRequest.create({
     data: {
