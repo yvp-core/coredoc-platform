@@ -71,6 +71,7 @@ import {
   intentBrowseState,
   intentItemsInScope,
   intentKnownCount,
+  intentPendingCounts,
   intentScopeCounts,
   intentTreeNames,
   type IntentItemFilter,
@@ -267,6 +268,10 @@ export function IntentPanel({
   );
   const seedsQuery = useQuery(intentFeatureSeedsQueryOptions(id, selection.featureId));
   const domainFeaturesQuery = useQuery(intentDomainFeaturesQueryOptions(id, expandedDomainId));
+  const pendingCounts = useMemo(
+    () => (treeQuery.data ? intentPendingCounts(treeQuery.data.pages, domainFeaturesQuery.data?.rows) : null),
+    [treeQuery.data, domainFeaturesQuery.data],
+  );
 
   // Product-root items keep a domain-less workspace out of the onboarding state.
   // The root scope is what an empty tree can only be showing, so the item pages
@@ -703,7 +708,7 @@ export function IntentPanel({
               onEditTree={() => setEditorOpen(true)}
               onLoadMoreDomains={() => void treeQuery.fetchNextPage()}
               onShowAllFeatures={setExpandedDomainId}
-              pending={review.pendingCounts}
+              pending={pendingCounts}
               onlyPending={onlyPending}
               onToggleOnlyPending={() => setOnlyPending((value) => !value)}
             />

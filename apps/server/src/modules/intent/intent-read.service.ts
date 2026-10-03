@@ -1,7 +1,7 @@
 /**
  * File-like reads of the intent tree: `tree` lists the nodes, `node` returns
- * one domain or feature as a Markdown document, and `search` finds items by
- * words anywhere in their text.
+ * one domain or feature as a Markdown document, and `search` finds items with
+ * the lexical matcher `get_intent_context` shares (`intent-lexical.ts`).
  *
  * - `tree` is the folder listing: ids, titles and nesting, nothing else.
  * - `node` is the file: the node's layout (headings, prose, item slots)
@@ -18,6 +18,7 @@ import { IntentItemAuthority, IntentItemKind, IntentNodeKind, Prisma } from '../
 import { PrismaService } from '../../database/prisma.service.js';
 import { IntentErrorCode } from './contract/index.js';
 import { likePattern } from './intent-context.select.js';
+import { IntentLexicalMatch, matchLexically } from './intent-lexical.js';
 import { INTENT_NODE_SCAN, unknownNodeError } from './intent-node-suggest.js';
 import { readReleaseSnapshot } from './intent-release.service.js';
 import type { Effectivity, ReleaseSnapshot } from './intent-release.fold.js';
@@ -288,35 +289,36 @@ export class IntentReadService {
     if (kinds) conditions.push(Prisma.sql`i.kind::text IN (${Prisma.join(kinds)})`);
     if (scope?.kind === 'feature') conditions.push(Prisma.sql`i.feature_id = ${scope.id}`);
     if (scope?.kind === 'domain') conditions.push(Prisma.sql`i.domain_id = ${scope.id}`);
-    for (const token of tokens) conditions.push(Prisma.sql`h.text ILIKE ${likePattern(token)}`);
-    const where = Prisma.join(conditions, ' AND ');
     const page = request.after ? Prisma.sql`AND i.id > ${request.after}` : Prisma.empty;
+    // The matched fields, the item's text first, so a snippet shows content before its title.
+    const text = Prisma.sql`concat_ws(' ', i.statement,
+      (SELECT string_agg(v #>> '{}', ' ') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(i.body) = 'array' THEN i.body ELSE '[]'::jsonb END) v),
+      i.rationale, i.title)`;
 
-    // The item's text first, so a snippet shows content before any source ref.
-    const haystack = Prisma.sql`
-      FROM intent_items i
-      CROSS JOIN LATERAL (
-        SELECT concat_ws(' ', i.statement,
-          (SELECT string_agg(v #>> '{}', ' ') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(i.body) = 'array' THEN i.body ELSE '[]'::jsonb END) v),
-          (SELECT string_agg(v #>> '{}', ' ') FROM jsonb_path_query(coalesce(i.payload, '{}'::jsonb), 'strict $.** ? (@.type() == "string")') v),
-          i.rationale, i.title,
-          (SELECT string_agg(concat_ws(' ', s.ref, s.title), ' ') FROM intent_item_sources s
-             WHERE s.workspace_id = i.workspace_id AND s.item_id = i.id)
-        ) AS text
-      ) h`;
-    const [rows, totals] = await Promise.all([
-      this.prisma.$queryRaw<
-        { id: string; kind: string; domain_id: string | null; feature_id: string | null; text: string }[]
-      >`SELECT i.id, i.kind::text AS kind, i.domain_id, i.feature_id, h.text ${haystack}
-        WHERE ${where} ${page} ORDER BY i.id ASC LIMIT ${limit + 1}`,
-      this.prisma.$queryRaw<{ total: bigint }[]>`SELECT count(*) AS total ${haystack} WHERE ${where}`,
-    ]);
-    const total = Number(totals[0]?.total ?? 0);
+    // Whether to fall back to any word is decided on the whole match, not on
+    // this page, so every page of an any-word answer stays any-word.
+    const {
+      rows: [found],
+      matched,
+    } = await matchLexically(tokens, async (predicate) => {
+      const where = Prisma.join([...conditions, predicate], ' AND ');
+      const [rows, totals] = await Promise.all([
+        this.prisma.$queryRaw<
+          { id: string; kind: string; domain_id: string | null; feature_id: string | null; text: string }[]
+        >`SELECT i.id, i.kind::text AS kind, i.domain_id, i.feature_id, ${text} AS text FROM intent_items i
+          WHERE ${where} ${page} ORDER BY i.id ASC LIMIT ${limit + 1}`,
+        this.prisma.$queryRaw<{ total: bigint }[]>`SELECT count(*) AS total FROM intent_items i WHERE ${where}`,
+      ]);
+      const total = Number(totals[0]?.total ?? 0);
+      return total > 0 ? [{ rows, total }] : [];
+    });
+    const { rows, total } = found ?? { rows: [], total: 0 };
     const shown = rows.slice(0, limit);
     const within = scope ? ` in ${scope.kind} ${scope.id}` : '';
+    const any = matched === IntentLexicalMatch.Any;
 
     const lines = [
-      `${total} items match every word of "${tokens.join(' ')}"${within}${request.after ? `, after ${request.after}` : ''}`,
+      `${total} items match ${any ? 'any word' : 'every word'} of "${tokens.join(' ')}"${within}${request.after ? `, after ${request.after}` : ''}${any ? " (matched: 'any': no item matches every word)" : ''}`,
     ];
     for (const row of shown) {
       const node = row.feature_id ? `feature ${row.feature_id}` : row.domain_id ? `domain ${row.domain_id}` : 'root';

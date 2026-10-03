@@ -153,13 +153,32 @@ export interface IntentTreeDomain extends IntentDomainView {
   featuresTruncated: boolean;
 }
 
+/**
+ * Live items (candidate or accepted) attached directly to a tree node — a
+ * feature's items count for the feature only — and the candidates among them.
+ */
+export interface IntentNodeCounts {
+  itemCount: number;
+  pendingCount: number;
+}
+
+export type IntentCountedFeature = IntentFeatureView & IntentNodeCounts;
+
 export interface IntentTreeResponse {
-  domains: IntentTreeDomain[];
+  /** Counts of the items attached to no node. */
+  root: IntentNodeCounts;
+  domains: (IntentTreeDomain &
+    IntentNodeCounts & {
+      /** The domain's own items plus every feature's, archived and unlisted ones included. */
+      subtreeItemCount: number;
+      subtreePendingCount: number;
+      features: IntentCountedFeature[];
+    })[];
   nextCursor: string | null;
 }
 
 export interface IntentFeaturesResponse {
-  features: IntentFeatureView[];
+  features: IntentCountedFeature[];
   nextCursor: string | null;
 }
 
@@ -308,17 +327,6 @@ export interface IntentPendingReviewSummary {
   hasReplacementCandidate: boolean;
   byDomain: IntentPendingReviewDomain[];
   byDomainTruncated: boolean;
-}
-
-/** Waiting candidates attached to one node; both ids null = the product root. */
-export interface IntentPendingNode {
-  domainId: string | null;
-  featureId: string | null;
-  waiting: number;
-}
-
-export interface IntentPendingNodesResponse {
-  nodes: IntentPendingNode[];
 }
 
 /**

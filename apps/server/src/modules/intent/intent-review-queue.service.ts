@@ -76,13 +76,6 @@ export interface IntentPendingReviewSummary {
   byDomainTruncated: boolean;
 }
 
-/** Waiting candidates attached to one node; both ids null = the product root. */
-export interface IntentPendingReviewNode {
-  domainId: string | null;
-  featureId: string | null;
-  waiting: number;
-}
-
 /** Row shape of the grouped aggregate. */
 interface PendingReviewGroupRow {
   domainId: string | null;
@@ -148,27 +141,6 @@ export class IntentReviewQueueService {
   /** The workspace summary on its own, for callers that want no page at all. */
   async summary(workspaceId: string): Promise<IntentPendingReviewSummary> {
     return readIntentPendingReview(this.prisma, workspaceId);
-  }
-
-  /**
-   * Waiting candidates per tree node, for the browse tree's counts. Separate from
-   * the summary, which rides on every context read and stays domain-level. A
-   * feature row carries its own domain, so a domain's total is its rows summed.
-   */
-  async nodeCounts(workspaceId: string): Promise<{ nodes: IntentPendingReviewNode[] }> {
-    const rows = await this.prisma.intentItem.groupBy({
-      by: ['domainId', 'featureId'],
-      where: { workspaceId, authority: 'candidate' },
-      _count: { _all: true },
-    });
-    return {
-      nodes: rows
-        .map((row) => ({ domainId: row.domainId, featureId: row.featureId, waiting: row._count._all }))
-        .sort(
-          (a, b) =>
-            (a.domainId ?? '').localeCompare(b.domainId ?? '') || (a.featureId ?? '').localeCompare(b.featureId ?? ''),
-        ),
-    };
   }
 
   /**

@@ -43,7 +43,7 @@ import { TokenPermission } from '../../auth/token-permissions.js';
 import { ControlPlaneService, type WorkspaceRepo } from '../../database/control-plane.service.js';
 import { buildPrismaAdapter } from '../../database/create-prisma-client.js';
 import { PrismaService } from '../../database/prisma.service.js';
-import { PrismaClient } from '../../generated/prisma/client.js';
+import { Prisma, PrismaClient } from '../../generated/prisma/client.js';
 import { McpAuthKind } from '../../mcp/mcp-auth-context.js';
 import { IntentTools } from '../../mcp/tools/intent.tools.js';
 import { WorkspaceGraphContextError, WorkspaceMcpContextService } from '../../mcp/workspace-mcp-context.service.js';
@@ -59,6 +59,7 @@ import {
 import { IntentContextService } from './intent-context.service.js';
 import { IntentItemService } from './intent-item.service.js';
 import { IntentProposeService } from './intent-propose.service.js';
+import { IntentReadService } from './intent-read.service.js';
 import {
   IntentErrorCode,
   IntentPublicException,
@@ -779,6 +780,56 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
     it('composes conjunctively with the tree scope and the kind filter', async () => {
       expect(idsOf(await read({ query: 'refund', domain: 'security', limit: '20' }))).toEqual(['br-admin-only']);
       expect(idsOf(await read({ query: 'refund', kind: IntentKind.Capability, limit: '20' }))).toEqual([]);
+    });
+  });
+
+  describe('one lexical matcher for get_intent_context and intent_read', () => {
+    beforeAll(async () => {
+      await prisma.intentItem.update({
+        where: { workspaceId_id: { workspaceId, id: 'uc-warehouse-limit' } },
+        data: { body: ['Shown on the product page.'] },
+      });
+      await prisma.intentItemSource.create({
+        data: { workspaceId, itemId: 'lim-legacy-export', kind: 'issue', ref: 'jira:DAY-7', localId: 'LIM-7' },
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.intentItem.update({
+        where: { workspaceId_id: { workspaceId, id: 'uc-warehouse-limit' } },
+        data: { body: Prisma.DbNull },
+      });
+      await prisma.intentItemSource.deleteMany({ where: { workspaceId, ref: 'jira:DAY-7' } });
+    });
+
+    it.each([
+      'refund',
+      'refund thirty',
+      'finance',
+      'product page',
+      'warehouse stock shortfall',
+      'ref:jira:DAY-7',
+      'ref:jira:day-7 legacy',
+      'ref:jira:day-7 checkout',
+      'shortfall',
+    ])('selects the same items for %j', async (query) => {
+      const context = await read({ mode: IntentContextMode.List, query, includeCandidates: 'true', limit: '50' });
+      const contextIds = context.entries.map((entry: { id: string }) => entry.id).sort();
+      const search = await new IntentReadService(prisma as unknown as PrismaService).search(workspaceId, {
+        query,
+        includeCandidates: true,
+        limit: 200,
+      });
+      const searchIds = [...search.matchAll(/^- ([a-z0-9-]+) \[/gm)].map((match) => match[1]).sort();
+      expect(searchIds).toEqual(contextIds);
+      expect(search.includes("matched: 'any'")).toBe(context.matched === 'any');
+    });
+
+    it('falls back to any word only when no item matches every word, and says so', async () => {
+      const body = await read({ query: 'ref:jira:day-7 checkout', includeCandidates: 'true', limit: '20' });
+      expect(body.matched).toBe('any');
+      expect(idsOf(body).sort()).toEqual(['cap-checkout', 'lim-legacy-export']);
+      expect((await read({ query: 'ref:jira:day-7 legacy', includeCandidates: 'true' })).matched).toBeUndefined();
     });
   });
 

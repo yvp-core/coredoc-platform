@@ -3,6 +3,15 @@ import { PrismaService } from '../../database/prisma.service.js';
 import { IntentErrorCode } from './contract/index.js';
 import { intentStateError } from './intent-state-errors.js';
 
+/** The one "is intent on for this workspace" read; a missing workspace answers false. */
+export async function isIntentEnabled(prisma: Pick<PrismaService, 'workspace'>, workspaceId: string): Promise<boolean> {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { intentEnabled: true },
+  });
+  return workspace?.intentEnabled === true;
+}
+
 /**
  * REST counterpart of `IntentEnabledToolGuard` (`mcp/intent-enabled.tool-guard.ts`):
  * refuses every intent REST route — reads and writes alike — for a workspace
@@ -28,11 +37,7 @@ export class IntentEnabledGuard implements CanActivate {
     const workspaceId = request.params?.workspaceId;
     if (!workspaceId) return true; // no workspace to check — a later guard/handler owns that refusal
 
-    const workspace = await this.prisma.workspace.findUnique({
-      where: { id: workspaceId },
-      select: { intentEnabled: true },
-    });
-    if (workspace?.intentEnabled !== true) {
+    if (!(await isIntentEnabled(this.prisma, workspaceId))) {
       throw intentStateError(
         IntentErrorCode.IntentDisabled,
         'Intent is not enabled for this workspace',

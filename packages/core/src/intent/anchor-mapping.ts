@@ -1,8 +1,8 @@
 import type { AnchorBinding, AnchorEnvelope } from './anchor-mapping-types.js';
+import { INTENT_SLUG_PATTERN } from './types.js';
 const MAX_BLOCK_BYTES = 32 * 1024;
 const MAX_BINDINGS = 50;
 const MAX_TARGETS = 200;
-const ITEM_ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 const SHA = /^[a-f0-9]{40}$/;
 const ALLOWED_ENVELOPE_KEYS = new Set(['schemaVersion', 'headSha', 'bindings']);
 const ALLOWED_BINDING_KEYS = new Set(['itemId', 'files', 'symbols', 'replaceNodeIds']);
@@ -30,7 +30,8 @@ function binding(value: unknown): AnchorBinding | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
   if (!exactKeys(record, ALLOWED_BINDING_KEYS)) return undefined;
-  if (typeof record.itemId !== 'string' || record.itemId.length > 64 || !ITEM_ID.test(record.itemId)) return undefined;
+  if (typeof record.itemId !== 'string' || record.itemId.length > 64 || !INTENT_SLUG_PATTERN.test(record.itemId))
+    return undefined;
   const files = record.files ?? [];
   const symbols = record.symbols ?? [];
   const replaceNodeIds = record.replaceNodeIds ?? [];

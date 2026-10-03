@@ -1,7 +1,6 @@
 /**
- * The ported derivation must behave EXACTLY like core's `deriveIntentId`, so
- * these expectations are the ones `packages/core/src/intent/derive-id.test.ts`
- * states, re-run against the port.
+ * Core's `deriveIntentId` owns the algorithm (`derive-id.test.ts`); these pin
+ * the server's §12 refusals and the scan prefix that must cover every variant.
  */
 import { INTENT_ID_MAX_LENGTH, IntentKind } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';

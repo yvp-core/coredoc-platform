@@ -31,7 +31,6 @@ export { IntentExceptionFilter, type IntentErrorResponseBody } from './intent-er
 
 export {
   INTENT_CONTRACT_LIMITS,
-  INTENT_SLUG_PATTERN,
   IntentAuthorizingSourceKind,
   IntentAuthorizingSourceSchema,
   IntentSourceSchema,

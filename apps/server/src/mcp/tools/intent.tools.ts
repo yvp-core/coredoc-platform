@@ -259,7 +259,9 @@ const GetIntentContextSchema = z
       .max(INTENT_CONTEXT_READ_LIMITS.query)
       .optional()
       .describe(
-        `Lexical search over title, statement, and rationale (at most ${INTENT_CONTEXT_READ_LIMITS.queryTokens} tokens)`,
+        `Words matched in title, statement, body and rationale; a ref:<value> word is an exact, case-insensitive source-ref match. ` +
+          `Every word must match; if none does, any word, and the answer carries matched: 'any' ` +
+          `(at most ${INTENT_CONTEXT_READ_LIMITS.queryTokens} words)`,
       ),
     nodeIds: z
       .array(z.string())
@@ -381,7 +383,10 @@ const IntentReadToolSchema = z
       .string()
       .max(INTENT_CONTEXT_READ_LIMITS.query)
       .optional()
-      .describe(`search only: words that must ALL appear (at most ${INTENT_READ_LIMITS.searchTokens})`),
+      .describe(
+        `search only: words matched in title, statement, body and rationale, or ref:<value> for an exact, case-insensitive source-ref match; ` +
+          `all of them, else any of them (the answer then says matched: 'any') (at most ${INTENT_READ_LIMITS.searchTokens})`,
+      ),
     includeCandidates: z.boolean().optional().describe('node/search: include unreviewed candidates. Default false'),
     refs: z
       .boolean()
@@ -441,7 +446,9 @@ const INTENT_READ_DESCRIPTION =
   'what is in production or planned, and how many domain-level items also apply. Follow Related for impact questions. ' +
   'refs: false (default) gives the bare facts; refs: true keeps the Jira, Confluence and code references, for when ' +
   'you must cite or check a source. search {query, domain?, feature?, kind?, refs?, limit?, after?}: items whose ' +
-  'text, body, payload or source refs contain every word, ordered by id, with the total, then the nodes whose prose (overview, How it works) contains them. An answer that stops short ' +
+  'title, statement, body or rationale contain every word (a ref:<value> word is an exact, case-insensitive source-ref match), or, when ' +
+  "none does, any word (the answer then says matched: 'any'), ordered by id, with the total; get_intent_context's query " +
+  'matches the same way. Then the nodes whose prose (overview, How it works) contains every word. An answer that stops short ' +
   'says TRUNCATED and how to get the rest. Requires the intent:read permission.';
 
 const INTENT_PROPOSE_DESCRIPTION =

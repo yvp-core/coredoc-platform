@@ -8,14 +8,19 @@ import {
   type ResolvedMapping,
 } from '@coredoc/core';
 import { PrismaService } from '../../database/prisma.service.js';
-import { IntentAuditEntityKind } from '../../generated/prisma/client.js';
 import { WorkspaceMcpContextService } from '../../mcp/workspace-mcp-context.service.js';
 import type { HandoffSnapshot } from './intent-handoff.operations.js';
 import { readWorkspaceIntentRepoIdentities, unknownRepoKeyError } from './intent-repo-keys.js';
 
 import { IntentErrorCode } from './contract/index.js';
 import { intentConflict } from './intent-state-errors.js';
-import { IntentAuditOperation, type IntentActor, type IntentTransaction } from './intent-idempotency.js';
+import { anchorAuditRecord } from './intent-anchor-audit.js';
+import {
+  IntentAuditOperation,
+  writeIntentAudit,
+  type IntentActor,
+  type IntentTransaction,
+} from './intent-idempotency.js';
 
 function conflict(reason: IntentErrorCode): never {
   throw intentConflict(reason, `Intent anchors unavailable: ${reason}. Nothing was written.`, []);
@@ -29,22 +34,6 @@ function conflict(reason: IntentErrorCode): never {
  */
 const HANDOFF_ACTOR: IntentActor = { id: 'system:intent-handoff', role: 'system' };
 
-/** Bounded projection audited for an anchor row — identity and drift baseline, never a row dump. */
-function anchorAuditProjection(anchor: {
-  itemId: string;
-  repoKey: string;
-  nodeId: string;
-  nodeType: string;
-  capturedVersionedId: string;
-}) {
-  return {
-    itemId: anchor.itemId,
-    repoKey: anchor.repoKey,
-    nodeId: anchor.nodeId,
-    nodeType: anchor.nodeType,
-    capturedVersionedId: anchor.capturedVersionedId,
-  };
-}
 export interface IntentHandoffItemResult {
   itemId: string;
   outcome: 'mapped' | 'no_implementation' | 'unresolved' | 'manual_override';
@@ -238,25 +227,17 @@ export class IntentHandoffAnchorsService {
         nodeId: { in: removedNodeIds },
       },
     });
-    // Audited like a manual anchor write (`intent-anchor.service.ts`'s
-    // `auditOf`), in the SAME transaction as the row change — an anchor's
-    // audit trail must not distinguish "a person wrote this" from "CI wrote
-    // this", only WHO (the actor below is `system:intent-handoff`, never a
-    // human identity) and WHAT changed.
+    // Audited exactly like a manual anchor write, in the SAME transaction as
+    // the row change; the actor is `system:intent-handoff`, never a person.
     for (const nodeId of removedNodeIds) {
       const before = byNodeId.get(nodeId);
       if (!before) continue;
-      await tx.intentAuditEvent.create({
-        data: {
-          workspaceId,
-          entityKind: IntentAuditEntityKind.anchor,
-          entityId: before.id.toString(),
-          operation: IntentAuditOperation.Delete,
-          actorId: HANDOFF_ACTOR.id,
-          actorRole: HANDOFF_ACTOR.role,
-          before: anchorAuditProjection(before),
-        },
-      });
+      await writeIntentAudit(
+        tx,
+        workspaceId,
+        HANDOFF_ACTOR,
+        anchorAuditRecord(before.id, IntentAuditOperation.Delete, null, before),
+      );
     }
     for (const target of targets.values()) {
       if (overrides.has(target.nodeId)) continue;
@@ -279,18 +260,17 @@ export class IntentHandoffAnchorsService {
               createdBy: 'system:intent-handoff',
             },
           });
-      await tx.intentAuditEvent.create({
-        data: {
-          workspaceId,
-          entityKind: IntentAuditEntityKind.anchor,
-          entityId: anchor.id.toString(),
-          operation: old ? IntentAuditOperation.Update : IntentAuditOperation.Create,
-          actorId: HANDOFF_ACTOR.id,
-          actorRole: HANDOFF_ACTOR.role,
-          ...(old ? { before: anchorAuditProjection(old) } : {}),
-          after: anchorAuditProjection(anchor),
-        },
-      });
+      await writeIntentAudit(
+        tx,
+        workspaceId,
+        HANDOFF_ACTOR,
+        anchorAuditRecord(
+          anchor.id,
+          old ? IntentAuditOperation.Update : IntentAuditOperation.Create,
+          anchor,
+          old ?? null,
+        ),
+      );
     }
     return {
       ...identity,

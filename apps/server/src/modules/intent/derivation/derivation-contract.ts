@@ -136,15 +136,11 @@ export interface FeatureAreaRepoSlice {
    * guard case is distinguishable from containment.
    */
   calledNodeIds: ReadonlySet<string>;
-  /** True when the callee layer itself was cut short — see `calledNodeIds`. */
-  calleesTruncated: boolean;
 }
 
 export interface FeatureArea {
   featureId: string;
   slices: readonly FeatureAreaRepoSlice[];
-  /** Seed repo keys with no registered graph identity in this workspace. */
-  unresolvedRepoKeys: readonly string[];
   truncated: boolean;
   limits: readonly IntentDerivationLimit[];
   queriesUsed: number;

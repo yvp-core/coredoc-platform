@@ -34,7 +34,7 @@
  * demanded a resolvable node would refuse exactly when it is needed most.
  */
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { IntentAuditEntityKind, IntentItemAuthority } from '../../generated/prisma/client.js';
+import { IntentItemAuthority } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import {
   IntentErrorCode,
@@ -51,9 +51,9 @@ import {
   hashIntentRequest,
   runIntentMutation,
   type IntentActor,
-  type IntentAuditRecord,
   type IntentTransaction,
 } from './intent-idempotency.js';
+import { anchorAuditRecord } from './intent-anchor-audit.js';
 import { intentNotFound, intentStateError } from './intent-state-errors.js';
 
 /** The anchor as the API reports it. */
@@ -184,7 +184,12 @@ export class IntentAnchorService {
             graphVersionId: resolution.graphVersionId,
           },
           audits: [
-            auditOf(anchor.id, existing ? IntentAuditOperation.Update : IntentAuditOperation.Create, anchor, existing),
+            anchorAuditRecord(
+              anchor.id,
+              existing ? IntentAuditOperation.Update : IntentAuditOperation.Create,
+              anchor,
+              existing,
+            ),
           ],
         };
       },
@@ -255,7 +260,7 @@ export class IntentAnchorService {
             previousCapturedVersionedId: existing.capturedVersionedId,
             graphVersionId: resolution.graphVersionId,
           },
-          audits: [auditOf(anchor.id, IntentAuditOperation.Update, anchor, existing)],
+          audits: [anchorAuditRecord(anchor.id, IntentAuditOperation.Update, anchor, existing)],
         };
       },
     );
@@ -292,7 +297,7 @@ export class IntentAnchorService {
 
         return {
           response: { removed: true as const, anchor: viewOf(existing) },
-          audits: [auditOf(existing.id, IntentAuditOperation.Delete, null, existing)],
+          audits: [anchorAuditRecord(existing.id, IntentAuditOperation.Delete, null, existing)],
         };
       },
     );
@@ -334,32 +339,6 @@ function viewOf(anchor: AnchorRow): IntentAnchorView {
     source: anchor.source === 'ci' ? 'ci' : 'manual',
     disabledAt: anchor.disabledAt?.toISOString() ?? null,
     disabledBy: anchor.disabledBy ?? null,
-  };
-}
-
-/** Bounded projections — identity and the drift baseline, never a row dump. */
-function projectionOf(anchor: AnchorRow): Record<string, unknown> {
-  return {
-    itemId: anchor.itemId,
-    repoKey: anchor.repoKey,
-    nodeId: anchor.nodeId,
-    nodeType: anchor.nodeType,
-    capturedVersionedId: anchor.capturedVersionedId,
-  };
-}
-
-function auditOf(
-  id: bigint,
-  operation: IntentAuditOperation,
-  after: AnchorRow | null,
-  before: AnchorRow | null,
-): IntentAuditRecord {
-  return {
-    entityKind: IntentAuditEntityKind.anchor,
-    entityId: id.toString(),
-    operation,
-    ...(before ? { before: projectionOf(before) } : {}),
-    ...(after ? { after: projectionOf(after) } : {}),
   };
 }
 

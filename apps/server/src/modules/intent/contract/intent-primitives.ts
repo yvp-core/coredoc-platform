@@ -8,7 +8,7 @@
  * makes drift between the two surfaces unrepresentable rather than merely
  * unlikely.
  */
-import { INTENT_LIMITS, IntentSourceKind } from '@coredoc/core';
+import { INTENT_LIMITS, INTENT_SLUG_PATTERN, IntentSourceKind } from '@coredoc/core';
 import { z } from 'zod';
 
 /**
@@ -86,14 +86,6 @@ export const INTENT_CONTRACT_LIMITS = {
    */
   dimensionInUseItems: 20,
 } as const;
-
-/**
- * Slug form for item, domain, and feature ids: lowercase `a-z0-9` words joined
- * by single hyphens, first word starting with a letter. Restated from
- * `INTENT_SLUG_PATTERN` (`@coredoc/core`, not exported from its barrel); the
- * archive carried its own copy of the same regex for the same reason.
- */
-export const INTENT_SLUG_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 
 /** A required, trimmed, bounded string. Empty and whitespace-only are rejected. */
 export const text = (max: number) => z.string().trim().min(1).max(max);

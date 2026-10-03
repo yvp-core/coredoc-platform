@@ -1,6 +1,6 @@
 /**
  * Review inside the browse document: the node document read, the waiting
- * queue behind "Next proposal" and the tree counts, and the three decisions
+ * queue behind "Next proposal", and the three decisions
  * (one candidate, every proposal on the page, the predecessor a supersede checks).
  *
  * Writes share the panel's one-write latch and attempt keys with the tree
@@ -13,12 +13,11 @@ import { useMemo, useState } from 'react';
 import {
   intentDocumentQueryOptions,
   intentItemContextQueryOptions,
-  intentPendingNodesQueryOptions,
   intentReviewQueueQueryOptions,
   submitIntentReview,
 } from '@/api/queries/intent';
 import { type IntentAttemptKeys, IntentWriteForm } from './intent-attempt-keys.js';
-import { intentDocumentProposals, intentPendingCounts, type IntentTreeSelection } from './intent-panel-state.js';
+import { intentDocumentProposals, type IntentTreeSelection } from './intent-panel-state.js';
 import {
   EMPTY_PROVENANCE_FORM,
   INTENT_REVIEW_BATCH_LIMIT,
@@ -73,11 +72,6 @@ export function useDocumentReview({
   const documentQuery = useQuery({ ...intentDocumentQueryOptions(id, selection, includeCandidates), enabled });
   // "Next proposal" walks the server's review queue, oldest first; its summary is the waiting count.
   const queueQuery = useInfiniteQuery({ ...intentReviewQueueQueryOptions(id), enabled });
-  const pendingNodesQuery = useQuery(intentPendingNodesQueryOptions(id));
-  const pendingCounts = useMemo(
-    () => (pendingNodesQuery.data ? intentPendingCounts(pendingNodesQuery.data.nodes) : null),
-    [pendingNodesQuery.data],
-  );
   const candidates = useMemo(() => queueQuery.data?.pages.flatMap((page) => page.items) ?? null, [queueQuery.data]);
   const proposals = useMemo(
     () => (documentQuery.data ? intentDocumentProposals(documentQuery.data) : null),
@@ -181,7 +175,6 @@ export function useDocumentReview({
     includeCandidates,
     setIncludeCandidates,
     waiting: queueQuery.data?.pages[0]?.summary.waiting ?? 0,
-    pendingCounts,
     proposalCount: proposals?.cards.length ?? 0,
     predecessor: predecessorQuery.data?.matches[0],
     predecessorLoading: predecessorQuery.isLoading,

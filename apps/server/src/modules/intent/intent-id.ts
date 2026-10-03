@@ -1,115 +1,64 @@
 /**
- * Deterministic intent item ids (spec §4.4, BR-16/BR-17).
- *
- * Ported from `deriveIntentId` in `packages/core/src/intent/derive-id.ts` — same
- * algorithm, same guarantees. It is ported rather than imported because the
- * server's refusals are §12 public errors, and `intent-id-parity.test.ts` pins
- * the two implementations against each other.
- *
- * The two behaviours that matter downstream:
- * - pure and deterministic — the same `(kind, title, takenIds)` always yields
- *   the same id, which is what makes a re-run of a bootstrap packet idempotent;
- * - the collision suffix is rebuilt INSIDE the length cap, never appended to a
- *   full-length id, so every variant still satisfies the `VARCHAR(64)` column
- *   and the `intent_items_id_slug_check` constraint.
+ * Deterministic intent item ids (spec §4.4, BR-16/BR-17), derived by core's
+ * `deriveIntentId`; this module turns its refusals into §12 public errors and
+ * adds the server-only helpers around it.
  */
-import { INTENT_ID_MAX_LENGTH, INTENT_ID_PREFIX_BY_KIND, IntentKind } from '@coredoc/core';
+import {
+  INTENT_ID_MAX_LENGTH,
+  INTENT_ID_PREFIX_BY_KIND,
+  IntentIdDerivationError,
+  IntentIdDerivationErrorCode,
+  deriveIntentId,
+  type IntentKind,
+} from '@coredoc/core';
 import { intentStateError } from './intent-state-errors.js';
 import { IntentErrorCode } from './contract/index.js';
 
 /**
- * Longest id-suffix marker this derivation can append (`-9999`). The scan
+ * Longest id-suffix marker the derivation can append (`-9999`). The scan
  * prefix below is shortened by it so that every collision variant of a title is
  * still covered by one `startsWith` query.
  */
 const MAX_SUFFIX_MARKER_CHARS = 5;
 
-/** `a-z0-9` words of a title, in order. Empty when the title carries none. */
-function slugWords(title: string): string[] {
-  return title
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((word) => word.length > 0);
-}
-
 /**
- * `<prefix>-<word>[-<word>…]` bounded by `max`, cut at a word boundary.
- *
- * The first word is never dropped — an id must carry at least one slug word
- * beyond its prefix (BR-16) — so a single over-long word is hard-sliced.
- */
-function boundedSlugId(prefix: string, words: string[], max: number): string {
-  let out = `${prefix}-${words[0] as string}`;
-  if (out.length > max) out = out.slice(0, max);
-  for (const word of words.slice(1)) {
-    if (out.length + 1 + word.length > max) break;
-    out = `${out}-${word}`;
-  }
-  return out;
-}
-
-/**
- * The shortest string every possible derivation of `(kind, title)` starts with.
- *
- * Used to bound the "ids already taken" lookup to one indexed prefix scan
- * instead of loading every id in the workspace. It accounts for the suffix
- * rebuild: `-2`…`-9999` shortens the base, so the common prefix is the first
- * word truncated by the longest marker.
+ * The shortest string every possible derivation of `(kind, title)` starts with:
+ * `<prefix>-<first slug word>`, cut short by the longest collision marker,
+ * because a suffix rebuild shortens the base. Bounds the "ids already taken"
+ * lookup to one indexed prefix scan.
  */
 export function intentIdScanPrefix(kind: IntentKind, title: string): string | null {
-  const words = slugWords(title);
-  if (words.length === 0) return null;
-  return boundedSlugId(
-    INTENT_ID_PREFIX_BY_KIND[kind],
-    [words[0] as string],
-    INTENT_ID_MAX_LENGTH - MAX_SUFFIX_MARKER_CHARS,
-  );
+  const first = title
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .find((word) => word.length > 0);
+  if (first === undefined) return null;
+  return `${INTENT_ID_PREFIX_BY_KIND[kind]}-${first}`.slice(0, INTENT_ID_MAX_LENGTH - MAX_SUFFIX_MARKER_CHARS);
 }
 
-/**
- * Derive the durable slug id of a new item from its title.
- *
- * Throws the §12 structured refusal when the title has no `a-z0-9` content at
- * all (inventing an id there would produce an unsearchable identity, which is
- * the whole reason slugs replaced numeric ids), and when its slug does not FIT
- * the cap: a shortened id is a stub the item would carry forever.
- */
+/** Derive the durable slug id of a new item from its title, refusing as a §12 error. */
 export function deriveIntentItemId(
   kind: IntentKind,
   title: string,
   takenIds: Iterable<string>,
   path: string[] = ['title'],
 ): string {
-  const prefix = INTENT_ID_PREFIX_BY_KIND[kind];
-  const words = slugWords(title);
-  if (words.length === 0) {
-    throw intentStateError(
-      IntentErrorCode.UnderivableItemId,
-      `No intent id can be derived from this title: it carries no a-z0-9 characters. Supply an explicit '${prefix}-<slug>' id.`,
-      path,
-    );
-  }
-
-  const taken = new Set(takenIds);
-  const base = boundedSlugId(prefix, words, INTENT_ID_MAX_LENGTH);
-  // A base that does not carry EVERY slug word is a stub, and ids are immutable:
-  // an accepted item would keep it forever, so the proposal is refused instead
-  // of written. Dropping words is not a safe shortening — a lost 'not' inverts
-  // the rule. The collision rebuild below is exempt: shortening there is the
-  // price of a distinct id for a title that already derived cleanly.
-  if (base !== `${prefix}-${words.join('-')}`) {
-    throw intentStateError(
-      IntentErrorCode.IdWouldTruncate,
-      `This title is too long for an intent id: it would be shortened to '${base}'. Supply a shorter title or an explicit '${prefix}-<slug>' id.`,
-      path,
-    );
-  }
-  if (!taken.has(base)) return base;
-
-  for (let suffix = 2; ; suffix++) {
-    const marker = `-${suffix}`;
-    const candidate = `${boundedSlugId(prefix, words, INTENT_ID_MAX_LENGTH - marker.length)}${marker}`;
-    if (!taken.has(candidate)) return candidate;
+  try {
+    return deriveIntentId(kind, title, takenIds);
+  } catch (error) {
+    if (!(error instanceof IntentIdDerivationError)) throw error;
+    const prefix = INTENT_ID_PREFIX_BY_KIND[kind];
+    throw error.code === IntentIdDerivationErrorCode.UnderivableItemId
+      ? intentStateError(
+          IntentErrorCode.UnderivableItemId,
+          `No intent id can be derived from this title: it carries no a-z0-9 characters. Supply an explicit '${prefix}-<slug>' id.`,
+          path,
+        )
+      : intentStateError(
+          IntentErrorCode.IdWouldTruncate,
+          `This title is too long for an intent id: it would be shortened to '${error.shortenedId}'. Supply a shorter title or an explicit '${prefix}-<slug>' id.`,
+          path,
+        );
   }
 }
 

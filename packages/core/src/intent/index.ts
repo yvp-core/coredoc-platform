@@ -13,6 +13,7 @@ export {
   DecisionStatus,
   INTENT_ID_MAX_LENGTH,
   INTENT_ID_PREFIX_BY_KIND,
+  INTENT_SLUG_PATTERN,
   IntentAuthority,
   IntentKind,
   IntentSourceKind,
@@ -85,6 +86,8 @@ export {
 } from './authoring-hints.js';
 
 export { canonicalIntentJson } from './canonical-json.js';
+
+export { IntentIdDerivationError, IntentIdDerivationErrorCode, deriveIntentId } from './derive-id.js';
 
 export {
   INTENT_ANCHOR_WARNING,
