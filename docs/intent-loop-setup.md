@@ -24,7 +24,8 @@ pending work. Either merge/publish order works; another code push is not require
 ## Once: connect the repository
 
 Turn intent on for the workspace first: the REST intent routes answer
-`409 intent_disabled` while it is off.
+`409 intent_disabled` while it is off. To show it to some roles first, see
+[role-limited rollout](#temporary-role-limited-rollout-intent_roles).
 
 For a TS/JS repository, ask the agent to add this starter to
 `.coredoc/profile.ts` in the setup PR, adjusting `include` to the source roots.
@@ -170,6 +171,30 @@ curl -X POST "$COREDOC_SERVER_URL/api/v1/workspaces/$WORKSPACE_ID/delivery/conne
 ```
 
 This route is also `workspace:manage`-gated — user session only, same as step 3.
+
+## Temporary: role-limited rollout (`INTENT_ROLES`)
+
+While product managers fill in and verify intent, a deployment can limit who sees it
+with the server variable `INTENT_ROLES`: a comma-separated list of workspace roles, for
+example `owner,admin,product`. It needs no migration and changes no API. It will be
+removed once intent is on for everyone. On Helm, set it through `server.env.INTENT_ROLES`.
+
+- Unset or empty: intent follows the workspace's `intentEnabled` flag for every member.
+- Set: intent counts as on for a caller only when the workspace has it on and the
+  caller's role in that workspace is listed. Everyone else sees intent off: the web
+  hides the Intent nav and route, the desktop hides the Intent tab, the MCP intent
+  tools are hidden from `tools/list` and refused on `tools/call`, and every intent
+  REST route answers `409 intent_disabled`.
+- An unknown role name fails server boot.
+- A service token resolves to the current role of the member who minted it. A CI
+  token minted by a listed admin keeps recording releases; a token whose minter is
+  outside the list is refused like its minter. Only admins and owners can mint CI
+  and intent-agent tokens, from their own session.
+- The automatic machinery has no caller and stays workspace-level: the handoff worker
+  and merge-triggered releases run for any workspace with intent on.
+- Workspace and repository settings (`intentEnabled`, release triggers,
+  `intentRepoKey`) are admin settings outside the list's reach; responses to those
+  writes report the stored flag.
 
 ## Member access and recovery
 

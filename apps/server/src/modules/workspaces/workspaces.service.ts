@@ -1,9 +1,11 @@
-import { BadGatewayException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadGatewayException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { WorkOSInvitationsService } from '../../auth/workos-invitations.service.js';
 import { ControlPlaneService, type Workspace } from '../../database/control-plane.service.js';
 import type { CreateWorkspaceInput, EnableCloudInput, UpdateWorkspaceInput } from './workspaces.contract.js';
 import { WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js';
 import { serverUrl } from '../../auth/oauth/server-url.js';
+import { INTENT_CONFIG, intentConfigFromEnv, type IntentConfig } from '../../config/app-config.js';
+import { intentEnabledForActor } from '../intent/intent-rollout.js';
 import type { IntentReleaseTrigger } from '../../generated/prisma/client.js';
 
 function sanitizeWorkspace({
@@ -21,15 +23,29 @@ export class WorkspacesService {
   constructor(
     private readonly controlPlane: ControlPlaneService,
     private readonly workosInvitations: WorkOSInvitationsService,
+    @Optional() @Inject(INTENT_CONFIG) private readonly intent: IntentConfig = intentConfigFromEnv(),
   ) {}
 
+  /**
+   * The caller's workspaces. `intentEnabled` is per actor (the desktop gates its
+   * Intent tab on it): a role outside the TEMPORARY `INTENT_ROLES` list sees it off.
+   */
   async getUserWorkspaces(user: { id: string; email: string; displayName?: string }) {
     await this.controlPlane.linkPendingMemberships(user);
     const workspaces = await this.controlPlane.listWorkspacesForUser(user.id);
-    return workspaces.map((ws: Workspace & { role: string }) => ({ ...sanitizeWorkspace(ws), role: ws.role }));
+    return workspaces.map((ws: Workspace & { role: string }) => ({
+      ...sanitizeWorkspace(ws),
+      intentEnabled: intentEnabledForActor(ws.intentEnabled, ws.role, this.intent),
+      role: ws.role,
+    }));
   }
 
-  async getWorkspace(workspaceId: string) {
+  /**
+   * One workspace as `actorRole` sees it: `intentEnabled` is narrowed the same way
+   * as in `getUserWorkspaces`; an omitted role counts as outside the list. The
+   * settings writes below echo the stored flag.
+   */
+  async getWorkspace(workspaceId: string, actorRole?: string) {
     const workspace = await this.controlPlane.getWorkspaceById(workspaceId);
     if (!workspace) {
       throw new NotFoundException('Workspace not found');
@@ -39,7 +55,11 @@ export class WorkspacesService {
     // targets. Without this, a new client against an old server would upload
     // artifacts, skip per-repo pushes, and get a targetless resolve that
     // "succeeds" while publishing none of them.
-    return { ...sanitizeWorkspace(workspace), capabilities: { batchResolveTargets: true as const } };
+    return {
+      ...sanitizeWorkspace(workspace),
+      intentEnabled: intentEnabledForActor(workspace.intentEnabled, actorRole, this.intent),
+      capabilities: { batchResolveTargets: true as const },
+    };
   }
 
   async createWorkspace(userId: string, email: string, displayName: string | undefined, dto: CreateWorkspaceInput) {

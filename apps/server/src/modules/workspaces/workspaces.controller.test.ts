@@ -80,3 +80,20 @@ describe('WorkspacesController.resolveWorkspace', () => {
     expect(status).not.toHaveBeenCalled();
   });
 });
+
+describe('WorkspacesController.getWorkspace', () => {
+  it('hands the service the role WorkspaceRoleGuard resolved, so intentEnabled is narrowed per actor', async () => {
+    const workspacesService = {
+      getWorkspace: vi.fn().mockResolvedValue({ id: 'ws_42', intentEnabled: false }),
+    } as unknown as WorkspacesService;
+    const controller = new WorkspacesController(
+      workspacesService,
+      {} as unknown as ResolverService,
+      {} as unknown as PushQueueService,
+    );
+
+    await controller.getWorkspace('ws_42', { userWorkspaceRole: 'member' } as never);
+
+    expect(workspacesService.getWorkspace).toHaveBeenCalledWith('ws_42', 'member');
+  });
+});

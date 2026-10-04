@@ -1,7 +1,9 @@
-import { CanActivate, type ExecutionContext, Injectable } from '@nestjs/common';
+import { CanActivate, type ExecutionContext, Inject, Injectable, Optional } from '@nestjs/common';
 
+import { INTENT_CONFIG, intentConfigFromEnv, type IntentConfig } from '../config/app-config.js';
 import { PrismaService } from '../database/prisma.service.js';
 import { isIntentEnabled } from '../modules/intent/intent-enabled.guard.js';
+import type { AuthenticatedMcpRequest } from './mcp-auth-context.js';
 
 /**
  * Per-workspace gate for the cloud intent MCP tools.
@@ -20,18 +22,25 @@ import { isIntentEnabled } from '../modules/intent/intent-enabled.guard.js';
  * every listing, so a thrown 403 would be noise on every request from every
  * workspace with intent off. Fail closed: no trusted `workspaceId` on the
  * request, or no such workspace → false.
+ *
+ * The same answer covers an actor outside the TEMPORARY `INTENT_ROLES` list:
+ * the tools are hidden from their listing and refused on call.
  */
 @Injectable()
 export class IntentEnabledToolGuard implements CanActivate {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() @Inject(INTENT_CONFIG) private readonly intent: IntentConfig = intentConfigFromEnv(),
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    // `workspaceId` is the trusted context McpRewriteMiddleware attaches after
-    // token + membership auth — the same field BaseCoredocTool reads.
-    const request = context.switchToHttp().getRequest<Record<string, unknown>>();
-    const workspaceId = request?.workspaceId as string | undefined;
+    // `workspaceId` and `userWorkspaceRole` are the trusted context
+    // McpRewriteMiddleware attaches after token + membership auth — the same
+    // fields BaseCoredocTool and `intent-auth.ts` read.
+    const request = context.switchToHttp().getRequest<AuthenticatedMcpRequest>();
+    const workspaceId = request?.workspaceId;
     if (!workspaceId) return false;
 
-    return isIntentEnabled(this.prisma, workspaceId);
+    return isIntentEnabled(this.prisma, workspaceId, request.userWorkspaceRole, this.intent);
   }
 }

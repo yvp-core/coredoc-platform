@@ -12,6 +12,7 @@ import type { WebAuthService, TokenResponse } from './web-auth.service.js';
 import { TokenExchangeError, WorkOSInvitationExchangeError } from './web-auth.service.js';
 import type { ControlPlaneService } from '../../database/control-plane.service.js';
 import type { AuthUser } from '../decorators/current-user.decorator.js';
+import { WorkspaceMemberRole } from '../../modules/members/dto/workspace-role.enum.js';
 
 const CALLBACK = 'http://localhost:3000/api/v1/auth/web/callback';
 
@@ -82,6 +83,7 @@ describe('WebAuthController', () => {
     controller = new WebAuthController(
       svc as unknown as WebAuthService,
       controlPlane as unknown as ControlPlaneService,
+      {},
     );
   });
 
@@ -413,6 +415,38 @@ describe('WebAuthController', () => {
         user,
         workspaces: [{ id: 'ws_1', name: 'Acme', slug: 'acme', role: 'admin', intentEnabled: true }],
       });
+    });
+
+    // The web gates its Intent nav and /intent route on this payload.
+    it('reports intent off for a role outside the temporary INTENT_ROLES list', async () => {
+      const rollout = new WebAuthController(
+        svc as unknown as WebAuthService,
+        controlPlane as unknown as ControlPlaneService,
+        { rolloutRoles: [WorkspaceMemberRole.Owner, WorkspaceMemberRole.Admin, WorkspaceMemberRole.Product] },
+      );
+      controlPlane.listWorkspacesForUser.mockResolvedValue([
+        { id: 'ws_pm', name: 'Acme', slug: 'acme', role: 'product', intentEnabled: true },
+        { id: 'ws_dev', name: 'Beta', slug: 'beta', role: 'member', intentEnabled: true },
+        { id: 'ws_off', name: 'Gamma', slug: 'gamma', role: 'owner', intentEnabled: false },
+      ]);
+
+      const result = await rollout.me({ id: 'user_1', email: 'a@b.com' });
+
+      expect(result.workspaces).toEqual([
+        { id: 'ws_pm', name: 'Acme', slug: 'acme', role: 'product', intentEnabled: true },
+        { id: 'ws_dev', name: 'Beta', slug: 'beta', role: 'member', intentEnabled: false },
+        { id: 'ws_off', name: 'Gamma', slug: 'gamma', role: 'owner', intentEnabled: false },
+      ]);
+    });
+
+    it('reports the stored flag for every role when INTENT_ROLES is unset', async () => {
+      controlPlane.listWorkspacesForUser.mockResolvedValue([
+        { id: 'ws_dev', name: 'Beta', slug: 'beta', role: 'member', intentEnabled: true },
+      ]);
+
+      const result = await controller.me({ id: 'user_1', email: 'a@b.com' });
+
+      expect(result.workspaces[0]?.intentEnabled).toBe(true);
     });
   });
 });

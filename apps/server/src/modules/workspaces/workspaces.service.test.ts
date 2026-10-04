@@ -4,6 +4,8 @@ import { WorkspacesService } from './workspaces.service.js';
 import type { ControlPlaneService } from '../../database/control-plane.service.js';
 import type { WorkOSInvitationsService } from '../../auth/workos-invitations.service.js';
 import { IntentReleaseTrigger } from '../../generated/prisma/client.js';
+import type { IntentConfig } from '../../config/app-config.js';
+import { WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js';
 
 function createMockControlPlane() {
   return {
@@ -34,6 +36,7 @@ describe('WorkspacesService', () => {
     service = new WorkspacesService(
       controlPlane as unknown as ControlPlaneService,
       workos as unknown as WorkOSInvitationsService,
+      {},
     );
   });
 
@@ -50,6 +53,7 @@ describe('WorkspacesService', () => {
           name: 'Workspace One',
           slug: 'workspace-one',
           role: 'admin',
+          intentEnabled: true,
           retainGraphArtifacts: true,
         },
       ];
@@ -57,7 +61,9 @@ describe('WorkspacesService', () => {
 
       const result = await service.getUserWorkspaces({ id: 'user_1', email: 'a@b.com' });
 
-      expect(result).toEqual([{ id: 'ws_1', name: 'Workspace One', slug: 'workspace-one', role: 'admin' }]);
+      expect(result).toEqual([
+        { id: 'ws_1', name: 'Workspace One', slug: 'workspace-one', role: 'admin', intentEnabled: true },
+      ]);
       expect(controlPlane.linkPendingMemberships).toHaveBeenCalledWith({ id: 'user_1', email: 'a@b.com' });
       expect(controlPlane.listWorkspacesForUser).toHaveBeenCalledWith('user_1');
     });
@@ -65,10 +71,10 @@ describe('WorkspacesService', () => {
 
   describe('getWorkspace', () => {
     it('returns a workspace by id', async () => {
-      const workspace = { id: 'ws_1', name: 'Workspace One', slug: 'workspace-one' };
+      const workspace = { id: 'ws_1', name: 'Workspace One', slug: 'workspace-one', intentEnabled: true };
       controlPlane.getWorkspaceById.mockResolvedValue(workspace);
 
-      const result = await service.getWorkspace('ws_1');
+      const result = await service.getWorkspace('ws_1', 'member');
 
       // Plus the capability advertisement batch-sync clients key on.
       expect(result).toEqual({ ...workspace, capabilities: { batchResolveTargets: true } });
@@ -93,6 +99,55 @@ describe('WorkspacesService', () => {
       controlPlane.getWorkspaceById.mockResolvedValue(null);
 
       await expect(service.getWorkspace('missing')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('intentEnabled under the temporary INTENT_ROLES rollout', () => {
+    const PRODUCT_FIRST: IntentConfig = {
+      rolloutRoles: [WorkspaceMemberRole.Owner, WorkspaceMemberRole.Admin, WorkspaceMemberRole.Product],
+    };
+
+    function rolloutService(intent: IntentConfig) {
+      return new WorkspacesService(
+        controlPlane as unknown as ControlPlaneService,
+        workos as unknown as WorkOSInvitationsService,
+        intent,
+      );
+    }
+
+    it("reports each workspace per the caller's role in it (GET /workspaces, the desktop Intent tab)", async () => {
+      controlPlane.listWorkspacesForUser.mockResolvedValue([
+        { id: 'ws_pm', name: 'A', slug: 'a', role: 'product', intentEnabled: true },
+        { id: 'ws_dev', name: 'B', slug: 'b', role: 'member', intentEnabled: true },
+        { id: 'ws_off', name: 'C', slug: 'c', role: 'owner', intentEnabled: false },
+      ]);
+
+      const result = await rolloutService(PRODUCT_FIRST).getUserWorkspaces({ id: 'user_1', email: 'a@b.com' });
+
+      expect(result.map((w) => [w.id, w.intentEnabled])).toEqual([
+        ['ws_pm', true],
+        ['ws_dev', false],
+        ['ws_off', false],
+      ]);
+    });
+
+    it('passes the stored flag through for every role when INTENT_ROLES is unset', async () => {
+      controlPlane.listWorkspacesForUser.mockResolvedValue([
+        { id: 'ws_dev', name: 'B', slug: 'b', role: 'member', intentEnabled: true },
+      ]);
+
+      const result = await rolloutService({}).getUserWorkspaces({ id: 'user_1', email: 'a@b.com' });
+
+      expect(result[0]?.intentEnabled).toBe(true);
+    });
+
+    it('narrows GET /workspaces/:id by the actor role, failing closed without one', async () => {
+      controlPlane.getWorkspaceById.mockResolvedValue({ id: 'ws_1', name: 'A', slug: 'a', intentEnabled: true });
+      const service = rolloutService(PRODUCT_FIRST);
+
+      expect((await service.getWorkspace('ws_1', 'admin')).intentEnabled).toBe(true);
+      expect((await service.getWorkspace('ws_1', 'member')).intentEnabled).toBe(false);
+      expect((await service.getWorkspace('ws_1')).intentEnabled).toBe(false);
     });
   });
 

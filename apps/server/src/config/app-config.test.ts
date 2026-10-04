@@ -165,6 +165,44 @@ describe('loadAppConfig — workers, retention and connectors stay raw', () => {
   });
 });
 
+describe('loadAppConfig — INTENT_ROLES (temporary intent rollout)', () => {
+  it.each([
+    ['unset', undefined],
+    ['empty', ''],
+    ['blank entries only', ' , ,'],
+  ])("keeps today's behaviour when %s: no rollout list", (_name, value) => {
+    const env: NodeJS.ProcessEnv = value === undefined ? {} : { INTENT_ROLES: value };
+    expect(loadAppConfig(env, 'worker').intent).toEqual({});
+  });
+
+  it('parses a comma-separated list, trimming entries and dropping blanks and repeats', () => {
+    const intent = loadAppConfig({ INTENT_ROLES: ' owner, admin ,,product,admin' }, 'worker').intent;
+    expect(intent.rolloutRoles).toEqual(['owner', 'admin', 'product']);
+  });
+
+  it('accepts every workspace member role', () => {
+    const intent = loadAppConfig({ INTENT_ROLES: 'owner,admin,product,member' }, 'worker').intent;
+    expect(intent.rolloutRoles).toEqual(['owner', 'admin', 'product', 'member']);
+  });
+
+  it('fails fast on an unknown role, naming the variable and the offending entries', () => {
+    try {
+      loadAppConfig({ ...API_ENV, INTENT_ROLES: 'owner,developer,Admin' }, 'api');
+      expect.unreachable('expected a config error');
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppConfigError);
+      const lines = (error as AppConfigError).lines;
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatch(/^INTENT_ROLES: unknown workspace role 'developer', 'Admin'; /);
+      expect(lines[0]).toContain('owner, admin, member, product');
+    }
+  });
+
+  it('fails fast for the worker role too — a bad value is a bad value in every process', () => {
+    expect(() => loadAppConfig({ INTENT_ROLES: 'developers' }, 'worker')).toThrow(AppConfigError);
+  });
+});
+
 describe('loadAppConfig — purity', () => {
   it('does not write anything back into the environment it was handed', () => {
     const env: NodeJS.ProcessEnv = { ...API_ENV };

@@ -379,6 +379,8 @@ run the action after the successful production deploy with `intent-release: 'tru
 to false, and dry runs never record releases. Set the repository's effective release mode to `deploy`;
 other modes refuse the release with `release_mode_forbids`. A workspace with intent turned off refuses
 it with `intent_disabled` — the whole automatic intent machinery is inert until the feature is enabled.
+While the temporary [`INTENT_ROLES` rollout](intent-loop-setup.md#temporary-role-limited-rollout-intent_roles)
+is set, the token's minter must hold a listed role, or the release gets the same `intent_disabled`.
 
 CI cannot propose, accept/reject/supersede rules, change workspace settings, or record a baseline,
 rollback or plan. CI and intent-agent token minting requires an admin user session.
