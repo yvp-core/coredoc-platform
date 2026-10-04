@@ -346,6 +346,10 @@ These are two independent axes:
 }
 ```
 
+Append `?toolset=intent` to that URL to limit a connection to the intent tools and
+`submit_session_feedback`, for example for a product manager's agent or a claude.ai
+custom connector. Omit it for every tool. See the [plugin README](plugins/coredoc/README.md#install).
+
 > Paths must be **absolute** — MCP clients resolve relative paths against the client's working directory, not this repo.
 
 ## Output
