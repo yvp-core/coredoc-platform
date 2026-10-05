@@ -92,6 +92,7 @@ export const FOR_CLAUSE = 'for_clause';
 export const RANGE_CLAUSE = 'range_clause';
 export const TYPE_SWITCH_STATEMENT = 'type_switch_statement';
 export const UNARY_EXPRESSION = 'unary_expression';
+export const BINARY_EXPRESSION = 'binary_expression';
 export const PARENTHESIZED_EXPRESSION = 'parenthesized_expression';
 export const IDENTIFIER = 'identifier';
 export const FIELD_IDENTIFIER = 'field_identifier';

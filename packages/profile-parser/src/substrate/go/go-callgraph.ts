@@ -57,12 +57,15 @@ import {
   PARAMETER_DECLARATION,
   SELECTOR_EXPRESSION,
   SHORT_VAR_DECLARATION,
+  STRUCT_TYPE,
+  TYPE_SPEC,
   VAR_SPEC,
   type TsNode,
   enclosingFunction,
   goDeclName,
   goFunctionId,
   isExported,
+  itemName,
   namedChildrenOfType,
   nearestAncestor,
   receiverTypeName,
@@ -110,8 +113,32 @@ function paramInfos(fn: TsNode): ParameterInfo[] {
   return out;
 }
 
+/**
+ * `${dir}#${Type}` → the file that DECLARES that struct. A method's `classId` must point at the
+ * ClassNode, which is minted from the struct's own file — and Go routinely puts methods in a
+ * sibling file (`consumer.go` declares `Consumer`, `dlq.go` adds `sendToDLQ`). Only structs become
+ * ClassNodes, so a method on any other named type (`type repeated []string`) gets no `classId`.
+ */
+function structFilesByPackageType(files: GoFile[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const { relPath, root } of files) {
+    for (const spec of root.descendantsOfType(TYPE_SPEC) as TsNode[]) {
+      const name = itemName(spec);
+      if (!name || spec.childForFieldName?.('type')?.type !== STRUCT_TYPE) continue;
+      const key = `${dirOf(relPath)}#${name}`;
+      if (!out.has(key)) out.set(key, relPath);
+    }
+  }
+  return out;
+}
+
 /** Build a `FunctionNode` for one func/method/closure (canonical scope-chain id). */
-function fnToFunctionNode(fn: TsNode, relPath: string, idGen: StableIdGenerator): FunctionNode {
+function fnToFunctionNode(
+  fn: TsNode,
+  relPath: string,
+  idGen: StableIdGenerator,
+  structFiles: Map<string, string>,
+): FunctionNode {
   const name = goDeclName(fn);
   const receiver = fn.type === METHOD_DECLARATION ? receiverTypeName(fn) : undefined;
   const id = goFunctionId(idGen, relPath, fn);
@@ -132,13 +159,24 @@ function fnToFunctionNode(fn: TsNode, relPath: string, idGen: StableIdGenerator)
     isGenerator: false,
     parameters: paramInfos(fn),
     returnType: result ? { text: result } : undefined,
-    classId: receiver ? idGen.classId(relPath, receiver) : undefined,
+    classId: classIdOf(receiver, relPath, idGen, structFiles),
     // Go's ENTIRE visibility model is the first rune's case; `visibility` is only a FunctionNode
     // field for methods, so a package-scope func carries the same fact as `isExported` instead.
     visibility: receiver ? (isExported(name) ? 'public' : 'private') : undefined,
     isExported: receiver ? undefined : isExported(name),
     sourceCode,
   };
+}
+
+function classIdOf(
+  receiver: string | undefined,
+  relPath: string,
+  idGen: StableIdGenerator,
+  structFiles: Map<string, string>,
+): string | undefined {
+  if (!receiver) return undefined;
+  const declFile = structFiles.get(`${dirOf(relPath)}#${receiver}`);
+  return declFile ? idGen.classId(declFile, receiver) : undefined;
 }
 
 /** Repo-wide def index the Tier-B resolver reads. */
@@ -166,6 +204,7 @@ export function indexGoDefs(files: GoFile[], idGen: StableIdGenerator): GoDefInd
   const byId = new Map<string, FunctionNode>();
   const funcIdsByPackageName = new Map<string, string[]>();
   const methodsByPackageType = new Map<string, Map<string, string>>();
+  const structFiles = structFilesByPackageType(files);
 
   for (const { relPath, root } of files) {
     const dir = dirOf(relPath);
@@ -175,7 +214,7 @@ export function indexGoDefs(files: GoFile[], idGen: StableIdGenerator): GoDefInd
       ...(root.descendantsOfType(FUNC_LITERAL) as TsNode[]),
     ];
     for (const fn of decls) {
-      const node = fnToFunctionNode(fn, relPath, idGen);
+      const node = fnToFunctionNode(fn, relPath, idGen, structFiles);
       if (byId.has(node.id)) continue; // de-dup, first wins
       byId.set(node.id, node);
 

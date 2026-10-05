@@ -1,9 +1,9 @@
 /**
- * Go ENTRYPOINT extraction — HTTP routes, generated gRPC services and CLI commands.
+ * Go ENTRYPOINT extraction — HTTP routes, huma operations, generated gRPC services and CLI commands.
  *
  * Go has no route ANNOTATION: every framework registers routes with a plain method call
  * (`r.Get("/users", h)`, `e.GET(…)`, `mux.HandleFunc(…)`), so all of this is call-shape work.
- * Three lanes run:
+ * Four lanes run:
  *
  *   1. **HTTP** — a registration call whose selector names a router verb and whose first path
  *      argument is a string literal. The BASE PATH is composed from the two statically-decidable
@@ -19,7 +19,11 @@
  *   2. **gRPC** — generated code registers a service with `pb.RegisterUserServiceServer(s, impl)`.
  *      The service NAME comes from that call and the entrypoints are the exported methods on the
  *      implementing type, which is where the request actually lands.
- *   3. **CLI** — a `cobra.Command` / `cli.Command` composite literal. Each lane is GATED on the
+ *   3. **huma** — `huma.Register(api, huma.Operation{Method, Path}, h)` and the `huma.Get(…)` verb
+ *      helpers. These are PACKAGE functions on the huma import, not router methods, and the path is
+ *      usually a const concatenation (`ManagementPrefix + "/x"`), so it is evaluated through the
+ *      package's string consts. Gated on the huma module like the CLI lane.
+ *   4. **CLI** — a `cobra.Command` / `cli.Command` composite literal. Each lane is GATED on the
  *      framework's module appearing in a `go.mod` require block, so a repo that does not depend on
  *      cobra can never have a `cobra.Command`-shaped literal of its own reported as a command.
  *
@@ -37,17 +41,24 @@ import type {
 } from '@coredoc/core';
 import {
   ASSIGNMENT_STATEMENT,
+  BINARY_EXPRESSION,
   CALL_EXPRESSION,
   COMPOSITE_LITERAL,
+  CONST_DECLARATION,
+  CONST_SPEC,
   FUNCTION_DECLARATION,
   FUNC_LITERAL,
   type GoFile,
   IDENTIFIER,
   KEYED_ELEMENT,
   METHOD_DECLARATION,
+  PARENTHESIZED_EXPRESSION,
+  RETURN_STATEMENT,
   SELECTOR_EXPRESSION,
   SHORT_VAR_DECLARATION,
   STRING_LITERAL_TYPES,
+  UNARY_EXPRESSION,
+  VAR_DECLARATION,
   VAR_SPEC,
   type TsNode,
   baseTypeName,
@@ -59,7 +70,7 @@ import {
   nearestAncestor,
   receiverTypeName,
 } from './go-cst.js';
-import { type GoPackageIndex, buildPackageIndex } from './go-imports.js';
+import { type GoPackageIndex, buildImportTable, buildPackageIndex } from './go-imports.js';
 import { type GoModule, dependsOnAny } from './go-modules.js';
 import { type GoTypeEnv, buildGoTypeEnv } from './go-types.js';
 
@@ -125,6 +136,21 @@ const CLI_GATE_MODULES: Record<string, string[]> = {
 const CLI_SHAPES: Record<string, { typeName: string; nameField: string; actionFields: string[] }> = {
   cobra: { typeName: 'cobra.Command', nameField: 'Use', actionFields: ['RunE', 'Run'] },
   urfave: { typeName: 'cli.Command', nameField: 'Name', actionFields: ['Action'] },
+};
+
+/**
+ * huma registers operations through PACKAGE functions, not router methods: `huma.Register(api,
+ * huma.Operation{Method, Path}, h)` and the `huma.Get(api, "/p", h)` convenience helpers. The
+ * receiver is the `huma` import itself, so the router-method lane never sees these calls.
+ */
+const HUMA_MODULE = 'github.com/danielgtaylor/huma';
+const HUMA_IMPORT_RE = /^github\.com\/danielgtaylor\/huma(?:\/v\d+)?$/;
+const HUMA_VERB_HELPERS: Record<string, HttpMethod> = {
+  Get: 'GET',
+  Post: 'POST',
+  Put: 'PUT',
+  Patch: 'PATCH',
+  Delete: 'DELETE',
 };
 
 const HTTP_VERBS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
@@ -324,6 +350,8 @@ interface DeclIndex {
   methods: Map<string, Map<string, string>>;
   /** `${dir}#${Type}` → the method NODES, so the gRPC lane can read their locations. */
   methodNodes: Map<string, Array<{ file: GoFile; node: TsNode }>>;
+  /** package-scope func id → its declaration, so a handler FACTORY can be looked inside. */
+  funcNodes: Map<string, { file: GoFile; node: TsNode }>;
 }
 
 /** Index the package-scope funcs and the methods per receiver type, keyed by PACKAGE (directory). */
@@ -331,6 +359,7 @@ function indexDecls(files: GoFile[], idGen: StableIdGenerator): DeclIndex {
   const funcIds = new Map<string, string[]>();
   const methods = new Map<string, Map<string, string>>();
   const methodNodes = new Map<string, Array<{ file: GoFile; node: TsNode }>>();
+  const funcNodes = new Map<string, { file: GoFile; node: TsNode }>();
 
   for (const file of files) {
     const dir = dirOf(file.relPath);
@@ -339,8 +368,10 @@ function indexDecls(files: GoFile[], idGen: StableIdGenerator): DeclIndex {
       if (!name || nearestAncestor(fn, new Set([FUNCTION_DECLARATION, METHOD_DECLARATION, FUNC_LITERAL]))) continue;
       const key = `${dir}#${name}`;
       const list = funcIds.get(key) ?? [];
-      list.push(goFunctionId(idGen, file.relPath, fn));
+      const id = goFunctionId(idGen, file.relPath, fn);
+      list.push(id);
       funcIds.set(key, list);
+      if (!funcNodes.has(id)) funcNodes.set(id, { file, node: fn });
     }
     for (const decl of file.root.descendantsOfType(METHOD_DECLARATION) as TsNode[]) {
       const typeName = receiverTypeName(decl);
@@ -358,7 +389,7 @@ function indexDecls(files: GoFile[], idGen: StableIdGenerator): DeclIndex {
       methodNodes.set(key, nodes);
     }
   }
-  return { funcIds, methods, methodNodes };
+  return { funcIds, methods, methodNodes, funcNodes };
 }
 
 /**
@@ -392,6 +423,19 @@ function resolveHandler(
     const ids = index.funcIds.get(`${dirOf(file.relPath)}#${arg.text as string}`);
     return ids && ids.length === 1 ? ids[0] : undefined;
   }
+  if (arg.type === CALL_EXPRESSION) {
+    // A handler FACTORY — `r.Get("/x", handleX(dep))`, `huma.Register(api, op, handleX(dep))` —
+    // closes over its dependencies and returns the real handler. The request lands in that
+    // returned closure, so it is the handler; a factory returning anything else is itself the
+    // nearest real node.
+    const fn = arg.childForFieldName?.('function') as TsNode | undefined;
+    if (fn?.type !== IDENTIFIER) return undefined;
+    const ids = index.funcIds.get(`${dirOf(file.relPath)}#${fn.text as string}`);
+    if (!ids || ids.length !== 1) return undefined;
+    const decl = index.funcNodes.get(ids[0]);
+    const closures = returnedClosures(decl?.node);
+    return decl && closures.length === 1 ? goFunctionId(idGen, decl.file.relPath, closures[0]) : ids[0];
+  }
   if (arg.type === SELECTOR_EXPRESSION) {
     const operand = arg.childForFieldName?.('operand') as TsNode | undefined;
     const field = arg.childForFieldName?.('field')?.text as string | undefined;
@@ -404,6 +448,22 @@ function resolveHandler(
     return index.methods.get(`${receiver.type.dir}#${receiver.type.name}`)?.get(field);
   }
   return undefined;
+}
+
+/** The `func_literal`s a declaration returns DIRECTLY (not from a nested closure). */
+function returnedClosures(decl: TsNode | undefined): TsNode[] {
+  if (!decl) return [];
+  const body = decl?.childForFieldName?.('body') as TsNode | undefined;
+  if (!body) return [];
+  const out: TsNode[] = [];
+  for (const ret of body.descendantsOfType(RETURN_STATEMENT) as TsNode[]) {
+    if (nearestAncestor(ret, new Set([FUNCTION_DECLARATION, METHOD_DECLARATION, FUNC_LITERAL]))?.id !== decl.id)
+      continue;
+    const list = ret.namedChild(0) as TsNode | undefined;
+    const value = list?.type === FUNC_LITERAL ? list : (list?.namedChild?.(0) as TsNode | undefined);
+    if (value?.type === FUNC_LITERAL) out.push(value);
+  }
+  return out;
 }
 
 // =============================================================================
@@ -661,6 +721,146 @@ function cliEntrypoints(
 }
 
 // =============================================================================
+// huma operations
+// =============================================================================
+
+/** `dir` → package-scope `const`/`var` name → its value expression (first binding wins). */
+type PackageValues = Map<string, Map<string, TsNode>>;
+
+function packageScopeValues(files: GoFile[]): PackageValues {
+  const out: PackageValues = new Map();
+  for (const file of files) {
+    const dir = dirOf(file.relPath);
+    const bucket = out.get(dir) ?? new Map<string, TsNode>();
+    out.set(dir, bucket);
+    const n = file.root?.namedChildCount ?? 0;
+    for (let i = 0; i < n; i++) {
+      const decl = file.root.namedChild(i) as TsNode | undefined;
+      if (decl?.type !== CONST_DECLARATION && decl?.type !== VAR_DECLARATION) continue;
+      const specs = [
+        ...((decl.descendantsOfType?.(CONST_SPEC) ?? []) as TsNode[]),
+        ...((decl.descendantsOfType?.(VAR_SPEC) ?? []) as TsNode[]),
+      ];
+      for (const spec of specs) {
+        const value = spec.childForFieldName?.('value') as TsNode | undefined;
+        namedChildrenOfType(spec, IDENTIFIER).forEach((ident: TsNode, idx: number) => {
+          const name = ident.text as string;
+          const v = value?.namedChild?.(idx) as TsNode | undefined;
+          if (v && name !== '_' && !bucket.has(name)) bucket.set(name, v);
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The static string an expression evaluates to: a literal, a `+` concatenation, or a package-scope
+ * const/var of the same package (`ManagementPrefix + "/ping"`, the dominant huma spelling).
+ * Anything runtime-built stays undefined, so the route is skipped rather than reported wrong.
+ */
+function staticString(
+  node: TsNode | undefined,
+  dir: string,
+  values: PackageValues,
+  seen = new Set<string>(),
+): string | undefined {
+  if (!node) return undefined;
+  if (STRING_LITERAL_TYPES.has(node.type)) return goStringValue(node);
+  if (node.type === PARENTHESIZED_EXPRESSION) return staticString(node.namedChild(0), dir, values, seen);
+  if (node.type === BINARY_EXPRESSION) {
+    if ((node.childForFieldName?.('operator')?.text as string | undefined) !== '+') return undefined;
+    const left = staticString(node.childForFieldName?.('left'), dir, values, seen);
+    const right = left === undefined ? undefined : staticString(node.childForFieldName?.('right'), dir, values, seen);
+    return left === undefined || right === undefined ? undefined : left + right;
+  }
+  if (node.type === IDENTIFIER) {
+    const name = node.text as string;
+    const key = `${dir}#${name}`;
+    if (seen.has(key)) return undefined;
+    seen.add(key);
+    return staticString(values.get(dir)?.get(name), dir, values, seen);
+  }
+  return undefined;
+}
+
+/** `http.MethodGet` / `"GET"` → the verb. */
+function humaMethod(node: TsNode | undefined): HttpMethod | undefined {
+  if (!node) return undefined;
+  const raw =
+    node.type === SELECTOR_EXPRESSION
+      ? (node.childForFieldName?.('field')?.text as string | undefined)?.replace(/^Method/, '')
+      : literalValue(node);
+  const verb = raw?.toUpperCase();
+  return verb && HTTP_VERBS.has(verb) ? (verb as HttpMethod) : undefined;
+}
+
+/** The `huma.Operation{…}` literal an argument holds: inline, `&…`, or a local bound to one. */
+function operationLiteral(arg: TsNode | undefined, call: TsNode): TsNode | undefined {
+  if (!arg) return undefined;
+  if (arg.type === UNARY_EXPRESSION) return operationLiteral(arg.childForFieldName?.('operand'), call);
+  if (arg.type === COMPOSITE_LITERAL) return arg;
+  if (arg.type !== IDENTIFIER) return undefined;
+  const scope = nearestAncestor(call, new Set([FUNCTION_DECLARATION, METHOD_DECLARATION, FUNC_LITERAL]));
+  for (const stmt of (scope?.descendantsOfType?.(SHORT_VAR_DECLARATION) ?? []) as TsNode[]) {
+    const left = stmt.childForFieldName?.('left') as TsNode | undefined;
+    const right = stmt.childForFieldName?.('right') as TsNode | undefined;
+    const n = left?.namedChildCount ?? 0;
+    for (let i = 0; i < n; i++) {
+      if ((left.namedChild(i)?.text as string | undefined) !== arg.text) continue;
+      const value = right?.namedChild?.(i) as TsNode | undefined;
+      if (value?.type === COMPOSITE_LITERAL || value?.type === UNARY_EXPRESSION) return operationLiteral(value, call);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * huma operations. A call counts only when its qualifier is THIS file's import of the huma module
+ * (so an unrelated `Register` never matches), and the path must evaluate statically and be rooted —
+ * the same precision gate the router lane applies.
+ */
+function humaEntrypoints(
+  files: GoFile[],
+  idGen: StableIdGenerator,
+  index: DeclIndex,
+  typeEnv: GoTypeEnv,
+): Entrypoint[] {
+  const out: Entrypoint[] = [];
+  const values = packageScopeValues(files);
+  for (const file of files) {
+    const imports = buildImportTable(file);
+    const humaLocals = new Set([...imports.byLocal].filter(([, path]) => HUMA_IMPORT_RE.test(path)).map(([l]) => l));
+    if (humaLocals.size === 0) continue;
+    const dir = dirOf(file.relPath);
+    for (const call of file.root.descendantsOfType(CALL_EXPRESSION) as TsNode[]) {
+      const sel = selectorCall(call);
+      if (!sel || sel.operand.type !== IDENTIFIER || !humaLocals.has(sel.operand.text as string)) continue;
+      const args = callArgs(call);
+      let method: HttpMethod | undefined;
+      let rawPath: string | undefined;
+      if (sel.field === 'Register') {
+        const op = operationLiteral(args[1], call);
+        if (!op) continue;
+        const fields = literalFields(op);
+        method = humaMethod(fields.get('Method'));
+        rawPath = staticString(fields.get('Path'), dir, values);
+      } else if (HUMA_VERB_HELPERS[sel.field]) {
+        method = HUMA_VERB_HELPERS[sel.field];
+        rawPath = staticString(args[1], dir, values);
+      } else {
+        continue;
+      }
+      if (!method || rawPath === undefined || !rawPath.startsWith('/')) continue;
+      const fullPath = normalizePath(templatize(rawPath));
+      const handlerId = resolveHandler(args[2], file, index, idGen, typeEnv);
+      out.push(httpEntrypoint(idGen, method, fullPath, file.relPath, call, handlerId));
+    }
+  }
+  return out;
+}
+
+// =============================================================================
 // Entry point
 // =============================================================================
 
@@ -690,6 +890,7 @@ export function extractGoEntrypoints(files: GoFile[], idGen: StableIdGenerator, 
   const seen = new Set<string>();
   for (const ep of [
     ...httpEntrypoints(files, idGen, index, routerMethods, mountMethods, typeEnv),
+    ...(dependsOnAny(cfg.modules, [HUMA_MODULE]) ? humaEntrypoints(files, idGen, index, typeEnv) : []),
     ...grpcEntrypoints(files, idGen, index, grpcSuffixes),
     ...cliEntrypoints(files, idGen, index, frameworks, typeEnv),
   ]) {

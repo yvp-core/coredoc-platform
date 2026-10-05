@@ -86,6 +86,17 @@ export interface GoEntityResult {
   entityIdByName: Map<string, string>;
   /** Known table names — the db-op lane falls back to these when no entity id answers. */
   tableNames: Set<string>;
+  /**
+   * The `.sql` files at least one emitted entity points at. They sit outside the `.go` substrate
+   * scope, so the parser must emit them as FileNodes or every DDL entity's `fileId` dangles.
+   */
+  schemaFiles: GoSchemaFile[];
+}
+
+/** A plain-SQL schema file that backs an emitted entity. */
+export interface GoSchemaFile {
+  relPath: string;
+  source: string;
 }
 
 /**
@@ -561,6 +572,7 @@ export function extractGoEntities(files: GoFile[], cfg: GoEntityConfig): GoEntit
   const schemaFiles = enumerateRepoFiles(cfg.repoRoot)
     .filter((rel) => rel.endsWith('.sql') && globMatches(rel, schemaGlobs))
     .sort();
+  const sqlSourceByPath = new Map<string, string>();
   for (const rel of schemaFiles) {
     let sql: string;
     try {
@@ -568,6 +580,7 @@ export function extractGoEntities(files: GoFile[], cfg: GoEntityConfig): GoEntit
     } catch {
       continue;
     }
+    sqlSourceByPath.set(rel, sql);
     for (const draft of parseCreateTables(sql, rel)) {
       const existing = byTable.get(draft.tableName);
       if (!existing) {
@@ -674,5 +687,10 @@ export function extractGoEntities(files: GoFile[], cfg: GoEntityConfig): GoEntit
     };
   });
 
-  return { entities, entityIdByName, tableNames: new Set(byTable.keys()) };
+  const backing = new Set(drafts.map((d) => d.relPath));
+  const schemaSources: GoSchemaFile[] = [...sqlSourceByPath]
+    .filter(([relPath]) => backing.has(relPath))
+    .map(([relPath, source]) => ({ relPath, source }));
+
+  return { entities, entityIdByName, tableNames: new Set(byTable.keys()), schemaFiles: schemaSources };
 }

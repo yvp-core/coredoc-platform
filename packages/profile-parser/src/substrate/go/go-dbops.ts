@@ -502,7 +502,13 @@ export function extractGoDbOps(
    * because guessing for a lookup is free (a hit proves the guess) while guessing the emitted name
    * would fabricate a table that no file declares.
    */
-  const resolveEntity = (candidates: string[]): { entityName: string; entityId?: string } => {
+  const resolveEntity = (written: string[]): { entityName: string; entityId?: string } => {
+    // `go-entities` drops the schema qualifier from `CREATE TABLE app.users`, so the SQL at the
+    // op site (`FROM app.users`, `"app"."users"`) is also tried unqualified as a lookup candidate.
+    const candidates = written.flatMap((c) => {
+      const bare = (c.split('.').pop() as string).replace(/"/g, '');
+      return bare && bare !== c ? [c, bare] : [c];
+    });
     for (const c of candidates) {
       const id = entityIdByName.get(c);
       if (id) return { entityName: c, entityId: id };
