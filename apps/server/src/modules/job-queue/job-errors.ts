@@ -39,6 +39,12 @@ const DELIVERY_JOB_CONFLICT_CODES = new Set([
   'GITHUB_CANONICAL_PROJECTION_CONFLICT',
 ]);
 const MAX_PUBLIC_ERROR_MESSAGE_LENGTH = 500;
+const NEO4J_RESOURCE_LIMIT_CODES = new Set([
+  'Neo.TransientError.General.MemoryPoolOutOfMemoryError',
+  'Neo.TransientError.General.OutOfMemoryError',
+  'Neo.ClientError.Transaction.TransactionTimedOut',
+  'Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration',
+]);
 
 function safeMessage(value: unknown, fallback: string): string {
   const text = typeof value === 'string' ? value : fallback;
@@ -105,6 +111,17 @@ export function classifyJobError(error: unknown): ClassifiedJobError {
       statusCode: HttpStatus.NOT_FOUND,
     };
   }
+  // Neo4j resource limits are deterministic for a given changeset size: retrying
+  // the same apply only repeats a long run that fails the same way.
+  if (code && NEO4J_RESOURCE_LIMIT_CODES.has(code)) {
+    return {
+      code: 'graph_apply_resource_limit',
+      message: `Graph database rejected the write (${code}); raise its memory/transaction limits or reduce COREDOC_NEO4J_APPLY_BATCH_SIZE`,
+      retryable: false,
+      statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+    };
+  }
+
   if (error instanceof ServiceUnavailableException) {
     return {
       code: 'job_service_unavailable',

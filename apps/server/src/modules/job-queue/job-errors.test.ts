@@ -104,6 +104,18 @@ describe('job error classification and persistence', () => {
     });
   });
 
+  it('fails Neo4j resource-limit errors permanently instead of replaying the apply', () => {
+    const memory = Object.assign(new Error('transaction memory pool exhausted'), {
+      code: 'Neo.TransientError.General.MemoryPoolOutOfMemoryError',
+    });
+    expect(classifyJobError(memory)).toMatchObject({ code: 'graph_apply_resource_limit', retryable: false });
+    const timeout = Object.assign(new Error('timed out'), { code: 'Neo.ClientError.Transaction.TransactionTimedOut' });
+    expect(classifyJobError(timeout)).toMatchObject({ code: 'graph_apply_resource_limit', retryable: false });
+    // Other dotted Neo4j codes keep the generic retryable path.
+    const other = Object.assign(new Error('deadlock'), { code: 'Neo.TransientError.Transaction.DeadlockDetected' });
+    expect(classifyJobError(other)).toMatchObject({ code: 'job_internal_error', retryable: true });
+  });
+
   it('serializes the safe terminal shape with the authoritative job id', () => {
     expect(
       serializeTerminalJobError('job_1', {

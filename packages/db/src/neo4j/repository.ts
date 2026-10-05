@@ -221,6 +221,20 @@ function toNumber(value: unknown): number {
   return Number(value) || 0;
 }
 
+/** Default rows per applyChangeset statement (each committed on its own). */
+const DEFAULT_APPLY_BATCH_SIZE = 5000;
+
+/** Rows per applyChangeset statement; `COREDOC_NEO4J_APPLY_BATCH_SIZE` overrides the default. */
+function applyBatchSize(): number {
+  const configured = Number(process.env.COREDOC_NEO4J_APPLY_BATCH_SIZE);
+  return Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_APPLY_BATCH_SIZE;
+}
+
+/** Whether an edge id is the transformer's `source:TYPE:target` form, which names one endpoint pair. */
+function isEndpointDerivedEdgeId(edge: Pick<GraphEdge, 'id' | 'sourceId' | 'targetId' | 'type'>): boolean {
+  return edge.id === `${edge.sourceId}:${edge.type}:${edge.targetId}`;
+}
+
 /**
  * The ONE EntrypointInfo projection for this backend: both entrypoint reads (the
  * `listEntrypoints` scan and `getReachingEntrypoints`) go through it, so a stored address
@@ -1859,8 +1873,19 @@ export class Neo4jRepository implements IGraphRepository {
         repoId,
       }),
     );
-    if (!rows[0]) return null;
+    if (!rows[0]?.snapshot) return null;
     return parseAppliedGraphSnapshot(rows[0].snapshot, repoId);
+  }
+
+  async getPendingGraphApply(repoId: string): Promise<string | null> {
+    const rows = await this.driver.withReadTransaction((tx) =>
+      tx.run<{ pending: unknown }>(
+        `MATCH (meta:CoredocMeta {repoId: $repoId}) WHERE meta.applyPending IS NOT NULL RETURN meta.applyPending AS pending`,
+        { repoId },
+      ),
+    );
+    const pending = rows[0]?.pending;
+    return typeof pending === 'string' ? pending : null;
   }
 
   async pushEdges(edges: GraphEdge[]): Promise<number> {
@@ -1921,11 +1946,19 @@ export class Neo4jRepository implements IGraphRepository {
    * SqliteRepository.applyChangeset, so PushService.applyIncremental stops
    * falling back to a full re-push on the Neo4j backend.
    *
-   * All four phases run in ONE managed write transaction: the whole changeset is
-   * atomic, matching SQLite's single-transaction (all-or-nothing) contract. A
-   * mid-apply failure rolls the graph back; a transient-error retry (executeWrite
-   * replays the callback) recomputes from a clean slate, which is why `counts` is
-   * declared inside the callback.
+   * Commits in chunks: every statement batch runs in its own write transaction.
+   * One transaction for a large repository (100k+ edges, plus summaries and
+   * embeddings) holds the whole delete + rewrite in Neo4j transaction state until
+   * COMMIT, which then exceeds the transaction memory pool. The consistency
+   * contract is instead:
+   *  - every phase is idempotent (DETACH DELETE by id, MERGE + full-replace SET),
+   *    so re-running the same changeset converges to the same graph;
+   *  - a `CoredocMeta.applyPending` mark is written first and cleared by the final
+   *    snapshot write, so a stopped apply is visible (getPendingGraphApply) and the
+   *    next push replaces the repository in full instead of diffing from a
+   *    baseline the graph no longer matches;
+   *  - the graph-write lease held by PushService keeps writers serialized.
+   * Readers may observe a partly applied repository while an apply is running.
    *
    * Two divergences from the SQLite SQL are forced by the graph model; the net
    * graph state is identical or strictly cleaner:
@@ -1962,276 +1995,332 @@ export class Neo4jRepository implements IGraphRepository {
     },
     options?: ApplyChangesetOptions,
   ): Promise<GraphApplyReceipt> {
-    const BATCH_SIZE = 500;
+    const BATCH_SIZE = applyBatchSize();
+    const counts = { nodesAdded: 0, nodesUpdated: 0, nodesDeleted: 0, edgesDeleted: 0, edgesInserted: 0 };
+    // One statement, one transaction (see the method doc).
+    const write = <T = unknown>(query: string, params: Record<string, unknown>): Promise<T[]> =>
+      this.driver.withWriteTransaction((tx) => tx.run<T>(query, params));
+    let phaseStart = Date.now();
+    const endPhase = (phase: string) => {
+      options?.onPhase?.(phase, Date.now() - phaseStart);
+      phaseStart = Date.now();
+    };
+    options?.signal?.throwIfAborted();
 
-    return this.driver.withWriteTransaction(async (tx) => {
-      options?.signal?.throwIfAborted();
-      const counts = { nodesAdded: 0, nodesUpdated: 0, nodesDeleted: 0, edgesDeleted: 0, edgesInserted: 0 };
+    const repoIdsToDelete = [...new Set(changeset.repoIdsToDelete ?? [])];
+    const nodeIdsToDelete = changeset.nodeIdsToDelete.filter(
+      (nodeId) => !repoIdsToDelete.some((repoId) => nodeId === repoId || nodeId.startsWith(`${repoId}:`)),
+    );
+    const upsertNodes = [...changeset.nodesToAdd, ...changeset.nodesToUpdate];
+    const metadataUpdates = changeset.nodeMetadataUpdates ?? [];
+    const writesGraph =
+      repoIdsToDelete.length > 0 ||
+      nodeIdsToDelete.length > 0 ||
+      upsertNodes.length > 0 ||
+      changeset.edgeNodeIdsToWipe.length > 0 ||
+      changeset.edgesToInsert.length > 0 ||
+      metadataUpdates.length > 0;
 
-      // 0. Optional full-repository removal. Match only the exact repository
-      // id and its `${repoId}:` child-id namespace; never broaden through a
-      // display name or the first colon-delimited segment. Keeping this inside
-      // the managed transaction makes delete + replacement all-or-nothing.
-      const repoIdsToDelete = [...new Set(changeset.repoIdsToDelete ?? [])];
-      if (repoIdsToDelete.length > 0) {
-        const deleted = await tx.run<{ nodesDeleted: unknown; edgesDeleted: unknown }>(
+    // Mark the repository as mid-apply before the first destructive write.
+    if (writesGraph && options?.snapshot) {
+      await write(`MERGE (meta:CoredocMeta {repoId: $repoId}) SET meta.applyPending = $parsedVersion`, {
+        repoId: changeset.repoId,
+        parsedVersion: options.snapshot.parsedVersion,
+      });
+    }
+
+    // 0. Optional full-repository removal. Match only the exact repository
+    // id and its `${repoId}:` child-id namespace; never broaden through a
+    // display name or the first colon-delimited segment. The `=` and
+    // `STARTS WITH` matches are separate statements so each seeks the
+    // :CodeNode(id) range index (an `any(... OR ...)` predicate forces a label
+    // scan of the whole workspace graph), and deletion runs LIMIT-bounded chunks
+    // so no single transaction carries the entire old repository.
+    for (const repoId of repoIdsToDelete) {
+      const edges = await this.driver.withReadTransaction((tx) =>
+        tx.run<{ nodesDeleted: unknown; edgesDeleted: unknown }>(
           `
-          MATCH (n:CodeNode)
-          WHERE any(repoId IN $repoIds WHERE n.id = repoId OR n.id STARTS WITH repoId + ':')
+          CALL {
+            MATCH (n:CodeNode {id: $repoId}) RETURN n
+            UNION
+            MATCH (n:CodeNode) WHERE n.id STARTS WITH $prefix RETURN n
+          }
           OPTIONAL MATCH (n)-[r]-()
           RETURN count(DISTINCT n) AS nodesDeleted, count(DISTINCT r) AS edgesDeleted
           `,
-          { repoIds: repoIdsToDelete },
-        );
-        counts.nodesDeleted += toNumber(deleted[0]?.nodesDeleted);
-        counts.edgesDeleted += toNumber(deleted[0]?.edgesDeleted);
-        await tx.run(
-          `
-          MATCH (n:CodeNode)
-          WHERE any(repoId IN $repoIds WHERE n.id = repoId OR n.id STARTS WITH repoId + ':')
-          DETACH DELETE n
-          `,
-          { repoIds: repoIdsToDelete },
-        );
-        await tx.run(`MATCH (meta:CoredocMeta) WHERE meta.repoId IN $repoIds DELETE meta`, {
-          repoIds: repoIdsToDelete,
-        });
-      }
-
-      // 1. Delete removed nodes. Neo4j can't plain-delete a node that still has
-      //    relationships, so DETACH also clears their incident edges. Count those
-      //    first — DISTINCT over the whole to-delete set, BEFORE any delete, so an
-      //    edge between two deleted nodes is counted once — and fold them into
-      //    edgesDeleted: SQLite leaves these edges for its phase 3 to count, so
-      //    without this our phase 3 (which runs after the nodes are gone) would
-      //    undercount relative to SQLite.
-      const nodeIdsToDelete = changeset.nodeIdsToDelete.filter(
-        (nodeId) => !repoIdsToDelete.some((repoId) => nodeId === repoId || nodeId.startsWith(`${repoId}:`)),
+          { repoId, prefix: `${repoId}:` },
+        ),
       );
-      if (nodeIdsToDelete.length > 0) {
-        const detached = await tx.run<{ deleted: unknown }>(
+      counts.nodesDeleted += toNumber(edges[0]?.nodesDeleted);
+      counts.edgesDeleted += toNumber(edges[0]?.edgesDeleted);
+      for (;;) {
+        options?.signal?.throwIfAborted();
+        const rows = await write<{ deleted: unknown }>(
+          `
+          MATCH (n:CodeNode) WHERE n.id STARTS WITH $prefix
+          WITH n LIMIT $limit
+          DETACH DELETE n
+          RETURN count(*) AS deleted
+          `,
+          { prefix: `${repoId}:`, limit: toInt(BATCH_SIZE) },
+        );
+        if (toNumber(rows[0]?.deleted) < BATCH_SIZE) break;
+      }
+      await write(`MATCH (n:CodeNode {id: $repoId}) DETACH DELETE n`, { repoId });
+      // The repository being written keeps its in-flight mark; any other removed
+      // repository loses its metadata with its graph.
+      await write(
+        repoId === changeset.repoId
+          ? `MATCH (meta:CoredocMeta {repoId: $repoId}) REMOVE meta.snapshot`
+          : `MATCH (meta:CoredocMeta {repoId: $repoId}) DELETE meta`,
+        { repoId },
+      );
+    }
+    if (repoIdsToDelete.length > 0) endPhase('neo4j.repoDelete');
+
+    // 1. Delete removed nodes. Neo4j can't plain-delete a node that still has
+    //    relationships, so DETACH also clears their incident edges. Count those
+    //    first — DISTINCT over the whole to-delete set, BEFORE any delete, so an
+    //    edge between two deleted nodes is counted once — and fold them into
+    //    edgesDeleted: SQLite leaves these edges for its phase 3 to count, so
+    //    without this our phase 3 (which runs after the nodes are gone) would
+    //    undercount relative to SQLite.
+    if (nodeIdsToDelete.length > 0) {
+      const detached = await this.driver.withReadTransaction((tx) =>
+        tx.run<{ deleted: unknown }>(
           `
           UNWIND $ids AS nodeId
           MATCH (n:CodeNode {id: nodeId})-[r]-()
           RETURN count(DISTINCT r) AS deleted
           `,
           { ids: nodeIdsToDelete },
-        );
-        counts.edgesDeleted += toNumber(detached[0]?.deleted);
+        ),
+      );
+      counts.edgesDeleted += toNumber(detached[0]?.deleted);
 
-        for (let i = 0; i < nodeIdsToDelete.length; i += BATCH_SIZE) {
-          const ids = nodeIdsToDelete.slice(i, i + BATCH_SIZE);
-          await tx.run(
-            `
-            UNWIND $ids AS nodeId
-            MATCH (n:CodeNode {id: nodeId})
-            DETACH DELETE n
-            `,
-            { ids },
-          );
-        }
-        // Input-length based, mirroring SQLite (counts ids requested, not rows matched).
-        counts.nodesDeleted += nodeIdsToDelete.length;
-      }
-
-      // 2. Upsert added + updated nodes. Grouped by concrete label exactly like
-      //    pushNodes so reads that match a concrete label (:Entrypoint, :ExternalCall…)
-      //    still resolve; full-replace drops props removed in the new version.
-      const upsertNodes = [...changeset.nodesToAdd, ...changeset.nodesToUpdate];
-      if (upsertNodes.length > 0) {
-        let nodeProgress = 0;
-        const nodesByLabel = new Map<string, GraphNode[]>();
-        for (const node of upsertNodes) {
-          const label = NODE_TYPE_TO_LABEL[node.type] ?? node.type;
-          if (!nodesByLabel.has(label)) nodesByLabel.set(label, []);
-          nodesByLabel.get(label)!.push(node);
-        }
-
-        for (const [label, batch] of nodesByLabel) {
-          // SET n:CodeNode after the MERGE (not in the pattern) so a re-push never
-          // forks a second node, matching pushNodes. Full-replace then tags + stamps.
-          const query = `
-            UNWIND $batch AS item
-            MERGE (n:${label} {id: item.id})
-            SET n = item.props
-            SET n:CodeNode, n.updated = timestamp()
-          `;
-          for (let i = 0; i < batch.length; i += BATCH_SIZE) {
-            options?.signal?.throwIfAborted();
-            const items = batch.slice(i, i + BATCH_SIZE).map((node) => ({
-              id: node.id,
-              props: {
-                id: node.id,
-                name: node.name,
-                ...flattenForNeo4j(node.properties),
-                summary: node.summary,
-                embedding: node.embedding,
-                filePath: node.filePath,
-                startLine: node.startLine,
-                endLine: node.endLine,
-              },
-            }));
-            await tx.run(query, { batch: items });
-            nodeProgress += items.length;
-            options?.onBatch?.({ kind: 'nodes', completed: nodeProgress, total: upsertNodes.length });
-          }
-        }
-        counts.nodesAdded = changeset.nodesToAdd.length;
-        counts.nodesUpdated = changeset.nodesToUpdate.length;
-      }
-
-      // 3. Wipe edges incident to still-present affected nodes (source OR target),
-      //    measured. Index-driven from each wipe node via :CodeNode(id); DISTINCT
-      //    collapses an edge seen from both endpoints so it is counted and deleted
-      //    once. Chunked at BATCH_SIZE like the other phases — safe because an edge
-      //    deleted in an earlier batch is gone for later ones (no cross-batch double
-      //    count). `+=`: phase 1 already folded in the deleted-node edges.
-      const edgeTypesToPreserve = [...new Set(changeset.edgeTypesToPreserve ?? [])];
-      for (let i = 0; i < changeset.edgeNodeIdsToWipe.length; i += BATCH_SIZE) {
-        const wipe = changeset.edgeNodeIdsToWipe.slice(i, i + BATCH_SIZE);
-        const rows = await tx.run<{ deleted: unknown }>(
-          `
-          UNWIND $wipe AS wid
-          MATCH (n:CodeNode {id: wid})-[r]-()
-          WITH DISTINCT r
-          WHERE NOT type(r) IN $preservedEdgeTypes
-          DELETE r
-          RETURN count(r) AS deleted
-          `,
-          { wipe, preservedEdgeTypes: edgeTypesToPreserve },
-        );
-        counts.edgesDeleted += toNumber(rows[0]?.deleted);
-      }
-
-      // 4. Insert fresh edges. Grouped by type like pushEdges; endpoints must already
-      //    exist (phase 2 ran) — a row whose endpoint is absent no-ops, exactly as
-      //    pushEdges does. Full-replace mirrors SQLite UPSERT while preserving
-      //    an existing relationship id when only endpoint/type identity matches.
-      if (changeset.edgesToInsert.length > 0) {
-        let edgeProgress = 0;
-        // Full rebuild wiped this repo's graph in phase 0, so no pre-existing
-        // relationship can carry an incoming id — the rewire pre-pass below
-        // would be a guaranteed-miss property scan per batch. Edge ids are
-        // content-derived per repo, so a wipe of the changeset repo is
-        // sufficient to skip it.
-        const repoWiped = (changeset.repoIdsToDelete ?? []).includes(changeset.repoId);
-        const edgesByType = new Map<string, GraphEdge[]>();
-        for (const edge of changeset.edgesToInsert) {
-          if (!edgesByType.has(edge.type)) edgesByType.set(edge.type, []);
-          edgesByType.get(edge.type)!.push(edge);
-        }
-
-        for (const [type, batch] of edgesByType) {
-          const query = `
-            UNWIND $batch AS item
-            MATCH (from:CodeNode {id: item.sourceId})
-            MATCH (to:CodeNode {id: item.targetId})
-            MERGE (from)-[r:${type}]->(to)
-            WITH r, item, coalesce(r.id, item.id) AS edgeId
-            SET r = item.props, r.id = edgeId, r.updated = timestamp()
-          `;
-          for (let i = 0; i < batch.length; i += BATCH_SIZE) {
-            options?.signal?.throwIfAborted();
-            const items = batch.slice(i, i + BATCH_SIZE).map((edge) => ({
-              sourceId: edge.sourceId,
-              targetId: edge.targetId,
-              id: edge.id,
-              props: {
-                ...flattenForNeo4j(edge.properties),
-                confidence: edge.confidence,
-                createdBy: edge.createdBy,
-              },
-            }));
-            // SQLite's ON CONFLICT(id) clause moves an existing edge to the
-            // incoming endpoints/type. Relationships cannot be rewired in
-            // Neo4j, so delete that exact id first when its endpoints differ;
-            // the MERGE below recreates it at the requested identity. When the
-            // endpoint/type identity already exists under another id, MERGE
-            // preserves that existing id via coalesce(r.id, item.id). Backed by
-            // the rel_*_id indexes from ensureGraphIndexes.
-            if (!repoWiped) {
-              await tx.run(
-                `
-                UNWIND $batch AS item
-                MATCH (oldFrom:CodeNode)-[existing:${type} {id: item.id}]->(oldTo:CodeNode)
-                WHERE oldFrom.id <> item.sourceId OR oldTo.id <> item.targetId
-                DELETE existing
-                `,
-                { batch: items },
-              );
-            }
-            await tx.run(query, { batch: items });
-            edgeProgress += items.length;
-            options?.onBatch?.({ kind: 'edges', completed: edgeProgress, total: changeset.edgesToInsert.length });
-          }
-        }
-        counts.edgesInserted = changeset.edgesToInsert.length;
-      }
-
-      const metadataUpdates = changeset.nodeMetadataUpdates ?? [];
-      for (let i = 0; i < metadataUpdates.length; i += BATCH_SIZE) {
+      for (let i = 0; i < nodeIdsToDelete.length; i += BATCH_SIZE) {
         options?.signal?.throwIfAborted();
-        const batch = metadataUpdates.slice(i, i + BATCH_SIZE).map((update) => ({
-          id: update.id,
-          hasSummary: update.summary !== undefined,
-          summary: update.summary ?? null,
-          hasEmbedding: update.embedding !== undefined,
-          embedding: update.embedding ?? null,
-          props: flattenForNeo4j(update.properties),
-        }));
-        await tx.run(
+        await write(
           `
-          UNWIND $batch AS item
-          MATCH (n:CodeNode {id: item.id})
-          SET n += item.props, n.updated = timestamp()
-          FOREACH (_ IN CASE WHEN item.hasSummary THEN [1] ELSE [] END | SET n.summary = item.summary)
-          FOREACH (_ IN CASE WHEN item.hasEmbedding THEN [1] ELSE [] END | SET n.embedding = item.embedding)
+          UNWIND $ids AS nodeId
+          MATCH (n:CodeNode {id: nodeId})
+          DETACH DELETE n
           `,
-          { batch },
+          { ids: nodeIdsToDelete.slice(i, i + BATCH_SIZE) },
         );
-        options?.onBatch?.({
-          kind: 'metadata',
-          completed: Math.min(i + batch.length, metadataUpdates.length),
-          total: metadataUpdates.length,
-        });
       }
-      counts.nodesUpdated += metadataUpdates.length;
+      // Input-length based, mirroring SQLite (counts ids requested, not rows matched).
+      counts.nodesDeleted += nodeIdsToDelete.length;
+      endPhase('neo4j.nodeDelete');
+    }
 
-      const receipt: GraphApplyReceipt = {
-        ...counts,
-        ...(options?.snapshot
-          ? {
-              totalNodeCount: options.snapshot.totalNodeCount,
-              totalEdgeCount: options.snapshot.totalEdgeCount,
-            }
-          : {}),
-      };
+    // 2. Upsert added + updated nodes. Grouped by concrete label exactly like
+    //    pushNodes so reads that match a concrete label (:Entrypoint, :ExternalCall…)
+    //    still resolve; full-replace drops props removed in the new version.
+    if (upsertNodes.length > 0) {
+      let nodeProgress = 0;
+      const nodesByLabel = new Map<string, GraphNode[]>();
+      for (const node of upsertNodes) {
+        const label = NODE_TYPE_TO_LABEL[node.type] ?? node.type;
+        if (!nodesByLabel.has(label)) nodesByLabel.set(label, []);
+        nodesByLabel.get(label)!.push(node);
+      }
 
-      if (options?.snapshot) {
-        const snapshot: AppliedGraphSnapshot = {
-          ...options.snapshot,
-          nodeCount: options.snapshot.totalNodeCount,
-          edgeCount: options.snapshot.totalEdgeCount,
-          receipt,
-          appliedAt: new Date().toISOString(),
-        };
-        const encoded = JSON.stringify(snapshot);
-        const stored = await tx.run<{ snapshot: string }>(
-          `
-          MATCH (repo:CodeNode {id: $repoId})
-          MERGE (meta:CoredocMeta {repoId: $repoId})
-          SET meta.snapshot = $snapshot
-          RETURN meta.snapshot AS snapshot
-          `,
-          { repoId: changeset.repoId, snapshot: encoded },
-        );
-        if (stored[0]?.snapshot !== encoded) {
-          throw new Error(`Cannot record graph snapshot: repository node ${changeset.repoId} is missing`);
+      for (const [label, batch] of nodesByLabel) {
+        // SET n:CodeNode after the MERGE (not in the pattern) so a re-push never
+        // forks a second node, matching pushNodes. Full-replace then tags + stamps.
+        const query = `
+          UNWIND $batch AS item
+          MERGE (n:${label} {id: item.id})
+          SET n = item.props
+          SET n:CodeNode, n.updated = timestamp()
+        `;
+        for (let i = 0; i < batch.length; i += BATCH_SIZE) {
+          options?.signal?.throwIfAborted();
+          const items = batch.slice(i, i + BATCH_SIZE).map((node) => ({
+            id: node.id,
+            props: {
+              id: node.id,
+              name: node.name,
+              ...flattenForNeo4j(node.properties),
+              summary: node.summary,
+              embedding: node.embedding,
+              filePath: node.filePath,
+              startLine: node.startLine,
+              endLine: node.endLine,
+            },
+          }));
+          await write(query, { batch: items });
+          nodeProgress += items.length;
+          options?.onBatch?.({ kind: 'nodes', completed: nodeProgress, total: upsertNodes.length });
         }
       }
+      counts.nodesAdded = changeset.nodesToAdd.length;
+      counts.nodesUpdated = changeset.nodesToUpdate.length;
+      endPhase('neo4j.nodeUpsert');
+    }
 
-      return receipt;
-    });
+    // 3. Wipe edges incident to still-present affected nodes (source OR target),
+    //    measured. Index-driven from each wipe node via :CodeNode(id); DISTINCT
+    //    collapses an edge seen from both endpoints so it is counted and deleted
+    //    once. Safe across chunks because an edge deleted in an earlier batch is
+    //    gone for later ones (no cross-batch double count). `+=`: phase 1 already
+    //    folded in the deleted-node edges.
+    const edgeTypesToPreserve = [...new Set(changeset.edgeTypesToPreserve ?? [])];
+    for (let i = 0; i < changeset.edgeNodeIdsToWipe.length; i += BATCH_SIZE) {
+      options?.signal?.throwIfAborted();
+      const rows = await write<{ deleted: unknown }>(
+        `
+        UNWIND $wipe AS wid
+        MATCH (n:CodeNode {id: wid})-[r]-()
+        WITH DISTINCT r
+        WHERE NOT type(r) IN $preservedEdgeTypes
+        DELETE r
+        RETURN count(r) AS deleted
+        `,
+        { wipe: changeset.edgeNodeIdsToWipe.slice(i, i + BATCH_SIZE), preservedEdgeTypes: edgeTypesToPreserve },
+      );
+      counts.edgesDeleted += toNumber(rows[0]?.deleted);
+    }
+    if (changeset.edgeNodeIdsToWipe.length > 0) endPhase('neo4j.edgeWipe');
+
+    // 4. Insert fresh edges. Grouped by type like pushEdges; endpoints must already
+    //    exist (phase 2 ran) — a row whose endpoint is absent no-ops, exactly as
+    //    pushEdges does. Full-replace mirrors SQLite UPSERT while preserving
+    //    an existing relationship id when only endpoint/type identity matches.
+    if (changeset.edgesToInsert.length > 0) {
+      let edgeProgress = 0;
+      // Full rebuild wiped this repo's graph in phase 0, so no pre-existing
+      // relationship can carry an incoming id — the rewire pre-pass below
+      // would be a guaranteed-miss property scan per batch. Edge ids are
+      // content-derived per repo, so a wipe of the changeset repo is
+      // sufficient to skip it.
+      const repoWiped = (changeset.repoIdsToDelete ?? []).includes(changeset.repoId);
+      const edgesByType = new Map<string, GraphEdge[]>();
+      for (const edge of changeset.edgesToInsert) {
+        if (!edgesByType.has(edge.type)) edgesByType.set(edge.type, []);
+        edgesByType.get(edge.type)!.push(edge);
+      }
+
+      for (const [type, batch] of edgesByType) {
+        const query = `
+          UNWIND $batch AS item
+          MATCH (from:CodeNode {id: item.sourceId})
+          MATCH (to:CodeNode {id: item.targetId})
+          MERGE (from)-[r:${type}]->(to)
+          WITH r, item, coalesce(r.id, item.id) AS edgeId
+          SET r = item.props, r.id = edgeId, r.updated = timestamp()
+        `;
+        for (let i = 0; i < batch.length; i += BATCH_SIZE) {
+          options?.signal?.throwIfAborted();
+          const slice = batch.slice(i, i + BATCH_SIZE);
+          const items = slice.map((edge) => ({
+            sourceId: edge.sourceId,
+            targetId: edge.targetId,
+            id: edge.id,
+            props: {
+              ...flattenForNeo4j(edge.properties),
+              confidence: edge.confidence,
+              createdBy: edge.createdBy,
+            },
+          }));
+          // SQLite's ON CONFLICT(id) clause moves an existing edge to the
+          // incoming endpoints/type. Relationships cannot be rewired in
+          // Neo4j, so delete that exact id first when its endpoints differ;
+          // the MERGE below recreates it at the requested identity. When the
+          // endpoint/type identity already exists under another id, MERGE
+          // preserves that existing id via coalesce(r.id, item.id). Backed by
+          // the rel_*_id indexes from ensureGraphIndexes. An id derived from its
+          // own endpoints (`source:TYPE:target`, the transformer's form) can only
+          // ever name an edge between those endpoints, so such a batch has
+          // nothing to move.
+          if (!repoWiped && !slice.every(isEndpointDerivedEdgeId)) {
+            await write(
+              `
+              UNWIND $batch AS item
+              MATCH (oldFrom:CodeNode)-[existing:${type} {id: item.id}]->(oldTo:CodeNode)
+              WHERE oldFrom.id <> item.sourceId OR oldTo.id <> item.targetId
+              DELETE existing
+              `,
+              { batch: items },
+            );
+          }
+          await write(query, { batch: items });
+          edgeProgress += items.length;
+          options?.onBatch?.({ kind: 'edges', completed: edgeProgress, total: changeset.edgesToInsert.length });
+        }
+      }
+      counts.edgesInserted = changeset.edgesToInsert.length;
+      endPhase('neo4j.edgeInsert');
+    }
+
+    for (let i = 0; i < metadataUpdates.length; i += BATCH_SIZE) {
+      options?.signal?.throwIfAborted();
+      const batch = metadataUpdates.slice(i, i + BATCH_SIZE).map((update) => ({
+        id: update.id,
+        hasSummary: update.summary !== undefined,
+        summary: update.summary ?? null,
+        hasEmbedding: update.embedding !== undefined,
+        embedding: update.embedding ?? null,
+        props: flattenForNeo4j(update.properties),
+      }));
+      await write(
+        `
+        UNWIND $batch AS item
+        MATCH (n:CodeNode {id: item.id})
+        SET n += item.props, n.updated = timestamp()
+        FOREACH (_ IN CASE WHEN item.hasSummary THEN [1] ELSE [] END | SET n.summary = item.summary)
+        FOREACH (_ IN CASE WHEN item.hasEmbedding THEN [1] ELSE [] END | SET n.embedding = item.embedding)
+        `,
+        { batch },
+      );
+      options?.onBatch?.({
+        kind: 'metadata',
+        completed: Math.min(i + batch.length, metadataUpdates.length),
+        total: metadataUpdates.length,
+      });
+    }
+    counts.nodesUpdated += metadataUpdates.length;
+    if (metadataUpdates.length > 0) endPhase('neo4j.metadata');
+
+    const receipt: GraphApplyReceipt = {
+      ...counts,
+      ...(options?.snapshot
+        ? {
+            totalNodeCount: options.snapshot.totalNodeCount,
+            totalEdgeCount: options.snapshot.totalEdgeCount,
+          }
+        : {}),
+    };
+
+    // The snapshot is the commit marker: written last, it also clears the
+    // in-flight mark set above.
+    if (options?.snapshot) {
+      const snapshot: AppliedGraphSnapshot = {
+        ...options.snapshot,
+        nodeCount: options.snapshot.totalNodeCount,
+        edgeCount: options.snapshot.totalEdgeCount,
+        receipt,
+        appliedAt: new Date().toISOString(),
+      };
+      const encoded = JSON.stringify(snapshot);
+      const stored = await write<{ snapshot: string }>(
+        `
+        MATCH (repo:CodeNode {id: $repoId})
+        MERGE (meta:CoredocMeta {repoId: $repoId})
+        SET meta.snapshot = $snapshot
+        REMOVE meta.applyPending
+        RETURN meta.snapshot AS snapshot
+        `,
+        { repoId: changeset.repoId, snapshot: encoded },
+      );
+      if (stored[0]?.snapshot !== encoded) {
+        throw new Error(`Cannot record graph snapshot: repository node ${changeset.repoId} is missing`);
+      }
+      endPhase('neo4j.snapshot');
+    }
+
+    return receipt;
   }
 
   // -------------------------------------------------------------------------
@@ -3284,15 +3373,26 @@ export class Neo4jRepository implements IGraphRepository {
   async deleteRepository(repoId: string): Promise<void> {
     const prefix = repoId.split(':')[0] + ':';
 
-    await this.driver.withWriteTransaction(async (tx) => {
-      await tx.run(
-        `
-        MATCH (n:CodeNode)
-        WHERE n.id STARTS WITH $prefix OR n.id = $repoId
-        DETACH DELETE n
-        `,
-        { prefix, repoId },
+    // Separate `STARTS WITH` / `=` statements seek the :CodeNode(id) range index
+    // (an OR predicate scans the label), and LIMIT-bounded chunks keep each
+    // transaction small for large repositories.
+    const batchSize = applyBatchSize();
+    for (;;) {
+      const rows = await this.driver.withWriteTransaction((tx) =>
+        tx.run<{ deleted: unknown }>(
+          `
+          MATCH (n:CodeNode) WHERE n.id STARTS WITH $prefix
+          WITH n LIMIT $limit
+          DETACH DELETE n
+          RETURN count(*) AS deleted
+          `,
+          { prefix, limit: toInt(batchSize) },
+        ),
       );
+      if (toNumber(rows[0]?.deleted) < batchSize) break;
+    }
+    await this.driver.withWriteTransaction(async (tx) => {
+      await tx.run(`MATCH (n:CodeNode {id: $repoId}) DETACH DELETE n`, { repoId });
       await tx.run(`MATCH (meta:CoredocMeta {repoId: $repoId}) DELETE meta`, { repoId });
     });
   }

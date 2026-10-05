@@ -14,10 +14,21 @@ observed usage.
 
 ## Neo4j scales with the graph
 
-Neo4j memory is the number that moves. Incremental pushes apply a bounded
-changeset in **one transaction**, so size the max heap to your largest repo —
-the 4G default is a sane start for typical monorepos. Symptoms of an
-undersized heap are failed/OOM-killed pushes of the biggest repo.
+Neo4j memory is the number that moves. A push applies its changeset in
+**chunks**: each batch of `COREDOC_NEO4J_APPLY_BATCH_SIZE` rows (default 5000,
+set on the server) commits in its own transaction, so transaction memory is
+bounded by the batch, not by the repository. Lower the batch size if pushes
+fail with `graph_apply_resource_limit`; raise it to cut round trips on a
+well-provisioned instance. The 4G heap default is a sane start for typical
+monorepos.
+
+While a push is applying, readers can see a partly updated repository. If an
+apply stops part-way, the repository stays marked in Neo4j and the next push
+of that repository replaces its graph in full rather than diffing.
+
+A large repository can take longer to apply than a CI step should block:
+`coredoc ci run --no-wait` returns once the push job is queued (the server
+finishes it in the background), or raise `--push-timeout` to keep watching.
 
 When raising the heap, raise the container memory with it (keep container
 memory comfortably above max heap — the default pairing is 6Gi container /

@@ -1008,6 +1008,22 @@ describe('PushService', () => {
     expect(repository.pushEdges).not.toHaveBeenCalled();
   });
 
+  it('replaces the graph in full when an earlier chunked apply left its in-flight mark', async () => {
+    arrangeExistingVersion();
+    (repository as unknown as { getPendingGraphApply: ReturnType<typeof vi.fn> }).getPendingGraphApply = vi
+      .fn()
+      .mockResolvedValue('interrupted-version');
+
+    const result = await service.pushByVersion('ws_1', 'my-service', 'new-version', null, 'user_1');
+
+    expect(result.mode).toBe('full');
+    expect(diffEngine.computeChangeset).not.toHaveBeenCalled();
+    expect(repository.applyChangeset).toHaveBeenCalledWith(
+      expect.objectContaining({ repoId: 'repo_abc', repoIdsToDelete: ['repo_abc'] }),
+      expect.objectContaining({ snapshot: expect.objectContaining({ parsedVersion: 'new-version', mode: 'full' }) }),
+    );
+  });
+
   it('rejects explicit rebuild after repo-key rotation until control-plane identity is reconnected', async () => {
     arrangeExistingVersion(undefined, makeParsedRepo({ id: 'repo_new' }));
 

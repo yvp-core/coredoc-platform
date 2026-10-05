@@ -530,6 +530,16 @@ export class PushService {
       const manifest = await this.resultStorage.getManifest(workspaceId, repoName);
       report(PushJobPhase.ReconcilingSnapshot);
       const storedSnapshot = await repository.getAppliedGraphSnapshot(repoIdentity.repoKey);
+      // A chunked-commit backend leaves an in-flight mark when an apply stopped
+      // part-way; the graph may then mix two versions, so diffing from any baseline
+      // could strand nodes. Replace the repository in full instead.
+      const pendingApply = (await repository.getPendingGraphApply?.(repoIdentity.repoKey)) ?? null;
+      if (pendingApply !== null) {
+        this.logger.warn(
+          `Graph apply of ${pendingApply} for "${repoName}" did not finish; replacing the graph in full`,
+        );
+      }
+      const replaceInFull = rebuild || pendingApply !== null;
       // A new-code graph commit can legitimately put the atomic snapshot ahead
       // of the manifest when finalization fails. The inverse is possible only
       // across a rollback window: old code can advance the graph + manifest
@@ -554,7 +564,7 @@ export class PushService {
       }
       const snapshotBefore = manifestAdvancedFromSnapshot ? null : storedSnapshot;
       const previousVersion = snapshotBefore?.parsedVersion ?? manifest.currentParsed;
-      const graphWillChange = rebuild || previousVersion !== parsedVersion;
+      const graphWillChange = replaceInFull || previousVersion !== parsedVersion;
       const effectiveSummaryVersion = metadataExclusions.excludeSummaries
         ? null
         : (summaryVersion ??
@@ -629,13 +639,13 @@ export class PushService {
       let result: IncrementalPushResult;
       let committedExecutionToken = executionToken;
       if (
-        !rebuild &&
+        !replaceInFull &&
         snapshotMatches(snapshotBefore, parsedVersion, effectiveSummaryVersion, effectiveEmbeddingsVersion, commitSha)
       ) {
         this.logger.log(`Graph snapshot ${parsedVersion} already committed for "${repoName}"; resuming finalization`);
         result = resultFromSnapshot(repoName, snapshotBefore);
         committedExecutionToken = snapshotBefore.executionToken;
-      } else if (rebuild) {
+      } else if (replaceInFull) {
         // The caller has asserted this parse should replace the graph outright,
         // so skip the diff entirely — including the guards that exist to stop
         // an ACCIDENTAL wipe. That is the point of the flag: it is the answer

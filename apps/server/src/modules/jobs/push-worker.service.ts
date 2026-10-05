@@ -26,7 +26,8 @@ const PROGRESS_FLUSH_MS = 5_000;
 const STALE_HEARTBEAT_MS = 120_000;
 const INTERNAL_STACK_MAX = 4096;
 const SAFE_ERROR_NAME = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
-const SAFE_DIAGNOSTIC_CODE = /^[A-Z0-9_]{1,64}$/;
+// Neo4j codes are dotted (`Neo.TransientError.General.MemoryPoolOutOfMemoryError`).
+const SAFE_DIAGNOSTIC_CODE = /^[A-Za-z0-9_.]{1,96}$/;
 /**
  * Requeue delay for lease-contention ("busy") requeues. Sized against the
  * claim cap (maxAttempts * 3 = 9 claims by default): 9 claims at this spacing
