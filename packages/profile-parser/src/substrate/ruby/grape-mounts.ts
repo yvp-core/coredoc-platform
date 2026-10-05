@@ -12,7 +12,7 @@
  * route is lost). Class names are resolved by SUFFIX-matching the registry of fully-qualified
  * names, so `mount Companies` / `mount WithUser::Companies` both find `A::B::Companies`.
  */
-import { grapeRoutesFromRoot } from './grape-routes.js';
+import { type GrapeScopeMacros, grapeRoutesFromRoot, grapeScopeMacrosFromRoot } from './grape-routes.js';
 import { type TsNode, collectCalls, methodName, normalizePath, withParsedRuby, tokenText } from './ruby-cst.js';
 
 export interface GrapeEntrypoint {
@@ -89,9 +89,9 @@ function mountArg(node: TsNode): TsNode | undefined {
 }
 
 /** Parse one Grape class definition node into a registry entry. */
-function classFromDefinition(node: TsNode, file: string): GrapeClass {
+function classFromDefinition(node: TsNode, file: string, macros: GrapeScopeMacros): GrapeClass {
   const fqn = fqnOf(node);
-  const relativeRoutes = grapeRoutesFromRoot(node);
+  const relativeRoutes = grapeRoutesFromRoot(node, macros);
   const internalMounts: string[] = [];
   for (const call of collectCalls(node)) {
     if (!isMountCall(call)) continue;
@@ -143,6 +143,12 @@ export async function resolveGrapeEntrypoints(
   // first-suffix-match — is deterministic regardless of caller file order.
   const sortedFiles = [...files].sort((a, b) => a.relPath.localeCompare(b.relPath));
 
+  // Pass 0: scope macros (`def self.with_x … yield`) live on base classes in other files.
+  const macros = new Map<string, string[]>();
+  for (const { source } of sortedFiles) {
+    await withParsedRuby(source, (root) => grapeScopeMacrosFromRoot(root, macros));
+  }
+
   // Pass 1: build the class registry + collect root mounts across all files.
   for (const { relPath, source } of sortedFiles) {
     await withParsedRuby(source, (root) => {
@@ -154,7 +160,7 @@ export async function resolveGrapeEntrypoints(
         // A Grape class is a leaf `class` with routes or internal mounts. Modules are namespaces
         // (they show up only via fqnOf); we still register every `class` def so suffix-match works.
         if (def.type !== 'class') continue;
-        const cls = classFromDefinition(def, relPath);
+        const cls = classFromDefinition(def, relPath, macros);
         registry.set(cls.fqn, cls);
       }
 

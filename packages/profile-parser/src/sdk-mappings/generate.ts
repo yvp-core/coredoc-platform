@@ -97,11 +97,14 @@ export function normalizeUri(raw: string): string | undefined {
  *  3. Object-literal text (rare fallback) — parse `uri:`/`method:` out of the text.
  */
 export function extractRoute(http: EgressHttp): { method: string; uri: string } | undefined {
-  if (HTTP_METHODS.has(http.method) && http.pathTemplate.startsWith('/') && !http.pathTemplate.includes('\n')) {
+  // SDKs that join a base URL with a relative path (`get(baseUrl, 'v2/management/…')`)
+  // capture the route without its leading slash; normalizeUri adds it back.
+  const isPath = /^\/|^[\w{}-]+\//.test(http.pathTemplate) && !/\s/.test(http.pathTemplate);
+  if (HTTP_METHODS.has(http.method) && isPath) {
     const uri = normalizeUri(http.pathTemplate);
     return uri ? { method: http.method, uri } : undefined;
   }
-  if (!HTTP_METHODS.has(http.method) && http.pathTemplate.startsWith('/') && !http.pathTemplate.includes('\n')) {
+  if (!HTTP_METHODS.has(http.method) && isPath) {
     const uri = normalizeUri(http.pathTemplate);
     return uri ? { method: 'GET', uri } : undefined;
   }

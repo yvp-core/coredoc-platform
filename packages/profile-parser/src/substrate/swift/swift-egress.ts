@@ -231,12 +231,162 @@ function buildPrefixTemplates(files: SwiftFile[]): Map<string, string> {
       if (expr?.type === 'control_transfer_statement') expr = expr.childForFieldName?.('result');
       if (!expr || (expr.type !== 'line_string_literal' && expr.type !== 'additive_expression')) continue;
       const tmpl = renderPathExpr(expr);
-      if (tmpl.includes('/')) rendered.set(name, tmpl);
+      // A getter composed only of other getters (`"\(companyPath)\(profilePath)"`) is a
+      // candidate too; it is kept below only if it expands to something path-like.
+      if (tmpl.includes('/') || /^(\{[A-Za-z_][A-Za-z0-9_]*\})+$/.test(tmpl)) rendered.set(name, tmpl);
     }
   }
   // Resolve nested prefix references so a fragment fully expands.
   for (const [name, tmpl] of rendered) rendered.set(name, resolvePrefixes(tmpl, rendered));
+  for (const [name, tmpl] of rendered) if (!tmpl.includes('/')) rendered.delete(name);
   return rendered;
+}
+
+/** A URL-valued declaration a `baseURL` may reference, with its literal parameter defaults. */
+interface UrlDecl {
+  expr: TsNode;
+  defaults: Map<string, string>;
+}
+
+/** The value of a single-expression body: its last top-level `return X`, or last expression. */
+function bodyValue(body: TsNode | undefined): TsNode | undefined {
+  const stmts = body?.type === 'statements' ? body : body?.descendantsOfType?.('statements')?.[0];
+  if (!stmts) return undefined;
+  let last: TsNode | undefined;
+  for (let i = 0; i < stmts.childCount; i++) {
+    const c = stmts.child(i);
+    if (c?.isNamed) last = c;
+  }
+  return last?.type === 'control_transfer_statement' ? last.childForFieldName?.('result') : last;
+}
+
+/**
+ * Repo-wide index of declarations a `baseURL` can chain through, keyed by member name:
+ * stored property initializers (`static let railsApiUrl = URL(…)!`), computed properties,
+ * and functions (`static func gatewayApiUrl(version v: Int = 3) -> URL { … }`). First wins.
+ */
+function buildUrlDeclIndex(files: SwiftFile[]): Map<string, UrlDecl> {
+  const out = new Map<string, UrlDecl>();
+  for (const { root } of files) {
+    for (const prop of root.descendantsOfType(PROPERTY_DECL) as TsNode[]) {
+      const name = propertyName(prop);
+      if (!name || name === 'baseURL' || out.has(name)) continue;
+      const value = prop.childForFieldName?.('value');
+      const expr = value ?? bodyValue(firstNamed(prop.childForFieldName?.('computed_value')));
+      if (expr) out.set(name, { expr, defaults: new Map() });
+    }
+    for (const fn of root.descendantsOfType(FUNC_DECL) as TsNode[]) {
+      const name = fn.childForFieldName?.('name')?.text as string | undefined;
+      const expr = bodyValue(firstNamed(fn.childForFieldName?.('body')));
+      if (!name || !expr || out.has(name)) continue;
+      const defaults = new Map<string, string>();
+      for (let i = 0; i < fn.childCount; i++) {
+        if (fn.child(i)?.type !== 'parameter') continue;
+        const param = fn.child(i)!;
+        const names = (param.descendantsOfType('simple_identifier') as TsNode[]).map((n) => n.text as string);
+        // `version v: Int = 3` — the default value is a sibling of the parameter node.
+        for (let j = i + 1; j < fn.childCount; j++) {
+          const sib = fn.child(j);
+          if (sib?.type === 'parameter') break;
+          if (fn.fieldNameForChild?.(j) === 'default_value' && sib) {
+            const local = names[names.length - 1];
+            if (local) defaults.set(local, sib.text as string);
+            break;
+          }
+        }
+      }
+      out.set(name, { expr, defaults });
+    }
+  }
+  return out;
+}
+
+/** A host / runtime value inside a rendered URL string. */
+const HOST = '\uE000';
+
+/**
+ * Render a URL string expression, keeping literal text and substituting interpolations with
+ * their literal default when known, else the {@link HOST} marker.
+ */
+function renderUrlString(node: TsNode, defaults: Map<string, string>): string {
+  if (node.type === 'line_string_literal') {
+    let s = '';
+    for (let i = 0; i < node.childCount; i++) {
+      const c = node.child(i);
+      if (!c?.isNamed) continue;
+      if (c.type === 'interpolated_expression') {
+        const id = c.childForFieldName?.('value')?.text as string | undefined;
+        s += (id && defaults.get(id)) ?? HOST;
+      } else s += c.text as string;
+    }
+    return s;
+  }
+  if (node.type === 'additive_expression') {
+    let s = '';
+    for (let i = 0; i < node.childCount; i++) {
+      const c = node.child(i);
+      if (c?.isNamed) s += renderUrlString(c, defaults);
+    }
+    return s;
+  }
+  return HOST;
+}
+
+/** The route part of a rendered URL: drop the scheme+host (or a leading host value). */
+function routeOfUrl(rendered: string): string {
+  let s = rendered;
+  const scheme = s.indexOf('://');
+  if (scheme >= 0) {
+    const slash = s.indexOf('/', scheme + 3);
+    s = slash >= 0 ? s.slice(slash) : '';
+  } else {
+    while (s.startsWith(HOST)) s = s.slice(HOST.length);
+  }
+  return s.split(HOST).join('{param}');
+}
+
+/**
+ * The static route prefix a `baseURL` expression evaluates to, following `URL(string:)`,
+ * `.appendingPathComponent(…)`, force-unwraps and references to indexed declarations.
+ * undefined when any link is not statically known.
+ */
+function urlRoute(
+  expr: TsNode | undefined,
+  decls: Map<string, UrlDecl>,
+  defaults: Map<string, string>,
+  depth = 0,
+): string | undefined {
+  if (!expr || depth > 8) return undefined;
+  const follow = (name: string | undefined): string | undefined => {
+    const d = name ? decls.get(name) : undefined;
+    return d ? urlRoute(d.expr, decls, d.defaults, depth + 1) : undefined;
+  };
+  switch (expr.type) {
+    case 'postfix_expression': // `URL(…)!`
+    case 'tuple_expression': // `(expr)`
+      return urlRoute(expr.childForFieldName?.('target') ?? firstNamed(expr), decls, defaults, depth + 1);
+    case 'simple_identifier':
+      return follow(expr.text as string);
+    case NAV_EXPR:
+      return follow(navSuffixName(expr));
+    case 'call_expression': {
+      const callee = firstNamed(expr);
+      const arg = expr.descendantsOfType?.('value_argument')?.[0]?.childForFieldName?.('value') as TsNode | undefined;
+      if (callee?.type === 'simple_identifier' && callee.text === 'URL') {
+        return arg ? routeOfUrl(renderUrlString(arg, defaults)) : undefined;
+      }
+      if (callee?.type === NAV_EXPR && navSuffixName(callee) === 'appendingPathComponent') {
+        const base = urlRoute(callee.childForFieldName?.('target'), decls, defaults, depth + 1);
+        if (base === undefined || !arg) return undefined;
+        return `${base}/${routeOfUrl(renderUrlString(arg, defaults))}`;
+      }
+      if (callee?.type === 'simple_identifier') return follow(callee.text as string);
+      if (callee?.type === NAV_EXPR) return follow(navSuffixName(callee));
+      return undefined;
+    }
+    default:
+      return undefined;
+  }
 }
 
 /** An API enum's endpoint table + case set. */
@@ -258,6 +408,7 @@ function collectApiEnums(
   files: SwiftFile[],
   targetProtocols: string[],
   prefixes: Map<string, string>,
+  urlDecls: Map<string, UrlDecl>,
 ): Map<string, ApiEnum> {
   const protoSet = new Set(targetProtocols);
   const groups = new Map<string, { isEnum: boolean; conforms: boolean; nodes: TsNode[] }>();
@@ -290,11 +441,22 @@ function collectApiEnums(
       for (const [k, v] of switchCaseValueMap(computedProperty(node, 'method')))
         if (!methodMap.has(k)) methodMap.set(k, v);
     }
+    // The route prefix of the API's `baseURL` — declared in the group, or inherited from a
+    // protocol extension it conforms to (`extension RailsTarget where Self: TargetType`).
+    let baseProp: TsNode | undefined;
+    for (const node of g.nodes) baseProp ??= computedProperty(node, 'baseURL');
+    for (const node of g.nodes) {
+      for (const proto of inheritedTypes(node)) {
+        for (const pnode of groups.get(proto)?.nodes ?? []) baseProp ??= computedProperty(pnode, 'baseURL');
+      }
+    }
+    const baseValue = baseProp ? bodyValue(firstNamed(baseProp.childForFieldName?.('computed_value'))) : undefined;
+    const base = urlRoute(baseValue, urlDecls, new Map()) ?? '';
     const endpoints = new Map<string, Endpoint>();
     for (const cn of cases) {
       const valueNode = pathMap.get(cn);
-      const path = valueNode ? normalizePath(resolvePrefixes(renderPathExpr(valueNode), prefixes)) : '/';
-      endpoints.set(cn, { method: httpMethodFrom(methodMap.get(cn)), path });
+      const route = valueNode ? resolvePrefixes(renderPathExpr(valueNode), prefixes) : '';
+      endpoints.set(cn, { method: httpMethodFrom(methodMap.get(cn)), path: normalizePath(`${base}/${route}`) });
     }
     apis.set(name, { name, cases, endpoints });
   }
@@ -362,7 +524,12 @@ export function extractSwiftEgress(
   cfg: { targetTypeProtocols?: string[] } = {},
 ): ExternalCallEdge[] {
   const prefixes = buildPrefixTemplates(files);
-  const apis = collectApiEnums(files, cfg.targetTypeProtocols ?? DEFAULT_TARGET_PROTOCOLS, prefixes);
+  const apis = collectApiEnums(
+    files,
+    cfg.targetTypeProtocols ?? DEFAULT_TARGET_PROTOCOLS,
+    prefixes,
+    buildUrlDeclIndex(files),
+  );
   if (apis.size === 0) return [];
 
   const apiByCase = new Map<string, ApiEnum[]>();

@@ -90,19 +90,25 @@ describe('[S5] split enum + extension, switch-expression, prefix concatenation',
     const files = await mkFiles([
       [
         'StandardPathed.swift',
-        `extension StandardPathed { var companyPath: String { "companies/\\(NetworkConsts.companyUUID)/" } }`,
+        `extension StandardPathed {
+          var companyPath: String { "companies/\\(NetworkConsts.companyUUID)/" }
+          var profilePath: String { "user_profiles/\\(NetworkConsts.profileUUID)/" }
+          var profileInCompanyPath: String { "\\(companyPath)\\(profilePath)" }
+        }`,
       ],
       [
         'ClientAdminApi.swift',
         `enum ClientAdminApi {
           case getLocations
           case postSessions
+          case getShifts
         }
         extension ClientAdminApi: RequestTargetType {
           var path: String {
             return switch self {
             case .getLocations: companyPath + "locations"
             case .postSessions: "sessions"
+            case .getShifts: profileInCompanyPath + "shifts"
             }
           }
           var method: Moya.Method {
@@ -115,7 +121,7 @@ describe('[S5] split enum + extension, switch-expression, prefix concatenation',
       ],
       [
         'use.swift',
-        `class Sync { func go() { call(ClientAdminApi.getLocations); call(ClientAdminApi.postSessions) } }`,
+        `class Sync { func go() { call(ClientAdminApi.getLocations); call(ClientAdminApi.postSessions); call(ClientAdminApi.getShifts) } }`,
       ],
     ]);
     const edges = extractSwiftEgress(files, idGen, { targetTypeProtocols: ['TargetType', 'RequestTargetType'] });
@@ -124,7 +130,9 @@ describe('[S5] split enum + extension, switch-expression, prefix concatenation',
     // companyPath prefix resolved and concatenated; static structure preserved
     expect(byPath.get('/companies/{NetworkConsts}/locations')?.method).toBe('GET');
     expect(byPath.get('/sessions')?.method).toBe('POST');
-    expect(edges).toHaveLength(2);
+    // A prefix composed only of other prefixes expands too.
+    expect(byPath.has('/companies/{NetworkConsts}/user_profiles/{NetworkConsts}/shifts')).toBe(true);
+    expect(edges).toHaveLength(3);
     for (const e of edges) expect(e.serviceName).toBe('');
   });
 });
@@ -161,6 +169,68 @@ describe('[S5] switch arm with an early return in a guard', () => {
     expect(edges).toHaveLength(1);
     expect(edges[0].targetDescriptor?.http?.pathTemplate).toBe('/users/{id}'); // NOT the guard's '/users'
     expect(edges[0].method).toBe('POST'); // NOT the if-branch's GET
+  });
+
+  it("prefixes each endpoint path with the route part of the API's baseURL", async () => {
+    const files = await mkFiles([
+      [
+        'Network/Consts.swift',
+        `enum NetworkConsts {
+          static let railsApiUrl = URL(string: NetworkConsts.railsAddress + "/api/mobile")!
+          static let universalApiUrl = URL(string: NetworkConsts.universalApiAddress)!
+          static let publicUniversalApiUrl = universalApiUrl.appendingPathComponent("/v2/public")
+          static func gatewayApiUrl(version v: Int = 3) -> URL {
+            universalApiUrl.appendingPathComponent("/v\\(v)/public/api-gateway")
+          }
+        }
+        protocol RailsTarget {}
+        extension RailsTarget where Self: TargetType {
+          var baseURL: URL { return NetworkConsts.railsApiUrl }
+        }`,
+      ],
+      [
+        'Network/Apis.swift',
+        `enum RailsApi: TargetType, RailsTarget {
+          case sessions
+          var path: String { switch self { case .sessions: return "sessions" } }
+          var method: Moya.Method { .post }
+        }
+        enum ClientAdminApi: TargetType {
+          case requests
+          var baseURL: URL { NetworkConsts.publicUniversalApiUrl.appendingPathComponent("client_admin_api") }
+          var path: String { switch self { case .requests: return "/requests" } }
+        }
+        enum GatewayApi: TargetType {
+          case sync
+          var baseURL: URL { NetworkConsts.gatewayApiUrl() }
+          var path: String { switch self { case .sync: return "/kiosk/sync" } }
+        }
+        enum KioskApi: TargetType {
+          case register
+          var baseURL: URL {
+            let host: String
+            switch ServerEnv.current { case .production: host = "admin-api" }
+            return URL(string: "https://\\(host).\\(domainAddress)/v1/public")!
+          }
+          var path: String { switch self { case .register: return "/structure/tablets/register" } }
+        }`,
+      ],
+      [
+        'Sync.swift',
+        `class Sync {
+          func run() {
+            a(RailsApi.sessions); b(ClientAdminApi.requests); c(GatewayApi.sync); d(KioskApi.register)
+          }
+        }`,
+      ],
+    ]);
+    const edges = extractSwiftEgress(files, idGen, { targetTypeProtocols: ['TargetType'] });
+    expect(edges.map((e) => e.targetDescriptor?.http?.pathTemplate).sort()).toEqual([
+      '/api/mobile/sessions',
+      '/v1/public/structure/tablets/register',
+      '/v2/public/client_admin_api/requests',
+      '/v3/public/api-gateway/kiosk/sync',
+    ]);
   });
 });
 

@@ -250,6 +250,64 @@ end`,
     expect(sig(eps)).toContain('GET /extra/sub');
   });
 
+  it('expands a block-yielding scope macro defined on a base class in another file', async () => {
+    const files = [
+      { relPath: 'config/routes.rb', source: 'mount Api::Root => "/api/app"\n' },
+      {
+        relPath: 'app/api/root.rb',
+        source: 'module Api\n  class Root < Grape::API\n    mount Beacons\n    mount Profiles\n  end\nend\n',
+      },
+      {
+        relPath: 'app/api/with_tenant/base.rb',
+        source: `
+class TenantBase < Grape::API
+  def self.with_tenant
+    namespace :tenants do
+      route_param :tenant_uuid do
+        before { authenticate! }
+        yield
+      end
+    end
+  end
+end
+`,
+      },
+      {
+        relPath: 'app/api/with_tenant/beacons.rb',
+        source: `
+class Beacons < TenantBase
+  with_tenant do
+    resource :beacons do
+      get do
+      end
+      post 'sync' do
+      end
+    end
+  end
+end
+`,
+      },
+      {
+        // A same-named call without a block is not a scope macro use.
+        relPath: 'app/api/profiles.rb',
+        source: `
+class Profiles < Grape::API
+  resource :profiles do
+    get do
+      with_tenant
+    end
+  end
+end
+`,
+      },
+    ];
+    expect(sig(await resolveGrapeEntrypoints(files))).toEqual([
+      'GET /api/app/profiles',
+      'GET /api/app/tenants/:tenant_uuid/beacons',
+      'POST /api/app/tenants/:tenant_uuid/beacons/sync',
+    ]);
+  });
+
   it('returns [] when there are no Grape classes', async () => {
     const eps = await resolveGrapeEntrypoints([{ relPath: 'plain.rb', source: 'class Foo\n  def bar; 1; end\nend\n' }]);
     expect(eps).toEqual([]);

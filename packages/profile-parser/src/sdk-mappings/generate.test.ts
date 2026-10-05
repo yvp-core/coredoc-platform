@@ -118,6 +118,27 @@ describe('buildSdkMappings', () => {
     expect(result.sdkMappings).toHaveLength(0);
   });
 
+  it('derives a row from a relative egress path (base URL joined with `v2/…`)', () => {
+    const result = buildSdkMappings(
+      [
+        source(
+          'src',
+          [method('fn1', 'listCompanyPunches', 'c1')],
+          [httpEgress('fn1', 'GET', 'v2/management/core/companies/{companyUuid}/punches')],
+          [{ id: 'c1', name: 'Core' }],
+          [PKG],
+        ),
+      ],
+      { ...baseMapper, pathRewriteRules: [{ match: '^/v\\d+/management/(?<svc>[^/]+)/', targetServiceFrom: 'svc' }] },
+    );
+    expect(result.sdkMappings).toHaveLength(1);
+    expect(result.sdkMappings[0]).toMatchObject({
+      sdkMethod: 'listCompanyPunches',
+      targetService: 'core',
+      http: { method: 'GET', pathTemplate: '/v2/management/core/companies/:companyUuid/punches' },
+    });
+  });
+
   it('dedupes rows by package::class::method', () => {
     const result = buildSdkMappings(
       [
