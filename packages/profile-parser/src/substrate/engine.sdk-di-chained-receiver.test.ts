@@ -59,8 +59,15 @@ describe('sdk matcher — diTypeSuffix on a chained DI receiver', () => {
     const repo = await run(`  async load(): Promise<void> {
     await Promise.all([this.apiClient.schedules.listUserProfileShifts('u')]);
   }`);
-    const calls = repo.externalCalls.map((c) => ({ sdkName: c.sdkName, method: c.method }));
-    expect(calls).toEqual([{ sdkName: '@demo/api-client', method: 'listUserProfileShifts' }]);
+    const calls = repo.externalCalls.map((c) => ({ sdkName: c.sdkName, method: c.method, moniker: c.moniker }));
+    // The member segment rides on the moniker so the linker can join the SDK method node.
+    expect(calls).toEqual([
+      {
+        sdkName: '@demo/api-client',
+        method: 'listUserProfileShifts',
+        moniker: { packageName: '@demo/api-client', descriptor: 'schedules#listUserProfileShifts().' },
+      },
+    ]);
   });
 
   it('still classifies a direct call on the injected param', async () => {

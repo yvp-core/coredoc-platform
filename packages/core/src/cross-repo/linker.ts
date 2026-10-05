@@ -310,6 +310,25 @@ export function linkWorkspace(repos: ParsedRepoLike[], override?: Mapper): LinkR
   }
   const entrypointIndex = buildEntrypointIndex(entrypointLikes);
 
+  // pathRewriteRules: when a call carries no `targetService`, derive one from
+  // its HTTP path via the declared regex rules. The captured named group is the
+  // extracted service hint, which then translates to a repo through serviceRepoMap.
+  // Compiled once; bounded by MAX_PATH_REWRITE_RULES + MAX_REGEX_LENGTH in the schema.
+  const pathRewriteRules = (override?.pathRewriteRules ?? []).map((rule) => ({
+    re: new RegExp(rule.match),
+    group: rule.targetServiceFrom,
+  }));
+  const serviceFromPath = (pathTemplate: string | undefined): string | undefined => {
+    if (!pathTemplate) return undefined;
+    // Relative SDK paths (`v2/management/…`) match the same rules as absolute ones.
+    const path = pathTemplate.startsWith('/') ? pathTemplate : `/${pathTemplate}`;
+    for (const { re, group } of pathRewriteRules) {
+      const captured = path.match(re)?.groups?.[group];
+      if (captured) return captured;
+    }
+    return undefined;
+  };
+
   // 2. SDK symbol index (moniker hop targets), built from SDK-source repos.
   // Join each repo's externalCalls to its functions on callerId === functionNodeId,
   // attaching the matched egress targetDescriptor onto the SdkMethodNodeLike.
@@ -321,7 +340,11 @@ export function linkWorkspace(repos: ParsedRepoLike[], override?: Mapper): LinkR
       const egressByCallerId = new Map<string, ExternalCallEdge['targetDescriptor']>();
       for (const ec of r.externalCalls) {
         if (ec.targetDescriptor && !egressByCallerId.has(ec.callerId)) {
-          egressByCallerId.set(ec.callerId, ec.targetDescriptor);
+          // The SDK method's egress gets the same path-derived service hint a direct
+          // call gets below, so the symbol hop scopes it exactly like a direct call.
+          const d = ec.targetDescriptor;
+          const derived = d.targetService ? undefined : serviceFromPath(d.http?.pathTemplate);
+          egressByCallerId.set(ec.callerId, derived ? { ...d, targetService: derived } : d);
         }
       }
       const functions: SdkMethodNodeLike[] = (r.functions ?? []).map((fn) => ({
@@ -330,7 +353,14 @@ export function linkWorkspace(repos: ParsedRepoLike[], override?: Mapper): LinkR
         moniker: fn.moniker,
         egress: egressByCallerId.get(fn.id),
       }));
-      return { name: r.name, functions };
+      // Typed class properties (`_core: Core`) map a consumer's member segment to its class.
+      const memberTypes = (r.classes ?? []).flatMap((c) =>
+        (c.properties ?? []).flatMap((p) => {
+          const typeName = p.type?.structure?.kind === 'reference' ? p.type.structure.name : undefined;
+          return typeName ? [{ name: p.name, typeName }] : [];
+        }),
+      );
+      return { name: r.name, functions, memberTypes };
     });
   const symbolIndex = buildSdkSymbolIndex(sdkRepos);
 
@@ -351,23 +381,6 @@ export function linkWorkspace(repos: ParsedRepoLike[], override?: Mapper): LinkR
     }
     if (d?.protocol === 'ipc') return Boolean(d.ipc?.channel);
     return false;
-  };
-
-  // pathRewriteRules: when a call carries no `targetService`, derive one from
-  // its HTTP path via the declared regex rules. The captured named group is the
-  // extracted service hint, which then translates to a repo through serviceRepoMap.
-  // Compiled once; bounded by MAX_PATH_REWRITE_RULES + MAX_REGEX_LENGTH in the schema.
-  const pathRewriteRules = (override?.pathRewriteRules ?? []).map((rule) => ({
-    re: new RegExp(rule.match),
-    group: rule.targetServiceFrom,
-  }));
-  const serviceFromPath = (pathTemplate: string | undefined): string | undefined => {
-    if (!pathTemplate) return undefined;
-    for (const { re, group } of pathRewriteRules) {
-      const captured = pathTemplate.match(re)?.groups?.[group];
-      if (captured) return captured;
-    }
-    return undefined;
   };
 
   const calls: ExternalCallLike[] = [];

@@ -3064,13 +3064,23 @@ export class TreeSitterScipSubstrate implements Substrate, VueSubstrate {
         const byDi = diClass !== undefined && (m.diTypeSuffix ?? []).some((s) => diClass.endsWith(s));
         const byReceiver = m.receiverPattern !== undefined && regexFromSource(m.receiverPattern).test(receiver);
         if (byDi || byReceiver) {
-          return {
+          const fact: ExternalCallFact = {
             callerId,
             serviceName: m.serviceName,
             sdkName: m.sdkName ?? (byDi ? diClass : undefined),
             method: methodName,
             location: loc,
           };
+          // A declared SDK package lets the linker's symbol hop join this call to the SDK
+          // method node (package + member segment + method), as `imported-sdk` does.
+          if (m.sdkName) {
+            const segment = importedSdkSegment(propName, rootProp);
+            fact.moniker = {
+              packageName: m.sdkName,
+              descriptor: segment ? `${segment}#${methodName}().` : `${methodName}().`,
+            };
+          }
+          return fact;
         }
         continue;
       }
@@ -3129,6 +3139,10 @@ export class TreeSitterScipSubstrate implements Substrate, VueSubstrate {
           http: pathTemplate ? { method: httpMethod, pathTemplate } : undefined,
           targetService,
           ...(dispatchMethod ? { dispatchMethod } : {}),
+          // The dispatched SDK method is a symbol in the declared package: join it by name.
+          ...(dispatchMethod && m.sdkName
+            ? { moniker: { packageName: m.sdkName, descriptor: `${dispatchMethod}().` } }
+            : {}),
         };
       }
       if (m.kind === 'queue') {
