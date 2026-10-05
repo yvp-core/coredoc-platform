@@ -32,6 +32,24 @@ server `coredoc` — `/coredoc:setup` and the docs below assume that name.
 On first use of a coredoc tool, Claude Code opens a browser for a one-time
 sign-in (OAuth). You must be a member of that workspace.
 
+**Intent only.** If you only work with product intent, for example as a product
+manager, append `?toolset=intent` to the URL. That connection lists and accepts
+only the intent tools (`get_intent_context`, `intent_read`, `intent_propose`,
+`intent_review`, `intent_tree`, `intent_anchor`, `intent_handoff`,
+`intent_release`, `intent_source_update`) and `submit_session_feedback`, so the
+graph tool descriptions stay out of the agent's context. Quote the URL in the
+shell:
+
+```
+claude mcp add --transport http --scope user coredoc 'https://api.coredoc.ai/api/v1/workspaces/<your-workspace-id>/mcp?toolset=intent'
+```
+
+For a claude.ai custom connector, enter the same URL as the connector's server
+URL; claude.ai signs in through the same OAuth flow. A call to any other tool on
+such a connection fails with an error that names the toolset, and any other
+`toolset` value is refused with `400` and the list of valid values. The intent
+tools appear only while intent is on for you in that workspace.
+
 ## What you get
 
 - **Skill `coredoc:coredoc-mcp`** — when and how to reach for the graph tools

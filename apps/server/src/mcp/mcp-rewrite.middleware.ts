@@ -45,6 +45,7 @@ import { isExactTelemetryPurpose } from '../auth/token-permissions.js';
 import { ControlPlaneService } from '../database/control-plane.service.js';
 import { serverUrl } from '../auth/oauth/server-url.js';
 import { McpAuthKind, type AuthenticatedMcpRequest } from './mcp-auth-context.js';
+import { McpToolset, mcpToolsetContext, parseToolsetParam } from './mcp-toolset.js';
 
 /** Header a client sets to pick one of several accessible workspaces. */
 export const WORKSPACE_HEADER = 'x-coredoc-workspace';
@@ -77,13 +78,24 @@ export class McpRewriteMiddleware implements NestMiddleware {
 
   async use(req: Request, res: Response, next: NextFunction) {
     const match = req.originalUrl.match(WORKSPACE_PATH_RE);
+    if (!match && !DIRECT_PATH_RE.test(req.originalUrl)) {
+      return next();
+    }
+
+    const param = parseToolsetParam(req.originalUrl);
+    if (!param.ok) {
+      res.status(400).json({ error: param.error, validToolsets: Object.values(McpToolset) });
+      return;
+    }
+    const { toolset } = param;
+    // The request body is already parsed (main.ts), so the rest of the request
+    // runs inside this context; see mcp-toolset.ts.
+    const proceed: NextFunction = toolset === undefined ? next : () => mcpToolsetContext.run(toolset, next);
+
     if (match) {
-      return this.handleWorkspacePath(req, res, next, match);
+      return this.handleWorkspacePath(req, res, proceed, match);
     }
-    if (DIRECT_PATH_RE.test(req.originalUrl)) {
-      return this.handleDirectPath(req, res, next);
-    }
-    return next();
+    return this.handleDirectPath(req, res, proceed);
   }
 
   /**

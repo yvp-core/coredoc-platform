@@ -10,7 +10,7 @@
  */
 
 import { Module } from '@nestjs/common';
-import { McpModule as McpNestModule, McpTransportType } from '@rekog/mcp-nest';
+import { McpModule as McpNestModule, type McpOptions, McpTransportType } from '@rekog/mcp-nest';
 
 import { AuthModule } from '../auth/auth.module.js';
 import { DatabaseModule } from '../database/database.module.js';
@@ -25,6 +25,7 @@ import { McpTrustedContextGuard } from './mcp-trusted-context.guard.js';
 import { IntentEnabledToolGuard } from './intent-enabled.tool-guard.js';
 import { McpDiscoveryController } from './mcp-discovery.controller.js';
 import { WorkspaceMcpContextService } from './workspace-mcp-context.service.js';
+import { restrictToToolset } from './mcp-toolset.js';
 
 import { ImpactTools } from './tools/impact.tools.js';
 import { UnderstandingTools } from './tools/understanding.tools.js';
@@ -32,6 +33,28 @@ import { DiscoveryTools } from './tools/discovery.tools.js';
 import { CrossRepoTools } from './tools/cross-repo.tools.js';
 import { CypherTools } from './tools/cypher.tools.js';
 import { IntentTools } from './tools/intent.tools.js';
+
+/** The MCP-Nest options, exported so the transport tests run the same server configuration. */
+export const MCP_SERVER_OPTIONS: McpOptions = {
+  name: 'coredoc',
+  version: '1.0.0',
+  transport: [McpTransportType.STREAMABLE_HTTP, McpTransportType.SSE],
+  // Token + workspace-membership auth is performed by McpRewriteMiddleware,
+  // which only runs for /api/v1/workspaces/:id/mcp. The transport
+  // controllers, though, are mounted at the root /mcp,/sse,/messages paths,
+  // so McpTrustedContextGuard runs on every transport route and rejects any
+  // direct hit that lacks the trusted context the middleware attaches —
+  // closing the direct-path auth bypass. The guard is dependency-free by
+  // design: a guard injecting AuthService can't resolve in MCP-Nest's
+  // dynamic controller scope, which is why the heavy auth stays in the
+  // middleware.
+  guards: [McpTrustedContextGuard],
+  streamableHttp: {
+    enableJsonResponse: false,
+    statelessMode: true,
+  },
+  serverMutator: restrictToToolset,
+};
 
 @Module({
   imports: [
@@ -47,25 +70,7 @@ import { IntentTools } from './tools/intent.tools.js';
     // importer names it first.
     IntentModule,
     IntentAnchorModule,
-    McpNestModule.forRoot({
-      name: 'coredoc',
-      version: '1.0.0',
-      transport: [McpTransportType.STREAMABLE_HTTP, McpTransportType.SSE],
-      // Token + workspace-membership auth is performed by McpRewriteMiddleware,
-      // which only runs for /api/v1/workspaces/:id/mcp. The transport
-      // controllers, though, are mounted at the root /mcp,/sse,/messages paths,
-      // so McpTrustedContextGuard runs on every transport route and rejects any
-      // direct hit that lacks the trusted context the middleware attaches —
-      // closing the direct-path auth bypass. The guard is dependency-free by
-      // design: a guard injecting AuthService can't resolve in MCP-Nest's
-      // dynamic controller scope, which is why the heavy auth stays in the
-      // middleware.
-      guards: [McpTrustedContextGuard],
-      streamableHttp: {
-        enableJsonResponse: false,
-        statelessMode: true,
-      },
-    }),
+    McpNestModule.forRoot(MCP_SERVER_OPTIONS),
   ],
   controllers: [McpDiscoveryController],
   providers: [
