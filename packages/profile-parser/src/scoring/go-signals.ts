@@ -100,7 +100,15 @@ export function goSourceSignals(
   const routerMethods = profile.entrypoints?.http?.routerMethods ?? DEFAULT_ROUTER_METHODS;
   const mountMethods = profile.entrypoints?.http?.mountMethods ?? DEFAULT_MOUNT_METHODS;
   const routeAlt = [...new Set([...routerMethods, ...mountMethods])].map(escapeEre).join('|');
-  const http = grepCountInFiles(sourceFiles, `\\.(${routeAlt})\\(["\`]/`, 'go source signals');
+  const routerSites = grepCountInFiles(sourceFiles, `\\.(${routeAlt})\\(["\`]/`, 'go source signals');
+  // huma registers through package functions whose path is not the first argument (and is usually a
+  // const concatenation), so the path-literal grep above never sees them. Counted by call shape.
+  const humaSites = grepCountInFiles(
+    sourceFiles,
+    'huma\\.(Register|Get|Post|Put|Patch|Delete)\\(',
+    'go source signals',
+  );
+  const http = routerSites + humaSites;
 
   // entities — the two plain-text schema sources plus the tagged-struct count.
   const schemaGlobs = profile.entities?.schemaFileGlobs ?? DEFAULT_SCHEMA_GLOBS;

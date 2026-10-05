@@ -91,6 +91,10 @@ function isConventionalNonProductionSource(file: string): boolean {
   );
 }
 
+function isRootDotPath(file: string): boolean {
+  return file.startsWith('.') && file.includes('/');
+}
+
 function intentionallyExcluded(
   file: string,
   scopes: readonly TargetFileScope[],
@@ -100,6 +104,9 @@ function intentionallyExcluded(
   // globs are deliberately narrower: ordinary application source cannot disappear merely
   // because an authoring agent wrote `exclude: ['**/*']` to make the score green.
   if (scopes.some((scope) => scope.excludedPaths.has(file))) return true;
+  // A repo-root dot-directory (`.claude/`, `.agents/`, `.github/`) holds agent, CI and editor
+  // tooling, never the application — its helper scripts are no language population to target.
+  if (isRootDotPath(file)) return true;
 
   const exactProfilePath = scopes.some((scope) => scope.explicitExclude.includes(file));
   if (scopes.some((scope) => scope.profileExcludedPaths.has(file))) {

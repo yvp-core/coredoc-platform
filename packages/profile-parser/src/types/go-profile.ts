@@ -2,7 +2,7 @@
 // GoProfile — declarative per-repo config for the Go substrate.
 //
 // Shaped like RustProfile, for the same reason: the framework conventions
-// (chi/gin/echo/gorilla routing, cobra commands, gRPC service registration,
+// (chi/gin/echo/gorilla/huma routing, cobra commands, gRPC service registration,
 // sqlc / database/sql / sqlx / GORM data access, net/http + resty egress) live in
 // generic code under substrate/go/, and this profile only TUNES them per repo.
 // No client-specific strings belong in shared code — only in a repo's own profile.ts.

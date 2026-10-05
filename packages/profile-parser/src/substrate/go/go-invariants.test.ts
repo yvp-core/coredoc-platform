@@ -376,7 +376,13 @@ describe('go substrate — graph-wide invariants', () => {
     const packageIds = new Set(repo.packages.map((p) => p.id));
     expect(repo.files.filter((f) => !packageIds.has(f.packageId))).toEqual([]);
     expect(repo.files.length).toBeGreaterThan(0);
-    expect(repo.files.every((f) => f.language === 'go' && f.extension === '.go')).toBe(true);
+    // `.go` sources, plus the `.sql` migrations a DDL entity points at.
+    expect(
+      repo.files.every(
+        (f) => (f.language === 'go' && f.extension === '.go') || (f.language === 'sql' && f.extension === '.sql'),
+      ),
+    ).toBe(true);
+    expect(repo.files.filter((f) => f.language === 'sql').map((f) => f.path)).toEqual(['migrations/0001_init.sql']);
   });
 
   it('emits one Package per DIRECTORY, named from the package clause', () => {
@@ -391,7 +397,7 @@ describe('go substrate — graph-wide invariants', () => {
         .filter((p) => owned.has(p.id))
         .map((p) => p.name)
         .sort(),
-    ).toEqual(['api', 'cmd', 'db', 'grpcsrv', 'handler', 'notify', 'svc']);
+    ).toEqual(['api', 'cmd', 'db', 'grpcsrv', 'handler', 'migrations', 'notify', 'svc']);
   });
 
   it('keeps the go.mod require list on the module root even when it holds no .go file', () => {

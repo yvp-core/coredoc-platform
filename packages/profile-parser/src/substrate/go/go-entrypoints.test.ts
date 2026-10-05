@@ -423,10 +423,10 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {}
   });
 
   it('falls back to a synthetic id for a handler the type environment cannot decide', async () => {
-    // An INTERFACE-typed field resolves to the interface, whose method specs have no bodies, and a
-    // handler produced by a factory CALL is a Tier-B gap. Both keep the route — a listed route with
-    // no handler is honest; a route pointing at the one struct that happens to implement the
-    // interface is not.
+    // An INTERFACE-typed field resolves to the interface, whose method specs have no bodies. The
+    // route is kept — a listed route with no handler is honest; a route pointing at the one struct
+    // that happens to implement the interface is not. A handler FACTORY is decidable: the request
+    // lands in the closure the package func returns.
     const files = [
       await gf(
         'cmd/server/router.go',
@@ -461,7 +461,7 @@ func makeHealth(msg string) http.HandlerFunc {
     const byPath = new Map(eps.map((e) => [(e.details as HttpEntrypointDetails).fullPath, e]));
     expect(byPath.get('/api/me')?.handlerId).toBe(ID.functionId('cmd/server/router.go', 'GET /api/me'));
     expect(byPath.get('/api/me')?.handlerId).not.toBe(ID.methodId('cmd/server/router.go', 'Impl', 'GetMe'));
-    expect(byPath.get('/api/health')?.handlerId).toBe(ID.functionId('cmd/server/router.go', 'GET /api/health'));
+    expect(byPath.get('/api/health')?.handlerId).toContain('router.go:makeHealth.(anonymous)');
   });
 
   it('honours a profile that narrows routerMethods to one spelling', async () => {
@@ -497,6 +497,84 @@ func setupAgain(r chi.Router) {
       await gf('api/b.go', 'package api\n\nfunc setup2(r chi.Router) {\n\tr.Get("/users", listUsers)\n}\n'),
     ];
     expect(httpPaths(split)).toEqual(['GET /users', 'GET /users']);
+  });
+});
+
+describe('http — huma operations behind a dependency gate', () => {
+  const HUMA = 'github.com/danielgtaylor/huma/v2';
+  const SOURCE = `package api
+
+import (
+	"net/http"
+
+	"github.com/danielgtaylor/huma/v2"
+)
+
+const Prefix = "/v1/mgmt"
+
+var (
+	groupsPath  = Prefix + "/companies/{companyUuid}/groups"
+	membersPath = groupsPath + "/{groupUuid}"
+)
+
+type Reader struct{}
+
+func (r *Reader) handleGroups() {}
+
+func handleSources(dep int) func() {
+	return func() {}
+}
+
+func register(api huma.API, r *Reader) {
+	huma.Register(api, huma.Operation{
+		OperationID: "groups",
+		Method:      http.MethodGet,
+		Path:        groupsPath,
+	}, r.handleGroups)
+	huma.Register(api, huma.Operation{Method: "POST", Path: membersPath}, r.handleGroups)
+	huma.Register(api, huma.Operation{Method: http.MethodGet, Path: Prefix + "/sources"}, handleSources(1))
+	huma.Delete(api, Prefix+"/cache", r.handleGroups)
+}
+`;
+
+  it('reads Method and a const-concatenated Path off huma.Operation, plus the verb helpers', async () => {
+    const files = [await gf('api/routes.go', SOURCE)];
+    expect(httpPaths(files, mod(HUMA))).toEqual([
+      'DELETE /v1/mgmt/cache',
+      'GET /v1/mgmt/companies/{companyUuid}/groups',
+      'GET /v1/mgmt/sources',
+      'POST /v1/mgmt/companies/{companyUuid}/groups/{groupUuid}',
+    ]);
+  });
+
+  it('resolves a method handler and the closure a handler FACTORY returns', async () => {
+    const files = [await gf('api/routes.go', SOURCE)];
+    const eps = extractGoEntrypoints(files, ID, { modules: mod(HUMA) });
+    const byPath = new Map(eps.map((e) => [(e.details as HttpEntrypointDetails).fullPath, e.handlerId]));
+    expect(byPath.get('/v1/mgmt/companies/{companyUuid}/groups')).toContain('Reader.handleGroups');
+    expect(byPath.get('/v1/mgmt/sources')).toContain('handleSources.(anonymous)');
+  });
+
+  it('emits NOTHING when huma is not a dependency', async () => {
+    const files = [await gf('api/routes.go', SOURCE)];
+    expect(httpPaths(files, mod())).toEqual([]);
+  });
+
+  it('ignores a Register call whose qualifier is not the huma import', async () => {
+    const files = [
+      await gf(
+        'api/routes.go',
+        `package api
+
+import "github.com/acme/registry"
+
+func setup() {
+	registry.Register(api, registry.Operation{Method: "GET", Path: "/x"}, h)
+}
+`,
+      ),
+    ];
+    expect(httpPaths(files, mod(HUMA))).toEqual([]);
   });
 });
 

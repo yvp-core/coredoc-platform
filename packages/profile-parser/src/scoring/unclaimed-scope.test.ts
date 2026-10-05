@@ -32,6 +32,26 @@ describe('unclaimedScope', () => {
     ]);
   });
 
+  it('counts repo-root dot-directory tooling as excluded, never as a language population', () => {
+    const toolRoot = mkdtempSync(path.join(tmpdir(), 'unclaimed-tooling-'));
+    try {
+      for (const rel of [
+        'main.go',
+        '.claude/skills/adr/scripts/new_adr.js',
+        '.claude/skills/adr/scripts/set_status.js',
+        'web/.hidden/app.js', // not repo-root: still application source
+      ]) {
+        mkdirSync(path.dirname(path.join(toolRoot, rel)), { recursive: true });
+        writeFileSync(path.join(toolRoot, rel), '// x');
+      }
+      const report = unclaimedScope(toolRoot, new Set(['main.go']), []);
+      expect(report.intentionallyExcluded).toBe(2);
+      expect(report.sampleFiles).toEqual(['web/.hidden/app.js']);
+    } finally {
+      rmSync(toolRoot, { recursive: true, force: true });
+    }
+  });
+
   it('returns zero unclaimed when every known file is claimed', () => {
     const report = unclaimedScope(root, new Set(['ui/App.tsx', 'api/app.rb', 'scripts/deploy.rb']), []);
     expect(report.unclaimed).toBe(0);
