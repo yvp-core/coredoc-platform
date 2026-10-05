@@ -31,6 +31,12 @@ export interface SdkMethodNodeLike {
 export interface SdkRepoLike {
   name: string;
   functions: SdkMethodNodeLike[];
+  /**
+   * Typed class properties of the repo (`_core: Core` on the client class), used to map
+   * the member segment a consumer calls through (`client.core.getX()`) to the SDK class
+   * that owns the method. Optional — without it only class-name owners match.
+   */
+  memberTypes?: ReadonlyArray<{ name: string; typeName: string }>;
 }
 
 /** Precise join key: packageName + '::' + normalizedDescriptor. */
@@ -45,6 +51,49 @@ function preciseKey(packageName: string, normalizedDescriptor: string): string {
  */
 export function structuralFallbackKey(packageName: string, methodName: string): string {
   return `${packageName}::#m::${methodName}`;
+}
+
+/**
+ * Owner key: packageName + lower-cased owner + method name, where the owner is either
+ * the SDK class (`Core`) or a client member segment typed as that class (`core`,
+ * `_core: Core`). A consumer that only knows the member it called through
+ * (`client.core.getX()` → descriptor `core#getX`) joins here; the `#c::` infix keeps
+ * the namespace disjoint from the precise and structural keys.
+ */
+export function ownerKey(packageName: string, owner: string, methodName: string): string {
+  return `${packageName}::#c::${owner.toLowerCase()}::${methodName}`;
+}
+
+/** An egress the protocol hop can route on: a concrete HTTP path or messaging destination. */
+function routableEgressKey(egress: ExternalCallTarget | undefined): string | undefined {
+  if (egress?.http?.pathTemplate)
+    return `http ${egress.http.method} ${egress.http.pathTemplate} ${egress.targetService ?? ''}`;
+  const dest = egress?.messaging?.destinationValue ?? egress?.messaging?.destination;
+  return dest ? `msg ${egress?.messaging?.system ?? ''} ${dest}` : undefined;
+}
+
+/**
+ * The one entry a fallback key may stand for. A single candidate wins outright. Among
+ * several, only those with a routable egress can complete the chain (a same-named
+ * wrapper that merely delegates cannot), so the key resolves when exactly one does —
+ * or when all routable candidates send the call to the same place (one method
+ * duplicated across a legacy and a current client), picking the lowest id for a
+ * deterministic edge. Anything else stays ambiguous and registers nothing.
+ */
+function soleCandidate(entries: ReadonlySet<SdkSymbolEntry>): SdkSymbolEntry | undefined {
+  if (entries.size === 1) return [...entries][0];
+  const routable = [...entries].filter((e) => routableEgressKey(e.egress) !== undefined);
+  if (routable.length === 0) return undefined;
+  if (new Set(routable.map((e) => routableEgressKey(e.egress))).size !== 1) return undefined;
+  return routable.reduce((a, b) => (b.methodNodeId < a.methodNodeId ? b : a));
+}
+
+/** The owner segment of a normalized `Owner#member` descriptor, or undefined. */
+function ownerOfNormalizedDescriptor(normalized: string): string | undefined {
+  const lastHash = normalized.lastIndexOf('#');
+  if (lastHash <= 0) return undefined;
+  const owner = normalized.slice(0, lastHash);
+  return owner.slice(owner.lastIndexOf('#') + 1) || undefined;
 }
 
 /**
@@ -75,9 +124,8 @@ export function methodNameFromNormalizedDescriptor(normalized: string): string {
  */
 export function buildSdkSymbolIndex(sdkRepos: SdkRepoLike[]): Map<string, SdkSymbolEntry> {
   const index = new Map<string, SdkSymbolEntry>();
-  // Count method-name occurrences per package to detect structural ambiguity.
-  const fallbackCounts = new Map<string, number>();
-  const fallbackEntry = new Map<string, SdkSymbolEntry>();
+  // Method-name candidates per package, to detect structural ambiguity.
+  const fallbackCandidates = new Map<string, Set<SdkSymbolEntry>>();
 
   for (const repo of sdkRepos) {
     for (const fn of repo.functions) {
@@ -94,13 +142,47 @@ export function buildSdkSymbolIndex(sdkRepos: SdkRepoLike[]): Map<string, SdkSym
 
       const methodName = methodNameFromNormalizedDescriptor(normalizedDescriptor);
       const fk = structuralFallbackKey(entry.packageName, methodName);
-      fallbackCounts.set(fk, (fallbackCounts.get(fk) ?? 0) + 1);
-      fallbackEntry.set(fk, entry);
+      fallbackCandidates.set(fk, (fallbackCandidates.get(fk) ?? new Set()).add(entry));
     }
   }
 
-  for (const [fk, count] of fallbackCounts) {
-    if (count === 1) index.set(fk, fallbackEntry.get(fk)!);
+  for (const [fk, entries] of fallbackCandidates) {
+    const chosen = soleCandidate(entries);
+    if (chosen) index.set(fk, chosen);
+  }
+
+  // Owner keys: each tagged `Class#method` under its class, plus under every member
+  // segment whose declared type is that class. Like the structural tier, a key that
+  // two different methods claim (a segment typed as two classes, a segment named like
+  // another class) registers nothing.
+  const ownerCandidates = new Map<string, Set<SdkSymbolEntry>>();
+  const addOwner = (key: string, entry: SdkSymbolEntry) => {
+    const set = ownerCandidates.get(key) ?? new Set<SdkSymbolEntry>();
+    set.add(entry);
+    ownerCandidates.set(key, set);
+  };
+  for (const repo of sdkRepos) {
+    const byClass = new Map<string, SdkSymbolEntry[]>();
+    for (const fn of repo.functions) {
+      if (!fn.moniker) continue;
+      const entry = index.get(preciseKey(fn.moniker.packageName, normalizeMonikerDescriptor(fn.moniker.descriptor)));
+      const cls = entry && ownerOfNormalizedDescriptor(entry.normalizedDescriptor);
+      if (!entry || !cls) continue;
+      const method = methodNameFromNormalizedDescriptor(entry.normalizedDescriptor);
+      addOwner(ownerKey(entry.packageName, cls, method), entry);
+      byClass.set(cls, [...(byClass.get(cls) ?? []), entry]);
+    }
+    for (const member of repo.memberTypes ?? []) {
+      const segment = member.name.replace(/^_+/, ''); // `_core` backs the `core` getter
+      for (const entry of byClass.get(member.typeName) ?? []) {
+        const method = methodNameFromNormalizedDescriptor(entry.normalizedDescriptor);
+        addOwner(ownerKey(entry.packageName, segment, method), entry);
+      }
+    }
+  }
+  for (const [key, entries] of ownerCandidates) {
+    const chosen = soleCandidate(entries);
+    if (chosen) index.set(key, chosen);
   }
 
   return index;
@@ -132,10 +214,25 @@ export function matchSymbolHop(call: ExternalCallLike, index: Map<string, SdkSym
     };
   }
 
+  const methodName = methodNameFromNormalizedDescriptor(normalizedDescriptor);
+
+  // Owner join — the consumer names the member it called through (`core#getX`) or the
+  // class with a different case; the package + owner + method still pin one method.
+  const owner = ownerOfNormalizedDescriptor(normalizedDescriptor);
+  const byOwner = owner ? index.get(ownerKey(moniker.packageName, owner, methodName)) : undefined;
+  if (byOwner) {
+    return {
+      kind: 'symbol',
+      sourceId: call.id,
+      targetId: byOwner.methodNodeId,
+      via: HopVia.Moniker,
+      confidence: 0.95,
+    };
+  }
+
   // Structural fallback — same package + method name, descriptor skew too large for
   // the precise join (e.g. the class was renamed across .d.ts/source). Lower
   // confidence than the precise join.
-  const methodName = methodNameFromNormalizedDescriptor(normalizedDescriptor);
   const structural = index.get(structuralFallbackKey(moniker.packageName, methodName));
   if (structural) {
     return {

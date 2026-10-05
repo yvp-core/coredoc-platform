@@ -63,6 +63,7 @@ import {
   bareStringVerb,
   fetchMethodFromOpts,
   inlineConstInterpolations,
+  objectArgOmitsKey,
   resolveHttpMethodArg,
   resolveHttpUrl,
   resolveQueueTopicReference,
@@ -102,6 +103,7 @@ export {
   bareStringVerb,
   fetchMethodFromOpts,
   inlineConstInterpolations,
+  objectArgOmitsKey,
   resolveHttpMethodArg,
   resolveHttpUrl,
   resolveQueueTopic,
@@ -173,6 +175,30 @@ function innermostSpan(
  */
 function enclosingKey(kind: string | undefined, className: string | undefined, name: string): string {
   return `${kind ?? ''}|${className ?? ''}|${name}`;
+}
+
+/** Record `Obj.KEY → value` for every string-valued pair of every const object literal under `root`. */
+function collectConstObjectMembers(root: TsNode, out: Map<string, string>): void {
+  const visit = (objName: string, obj: TsNode): void => {
+    for (const pair of obj.namedChildren.filter((c) => c.type === 'pair')) {
+      const key = text(pair.childForFieldName('key')).replace(/['"]/g, '');
+      const v = pair.childForFieldName('value');
+      if (key && v?.type === 'string') out.set(`${objName}.${key}`, unquote(text(v)));
+    }
+  };
+  const walk = (n: TsNode): void => {
+    if (n.type === 'variable_declarator') {
+      const name = text(n.childForFieldName('name'));
+      // Unwrap `{…} as const` / `{…} satisfies T` so the inner object is reached.
+      let v = n.childForFieldName('value');
+      while (v && (v.type === 'as_expression' || v.type === 'satisfies_expression')) {
+        v = v.namedChildren[0];
+      }
+      if (name && v?.type === 'object') visit(name, v);
+    }
+    for (const c of n.namedChildren) walk(c);
+  };
+  walk(root);
 }
 
 function objectPatternBindings(pattern: TsNode): { propertyName: string; localName: string }[] {
@@ -544,29 +570,43 @@ export class TreeSitterScipSubstrate implements Substrate, VueSubstrate {
     if (dot < 0) return undefined;
     if (!this.constMemberMapMemo) {
       const map = new Map<string, string>();
-      const visit = (objName: string, obj: TsNode): void => {
-        for (const pair of obj.namedChildren.filter((c) => c.type === 'pair')) {
-          const key = text(pair.childForFieldName('key')).replace(/['"]/g, '');
-          const v = pair.childForFieldName('value');
-          if (key && v?.type === 'string') map.set(`${objName}.${key}`, unquote(text(v)));
-        }
-      };
-      const walk = (n: TsNode): void => {
-        if (n.type === 'variable_declarator') {
-          const name = text(n.childForFieldName('name'));
-          // Unwrap `{…} as const` / `{…} satisfies T` so the inner object is reached.
-          let v = n.childForFieldName('value');
-          while (v && (v.type === 'as_expression' || v.type === 'satisfies_expression')) {
-            v = v.namedChildren[0];
-          }
-          if (name && v?.type === 'object') visit(name, v);
-        }
-        for (const c of n.namedChildren) walk(c);
-      };
-      for (const root of this.cstRoots.values()) walk(root);
+      for (const root of this.cstRoots.values()) collectConstObjectMembers(root, map);
       this.constMemberMapMemo = map;
     }
     return this.constMemberMapMemo.get(qualifiedRef);
+  }
+
+  // Same as resolveConstMember, scoped to the const objects declared in ONE file —
+  // for names like `PATH` that every module re-declares with different values.
+  private fileConstMemberMemo = new Map<string, Map<string, string>>();
+  private resolveFileConstMember(qualifiedRef: string, file: string): string | undefined {
+    let map = this.fileConstMemberMemo.get(file);
+    if (!map) {
+      map = new Map<string, string>();
+      const root = this.cstRoots.get(file);
+      if (root) collectConstObjectMembers(root, map);
+      this.fileConstMemberMemo.set(file, map);
+    }
+    return map.get(qualifiedRef);
+  }
+
+  /**
+   * Inline URL references to a file-local const object member: a bare `PATH.X` arg
+   * becomes its string literal, and a `${PATH.X}` interpolation is inlined when its
+   * value is a route (leading `/`). Any other member interpolation — a config host such
+   * as `${CONFIG.api.url}` — stays verbatim so templateTailRoute still drops it.
+   */
+  private inlineRouteConstMembers(raw: string | undefined, file: string): string | undefined {
+    if (raw === undefined) return raw;
+    const bare = raw.trim();
+    if (/^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*$/.test(bare)) {
+      const v = this.resolveFileConstMember(bare, file);
+      return v !== undefined && !v.includes('`') ? `\`${v}\`` : raw;
+    }
+    return raw.replace(/\$\{([A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*)\}/g, (full, ref: string) => {
+      const v = this.resolveFileConstMember(ref, file);
+      return v?.startsWith('/') ? v : full;
+    });
   }
 
   requireRegistry(args: {
@@ -2983,11 +3023,12 @@ export class TreeSitterScipSubstrate implements Substrate, VueSubstrate {
     const receiver = call.receiver!;
     const methodName = call.methodName!;
     const propName = receiver.startsWith('this.') ? receiver.slice('this.'.length) : receiver;
-    const diClass = this.diMap.get(file)?.get(propName);
     const loc: SubstrateLoc = { filePath: file, startLine: call.startLine, endLine: call.endLine };
     // Root DI prop of a (possibly chained) receiver, e.g. `apiClient` in
-    // `this.apiClient.authSessions` → import-provenance lookup.
+    // `this.apiClient.authSessions` → DI type and import-provenance lookups, both keyed
+    // by constructor param name.
     const rootProp = propName.split('.')[0];
+    const diClass = this.diMap.get(file)?.get(rootProp);
     const diImportMod = this.diImportModule.get(file)?.get(rootProp);
 
     for (const m of matchers) {
@@ -3023,13 +3064,23 @@ export class TreeSitterScipSubstrate implements Substrate, VueSubstrate {
         const byDi = diClass !== undefined && (m.diTypeSuffix ?? []).some((s) => diClass.endsWith(s));
         const byReceiver = m.receiverPattern !== undefined && regexFromSource(m.receiverPattern).test(receiver);
         if (byDi || byReceiver) {
-          return {
+          const fact: ExternalCallFact = {
             callerId,
             serviceName: m.serviceName,
             sdkName: m.sdkName ?? (byDi ? diClass : undefined),
             method: methodName,
             location: loc,
           };
+          // A declared SDK package lets the linker's symbol hop join this call to the SDK
+          // method node (package + member segment + method), as `imported-sdk` does.
+          if (m.sdkName) {
+            const segment = importedSdkSegment(propName, rootProp);
+            fact.moniker = {
+              packageName: m.sdkName,
+              descriptor: segment ? `${segment}#${methodName}().` : `${methodName}().`,
+            };
+          }
+          return fact;
         }
         continue;
       }
@@ -3042,7 +3093,9 @@ export class TreeSitterScipSubstrate implements Substrate, VueSubstrate {
         // Inline `${CONST}` string consts BEFORE route extraction so a leading
         // const route-prefix (`${BASE}/…`) isn't mistaken for a config host and
         // dropped by templateTailRoute (see inlineStringConstInterpolations).
-        const rawUrlArg = m.url ? this.inlineStringConstInterpolations(call.arguments?.[m.url.arg], file) : undefined;
+        const rawUrlArg = m.url
+          ? this.inlineStringConstInterpolations(this.inlineRouteConstMembers(call.arguments?.[m.url.arg], file), file)
+          : undefined;
         const rawPathTemplate = m.url ? resolveHttpUrl(rawUrlArg, m.url) : undefined;
         // Resolve `${CONST}` prefix interpolations that survive as `{IDENT}` placeholders
         // to their string-const value (e.g. `const BASE = 'foo'` → `/${BASE}/items/${x}`
@@ -3055,10 +3108,13 @@ export class TreeSitterScipSubstrate implements Substrate, VueSubstrate {
         // The HTTP verb: read from an arg (request-wrapper `{ method: 'POST' }`) when
         // `httpMethodFrom` is set, else the matched method name upper-cased (axios-style
         // `client.get(url)`). Falls back to the method name when the arg has no verb.
+        const methodArg = m.httpMethodFrom ? call.arguments?.[m.httpMethodFrom.arg] : undefined;
         const httpMethod =
-          (m.httpMethodFrom
-            ? resolveHttpMethodArg(call.arguments?.[m.httpMethodFrom.arg], m.httpMethodFrom)
-            : undefined) ?? methodName.toUpperCase();
+          (m.httpMethodFrom ? resolveHttpMethodArg(methodArg, m.httpMethodFrom) : undefined) ??
+          (m.httpMethodFrom && m.httpMethodDefault && objectArgOmitsKey(methodArg, m.httpMethodFrom)
+            ? m.httpMethodDefault.toUpperCase()
+            : undefined) ??
+          methodName.toUpperCase();
         // Config-driven target service: a token read from the call (CONFIG.<token> arg /
         // uri-template member) translated through serviceMap. Unmapped → undefined.
         // The uri-template selector reads from the SAME arg the URL lives in.
@@ -3083,6 +3139,10 @@ export class TreeSitterScipSubstrate implements Substrate, VueSubstrate {
           http: pathTemplate ? { method: httpMethod, pathTemplate } : undefined,
           targetService,
           ...(dispatchMethod ? { dispatchMethod } : {}),
+          // The dispatched SDK method is a symbol in the declared package: join it by name.
+          ...(dispatchMethod && m.sdkName
+            ? { moniker: { packageName: m.sdkName, descriptor: `${dispatchMethod}().` } }
+            : {}),
         };
       }
       if (m.kind === 'queue') {

@@ -1723,7 +1723,8 @@ export class SubstrateProfileEngine {
     table: HandlerTable,
     aliasMap: Map<string, string>,
   ): string | undefined {
-    const cleaned = refText.replace(/\(.*\)\s*$/, '');
+    // Whitespace first: formatters wrap long chains (`handlers.a.b\n  .method`).
+    const cleaned = refText.replace(/\s+/g, '').replace(/\(.*\)$/, '');
     const head = `${table.registryVar}.`;
     if (!cleaned.startsWith(head)) return undefined;
     const parts = cleaned.slice(head.length).split('.');

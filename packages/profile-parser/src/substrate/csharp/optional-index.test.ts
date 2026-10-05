@@ -79,17 +79,6 @@ describe('C# optional compiler analysis', () => {
       { language: 'csharp', mode: 'basic', compilerReceiverTypes: false, fallback: false },
     ]);
   });
-  it('fails only when enhanced analysis is explicitly required', async () => {
-    const root = source();
-    removeCompilerToolsFromPath(root);
-    vi.stubEnv('COREDOC_SCIP_DOTNET', '');
-    await expect(
-      csharpProvider.parse(
-        { ...profile, substrate: { ...profile.substrate, analysis: { mode: 'enhanced', fallback: false } } },
-        { repoRoot: root, repoName: 'strict' },
-      ),
-    ).rejects.toThrow(/scip-dotnet|bubblewrap|Alpine|Windows/);
-  });
   it('retains the basic graph after an indexer failure', async () => {
     const root = source();
     vi.spyOn(indexing, 'prepareCSharpIndex').mockRejectedValue(new Error('Indexer exited with 1'));

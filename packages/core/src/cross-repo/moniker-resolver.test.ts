@@ -141,3 +141,84 @@ describe('matchSymbolHop', () => {
     expect(hop.code).toBe('no-moniker-match');
   });
 });
+
+describe('owner join (consumer names the member it called through)', () => {
+  // Two classes share a method name, so the structural (package, method) key is ambiguous;
+  // the owner — class or a client member typed as that class — still pins one method.
+  const repo = (memberTypes?: SdkRepoLike['memberTypes']): SdkRepoLike => ({
+    name: 'sdk',
+    functions: [
+      { id: 'core-get', name: 'get', moniker: { packageName: PKG, descriptor: 'src/`core.ts`/Core#get().' }, egress },
+      {
+        id: 'plan-get',
+        name: 'get',
+        moniker: { packageName: PKG, descriptor: 'src/`plans.ts`/Plans#get().' },
+        egress: { ...egress, http: { method: 'GET', pathTemplate: '/plans' } },
+      },
+    ],
+    memberTypes,
+  });
+  const call = (descriptor: string) => consumerCall({ method: 'get', moniker: { packageName: PKG, descriptor } });
+
+  it('joins a member segment named like its class, case-insensitively', () => {
+    const hop = matchSymbolHop(call('core#get().'), buildSdkSymbolIndex([repo()]));
+    expect(isResolved(hop) && hop.targetId).toBe('core-get');
+  });
+
+  it('joins a member segment through the client property type (`_billing: Plans`)', () => {
+    const hop = matchSymbolHop(
+      call('billing#get().'),
+      buildSdkSymbolIndex([repo([{ name: '_billing', typeName: 'Plans' }])]),
+    );
+    expect(isResolved(hop) && hop.targetId).toBe('plan-get');
+  });
+
+  it('refuses a segment that resolves to two different methods', () => {
+    const index = buildSdkSymbolIndex([repo([{ name: 'core', typeName: 'Plans' }])]);
+    const hop = matchSymbolHop(call('core#get().'), index);
+    expect(isResolved(hop)).toBe(false);
+  });
+
+  it('does not guess for an unknown segment when the method name is ambiguous', () => {
+    const hop = matchSymbolHop(call('other#get().'), buildSdkSymbolIndex([repo()]));
+    expect(isResolved(hop)).toBe(false);
+  });
+});
+
+describe('ambiguous fallback keys narrowed by routable egress', () => {
+  const fn = (id: string, descriptor: string, e?: ExternalCallTarget) => ({
+    id,
+    name: 'listX',
+    moniker: { packageName: PKG, descriptor },
+    egress: e,
+  });
+  const call = consumerCall({ method: 'listX', moniker: { packageName: PKG, descriptor: 'listX().' } });
+
+  it('prefers the only same-named method that has a routable egress over a delegating wrapper', () => {
+    const index = buildSdkSymbolIndex([
+      {
+        name: 'r',
+        functions: [
+          fn('wrapper', 'src/`repo.ts`/XRepository#listX().'),
+          fn('client', 'src/`c.ts`/Client#listX().', egress),
+        ],
+      },
+    ]);
+    const hop = matchSymbolHop(call, index);
+    expect(isResolved(hop) && hop.targetId).toBe('client');
+  });
+
+  it('resolves duplicates that route to the same place, deterministically', () => {
+    const index = buildSdkSymbolIndex([
+      {
+        name: 'r',
+        functions: [
+          fn('b-legacy', 'src/`l.ts`/Legacy#listX().', egress),
+          fn('a-current', 'src/`c.ts`/Client#listX().', egress),
+        ],
+      },
+    ]);
+    const hop = matchSymbolHop(call, index);
+    expect(isResolved(hop) && hop.targetId).toBe('a-current');
+  });
+});

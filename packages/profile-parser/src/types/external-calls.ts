@@ -61,6 +61,14 @@ export type ExternalClientMatcher =
        */
       httpMethodFrom?: ArgRef;
       /**
+       * The request library's own default verb (got / request / axios: `'GET'`), used when
+       * the `httpMethodFrom` object argument has NO such key at all
+       * (`this.request({ uri })`). A key whose value is not a literal verb, or an object
+       * with a spread (`{ ...opts, uri }`) that might carry it, still falls back to the
+       * matched method name.
+       */
+      httpMethodDefault?: string;
+      /**
        * Dynamic-dispatch SDK method name: the POSITIONAL string-literal argument that
        * holds the SDK method NAME for a generic request wrapper that dispatches by name
        * rather than by a static path — `this.performApiRequest('listResources', […])`

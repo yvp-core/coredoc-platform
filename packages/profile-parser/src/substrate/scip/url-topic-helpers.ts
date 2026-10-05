@@ -189,6 +189,18 @@ export function resolveHttpMethodArg(rawArg: string | undefined, ref: ArgRef): s
   return bareStringVerb(rawArg);
 }
 
+/**
+ * Whether an `object-property` ref's argument is an object literal that certainly lacks
+ * the key: no spread that could carry it, and the key never appears as a word (which also
+ * covers the `{ uri, method }` shorthand). Conservative — any doubt answers false.
+ */
+export function objectArgOmitsKey(rawArg: string | undefined, ref: ArgRef): boolean {
+  if (rawArg === undefined || ref.as !== 'object-property') return false;
+  const s = rawArg.trim();
+  if (!s.startsWith('{') || s.includes('...')) return false;
+  return !new RegExp(`\\b${escapeRegExp(ref.key)}\\b`).test(s);
+}
+
 /** Upper-case a string and return it only when it is a known HTTP verb. */
 function upperHttpVerb(s: string): string | undefined {
   const v = s.toUpperCase();

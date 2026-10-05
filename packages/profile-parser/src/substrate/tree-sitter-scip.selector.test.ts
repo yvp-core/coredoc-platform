@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { ArgRef, ServiceSelector } from '../types.js';
-import { resolveHttpMethodArg, resolveHttpUrl, resolveServiceSelector, templateTailRoute } from './tree-sitter-scip.js';
+import {
+  objectArgOmitsKey,
+  resolveHttpMethodArg,
+  resolveHttpUrl,
+  resolveServiceSelector,
+  templateTailRoute,
+} from './tree-sitter-scip.js';
 
 /**
  * Config-driven cross-repo egress: a service-selector TOKEN read from the call
@@ -149,5 +155,27 @@ describe('resolveHttpUrl yields the template tail for a leading-interpolation ur
   it('still returns a literal-led keyed uri unchanged (no leading interpolation)', () => {
     const objArg = `{ uri: \`/v2/management/core/companies/\${companyUuid}/list\`, method: "POST" }`;
     expect(resolveHttpUrl(objArg, uriRef)).toBe('/v2/management/core/companies/{companyUuid}/list');
+  });
+});
+
+describe('objectArgOmitsKey (httpMethodDefault applies only when the verb key is certainly absent)', () => {
+  const ref: ArgRef = { arg: 0, as: 'object-property', key: 'method' };
+
+  it('is true for an object literal with no method key', () => {
+    expect(objectArgOmitsKey(`{ entrypoint: this.entrypoints.rails.url, uri: \`/api/x\`, queryOptions: o }`, ref)).toBe(
+      true,
+    );
+  });
+
+  it('is false when the key is present — literal, computed or shorthand', () => {
+    expect(objectArgOmitsKey(`{ uri: '/x', method: 'POST' }`, ref)).toBe(false);
+    expect(objectArgOmitsKey(`{ uri: '/x', method: verb }`, ref)).toBe(false);
+    expect(objectArgOmitsKey(`{ uri, method }`, ref)).toBe(false);
+  });
+
+  it('is false for a spread that could carry the key, or a non-object argument', () => {
+    expect(objectArgOmitsKey(`{ ...options, uri: '/x' }`, ref)).toBe(false);
+    expect(objectArgOmitsKey('options', ref)).toBe(false);
+    expect(objectArgOmitsKey(undefined, ref)).toBe(false);
   });
 });
