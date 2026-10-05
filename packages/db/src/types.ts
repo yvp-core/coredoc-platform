@@ -1494,6 +1494,16 @@ export interface IGraphReadRepository {
 
   /** Read the last graph snapshot committed atomically with a repository write. */
   getAppliedGraphSnapshot(repoId: string): Promise<AppliedGraphSnapshot | null>;
+
+  /**
+   * Backends whose `applyChangeset` commits in chunks (not one transaction) mark a
+   * repository while an apply is in flight and clear the mark with the final
+   * snapshot write. A mark that is still present means an earlier apply stopped
+   * part-way, so the graph may hold a mix of two versions and only a full
+   * replacement is safe. Returns the parsed version that apply was writing, or null.
+   * Omitted by atomic backends, whose failed applies roll back.
+   */
+  getPendingGraphApply?(repoId: string): Promise<string | null>;
 }
 
 /**

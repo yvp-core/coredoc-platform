@@ -75,11 +75,19 @@ export interface CiRunOptions {
    * job itself keeps running server-side). Default 15 minutes.
    */
   pushTimeoutMs?: number;
+  /**
+   * Watch the queued push job until it finishes (default). `false` returns as soon
+   * as the job is queued: the server applies it regardless, and a large repository
+   * can take longer than a CI step should block.
+   */
+  wait?: boolean;
 }
 
 export interface CiRunResult {
   status: 'success' | 'error';
   repo: string;
+  /** Server push job id, when the push was queued without waiting for it. */
+  pushJobId?: string;
   nodes?: number;
   edges?: number;
   files?: number;
@@ -285,7 +293,10 @@ export async function runCi(options: CiRunOptions): Promise<CiRunResult> {
       commitSha: parsedRepo.git?.commitHash,
     });
     const pushJobId = queuedPushJobId(pushResponse);
-    if (pushJobId) {
+    const queuedOnly = Boolean(pushJobId) && options.wait === false;
+    if (queuedOnly) {
+      log(`Push queued (jobId=${pushJobId}); not waiting (--no-wait), the server applies it in the background`);
+    } else if (pushJobId) {
       log(`Push queued (jobId=${pushJobId}); waiting for it to finish...`);
       const job = await waitForPushJob(workspaceId, pushJobId, { timeoutMs: options.pushTimeoutMs });
       log(`Push job ${job.id}: ${job.status}`);
@@ -304,6 +315,7 @@ export async function runCi(options: CiRunOptions): Promise<CiRunResult> {
       parserVersion,
       branch: parsedRepo.git?.branch !== 'HEAD' ? parsedRepo.git?.branch : undefined,
       prNumber: ciGit.prNumber,
+      ...(queuedOnly && pushJobId ? { pushJobId } : {}),
       ...(summaryOutput && {
         summaryStats: {
           summarized: summaryOutput.stats.summarized,

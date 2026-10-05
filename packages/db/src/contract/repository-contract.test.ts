@@ -1776,6 +1776,11 @@ const contractCases = {
       hasAppliedAt: true,
     },
   },
+  getPendingGraphApply: {
+    normalization: 'exact: a completed apply leaves no in-flight mark (atomic backends omit the method)',
+    run: async (repository) => ({ pending: (await repository.getPendingGraphApply?.(CONTRACT_REPO_A)) ?? null }),
+    golden: { pending: null },
+  },
   findUnresolvedCallsByNameTail: {
     normalization: 'exact: (filePath, line) ordering, cap applied after ordering',
     run: async (repository) => ({
@@ -1813,7 +1818,10 @@ const contractCases = {
   },
 } satisfies { [K in ReadMethod]: ContractCase };
 
-type RepoScopedMethod = Exclude<ReadMethod, 'listAllRepositories' | 'getResolvesEdge' | 'getAppliedGraphSnapshot'>;
+type RepoScopedMethod = Exclude<
+  ReadMethod,
+  'listAllRepositories' | 'getResolvesEdge' | 'getAppliedGraphSnapshot' | 'getPendingGraphApply'
+>;
 
 interface RepoScopeCase {
   run(repository: IGraphReadRepository): Promise<unknown>;

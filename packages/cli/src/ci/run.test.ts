@@ -280,6 +280,17 @@ describe('ci run push step', () => {
     expect(requested.filter((url) => url.includes('/jobs/job_1')).length).toBe(1);
   });
 
+  it('returns once the push is queued under --no-wait, reporting the job id', async () => {
+    stubServer([{ id: 'job_1', status: 'running' }]);
+
+    const result = await run({ wait: false });
+
+    expect(result.status).toBe('success');
+    expect(result.pushJobId).toBe('job_1');
+    expect(requested.some((url) => url.includes('/push'))).toBe(true);
+    expect(requested.filter((url) => url.includes('/jobs/job_1'))).toHaveLength(0);
+  });
+
   it('fails the run with the job error when the push job fails', async () => {
     stubServer([{ id: 'job_1', status: 'failed', lastError: 'changeset apply rejected' }]);
 

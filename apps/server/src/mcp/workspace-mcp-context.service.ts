@@ -112,13 +112,16 @@ const GRAPH_READ_METHODS = [
   'getMonikeredFunctions',
   'getInternalCallEdges',
   'getAppliedGraphSnapshot',
+  'getPendingGraphApply',
   'findUnresolvedCallsByNameTail',
   'findUnresolvedCallsInFiles',
 ] as const satisfies readonly (keyof IGraphReadRepository)[];
 
+// Exhaustiveness check: a read method added to IGraphReadRepository but not listed
+// above fails compilation with "Type '<methodName>' does not satisfy the constraint 'never'".
 type MissingGraphReadMethod = Exclude<keyof IGraphReadRepository, (typeof GRAPH_READ_METHODS)[number]>;
-const ALL_GRAPH_READ_METHODS_LISTED: MissingGraphReadMethod extends never ? true : false = true;
-void ALL_GRAPH_READ_METHODS_LISTED;
+type AssertNoMissingGraphReadMethods<Missing extends never> = Missing;
+export type AllGraphReadMethodsListed = AssertNoMissingGraphReadMethods<MissingGraphReadMethod>;
 
 /**
  * Cypher is an OPTIONAL capability, so these stay out of GRAPH_READ_METHODS (and

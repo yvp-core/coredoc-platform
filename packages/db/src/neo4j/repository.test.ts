@@ -872,7 +872,7 @@ describe('Neo4jRepository — applyChangeset incremental parity', () => {
     expect(queryMatching(driver, 'MERGE (meta:CoredocMeta')).toBeTruthy();
   });
 
-  it('runs all changeset phases inside ONE write transaction, in order (atomic like SQLite)', async () => {
+  it('commits each statement in its own write transaction, phases in order', async () => {
     const { repo, driver } = makeRepo();
 
     // Instrument the fake driver to count managed write transactions.
@@ -902,8 +902,8 @@ describe('Neo4jRepository — applyChangeset incremental parity', () => {
       ],
     });
 
-    // The whole changeset is one transaction — a mid-apply failure rolls it back.
-    expect(writeTxCount).toBe(1);
+    // Chunked commits: no single transaction carries the whole changeset.
+    expect(writeTxCount).toBeGreaterThan(1);
 
     // Delete nodes -> upsert nodes -> wipe edges -> insert edges.
     const queries = driver.calls.map((c) => c.query);
@@ -932,11 +932,15 @@ describe('Neo4jRepository — applyChangeset incremental parity', () => {
     });
 
     const count = queryMatching(driver, 'AS nodesDeleted')!;
-    expect(count.query).toContain("n.id = repoId OR n.id STARTS WITH repoId + ':'");
-    expect(count.params.repoIds).toEqual(['hash:with-colon']);
+    // Exact id and child namespace as separate index-seekable matches, never an any(... OR ...) scan.
+    expect(count.query).toContain('MATCH (n:CodeNode {id: $repoId})');
+    expect(count.query).toContain('WHERE n.id STARTS WITH $prefix');
+    expect(count.query).not.toContain('any(');
+    expect(count.params).toMatchObject({ repoId: 'hash:with-colon', prefix: 'hash:with-colon:' });
     const wholeRepoDelete = driver.calls.find(
-      (call) => call.query.includes("STARTS WITH repoId + ':'") && call.query.includes('DETACH DELETE n'),
+      (call) => call.query.includes('STARTS WITH $prefix') && call.query.includes('DETACH DELETE n'),
     )!;
+    expect(wholeRepoDelete.query).toContain('LIMIT $limit');
     const insert = queryMatching(driver, 'MERGE (n:Function {id: item.id})')!;
     expect(driver.calls.indexOf(wholeRepoDelete)).toBeLessThan(driver.calls.indexOf(insert));
     expect(result.nodesDeleted).toBe(2);
@@ -1085,6 +1089,95 @@ describe('Neo4jRepository — applyChangeset incremental parity', () => {
     expect(typeof batch[0]!.props.chain).toBe('string');
 
     expect(result.edgesInserted).toBe(1);
+  });
+
+  it('marks the repository in-flight first and clears the mark with the final snapshot write', async () => {
+    const { repo, driver } = makeRepo();
+    driver.responder = (query, params) =>
+      query.includes('SET meta.snapshot') ? [{ snapshot: params.snapshot as string }] : [];
+
+    await repo.applyChangeset(
+      {
+        repoId: 'repo1',
+        nodesToAdd: [fnNode('repo1:function:a')],
+        nodesToUpdate: [],
+        nodeIdsToDelete: [],
+        edgeNodeIdsToWipe: [],
+        edgesToInsert: [],
+      },
+      {
+        snapshot: {
+          parsedVersion: 'parsed-v2',
+          summaryVersion: null,
+          embeddingsVersion: null,
+          commitSha: null,
+          totalNodeCount: 1,
+          totalEdgeCount: 0,
+          mode: GraphApplyMode.Incremental,
+          executionToken: '22222222-2222-4222-8222-222222222222',
+        },
+      },
+    );
+
+    const queries = driver.calls.map((c) => c.query);
+    expect(queries[0]).toContain('SET meta.applyPending = $parsedVersion');
+    expect(driver.calls[0]!.params.parsedVersion).toBe('parsed-v2');
+    const last = queries[queries.length - 1]!;
+    expect(last).toContain('SET meta.snapshot = $snapshot');
+    expect(last).toContain('REMOVE meta.applyPending');
+  });
+
+  it('reports a leftover in-flight mark through getPendingGraphApply', async () => {
+    const { repo, driver } = makeRepo();
+    driver.responder = (query) => (query.includes('meta.applyPending AS pending') ? [{ pending: 'parsed-v2' }] : []);
+    expect(await repo.getPendingGraphApply('repo1')).toBe('parsed-v2');
+    driver.responder = () => [];
+    expect(await repo.getPendingGraphApply('repo1')).toBeNull();
+  });
+
+  it('skips the rewire pre-pass for endpoint-derived edge ids (they can only name that endpoint pair)', async () => {
+    const { repo, driver } = makeRepo();
+    await repo.applyChangeset({
+      repoId: 'repo1',
+      nodesToAdd: [],
+      nodesToUpdate: [],
+      nodeIdsToDelete: [],
+      edgeNodeIdsToWipe: [],
+      edgesToInsert: [
+        {
+          id: 'h:function:a:CALLS:h:function:b',
+          sourceId: 'h:function:a',
+          targetId: 'h:function:b',
+          type: EdgeType.Calls,
+          confidence: 1,
+          createdBy: 'parser',
+          properties: {},
+        },
+      ],
+    });
+    expect(queryMatching(driver, 'MATCH (oldFrom:CodeNode)')).toBeUndefined();
+    expect(queryMatching(driver, 'MERGE (from)-[r:CALLS]->(to)')).toBeTruthy();
+  });
+
+  it('sizes statement batches from COREDOC_NEO4J_APPLY_BATCH_SIZE', async () => {
+    const previous = process.env.COREDOC_NEO4J_APPLY_BATCH_SIZE;
+    process.env.COREDOC_NEO4J_APPLY_BATCH_SIZE = '2';
+    try {
+      const { repo, driver } = makeRepo();
+      await repo.applyChangeset({
+        repoId: 'repo1',
+        nodesToAdd: [fnNode('h:function:a'), fnNode('h:function:b'), fnNode('h:function:c')],
+        nodesToUpdate: [],
+        nodeIdsToDelete: [],
+        edgeNodeIdsToWipe: [],
+        edgesToInsert: [],
+      });
+      const upserts = driver.calls.filter((c) => c.query.includes('MERGE (n:Function {id: item.id})'));
+      expect(upserts.map((c) => (c.params.batch as unknown[]).length)).toEqual([2, 1]);
+    } finally {
+      if (previous === undefined) delete process.env.COREDOC_NEO4J_APPLY_BATCH_SIZE;
+      else process.env.COREDOC_NEO4J_APPLY_BATCH_SIZE = previous;
+    }
   });
 
   it('is a no-op transaction for an empty changeset (no Cypher, all-zero counts)', async () => {

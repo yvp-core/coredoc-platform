@@ -1654,6 +1654,7 @@ ciCmd
   .option('-o, --output <dir>', 'Temp directory for CI artifacts', '.coredoc-ci')
   .option('--dry-run', 'Parse but do not push')
   .option('--push-timeout <minutes>', 'How long to watch the queued push job before giving up watching it', '15')
+  .option('--no-wait', 'Return once the push job is queued instead of watching it to completion')
   .option('-v, --verbose', 'Verbose output')
   .action(async (options) => {
     try {
@@ -1671,6 +1672,7 @@ ciCmd
         dryRun: options.dryRun,
         verbose: options.verbose,
         pushTimeoutMs: pushTimeoutMinutes * 60 * 1000,
+        wait: options.wait,
         profile: options.profile,
       });
 
