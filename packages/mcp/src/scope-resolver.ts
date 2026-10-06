@@ -58,16 +58,16 @@ export function isScopeBound(envScope?: string): boolean {
  * answer may live — `trace_cross_repo_call` already reads the resolved target
  * entrypoint with `[]` for exactly that reason, and a caller-side scope filter
  * is what made it report `caller repo == target repo` with a null caller. The
- * one hard boundary is a cloud workspace scope: its `repoHashes` enumerate the
- * connected repos and the backing store can hold rows outside them, so a
- * workspace-resolved scope never widens.
+ * one hard boundary is a cloud workspace scope: the backing store can hold rows
+ * outside the connected repos, so a workspace-resolved scope widens only to
+ * `workspaceRepoHashes`, never to the whole graph.
  *
  * Deliberately NOT the same policy as `resolveMessagingQueryHashes`: that one
  * enumerates every producer/consumer SITE in the graph (an inventory), which a
  * host binding legitimately constrains. This one follows a single named edge.
  */
 export function crossRepoLookupHashes(scope: ScopeContext): string[] {
-  return scope.origin === 'workspace' ? scope.repoHashes : [];
+  return scope.origin === 'workspace' ? (scope.workspaceRepoHashes ?? scope.repoHashes) : [];
 }
 
 /**

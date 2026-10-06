@@ -642,9 +642,11 @@ export async function handleTraceCrossRepoCall(
     // in-scope scan found nothing, and only the target-side path lookup
     // survived. So: try the scope first (a local caller is the better answer
     // when one exists), then widen to the whole graph, which is where the
-    // resolved bridge lives. A cloud workspace scope never widens.
+    // resolved bridge lives. A cloud workspace scope widens only to its
+    // connected repos (`workspaceRepoHashes`).
     const lookupHashes = crossRepoLookupHashes(scope);
-    const widens = scope.repoHashes.length > 0 && lookupHashes.length === 0;
+    const widens =
+      scope.repoHashes.length > 0 && (lookupHashes.length === 0 || lookupHashes.length > scope.repoHashes.length);
     // ONE scan, over the widest set this scope is allowed to see. The in-scope
     // rows are a subset of it, and the ranking below puts them first, so there
     // is no second query — and no way for an in-scope match to hide the
