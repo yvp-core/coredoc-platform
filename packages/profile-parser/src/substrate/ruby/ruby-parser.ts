@@ -299,9 +299,12 @@ export const rubySubstrate: Substrate<RubyProfile, SourceFile> = {
       () => runScipRuby(root, { outDir: opts.scipOutDir ?? opts.cacheDir }),
       (path) => {
         const scip = loadOptionalScip(path);
+        // scip-ruby indexes `.rb` only (see scip-run inputs); `.rake` stays on syntax resolution.
         assertScipSources(
           scip,
-          all.map((file) => ({ path: file.relPath, source: file.source })),
+          all
+            .filter((file) => file.relPath.endsWith('.rb'))
+            .map((file) => ({ path: file.relPath, source: file.source })),
         );
         return unionRubyCalls(scipRubyToCallEdges(scip, buildRubyMappingHooks(scip, index), idGen), tierB);
       },
