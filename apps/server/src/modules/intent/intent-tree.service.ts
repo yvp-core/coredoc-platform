@@ -67,6 +67,7 @@ import {
 import { INTENT_SEED_NODE_ID_KINDS, nodeIdKindOf } from './intent-node-types.js';
 import { assertWorkspaceIntentRepoKeys } from './intent-repo-keys.js';
 import { intentNotFound, intentStateError } from './intent-state-errors.js';
+import { OPEN_COMMENT_THREAD_WHERE } from './intent-comment.service.js';
 import {
   INTENT_CONTRACT_LIMITS,
   IntentErrorCode,
@@ -105,6 +106,8 @@ export interface IntentNodeCounts {
   itemCount: number;
   pendingCount: number;
   openQuestionCount: number;
+  /** Open comment threads on the node itself and on its live items. */
+  openCommentCount: number;
 }
 
 export interface IntentTreeDimensionView {
@@ -125,18 +128,19 @@ export interface IntentTreeDimensionView {
  * its parent feature, and the product root counts the items attached to no
  * node. `pendingCount` is the candidates among them, waiting for review, and
  * `openQuestionCount` the decisions among them whose choice is still open
- * ({@link OPEN_QUESTION_WHERE}).
+ * ({@link OPEN_QUESTION_WHERE}). `openCommentCount` is the open comment
+ * threads on those items plus, for a feature, on the feature itself.
  * A domain's `subtree*` counts add every one of its features, archived ones
  * and those past the per-domain page cap included.
  */
 export async function readIntentNodeCounts(
-  prisma: Pick<PrismaService, 'intentItem'>,
+  prisma: Pick<PrismaService, 'intentItem' | 'intentComment' | 'intentFeature'>,
   workspaceId: string,
   where: Prisma.IntentItemWhereInput,
 ) {
   // Two grouped reads, not one per node: `payload` is JSONB, which groupBy
   // cannot key on, so the open questions are their own filtered grouping.
-  const [rows, openRows] = await Promise.all([
+  const [rows, openRows, commentRows] = await Promise.all([
     prisma.intentItem.groupBy({
       by: ['domainId', 'featureId', 'authority'],
       where: { workspaceId, authority: { in: ['candidate', 'accepted'] }, ...where },
@@ -147,8 +151,41 @@ export async function readIntentNodeCounts(
       where: { workspaceId, AND: [OPEN_QUESTION_WHERE, where] },
       _count: { _all: true },
     }),
+    // Open threads are few, so all of them are grouped by target and placed on their nodes below.
+    prisma.intentComment.groupBy({
+      by: ['itemId', 'featureId'],
+      where: { workspaceId, ...OPEN_COMMENT_THREAD_WHERE },
+      _count: { _all: true },
+    }),
   ]);
-  const empty = (): IntentNodeCounts => ({ itemCount: 0, pendingCount: 0, openQuestionCount: 0 });
+  const threadsOnItem = new Map(commentRows.flatMap((row) => (row.itemId ? [[row.itemId, row._count._all]] : [])));
+  const threadsOnFeature = new Map(
+    commentRows.flatMap((row) => (row.featureId ? [[row.featureId, row._count._all]] : [])),
+  );
+  const [commentedItems, commentedFeatures] = await Promise.all([
+    threadsOnItem.size === 0
+      ? []
+      : prisma.intentItem.findMany({
+          where: {
+            workspaceId,
+            authority: { in: ['candidate', 'accepted'] },
+            AND: [{ id: { in: [...threadsOnItem.keys()] } }, where],
+          },
+          select: { id: true, domainId: true, featureId: true },
+        }),
+    threadsOnFeature.size === 0
+      ? []
+      : prisma.intentFeature.findMany({
+          where: { workspaceId, id: { in: [...threadsOnFeature.keys()] } },
+          select: { id: true, domainId: true },
+        }),
+  ]);
+  const empty = (): IntentNodeCounts => ({
+    itemCount: 0,
+    pendingCount: 0,
+    openQuestionCount: 0,
+    openCommentCount: 0,
+  });
   const byNode = new Map<string, IntentNodeCounts>();
   const bySubtree = new Map<string, IntentNodeCounts>();
   const add = (map: Map<string, IntentNodeCounts>, key: string, field: keyof IntentNodeCounts, count: number) => {
@@ -170,6 +207,13 @@ export async function readIntentNodeCounts(
     if (row.authority === 'candidate') tally(row, 'pendingCount', row._count._all);
   }
   for (const row of openRows) tally(row, 'openQuestionCount', row._count._all);
+  for (const item of commentedItems) tally(item, 'openCommentCount', threadsOnItem.get(item.id) ?? 0);
+  for (const feature of commentedFeatures)
+    tally(
+      { domainId: feature.domainId, featureId: feature.id },
+      'openCommentCount',
+      threadsOnFeature.get(feature.id) ?? 0,
+    );
   return {
     /** Every counted item in `where`, whatever it is attached to. */
     total: (): IntentNodeCounts => {
@@ -186,6 +230,7 @@ export async function readIntentNodeCounts(
         subtreeItemCount: subtree.itemCount,
         subtreePendingCount: subtree.pendingCount,
         subtreeOpenQuestionCount: subtree.openQuestionCount,
+        subtreeOpenCommentCount: subtree.openCommentCount,
       };
     },
   };

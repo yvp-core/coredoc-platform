@@ -37,6 +37,10 @@ export enum IntentWriteForm {
   /** One anchor's baseline re-capture; the attempt's input is the anchor itself. */
   RefreshAnchor = 'refresh-anchor',
   ReviewBatch = 'review-batch',
+  /** A new comment thread, a reply, and a thread's status change. */
+  AddComment = 'add-comment',
+  ReplyComment = 'reply-comment',
+  CommentStatus = 'comment-status',
   /** One release-ledger record (delivery, baseline, rollback or a plan change) from a prepared dialog. */
   Release = 'release',
 }

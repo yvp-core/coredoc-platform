@@ -33,6 +33,8 @@ import { AuthModule } from '../../auth/auth.module.js';
 import { DatabaseModule } from '../../database/database.module.js';
 import { IntentDerivationModule } from './derivation/intent-derivation.module.js';
 import { IntentAnchorModule } from './intent-anchor.module.js';
+import { IntentCommentController } from './intent-comment.controller.js';
+import { IntentCommentService } from './intent-comment.service.js';
 import { IntentContextController } from './intent-context.controller.js';
 import { IntentContextService } from './intent-context.service.js';
 import { IntentReadService } from './intent-read.service.js';
@@ -68,6 +70,7 @@ import { IntentTreeService } from './intent-tree.service.js';
     IntentContextController,
     IntentImportController,
     IntentExportController,
+    IntentCommentController,
   ],
   providers: [
     IntentTreeService,
@@ -80,6 +83,7 @@ import { IntentTreeService } from './intent-tree.service.js';
     IntentReadService,
     IntentWorkspaceImportService,
     IntentExportService,
+    IntentCommentService,
   ],
   exports: [
     IntentHandoffModule,

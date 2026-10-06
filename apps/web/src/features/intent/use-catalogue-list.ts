@@ -62,6 +62,7 @@ export function useCatalogueList({
     ].join(','),
     ...(filter.kinds.length ? { kinds: [...filter.kinds].sort().join(',') } : {}),
     ...(filter.openQuestions ? { openQuestions: 'true' as const } : {}),
+    ...(filter.openComments ? { openComments: 'true' as const } : {}),
   };
   const resultsQuery = useInfiniteQuery(intentItemsQueryOptions(id, browseQuery));
   const results = useMemo(() => resultsQuery.data?.pages.flatMap((page) => page.items) ?? [], [resultsQuery.data]);
@@ -109,6 +110,7 @@ export function useCatalogueList({
     ...(source ? ['source'] : []),
     ...(filter.includeResolved ? ['resolved rules'] : []),
     ...(filter.openQuestions ? ['open questions'] : []),
+    ...(filter.openComments ? ['open comments'] : []),
   ];
   const listQuery = previewing ? previewQuery : resultsQuery;
   const searching = search !== filter.search.trim() || resultsQuery.isFetching;

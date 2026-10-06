@@ -171,9 +171,9 @@ describe('IntentTreeBrowser pending proposals', () => {
         treeDomain('quiet', []),
       ],
       counts: {
-        root: { items: 0, pending: 0, open: 0 },
-        domains: { bank: { items: 2, pending: 2, open: 0 } },
-        features: { limits: { items: 2, pending: 2, open: 0 } },
+        root: { items: 0, pending: 0, open: 0, comments: 0 },
+        domains: { bank: { items: 2, pending: 2, open: 0, comments: 0 } },
+        features: { limits: { items: 2, pending: 2, open: 0, comments: 0 } },
       },
       onlyPending: true,
       onToggleOnlyPending: () => undefined,
@@ -195,11 +195,14 @@ describe('IntentTreeBrowser open questions', () => {
       treeDomain('quiet', []),
     ],
     counts: {
-      root: { items: 0, pending: 0, open: 0 },
-      domains: { bank: { items: 5, pending: 1, open: 2 }, quiet: { items: 1, pending: 1, open: 0 } },
+      root: { items: 0, pending: 0, open: 0, comments: 0 },
+      domains: {
+        bank: { items: 5, pending: 1, open: 2, comments: 0 },
+        quiet: { items: 1, pending: 1, open: 0, comments: 0 },
+      },
       features: {
-        limits: { items: 2, pending: 0, open: 1 },
-        report: { items: 3, pending: 1, open: 1 },
+        limits: { items: 2, pending: 0, open: 1, comments: 0 },
+        report: { items: 3, pending: 1, open: 1, comments: 0 },
       },
     },
   };
@@ -241,5 +244,38 @@ describe('IntentTreeBrowser open questions', () => {
     expect(screen.queryByRole('button', { name: /limits/ })).not.toBeInTheDocument();
     // A proposal but no open question.
     expect(screen.queryByRole('button', { name: /quiet/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('IntentTreeBrowser open comments', () => {
+  it('badges nodes with open threads and, filtered, keeps only those with one at or below them', () => {
+    const toggled: string[] = [];
+    renderBrowser({
+      domains: [
+        treeDomain('bank', [treeFeature('payout', null), treeFeature('limits', 'payout'), treeFeature('report', null)]),
+        treeDomain('quiet', []),
+      ],
+      counts: {
+        root: { items: 0, pending: 0, open: 0, comments: 0 },
+        domains: {
+          bank: { items: 5, pending: 0, open: 0, comments: 3 },
+          quiet: { items: 1, pending: 0, open: 0, comments: 0 },
+        },
+        features: { limits: { items: 2, pending: 0, open: 0, comments: 3 } },
+      },
+      onlyOpenComments: true,
+      onToggleOnlyOpenComments: () => toggled.push('comments'),
+    });
+
+    // The domain, the parent feature (rolled up from its sub-feature) and the sub-feature itself.
+    expect(screen.getAllByTitle('3 open comments')).toHaveLength(3);
+    expect(screen.getByRole('button', { name: /payout/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /report/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /quiet/ })).not.toBeInTheDocument();
+
+    const toggle = screen.getByRole('button', { name: 'Only with open comments' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    toggle.click();
+    expect(toggled).toEqual(['comments']);
   });
 });

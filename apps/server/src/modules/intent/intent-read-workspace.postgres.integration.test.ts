@@ -354,7 +354,7 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
         ]),
       ]),
     );
-    expect(page.root).toEqual({ itemCount: 0, pendingCount: 0, openQuestionCount: 0 });
+    expect(page.root).toEqual({ itemCount: 0, pendingCount: 0, openQuestionCount: 0, openCommentCount: 0 });
     expect(counts).toEqual({
       // The domain's own rule only: its features' items count for them, and superseded is history.
       auth: [1, 0, 0],
@@ -481,17 +481,26 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
     expect(doc.node).toEqual({ kind: 'root', id: null, title: 'Product root', domainId: null });
     // Subtree counts, as the tree shows them; in production among the accepted items below each domain.
     expect(doc.domains).toEqual([
-      { id: 'auth', title: 'Sign-in and sessions', itemCount: 6, pendingCount: 0, openQuestionCount: 1, effective: 2 },
+      {
+        id: 'auth',
+        title: 'Sign-in and sessions',
+        itemCount: 6,
+        pendingCount: 0,
+        openQuestionCount: 1,
+        openCommentCount: 0,
+        effective: 2,
+      },
       {
         id: 'time-tracking',
         title: 'Time tracking and attendance',
         itemCount: 1,
         pendingCount: 1,
         openQuestionCount: 0,
+        openCommentCount: 0,
         effective: 0,
       },
     ]);
-    expect(doc.overview).toEqual({ itemCount: 7, pendingCount: 1, openQuestionCount: 1 });
+    expect(doc.overview).toEqual({ itemCount: 7, pendingCount: 1, openQuestionCount: 1, openCommentCount: 0 });
     // Every accepted item in the workspace, not only the (empty) root's own; the open question is not delivered.
     expect(doc.delivery).toEqual({ effective: 2, planned: 1, unrecorded: 2 });
     expect(doc.sections).toEqual([]);
@@ -601,9 +610,17 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
       // The archived domain and its feature stay out of the product; the root's own item stays in.
       const root = await reads.document(id, {});
       expect(root.domains).toEqual([
-        { id: 'billing', title: 'Billing', itemCount: 15, pendingCount: 0, openQuestionCount: 0, effective: 1 },
+        {
+          id: 'billing',
+          title: 'Billing',
+          itemCount: 15,
+          pendingCount: 0,
+          openQuestionCount: 0,
+          openCommentCount: 0,
+          effective: 1,
+        },
       ]);
-      expect(root.overview).toEqual({ itemCount: 16, pendingCount: 0, openQuestionCount: 0 });
+      expect(root.overview).toEqual({ itemCount: 16, pendingCount: 0, openQuestionCount: 0, openCommentCount: 0 });
       expect(root.delivery).toEqual({ effective: 1, planned: 13, unrecorded: 2 });
       const text = await reads.node(id, {});
       expect(text).toContain('The whole product: 1 domain, 16 items.');

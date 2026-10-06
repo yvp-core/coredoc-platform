@@ -574,6 +574,12 @@ function stripRefsOutsideCode(text: string): string {
 }
 
 /** An error's message for display; `undefined` for no error. */
+/** "2 open comments", or `null` when there are none. */
+export function openCommentsLabel(count: number | undefined): string | null {
+  if (!count) return null;
+  return `${count} open ${count === 1 ? 'comment' : 'comments'}`;
+}
+
 export function messageOf(error: unknown): string | undefined {
   return error instanceof Error ? error.message : error ? String(error) : undefined;
 }

@@ -162,6 +162,8 @@ export interface IntentNodeCounts {
   itemCount: number;
   pendingCount: number;
   openQuestionCount: number;
+  /** Open comment threads on the node itself and on its live items. */
+  openCommentCount: number;
 }
 
 export type IntentCountedFeature = IntentFeatureView & IntentNodeCounts;
@@ -175,6 +177,7 @@ export interface IntentTreeResponse {
       subtreeItemCount: number;
       subtreePendingCount: number;
       subtreeOpenQuestionCount: number;
+      subtreeOpenCommentCount: number;
       features: IntentCountedFeature[];
     })[];
   nextCursor: string | null;
@@ -275,6 +278,8 @@ export interface IntentItemSummary {
   proposedSuccessorOfId: string | null;
   supersededById: string | null;
   updatedAt: string;
+  /** Open comment threads; absent on "preview as" rows. */
+  openCommentCount?: number;
 }
 
 export interface IntentItemsResponse {
@@ -295,6 +300,8 @@ export interface IntentItemsQuery {
   scopeFeatureId?: string;
   /** Only live decisions whose choice is still open. */
   openQuestions?: 'true';
+  /** Only items with at least one open comment thread. */
+  openComments?: 'true';
   authority?: IntentAuthority;
   kind?: IntentItemKind;
   domainId?: string;
@@ -387,6 +394,7 @@ export interface IntentDocumentItem {
   version: number;
   effectivity: IntentEffectivity;
   openQuestion: boolean;
+  openCommentCount: number;
   proposedSuccessorOfId: string | null;
   appliesWhen: ContextCondition[];
   /** A candidate proposing to replace this item. */
@@ -406,7 +414,7 @@ export interface IntentNodeDocument {
   /** The product root only: its domains with their subtree counts, in tree order. */
   domains: IntentDocumentDomain[];
   /** The product root only: the whole product's live, waiting and open-question counts (archived domains left out). */
-  overview: { itemCount: number; pendingCount: number; openQuestionCount: number } | null;
+  overview: { itemCount: number; pendingCount: number; openQuestionCount: number; openCommentCount: number } | null;
   /** The product root only: domains past the listing cap, not in `domains`. */
   moreDomains: number;
   /**
@@ -423,6 +431,7 @@ export interface IntentDocumentDomain {
   itemCount: number;
   pendingCount: number;
   openQuestionCount: number;
+  openCommentCount: number;
   /** Items below the domain that are in production. */
   effective: number;
 }
@@ -768,4 +777,50 @@ export interface IntentSeedMutationResponse {
 
 export interface IntentDeleteResponse {
   deleted: { kind: string; id?: string; featureId?: string; nodeId?: string; cascadedSeedCount?: number };
+}
+
+/* -------------------------------------------------------------- comments --- */
+
+export type IntentCommentStatus = 'open' | 'resolved';
+
+export interface IntentCommentTarget {
+  kind: 'feature' | 'item';
+  id: string;
+}
+
+export interface IntentComment {
+  id: string;
+  target: IntentCommentTarget;
+  parentId: string | null;
+  body: string;
+  /** `null` on a reply: the thread's status lives on its root. */
+  status: IntentCommentStatus | null;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface IntentCommentThread extends IntentComment {
+  replies: IntentComment[];
+}
+
+export interface IntentCommentsResponse {
+  threads: IntentCommentThread[];
+  nextCursor: string | null;
+}
+
+/** A new thread names `target`; a reply names `parentId`. */
+export type IntentCommentCreateInput = { body: string } & (
+  | { target: IntentCommentTarget; parentId?: never }
+  | { parentId: string; target?: never }
+);
+
+export interface IntentCommentStatusInput {
+  id: string;
+  status: IntentCommentStatus;
+}
+
+export interface IntentCommentMutationResponse {
+  comment: IntentComment;
 }

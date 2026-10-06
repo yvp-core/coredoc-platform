@@ -22,6 +22,8 @@ created that data:
   same-domain foreign key, CHECK and index
 - `20261003100000_intent_node_relations_collate_c` — the node-relation canonical-order CHECK
   compared bytewise (`COLLATE "C"`)
+- `20261006120000_intent_comments` — the `intent_comments` table, the `IntentCommentStatus` enum
+  type, and the `comment` audit entity kind
 
 ## Rollback is a code deploy, and it drops nothing
 
@@ -90,6 +92,7 @@ BEGIN;
 -- 1. The twelve intent tables. CASCADE covers the foreign keys between them and
 --    the indexes/constraints each one owns, including the two pg_trgm GIN
 --    indexes on intent_items. Each `applies_when` column goes with its table.
+DROP TABLE IF EXISTS "intent_comments"              CASCADE;
 DROP TABLE IF EXISTS "intent_node_relations"        CASCADE;
 DROP TABLE IF EXISTS "intent_release_events"        CASCADE;
 DROP TABLE IF EXISTS "intent_authority_transitions" CASCADE;
@@ -111,6 +114,7 @@ DROP TYPE IF EXISTS "IntentSourceKind";
 DROP TYPE IF EXISTS "IntentItemAuthority";
 DROP TYPE IF EXISTS "IntentItemKind";
 DROP TYPE IF EXISTS "IntentNodeKind";
+DROP TYPE IF EXISTS "IntentCommentStatus";
 
 -- 3. The workspace_repos additions. Named explicitly rather than left to a
 --    column drop, because an operator reading this needs to see exactly which
@@ -136,7 +140,8 @@ WHERE "migration_name" IN (
   '20261002120000_intent_node_relations',
   '20261002130000_intent_node_layout_item_body',
   '20261002140000_intent_feature_parent',
-  '20261003100000_intent_node_relations_collate_c'
+  '20261003100000_intent_node_relations_collate_c',
+  '20261006120000_intent_comments'
 );
 
 COMMIT;

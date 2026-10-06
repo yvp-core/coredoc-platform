@@ -74,6 +74,7 @@ model Workspace {
   intentItems            IntentItem[]
   intentReleaseEvents    IntentReleaseEvent[]
   intentNodeRelations    IntentNodeRelation[]
+  intentComments         IntentComment[]
   intentAuditEvents      IntentAuditEvent[]
   intentMutationRequests IntentMutationRequest[]
 
@@ -1218,6 +1219,7 @@ enum IntentAuditEntityKind {
   anchor
   dimension
   node_relation
+  comment
 }
 
 /// A tree node an `IntentNodeRelation` endpoint names: a domain or a feature.
@@ -1298,6 +1300,7 @@ model IntentFeature {
   children  IntentFeature[]     @relation("IntentFeatureNesting")
   seeds     IntentFeatureSeed[]
   items     IntentItem[]
+  comments  IntentComment[]
 
   @@id([workspaceId, id])
   // Reference target for the three-column attachment FK on IntentItem: a
@@ -1371,6 +1374,7 @@ model IntentItem {
   sources              IntentItemSource[]
   anchors              IntentAnchor[]
   transitions          IntentAuthorityTransition[]
+  comments             IntentComment[]
 
   @@id([workspaceId, id])
   @@index([workspaceId, authority])
@@ -1379,6 +1383,41 @@ model IntentItem {
   @@index([workspaceId, featureId])
   @@index([workspaceId, updatedAt])
   @@map("intent_items")
+}
+
+enum IntentCommentStatus {
+  open
+  resolved
+}
+
+/// Discussion on a feature or an item. A thread is one root comment, which
+/// carries the status, plus its replies (`parentId`), which carry none and name
+/// the root's target. Not reviewed intent: never exported, never served to agents.
+model IntentComment {
+  id          String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String               @map("workspace_id") @db.Uuid
+  /// Exactly one of `featureId` / `itemId` (`intent_comments_target_check`).
+  featureId   String?              @map("feature_id") @db.VarChar(64)
+  itemId      String?              @map("item_id") @db.VarChar(64)
+  parentId    String?              @map("parent_id") @db.Uuid
+  body        String               @db.VarChar(2000)
+  /// Set on a root, NULL on a reply (`intent_comments_status_check`).
+  status      IntentCommentStatus?
+  resolvedBy  String?              @map("resolved_by") @db.VarChar(256)
+  resolvedAt  DateTime?            @map("resolved_at") @db.Timestamptz
+  createdBy   String               @map("created_by") @db.VarChar(256)
+  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  feature   IntentFeature?  @relation(fields: [workspaceId, featureId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+  item      IntentItem?     @relation(fields: [workspaceId, itemId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+  parent    IntentComment?  @relation("IntentCommentThread", fields: [parentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  replies   IntentComment[] @relation("IntentCommentThread")
+
+  @@index([workspaceId, featureId, createdAt])
+  @@index([workspaceId, itemId, createdAt])
+  @@index([parentId, createdAt])
+  @@map("intent_comments")
 }
 
 /// "See also" between two tree nodes, with the reason a reader should follow it.

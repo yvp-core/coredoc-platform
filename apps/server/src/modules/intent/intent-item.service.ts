@@ -27,6 +27,7 @@ import { listConditionsOf } from './intent-context.service.js';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import { IntentCursorScope, decodeIntentCursor, paginate } from './intent-cursor.js';
+import { OPEN_COMMENT_THREAD_WHERE } from './intent-comment.service.js';
 
 /**
  * An OPEN QUESTION: a live (candidate or accepted) decision whose choice is
@@ -114,6 +115,7 @@ export class IntentItemService {
             : []),
           ...(query.kinds ? [{ kind: { in: query.kinds } }] : []),
           ...(query.openQuestions === 'true' ? [OPEN_QUESTION_WHERE] : []),
+          ...(query.openComments === 'true' ? [{ comments: { some: OPEN_COMMENT_THREAD_WHERE } }] : []),
           ...(query.scopeFeatureId ? [{ OR: [{ featureId: query.scopeFeatureId }, { featureId: null }] }] : []),
           ...(search
             ? [
@@ -147,6 +149,7 @@ export class IntentItemService {
         appliesWhen: true,
         domain: { select: { appliesWhen: true } },
         feature: { select: { appliesWhen: true } },
+        _count: { select: { comments: { where: OPEN_COMMENT_THREAD_WHERE } } },
       },
       orderBy: { id: 'asc' },
       take: limit + 1,
@@ -168,6 +171,7 @@ export class IntentItemService {
           proposedSuccessorOfId: row.proposedSuccessorOfId,
           supersededById: row.supersededById,
           updatedAt: row.updatedAt.toISOString(),
+          openCommentCount: row._count.comments,
           ...(conditions ? { conditions } : {}),
         };
       }),

@@ -4,9 +4,9 @@
  * A zero or unread (`undefined`) count draws nothing.
  */
 
-import { CircleHelp } from 'lucide-react';
+import { CircleHelp, MessagesSquare } from 'lucide-react';
 
-export function IntentCountBadges({ pending, open }: { pending?: number; open?: number }) {
+export function IntentCountBadges({ pending, open, comments }: { pending?: number; open?: number; comments?: number }) {
   return (
     <>
       {pending !== undefined && pending > 0 && (
@@ -27,6 +27,18 @@ export function IntentCountBadges({ pending, open }: { pending?: number; open?: 
           <span aria-hidden="true">{open}</span>
           <span className="sr-only">
             {open} open {open === 1 ? 'question' : 'questions'}
+          </span>
+        </span>
+      )}
+      {comments !== undefined && comments > 0 && (
+        <span
+          title={`${comments} open ${comments === 1 ? 'comment' : 'comments'}`}
+          className="num inline-flex shrink-0 items-center gap-0.5 rounded-full bg-blue-wash px-1.5 text-[11px] text-blue"
+        >
+          <MessagesSquare aria-hidden="true" className="size-2.5" />
+          <span aria-hidden="true">{comments}</span>
+          <span className="sr-only">
+            {comments} open {comments === 1 ? 'comment' : 'comments'}
           </span>
         </span>
       )}

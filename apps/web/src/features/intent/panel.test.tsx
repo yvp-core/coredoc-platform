@@ -15,6 +15,7 @@ const rows = Array.from({ length: 225 }, (_, i) => ({
   featureId: null,
   proposedSuccessorOfId: null,
   supersededById: null,
+  openCommentCount: i === 5 ? 1 : 0,
   ...(i === 2 ? { conditions: { own: [{ dimension: 'country', notIn: ['br'] }], variants: 2 } } : {}),
 }));
 const DIMENSIONS = [
@@ -89,8 +90,23 @@ beforeEach(() => {
           }),
         );
       if (u.pathname.endsWith('/dimensions')) return new Response(JSON.stringify({ dimensions: DIMENSIONS }));
-      if (u.pathname.endsWith('/context') && u.searchParams.get('mode') !== 'list')
-        return new Response(JSON.stringify({ mode: 'context', matches: [], graph: null }));
+      if (u.pathname.endsWith('/context') && u.searchParams.get('mode') !== 'list') {
+        const row = rows.find((entry) => entry.id === u.searchParams.get('intentIds'));
+        const matches = row
+          ? [
+              {
+                ...row,
+                statement: row.title,
+                rationale: null,
+                payload: null,
+                matchReason: 'id',
+                sources: [],
+                anchors: [],
+              },
+            ]
+          : [];
+        return new Response(JSON.stringify({ mode: 'context', matches, graph: null }));
+      }
       if (u.pathname.endsWith('/context')) {
         contextListCalls += 1;
         const hasCursor = u.searchParams.get('cursor') !== null;
@@ -115,7 +131,8 @@ beforeEach(() => {
             `${row.id} ${row.title}`.toLowerCase().includes(search) &&
             (!u.searchParams.get('effectivity') || row.effectivity === u.searchParams.get('effectivity')) &&
             (!u.searchParams.get('sourceRef') || row.id === 'br-rule-224') &&
-            (u.searchParams.get('openQuestions') !== 'true' || row.id === 'br-rule-7'),
+            (u.searchParams.get('openQuestions') !== 'true' || row.id === 'br-rule-7') &&
+            (u.searchParams.get('openComments') !== 'true' || row.openCommentCount > 0),
         );
         return new Response(
           JSON.stringify({
@@ -364,4 +381,74 @@ it('opens the node panel for a selected domain, and returns to it from a rule', 
   fireEvent.click(await screen.findByRole('button', { name: /^Rule 0 / }));
   fireEvent.click(await screen.findByRole('button', { name: '← Back to Billing' }));
   expect(await screen.findByText('Invoices and payments.')).toBeInTheDocument();
+});
+
+it('keeps one item pane per selection when switching between items', async () => {
+  await mount();
+  fireEvent.click(await screen.findByText('Rule 0'));
+  await screen.findByText('Needs a fix');
+  fireEvent.click(screen.getByText('Rule 1'));
+  await screen.findByRole('heading', { name: 'Rule 1' });
+  fireEvent.click(screen.getByText('Rule 2'));
+  await screen.findByRole('heading', { name: 'Rule 2' });
+  expect(screen.getAllByText('Needs a fix')).toHaveLength(1);
+});
+
+it('narrows the list to items with open comment threads and marks them', async () => {
+  await mount();
+  await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
+  expect(screen.getByText('1 open comment')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Open comments only' }));
+  await waitFor(() =>
+    expect(screen.queryByRole('checkbox', { name: 'Select Rule 0 for delivery' })).not.toBeInTheDocument(),
+  );
+  expect(await screen.findByRole('checkbox', { name: 'Select Rule 5 for delivery' })).toBeInTheDocument();
+});
+
+it('keeps the nodes with open comment threads when the structure is filtered to them', async () => {
+  const domain = (id: string, subtreeOpenCommentCount: number, features: unknown[] = []) => ({
+    id,
+    title: id,
+    statement: '',
+    archived: false,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    updatedAt: '2026-09-01T00:00:00.000Z',
+    itemCount: 1,
+    pendingCount: 0,
+    openQuestionCount: 0,
+    openCommentCount: 0,
+    subtreeItemCount: 1,
+    subtreePendingCount: 0,
+    subtreeOpenQuestionCount: 0,
+    subtreeOpenCommentCount,
+    features,
+    featuresTruncated: false,
+  });
+  const feature = (id: string, domainId: string, openCommentCount: number) => ({
+    id,
+    title: id,
+    domainId,
+    parentFeatureId: null,
+    statement: '',
+    archived: false,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    updatedAt: '2026-09-01T00:00:00.000Z',
+    itemCount: 1,
+    pendingCount: 0,
+    openQuestionCount: 0,
+    openCommentCount,
+  });
+  treeDomains = [
+    domain('cloud', 1, [feature('create-cloud-account', 'cloud', 1), feature('billing-setup', 'cloud', 0)]),
+    domain('graph', 0),
+  ];
+  await mount();
+  await screen.findByRole('button', { name: /graph/ });
+
+  fireEvent.click(screen.getByRole('button', { name: 'Only with open comments' }));
+  expect(await screen.findByRole('button', { name: /create-cloud-account/ })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^cloud/ })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /billing-setup/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /graph/ })).not.toBeInTheDocument();
 });

@@ -45,6 +45,8 @@ export enum IntentOperation {
   SeedDelete = 'seed.delete',
   RelationPut = 'relation.put',
   RelationDelete = 'relation.delete',
+  CommentCreate = 'comment.create',
+  CommentStatus = 'comment.status',
   ItemsPropose = 'items.propose',
   ItemsReview = 'items.review',
   AnchorAdd = 'anchor.add',
