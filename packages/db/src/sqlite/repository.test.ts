@@ -2174,6 +2174,36 @@ describe('getExternalCalls — service filter matches the effective target', () 
     const calls = await repo.getExternalCalls([REPO_HASH], 'billing');
     expect(calls.map((c) => c.id)).toEqual([`${REPO_HASH}:ext:legacy.get`]);
   });
+
+  it('matches the repo a call resolves to even when its targetService is a logical name', async () => {
+    await insertNode({ id: 'corehash0001', type: 'repository', name: 'day-core', filePath: '' });
+    await insertNode({
+      id: 'corehash0001:entrypoint:get-profiles',
+      type: 'entrypoint',
+      name: 'POST /profiles',
+      filePath: 'src/profiles.ts',
+    });
+    await insertNode({
+      id: `${REPO_HASH}:ext:core.getProfiles`,
+      type: 'external_call',
+      name: 'core.POST',
+      filePath: 'src/core.ts',
+      startLine: 7,
+      repoId: REPO_HASH,
+      properties: {
+        callerId: `${REPO_HASH}:fn:getProfiles`,
+        serviceName: 'dayio-api-client',
+        targetService: 'core',
+        protocol: 'http',
+        resolvedTargetId: 'corehash0001:entrypoint:get-profiles',
+      },
+    });
+
+    for (const name of ['core', 'day-core']) {
+      const calls = await repo.getExternalCalls([REPO_HASH], name);
+      expect(calls.map((c) => c.id)).toEqual([`${REPO_HASH}:ext:core.getProfiles`]);
+    }
+  });
 });
 
 describe('SqliteRepository.getExternalCallsWithMessaging', () => {

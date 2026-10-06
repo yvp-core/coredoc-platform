@@ -331,7 +331,10 @@ export const TOOL_SCHEMAS = {
   // Cross-Repo
   trace_cross_repo_call: z.strictObject({
     scope: SCOPE,
-    targetService: z.string().optional().describe('Target repo name (optional, auto-detect)'),
+    targetService: z
+      .string()
+      .optional()
+      .describe('Target service name or the repo name the call resolves to (optional, auto-detect)'),
     callPattern: z.string().optional().describe('Call pattern (e.g., "POST /api/users" or an SDK method name)'),
     destination: z
       .string()

@@ -608,10 +608,10 @@ describe('Neo4jRepository — getExternalCalls param safety', () => {
     await repo.getExternalCalls(['hash'], 'billing');
 
     const call = driver.calls[driver.calls.length - 1]!;
-    // Matches the effective target: targetService first, then the repo the call
-    // resolved to, serviceName only as the last fallback.
+    // Matches the effective target (targetService, then the resolved repo, then
+    // serviceName) or the repo the call resolves to.
     expect(call.query).toContain(
-      'WHERE coalesce(ec.targetService, resolvedTargetRepoName, ec.serviceName) = $targetService',
+      'WHERE (coalesce(ec.targetService, resolvedTargetRepoName, ec.serviceName) = $targetService OR resolvedTargetRepoName = $targetService)',
     );
     expect(call.params).toMatchObject({ targetService: 'billing' });
   });

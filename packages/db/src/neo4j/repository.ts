@@ -2352,7 +2352,7 @@ export class Neo4jRepository implements IGraphRepository {
     const queryParams: Record<string, unknown> = {};
     let serviceFilter = '';
     if (targetService) {
-      serviceFilter = `WHERE coalesce(ec.targetService, resolvedTargetRepoName, ec.serviceName) = $targetService`;
+      serviceFilter = `WHERE (coalesce(ec.targetService, resolvedTargetRepoName, ec.serviceName) = $targetService OR resolvedTargetRepoName = $targetService)`;
       queryParams.targetService = targetService;
     }
 

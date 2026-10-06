@@ -1845,7 +1845,8 @@ export class LadybugRepository
       .filter(
         (info) =>
           !filters.targetService ||
-          (info.targetService ?? info.resolvedTargetRepoName ?? info.serviceName) === filters.targetService,
+          (info.targetService ?? info.resolvedTargetRepoName ?? info.serviceName) === filters.targetService ||
+          info.resolvedTargetRepoName === filters.targetService,
       )
       .sort((a, b) => a.callerName.localeCompare(b.callerName) || a.id.localeCompare(b.id));
   }
