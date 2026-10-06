@@ -55,6 +55,8 @@ export interface IntentAnchorRefreshState {
 export interface IntentItemDetailProps {
   itemId: string | null;
   productionState?: ReactNode;
+  /** The item's comment threads, shown after its details. */
+  comments?: ReactNode;
   match: IntentContextMatch | null;
   graph: IntentGraphEvidence | null;
   /** The server's fixed caveat about what an anchor status does and does not prove. */
@@ -75,6 +77,7 @@ export interface IntentItemDetailProps {
 export function IntentItemDetail({
   itemId,
   productionState,
+  comments,
   match,
   graph,
   anchorWarning,
@@ -172,6 +175,8 @@ export function IntentItemDetail({
           />
         </Section>
       )}
+
+      {comments && <div className="border-b border-border-soft py-3">{comments}</div>}
 
       <Section title="Sources">
         {match.sources.length === 0 ? (

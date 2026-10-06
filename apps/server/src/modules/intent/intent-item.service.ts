@@ -40,6 +40,12 @@ export const OPEN_QUESTION_WHERE = {
   payload: { path: ['choiceStatus'], equals: DecisionStatus.Open },
 } satisfies Prisma.IntentItemWhereInput;
 
+/** A comment thread still open: a root comment (replies carry no status) whose status is `open`. */
+export const OPEN_COMMENT_THREAD_WHERE = {
+  parentId: null,
+  status: 'open',
+} satisfies Prisma.IntentCommentWhereInput;
+
 @Injectable()
 export class IntentItemService {
   constructor(private readonly prisma: PrismaService) {}
@@ -114,6 +120,7 @@ export class IntentItemService {
             : []),
           ...(query.kinds ? [{ kind: { in: query.kinds } }] : []),
           ...(query.openQuestions === 'true' ? [OPEN_QUESTION_WHERE] : []),
+          ...(query.openComments === 'true' ? [{ comments: { some: OPEN_COMMENT_THREAD_WHERE } }] : []),
           ...(query.scopeFeatureId ? [{ OR: [{ featureId: query.scopeFeatureId }, { featureId: null }] }] : []),
           ...(search
             ? [
@@ -147,6 +154,7 @@ export class IntentItemService {
         appliesWhen: true,
         domain: { select: { appliesWhen: true } },
         feature: { select: { appliesWhen: true } },
+        _count: { select: { comments: { where: OPEN_COMMENT_THREAD_WHERE } } },
       },
       orderBy: { id: 'asc' },
       take: limit + 1,
@@ -168,6 +176,7 @@ export class IntentItemService {
           proposedSuccessorOfId: row.proposedSuccessorOfId,
           supersededById: row.supersededById,
           updatedAt: row.updatedAt.toISOString(),
+          openCommentCount: row._count.comments,
           ...(conditions ? { conditions } : {}),
         };
       }),

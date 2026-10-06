@@ -70,6 +70,11 @@ export interface AssertSafeCloudContentOptions {
   maxStructureNodes?: number;
   /** Path prefix of the walked value, when it is not the request root. */
   path?: string[];
+  /**
+   * Longest multi-line string accepted (defaults to {@link INTENT_CONTENT_LIMITS.maxMultilineChars}).
+   * Comments raise it: a discussion runs to several paragraphs, unlike a bounded statement.
+   */
+  maxMultilineChars?: number;
 }
 
 /**
@@ -82,10 +87,21 @@ export interface AssertSafeCloudContentOptions {
  * list built by continuing to traverse untrusted data.
  */
 export function assertSafeCloudContent(value: unknown, options: AssertSafeCloudContentOptions = {}): void {
-  walk(value, options.path ?? [], { nodes: 0 }, options.maxStructureNodes ?? INTENT_CONTENT_LIMITS.maxStructureNodes);
+  walk(value, options.path ?? [], {
+    nodes: 0,
+    maxStructureNodes: options.maxStructureNodes ?? INTENT_CONTENT_LIMITS.maxStructureNodes,
+    maxMultilineChars: options.maxMultilineChars ?? INTENT_CONTENT_LIMITS.maxMultilineChars,
+  });
 }
 
-function walk(value: unknown, path: string[], budget: { nodes: number }, maxStructureNodes: number): void {
+interface WalkBudget {
+  nodes: number;
+  maxStructureNodes: number;
+  maxMultilineChars: number;
+}
+
+function walk(value: unknown, path: string[], budget: WalkBudget): void {
+  const { maxStructureNodes } = budget;
   budget.nodes += 1;
   if (path.length > INTENT_CONTENT_LIMITS.maxDepth) {
     throw intentContractViolation(
@@ -103,21 +119,21 @@ function walk(value: unknown, path: string[], budget: { nodes: number }, maxStru
   }
 
   if (typeof value === 'string') {
-    assertSafeString(value, path);
+    assertSafeString(value, path, budget.maxMultilineChars);
     return;
   }
   if (Array.isArray(value)) {
-    value.forEach((entry, index) => walk(entry, [...path, String(index)], budget, maxStructureNodes));
+    value.forEach((entry, index) => walk(entry, [...path, String(index)], budget));
     return;
   }
   if (typeof value === 'object' && value !== null) {
     for (const [key, child] of Object.entries(value)) {
-      walk(child, [...path, key], budget, maxStructureNodes);
+      walk(child, [...path, key], budget);
     }
   }
 }
 
-function assertSafeString(value: string, path: string[]): void {
+function assertSafeString(value: string, path: string[], maxMultilineChars: number): void {
   // First, because it is the cheapest and the most structural: everything below
   // reasons about the string as text, and a control character means it is not.
   if (DISALLOWED_CONTROL_CHARS.test(value)) {
@@ -142,7 +158,7 @@ function assertSafeString(value: string, path: string[]): void {
       path,
     );
   }
-  if (value.includes('\n') && value.length > INTENT_CONTENT_LIMITS.maxMultilineChars) {
+  if (value.includes('\n') && value.length > maxMultilineChars) {
     throw intentContractViolation(
       IntentErrorCode.ContentSourceBodyShaped,
       'Intent content looks like a pasted source body rather than a bounded statement',
@@ -176,9 +192,7 @@ function assertSafeUrl(value: string, path: string[]): void {
   }
 }
 
-export interface ParseContractOptions {
-  maxStructureNodes?: number;
-}
+export type ParseContractOptions = Pick<AssertSafeCloudContentOptions, 'maxStructureNodes' | 'maxMultilineChars'>;
 
 /**
  * The single validation entry point for every intent operation, on every
@@ -192,7 +206,7 @@ export interface ParseContractOptions {
 export function parseContract<T>(schema: z.ZodType<T>, input: unknown, options: ParseContractOptions = {}): T {
   const parsed = schema.safeParse(input);
   if (!parsed.success) throw schemaViolation(parsed.error);
-  assertSafeCloudContent(parsed.data, { maxStructureNodes: options.maxStructureNodes });
+  assertSafeCloudContent(parsed.data, options);
   return parsed.data;
 }
 
@@ -213,7 +227,7 @@ export function intentContractPipe<T>(
   // whose schema already failed (shape error first, as `parseContract` orders them) and lets the
   // typed content refusal propagate out of `safeParse` untouched.
   const withContentWalk = schema.superRefine((value) => {
-    assertSafeCloudContent(value, { maxStructureNodes: options.maxStructureNodes });
+    assertSafeCloudContent(value, options);
   });
   return new ZodValidationPipe(withContentWalk, schemaViolation);
 }

@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { IntentOpenCommentsBadge } from './count-badges.js';
 import {
   groupIntentItemsByKind,
   intentItemScope,
@@ -60,6 +61,7 @@ export interface IntentItemsListProps {
   onToggleResolved: () => void;
   /** The same state as the structure column's "Only with open questions" toggle. */
   onToggleOpenQuestions: () => void;
+  onToggleOpenComments: () => void;
   onSelectItem: (itemId: string) => void;
   onLoadMore: () => void;
   deliverySelection: string[];
@@ -93,6 +95,7 @@ export function IntentItemsList({
   onToggleCandidates,
   onToggleResolved,
   onToggleOpenQuestions,
+  onToggleOpenComments,
   onSelectItem,
   onLoadMore,
   deliverySelection,
@@ -130,6 +133,7 @@ export function IntentItemsList({
           <Chip pressed={filter.includeCandidates} label="Accepted + candidates" onClick={onToggleCandidates} />
           <Chip pressed={filter.includeResolved} label="Include resolved" onClick={onToggleResolved} />
           <Chip pressed={filter.openQuestions} label="Open questions only" onClick={onToggleOpenQuestions} />
+          <Chip pressed={filter.openComments} label="Open comments only" onClick={onToggleOpenComments} />
         </div>
       </div>
 
@@ -300,6 +304,7 @@ function ItemRow({
           </Badge>
         ))}
         {contextChip && <Badge variant="warn">{contextChip}</Badge>}
+        <IntentOpenCommentsBadge count={item.openCommentCount} />
         <span className="truncate font-mono text-[11.5px] text-ink-4">{item.id}</span>
       </span>
     </button>

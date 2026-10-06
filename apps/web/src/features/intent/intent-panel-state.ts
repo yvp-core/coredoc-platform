@@ -151,6 +151,8 @@ export interface IntentCountCell {
   items: number;
   pending: number;
   open: number;
+  /** Open comment threads. */
+  comments: number;
 }
 
 /**
@@ -166,6 +168,8 @@ export interface IntentTreeCounts {
   features: Readonly<Record<string, IntentCountCell>>;
 }
 
+const NO_NODE_COUNTS: IntentNodeCounts = { itemCount: 0, pendingCount: 0, openQuestionCount: 0, openCommentCount: 0 };
+
 /** From the tree pages, plus the features a "show all features" read listed past the tree's cap. */
 export function intentTreeCounts(
   pages: readonly IntentTreeResponse[],
@@ -177,6 +181,7 @@ export function intentTreeCounts(
     items: node.itemCount,
     pending: node.pendingCount,
     open: node.openQuestionCount,
+    comments: node.openCommentCount,
   });
   for (const page of pages) {
     for (const domain of page.domains) {
@@ -184,12 +189,17 @@ export function intentTreeCounts(
         items: domain.subtreeItemCount,
         pending: domain.subtreePendingCount,
         open: domain.subtreeOpenQuestionCount,
+        comments: domain.subtreeOpenCommentCount,
       };
       for (const feature of domain.features) features[feature.id] = cell(feature);
     }
   }
   for (const feature of moreFeatures) features[feature.id] = cell(feature);
-  return { root: cell(pages[0]?.root ?? { itemCount: 0, pendingCount: 0, openQuestionCount: 0 }), domains, features };
+  return {
+    root: cell(pages[0]?.root ?? NO_NODE_COUNTS),
+    domains,
+    features,
+  };
 }
 
 /* --------------------------------------------------------------- filters --- */
@@ -209,6 +219,11 @@ export interface IntentItemFilter {
    * together and clearing either clears both.
    */
   openQuestions: boolean;
+  /**
+   * Only items with an open comment thread. Shared with the structure column's
+   * "Only with open comments" toggle, like `openQuestions`.
+   */
+  openComments: boolean;
 }
 
 export const DEFAULT_INTENT_ITEM_FILTER: IntentItemFilter = {
@@ -217,6 +232,7 @@ export const DEFAULT_INTENT_ITEM_FILTER: IntentItemFilter = {
   includeCandidates: true,
   includeResolved: false,
   openQuestions: false,
+  openComments: false,
 };
 
 /** Items grouped by kind, in the browse filter's kind order. */

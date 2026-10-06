@@ -21,6 +21,12 @@ import type {
   IntentAnchorRefreshInput,
   IntentAnchorRefreshResponse,
   IntentArchiveInput,
+  IntentCommentCreateInput,
+  IntentCommentMutationResponse,
+  IntentCommentStatus,
+  IntentCommentStatusInput,
+  IntentCommentTarget,
+  IntentCommentsResponse,
   IntentContextListQuery,
   IntentContextListResponse,
   IntentContextQuery,
@@ -190,6 +196,7 @@ export const intentItemsQueryOptions = (workspaceId: string, query: IntentItemsQ
       query.kinds ?? null,
       query.scopeFeatureId ?? null,
       query.openQuestions ?? null,
+      query.openComments ?? null,
     ] as const,
     queryFn: ({ pageParam }) =>
       get<IntentItemsResponse>(
@@ -378,6 +385,31 @@ export const intentFeatureSeedsQueryOptions = (workspaceId: string, featureId: s
     staleTime: 30_000,
   });
 
+/** One feature's or item's comment threads, oldest first; `status` filters on the thread's status. */
+export const intentCommentsQueryOptions = (
+  workspaceId: string,
+  target: IntentCommentTarget,
+  status: IntentCommentStatus | null,
+) =>
+  infiniteQueryOptions({
+    queryKey: ['intent', 'comments', workspaceId, target.kind, target.id, status] as const,
+    queryFn: ({ pageParam }) =>
+      get<IntentCommentsResponse>(
+        intentPath(
+          workspaceId,
+          'comments',
+          intentQuery({
+            [target.kind === 'feature' ? 'featureId' : 'itemId']: target.id,
+            status: status ?? undefined,
+            ...pageQuery(pageParam ?? undefined),
+          }),
+        ),
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last: IntentCommentsResponse) => last.nextCursor,
+    staleTime: 30_000,
+  });
+
 /* ----------------------------------------------------------------- writes --- */
 
 /**
@@ -422,6 +454,15 @@ export const deleteIntentSeed = (workspaceId: string, body: IntentSeedDeleteInpu
     intentPath(workspaceId, `features/${encodeURIComponent(body.featureId)}/seeds/delete`),
     body,
   );
+
+export const createIntentComment = (workspaceId: string, body: IntentCommentCreateInput & { idempotencyKey: string }) =>
+  post<IntentCommentMutationResponse>(intentPath(workspaceId, 'comments'), body);
+
+export const setIntentCommentStatus = (
+  workspaceId: string,
+  body: IntentCommentStatusInput & { idempotencyKey: string },
+) =>
+  post<IntentCommentMutationResponse>(intentPath(workspaceId, `comments/${encodeURIComponent(body.id)}/status`), body);
 
 /**
  * Re-capture one anchor's baseline. The ids in the path are ALSO in the body —

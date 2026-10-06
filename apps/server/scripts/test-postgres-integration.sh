@@ -42,6 +42,7 @@ PUSH_WORKER_LICENSE_TEST_DATABASE_URL="${database_url}" \
 INTENT_SCHEMA_TEST_DATABASE_URL="${database_url}" \
 INTENT_MIGRATION_TEST_DATABASE_URL="${database_url}" \
 INTENT_MODULE_TEST_DATABASE_URL="${database_url}" \
+INTENT_COMMENT_TEST_DATABASE_URL="${database_url}" \
 INTENT_REVIEW_TEST_DATABASE_URL="${database_url}" \
 INTENT_RELEASE_TEST_DATABASE_URL="${database_url}" \
 INTENT_REVIEW_QUEUE_TEST_DATABASE_URL="${database_url}" \
@@ -68,6 +69,7 @@ REPOS_IDENTITY_TEST_DATABASE_URL="${database_url}" \
     src/database/workspace-repo-intent-identity-migration.postgres.integration.test.ts \
     src/modules/repos/repos-identity.postgres.integration.test.ts \
     src/modules/intent/intent-module.postgres.integration.test.ts \
+    src/modules/intent/intent-comment.postgres.integration.test.ts \
     src/modules/intent/intent-review.postgres.integration.test.ts \
     src/modules/intent/intent-release.postgres.integration.test.ts \
     src/modules/intent/intent-review-queue.postgres.integration.test.ts \

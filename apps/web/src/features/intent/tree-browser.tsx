@@ -14,7 +14,7 @@
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { Archive, CircleHelp, Funnel, MessageSquareDot, Settings2 } from 'lucide-react';
+import { Archive, CircleHelp, Funnel, MessageSquareDot, MessagesSquare, Settings2 } from 'lucide-react';
 import type * as React from 'react';
 import { IntentCountBadges } from './count-badges.js';
 import type { IntentCountCell, IntentTreeCounts, IntentTreeSelection } from './intent-panel-state.js';
@@ -58,10 +58,13 @@ export interface IntentTreeBrowserProps {
   /** Show only the nodes that hold an open question (or have one below them); combines with `onlyPending`. */
   onlyOpenQuestions?: boolean;
   onToggleOnlyOpenQuestions?: () => void;
+  /** Show only the nodes with an open comment thread (or one below them); combines with the others. */
+  onlyOpenComments?: boolean;
+  onToggleOnlyOpenComments?: () => void;
 }
 
 /** Which counts a node must have above zero to stay listed; empty means no filter. */
-type TreeFilter = readonly ('pending' | 'open')[];
+type TreeFilter = readonly ('pending' | 'open' | 'comments')[];
 
 export function IntentTreeBrowser({
   domains: domainPages,
@@ -82,11 +85,17 @@ export function IntentTreeBrowser({
   onToggleOnlyPending,
   onlyOpenQuestions = false,
   onToggleOnlyOpenQuestions,
+  onlyOpenComments = false,
+  onToggleOnlyOpenComments,
 }: IntentTreeBrowserProps) {
   const filter: TreeFilter =
     counts === null
       ? []
-      : [...(onlyPending ? ['pending' as const] : []), ...(onlyOpenQuestions ? ['open' as const] : [])];
+      : [
+          ...(onlyPending ? ['pending' as const] : []),
+          ...(onlyOpenQuestions ? ['open' as const] : []),
+          ...(onlyOpenComments ? ['comments' as const] : []),
+        ];
   const filtering = filter.length > 0;
   const domains = (domainPages ?? []).filter((domain) =>
     filter.every((field) => (counts?.domains[domain.id]?.[field] ?? 0) > 0),
@@ -128,6 +137,16 @@ export function IntentTreeBrowser({
               <CircleHelp aria-hidden="true" className="size-4" />
             </TreeToolbarButton>
           )}
+          {onToggleOnlyOpenComments && (
+            <TreeToolbarButton
+              label="Only with open comments"
+              pressed={onlyOpenComments}
+              activeClassName="text-blue"
+              onClick={onToggleOnlyOpenComments}
+            >
+              <MessagesSquare aria-hidden="true" className="size-4" />
+            </TreeToolbarButton>
+          )}
           {canEdit && (
             <TreeToolbarButton label="Manage structure" className="ml-auto" onClick={onEditTree}>
               <Settings2 aria-hidden="true" className="size-4" />
@@ -143,6 +162,7 @@ export function IntentTreeBrowser({
           count={counts ? counts.root.items : null}
           pending={counts ? counts.root.pending : undefined}
           open={counts ? counts.root.open : undefined}
+          comments={counts ? counts.root.comments : undefined}
           selected={selection.domainId === null && selection.featureId === null}
           onClick={() => onSelect({ domainId: null, featureId: null })}
         />
@@ -163,6 +183,7 @@ export function IntentTreeBrowser({
                 count={domainCount ? domainCount.items : null}
                 pending={counts ? (domainCount?.pending ?? 0) : undefined}
                 open={counts ? (domainCount?.open ?? 0) : undefined}
+                comments={counts ? (domainCount?.comments ?? 0) : undefined}
                 conditions={domain.appliesWhen}
                 selected={selection.domainId === domain.id && selection.featureId === null}
                 onClick={() => onSelect({ domainId: domain.id, featureId: null })}
@@ -315,6 +336,7 @@ function FeatureList({
             count={counts?.features[feature.id]?.items ?? null}
             pending={counts ? totalIn('pending', feature.id) : undefined}
             open={counts ? totalIn('open', feature.id) : undefined}
+            comments={counts ? totalIn('comments', feature.id) : undefined}
             conditions={feature.appliesWhen}
             selected={selection.featureId === feature.id}
             onClick={() => onSelect({ domainId: feature.domainId, featureId: feature.id })}
@@ -390,6 +412,7 @@ function TreeRow({
   count,
   pending,
   open,
+  comments,
   conditions,
   root,
   selected,
@@ -405,6 +428,8 @@ function TreeRow({
   pending?: number;
   /** Open questions; `undefined` while the counts are unread. */
   open?: number;
+  /** Open comment threads; `undefined` while the counts are unread. */
+  comments?: number;
   root?: boolean;
   selected: boolean;
   onClick: () => void;
@@ -427,7 +452,7 @@ function TreeRow({
       <span className="min-w-0 flex-1 truncate">{label}</span>
       <TreeConditionMarker conditions={conditions} />
       {archived && <span className="rounded border border-border px-1 text-[10.5px] text-ink-4">archived</span>}
-      <IntentCountBadges pending={pending} open={open} />
+      <IntentCountBadges pending={pending} open={open} comments={comments} />
       {/* The product root's own attached items are normally zero, and a "0" on the
           row the overview counts in full reads as a contradiction. */}
       {count !== null && (!root || count > 0) && <span className="num shrink-0 text-[11.5px] text-ink-4">{count}</span>}

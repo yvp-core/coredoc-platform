@@ -199,6 +199,33 @@ export const DeleteIntentNodeRelationSchema = z
   .object({ ...mutation, from: IntentNodeRefSchema, to: IntentNodeRefSchema })
   .strict();
 
+/* ------------------------------------------------------------- comments --- */
+
+export const IntentCommentStatus = ['open', 'resolved'] as const;
+
+/** What a comment thread is about: a feature or an item. */
+export const IntentCommentTargetSchema = z
+  .object({ kind: z.enum(['feature', 'item']).describe("'feature' or 'item'"), id: slugId() })
+  .strict();
+
+/** A new thread names its target; a reply names its thread's root and takes the root's target. */
+export const CreateIntentCommentSchema = z
+  .object({
+    ...mutation,
+    target: IntentCommentTargetSchema.optional(),
+    parentId: z.uuid().optional(),
+    body: text(INTENT_CONTRACT_LIMITS.text),
+  })
+  .strict()
+  .refine((value) => (value.target === undefined) !== (value.parentId === undefined), {
+    message: 'Name exactly one of target (a new thread) or parentId (a reply)',
+    path: ['target'],
+  });
+
+export const SetIntentCommentStatusSchema = z
+  .object({ ...mutation, id: z.uuid(), status: z.enum(IntentCommentStatus) })
+  .strict();
+
 /* ------------------------------------------------------------ dimensions --- */
 
 /** Core's registry shape: values `{id, title, aliases?}`, unique value ids, bounded. */
@@ -522,6 +549,8 @@ export const ListIntentItemsQuerySchema = z
     scopeFeatureId: slugId().optional(),
     /** Only live decisions whose choice is still open (the tree's `openQuestionCount`). */
     openQuestions: z.enum(['true', 'false']).optional(),
+    /** Only items with at least one open comment thread. */
+    openComments: z.enum(['true', 'false']).optional(),
     authority: z.enum(IntentAuthority).optional(),
     kind: z.enum(IntentKind).optional(),
     domainId: slugId().optional(),
@@ -547,6 +576,20 @@ export const ListIntentReviewQueueQuerySchema = z
   })
   .strict();
 
+/** One target's threads, oldest first; `status` filters on the root's status. */
+export const ListIntentCommentsQuerySchema = z
+  .object({
+    ...listQuery,
+    featureId: slugId().optional(),
+    itemId: slugId().optional(),
+    status: z.enum(IntentCommentStatus).optional(),
+  })
+  .strict()
+  .refine((value) => (value.featureId === undefined) !== (value.itemId === undefined), {
+    message: 'Name exactly one of featureId or itemId',
+    path: ['featureId'],
+  });
+
 export const ListIntentSourcesQuerySchema = z.object({ search: z.string().trim().max(200).optional() }).strict();
 
 export type CreateIntentDomainInput = z.infer<typeof CreateIntentDomainSchema>;
@@ -562,6 +605,9 @@ export type DeleteIntentFeatureSeedInput = z.infer<typeof DeleteIntentFeatureSee
 export type IntentNodeRefInput = z.infer<typeof IntentNodeRefSchema>;
 export type PutIntentNodeRelationInput = z.infer<typeof PutIntentNodeRelationSchema>;
 export type DeleteIntentNodeRelationInput = z.infer<typeof DeleteIntentNodeRelationSchema>;
+export type CreateIntentCommentInput = z.infer<typeof CreateIntentCommentSchema>;
+export type SetIntentCommentStatusInput = z.infer<typeof SetIntentCommentStatusSchema>;
+export type ListIntentCommentsQuery = z.infer<typeof ListIntentCommentsQuerySchema>;
 export type CreateIntentDimensionInput = z.infer<typeof CreateIntentDimensionSchema>;
 export type UpdateIntentDimensionInput = z.infer<typeof UpdateIntentDimensionSchema>;
 export type ArchiveIntentDimensionInput = z.infer<typeof ArchiveIntentDimensionSchema>;

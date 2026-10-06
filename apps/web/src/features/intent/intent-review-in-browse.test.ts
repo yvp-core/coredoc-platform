@@ -26,6 +26,7 @@ const item = (id: string, extra: Partial<IntentDocumentItem> = {}): IntentDocume
   version: 1,
   effectivity: 'effective',
   openQuestion: false,
+  openCommentCount: 0,
   proposedSuccessorOfId: null,
   appliesWhen: [],
   pendingSuccessor: null,
@@ -39,16 +40,18 @@ describe('intentTreeCounts', () => {
       intentTreeCounts(
         [
           {
-            root: { itemCount: 2, pendingCount: 2, openQuestionCount: 1 },
+            root: { itemCount: 2, pendingCount: 2, openQuestionCount: 1, openCommentCount: 0 },
             domains: [
               {
                 ...node,
                 id: 'billing',
                 pendingCount: 1,
                 openQuestionCount: 0,
+                openCommentCount: 0,
                 subtreeItemCount: 9,
                 subtreePendingCount: 5,
                 subtreeOpenQuestionCount: 3,
+                subtreeOpenCommentCount: 0,
                 featuresTruncated: false,
                 features: [
                   {
@@ -58,6 +61,7 @@ describe('intentTreeCounts', () => {
                     parentFeatureId: null,
                     pendingCount: 3,
                     openQuestionCount: 2,
+                    openCommentCount: 0,
                   },
                 ],
               },
@@ -73,13 +77,17 @@ describe('intentTreeCounts', () => {
             parentFeatureId: null,
             pendingCount: 1,
             openQuestionCount: 1,
+            openCommentCount: 0,
           },
         ],
       ),
     ).toEqual({
-      root: { items: 2, pending: 2, open: 1 },
-      domains: { billing: { items: 9, pending: 5, open: 3 } },
-      features: { refunds: { items: 4, pending: 3, open: 2 }, chargebacks: { items: 4, pending: 1, open: 1 } },
+      root: { items: 2, pending: 2, open: 1, comments: 0 },
+      domains: { billing: { items: 9, pending: 5, open: 3, comments: 0 } },
+      features: {
+        refunds: { items: 4, pending: 3, open: 2, comments: 0 },
+        chargebacks: { items: 4, pending: 1, open: 1, comments: 0 },
+      },
     });
   });
 });

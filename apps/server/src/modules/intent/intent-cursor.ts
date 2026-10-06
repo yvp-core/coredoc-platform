@@ -35,6 +35,7 @@ export enum IntentCursorScope {
   Context = 'context',
   ItemTransitions = 'item-transitions',
   WorkspaceTransitions = 'workspace-transitions',
+  Comments = 'comments',
 }
 
 const CURSOR_VERSION = 1;
@@ -83,6 +84,8 @@ const CURSOR_KEYSETS: Record<IntentCursorScope, readonly IntentCursorPartKind[]>
   // (createdAt, bigint row id) — `new Date()` then `BigInt()`.
   [IntentCursorScope.ItemTransitions]: [IntentCursorPartKind.Timestamp, IntentCursorPartKind.Integer],
   [IntentCursorScope.WorkspaceTransitions]: [IntentCursorPartKind.Timestamp, IntentCursorPartKind.Integer],
+  // (createdAt, comment uuid) — `new Date()` then a text comparison.
+  [IntentCursorScope.Comments]: [IntentCursorPartKind.Timestamp, IntentCursorPartKind.Opaque],
 };
 
 /**

@@ -24,6 +24,7 @@ import { readReleaseSnapshot } from './intent-release.service.js';
 import type { Effectivity, ReleaseSnapshot } from './intent-release.fold.js';
 import { intentStateError } from './intent-state-errors.js';
 import { type IntentNodeCounts, readIntentNodeCounts, treeConditionsOf } from './intent-tree.service.js';
+import { OPEN_COMMENT_THREAD_WHERE } from './intent-item.service.js';
 
 export const INTENT_READ_LIMITS = {
   /** Items one node read returns before it asks to be narrowed by kind. */
@@ -106,6 +107,8 @@ export interface IntentDocumentItem {
   version: number;
   effectivity: Effectivity;
   openQuestion: boolean;
+  /** Open comment threads on the item. */
+  openCommentCount: number;
   proposedSuccessorOfId: string | null;
   appliesWhen: unknown[];
   /** A candidate proposing to replace this item, shown on this item's block. */
@@ -467,6 +470,7 @@ export class IntentReadService {
         .map((item) => [item.proposedSuccessorOfId as string, item]),
     );
     const riding = new Set([...pending.values()].map((item) => item.id));
+    const openComments = await this.openCommentCounts(workspaceId, [...shown]);
 
     const toItem = (item: ItemRow): IntentDocumentItem => {
       const successor = pending.get(item.id);
@@ -480,6 +484,7 @@ export class IntentReadService {
         version: item.version,
         effectivity: release.effectivity(item.id),
         openQuestion: isOpenQuestion(item),
+        openCommentCount: openComments.get(item.id) ?? 0,
         proposedSuccessorOfId: item.proposedSuccessorOfId,
         appliesWhen: Array.isArray(item.appliesWhen) ? (item.appliesWhen as unknown[]) : [],
         pendingSuccessor: successor
@@ -534,6 +539,16 @@ export class IntentReadService {
 
   /* ------------------------------------------------------------ helpers --- */
 
+  private async openCommentCounts(workspaceId: string, itemIds: string[]): Promise<Map<string, number>> {
+    if (itemIds.length === 0) return new Map();
+    const rows = await this.prisma.intentComment.groupBy({
+      by: ['itemId'],
+      where: { workspaceId, itemId: { in: itemIds }, ...OPEN_COMMENT_THREAD_WHERE },
+      _count: { _all: true },
+    });
+    return new Map(rows.map((row) => [row.itemId as string, row._count._all]));
+  }
+
   /**
    * The product root read as the whole product: its non-archived domains with
    * their subtree counts (the tree's numbers), and totals and delivery over the
@@ -561,6 +576,7 @@ export class IntentReadService {
           itemCount: subtree.subtreeItemCount,
           pendingCount: subtree.subtreePendingCount,
           openQuestionCount: subtree.subtreeOpenQuestionCount,
+          openCommentCount: subtree.subtreeOpenCommentCount,
           effective: effectiveIn.get(domain.id) ?? 0,
         };
       }),

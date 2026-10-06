@@ -31,6 +31,7 @@ import {
   intentTreeQueryOptions,
 } from '@/api/queries/intent';
 import { IntentCatalogueFilters } from './catalogue-filters.js';
+import { IntentComments } from './comments.js';
 import { IntentContextPreview } from './context-preview.js';
 import { DeliverySelectionBar } from './delivery-selection-bar.js';
 import { IntentDocumentView } from './document-view.js';
@@ -205,6 +206,7 @@ export function IntentPanel({
 
   const { filter, setFilter } = catalogue;
   const toggleOpenQuestions = () => setFilter((current) => ({ ...current, openQuestions: !current.openQuestions }));
+  const toggleOpenComments = () => setFilter((current) => ({ ...current, openComments: !current.openComments }));
   const toggleKind = (kind: IntentItemKind) =>
     setFilter((current) => ({
       ...current,
@@ -366,6 +368,8 @@ export function IntentPanel({
               onToggleOnlyPending={() => setOnlyPending((value) => !value)}
               onlyOpenQuestions={filter.openQuestions}
               onToggleOnlyOpenQuestions={toggleOpenQuestions}
+              onlyOpenComments={filter.openComments}
+              onToggleOnlyOpenComments={toggleOpenComments}
             />
           </div>
         )}
@@ -442,6 +446,7 @@ export function IntentPanel({
                   setFilter((current) => ({ ...current, includeResolved: !current.includeResolved }))
                 }
                 onToggleOpenQuestions={toggleOpenQuestions}
+                onToggleOpenComments={toggleOpenComments}
                 onSelectItem={setSelectedItemId}
                 onLoadMore={() => void catalogue.listQuery.fetchNextPage()}
               />
@@ -461,6 +466,15 @@ export function IntentPanel({
                 seeds={seedsQuery.data?.rows ?? null}
                 seedsTruncated={seedsQuery.data?.truncated ?? false}
               />
+              {nodeFeature && (
+                <div className="border-t border-border-soft px-4 py-3">
+                  <IntentComments
+                    key={nodeFeature.id}
+                    workspaceId={id}
+                    target={{ kind: 'feature', id: nodeFeature.id }}
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -501,6 +515,13 @@ export function IntentPanel({
               )}
               {detailMatch && <IntentItemAskAgent key={detailMatch.id} match={detailMatch} />}
               <IntentItemDetail
+                comments={
+                  <IntentComments
+                    key={`comments:${selectedItemId}`}
+                    workspaceId={id}
+                    target={{ kind: 'item', id: selectedItemId }}
+                  />
+                }
                 productionState={
                   <ItemProductionState key={selectedItemId} workspaceId={id} role={role} itemId={selectedItemId} />
                 }

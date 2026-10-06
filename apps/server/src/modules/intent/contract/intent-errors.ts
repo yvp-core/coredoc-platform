@@ -127,6 +127,12 @@ export enum IntentErrorCode {
   SourceNotFound = 'source_not_found',
   /** No relation joins the two named nodes. */
   NodeRelationNotFound = 'node_relation_not_found',
+  /** The named comment does not exist in this workspace. */
+  CommentNotFound = 'comment_not_found',
+  /** A reply names a comment that is itself a reply; threads are one level deep. */
+  CommentReplyToReply = 'comment_reply_to_reply',
+  /** A status change names a reply; only a thread's root carries a status. */
+  CommentStatusOnReply = 'comment_status_on_reply',
   /** A relation names the same node at both ends. */
   NodeRelationSelf = 'node_relation_self',
   /** Create was called for an id that already exists. Ids are immutable; create is not upsert. */

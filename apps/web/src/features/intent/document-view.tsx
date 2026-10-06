@@ -14,7 +14,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { useEffect, useRef, useState } from 'react';
-import { IntentCountBadges } from './count-badges.js';
+import { IntentCountBadges, IntentOpenCommentsBadge } from './count-badges.js';
 import { Chip } from './items-list.js';
 import { IntentMarkdown } from './intent-markdown.js';
 import { contextConditionText, stripSourceRefs } from './intent-presentation.js';
@@ -258,7 +258,7 @@ function ItemMarks({ item }: { item: IntentDocumentItem }) {
     marks.push({ label: item.proposedSuccessorOfId ? 'Proposed replacement' : 'Proposed', variant: 'candidate' });
   if (item.authority === IntentAuthority.Superseded) marks.push({ label: 'Being replaced', variant: 'neutral' });
   if (item.effectivity === 'planned') marks.push({ label: 'Planned', variant: 'replace' });
-  if (marks.length === 0) return null;
+  if (marks.length === 0 && !item.openCommentCount) return null;
   return (
     <span className="ml-1.5 inline-flex flex-wrap gap-1 align-[1px]">
       {marks.map((mark) => (
@@ -266,6 +266,7 @@ function ItemMarks({ item }: { item: IntentDocumentItem }) {
           {mark.label}
         </Badge>
       ))}
+      <IntentOpenCommentsBadge count={item.openCommentCount} />
     </span>
   );
 }
@@ -320,7 +321,11 @@ function DomainRow({ domain, onClick }: { domain: IntentDocumentDomain; onClick:
       className="-ml-2 flex w-full items-center gap-[7px] rounded-md px-2 py-[5px] text-left text-[14.5px] text-ink-1 transition-colors hover:bg-surface-2"
     >
       <span className="min-w-0 flex-1 truncate">{domain.title}</span>
-      <IntentCountBadges pending={domain.pendingCount} open={domain.openQuestionCount} />
+      <IntentCountBadges
+        pending={domain.pendingCount}
+        open={domain.openQuestionCount}
+        comments={domain.openCommentCount}
+      />
       <span className="num shrink-0 text-[12px] text-ink-3">{domain.effective} in production</span>
       <span className="num w-[72px] shrink-0 text-right text-[12px] text-ink-4">
         {plural(domain.itemCount, 'item')}

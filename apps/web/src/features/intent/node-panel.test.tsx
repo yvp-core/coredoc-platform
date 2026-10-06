@@ -26,7 +26,7 @@ it('shows a feature’s own conditions, the domain’s labelled by source, scope
       domain={DOMAIN}
       feature={node('swap-pl', 'Swaps in Poland', [{ dimension: 'country', in: ['pl'] }])}
       dimensions={DIMENSIONS}
-      count={{ items: 4, pending: 1, open: 0 }}
+      count={{ items: 4, pending: 1, open: 0, comments: 0 }}
       seeds={[{ repoKey: 'app', nodeId: 'swap.ts', note: null, createdBy: 'u', createdAt: '2026-09-01T00:00:00.000Z' }]}
       seedsTruncated={false}
     />,

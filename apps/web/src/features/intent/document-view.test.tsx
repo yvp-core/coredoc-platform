@@ -15,6 +15,7 @@ const item = (id: string, statement: string, extra: Partial<IntentDocumentItem> 
   version: 1,
   effectivity: 'effective',
   openQuestion: false,
+  openCommentCount: 0,
   proposedSuccessorOfId: null,
   appliesWhen: [],
   pendingSuccessor: null,
@@ -38,7 +39,10 @@ const DOCUMENT: IntentNodeDocument = {
         {
           type: 'item',
           style: 'bullet',
-          item: item('br-chargeback', 'No refund during a chargeback.', { authority: IntentAuthority.Candidate }),
+          item: item('br-chargeback', 'No refund during a chargeback.', {
+            authority: IntentAuthority.Candidate,
+            openCommentCount: 2,
+          }),
         },
       ],
     },
@@ -71,6 +75,9 @@ it('renders the node as a document, marks proposals in place and opens what is c
   expect(screen.getByRole('heading', { level: 1, name: 'Refunds' })).toBeTruthy();
   expect(screen.getByRole('heading', { level: 2, name: 'Rules' })).toBeTruthy();
   expect(screen.getByText('Proposed')).toBeTruthy();
+  // Only the item with open threads is marked.
+  expect(screen.getAllByText(/open comment/)).toHaveLength(1);
+  expect(screen.getByText('2 open comments')).toBeTruthy();
 
   fireEvent.click(screen.getByRole('button', { name: /Change proposed/ }));
   expect(onSelectItem).toHaveBeenLastCalledWith('br-window-v2');
@@ -96,11 +103,20 @@ it('reads the product root as the whole product: domains with counts open in the
             itemCount: 44,
             pendingCount: 3,
             openQuestionCount: 2,
+            openCommentCount: 0,
             effective: 30,
           },
-          { id: 'billing', title: 'Billing', itemCount: 1, pendingCount: 0, openQuestionCount: 0, effective: 1 },
+          {
+            id: 'billing',
+            title: 'Billing',
+            itemCount: 1,
+            pendingCount: 0,
+            openQuestionCount: 0,
+            openCommentCount: 0,
+            effective: 1,
+          },
         ],
-        overview: { itemCount: 45, pendingCount: 3, openQuestionCount: 2 },
+        overview: { itemCount: 45, pendingCount: 3, openQuestionCount: 2, openCommentCount: 0 },
         moreDomains: 0,
         delivery: { effective: 31, planned: 2, unrecorded: 10 },
         truncated: false,
