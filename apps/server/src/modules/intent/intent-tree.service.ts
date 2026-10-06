@@ -55,7 +55,7 @@ import type {
   UpdateIntentFeatureInput,
 } from './contract/index.js';
 import { INTENT_TREE_FEATURES_PER_DOMAIN, IntentCursorScope, decodeIntentCursor, paginate } from './intent-cursor.js';
-import { OPEN_QUESTION_WHERE } from './intent-item.service.js';
+import { OPEN_COMMENT_THREAD_WHERE, OPEN_QUESTION_WHERE } from './intent-item.service.js';
 import {
   IntentAuditOperation,
   IntentOperation,
@@ -67,7 +67,6 @@ import {
 import { INTENT_SEED_NODE_ID_KINDS, nodeIdKindOf } from './intent-node-types.js';
 import { assertWorkspaceIntentRepoKeys } from './intent-repo-keys.js';
 import { intentNotFound, intentStateError } from './intent-state-errors.js';
-import { OPEN_COMMENT_THREAD_WHERE } from './intent-comment.service.js';
 import {
   INTENT_CONTRACT_LIMITS,
   IntentErrorCode,
@@ -129,7 +128,8 @@ export interface IntentTreeDimensionView {
  * node. `pendingCount` is the candidates among them, waiting for review, and
  * `openQuestionCount` the decisions among them whose choice is still open
  * ({@link OPEN_QUESTION_WHERE}). `openCommentCount` is the open comment
- * threads on those items plus, for a feature, on the feature itself.
+ * threads on the items attached to the node, whatever their authority, plus,
+ * for a feature, on the feature itself.
  * A domain's `subtree*` counts add every one of its features, archived ones
  * and those past the per-domain page cap included.
  */
@@ -166,11 +166,8 @@ export async function readIntentNodeCounts(
     threadsOnItem.size === 0
       ? []
       : prisma.intentItem.findMany({
-          where: {
-            workspaceId,
-            authority: { in: ['candidate', 'accepted'] },
-            AND: [{ id: { in: [...threadsOnItem.keys()] } }, where],
-          },
+          // Any authority: an open thread on a rejected or superseded item still needs an answer.
+          where: { workspaceId, AND: [{ id: { in: [...threadsOnItem.keys()] } }, where] },
           select: { id: true, domainId: true, featureId: true },
         }),
     threadsOnFeature.size === 0

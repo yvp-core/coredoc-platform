@@ -10,15 +10,14 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { MessagesSquare } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { useEffect, useRef, useState } from 'react';
-import { IntentCountBadges } from './count-badges.js';
+import { IntentCountBadges, IntentOpenCommentsBadge } from './count-badges.js';
 import { Chip } from './items-list.js';
 import { IntentMarkdown } from './intent-markdown.js';
-import { contextConditionText, openCommentsLabel, stripSourceRefs } from './intent-presentation.js';
+import { contextConditionText, stripSourceRefs } from './intent-presentation.js';
 import {
   IntentAuthority,
   type IntentDocumentDomain,
@@ -259,8 +258,7 @@ function ItemMarks({ item }: { item: IntentDocumentItem }) {
     marks.push({ label: item.proposedSuccessorOfId ? 'Proposed replacement' : 'Proposed', variant: 'candidate' });
   if (item.authority === IntentAuthority.Superseded) marks.push({ label: 'Being replaced', variant: 'neutral' });
   if (item.effectivity === 'planned') marks.push({ label: 'Planned', variant: 'replace' });
-  const comments = openCommentsLabel(item.openCommentCount);
-  if (marks.length === 0 && comments === null) return null;
+  if (marks.length === 0 && !item.openCommentCount) return null;
   return (
     <span className="ml-1.5 inline-flex flex-wrap gap-1 align-[1px]">
       {marks.map((mark) => (
@@ -268,12 +266,7 @@ function ItemMarks({ item }: { item: IntentDocumentItem }) {
           {mark.label}
         </Badge>
       ))}
-      {comments && (
-        <Badge variant="info" className="gap-1">
-          <MessagesSquare aria-hidden="true" className="size-3" />
-          {comments}
-        </Badge>
-      )}
+      <IntentOpenCommentsBadge count={item.openCommentCount} />
     </span>
   );
 }

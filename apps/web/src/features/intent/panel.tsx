@@ -85,7 +85,6 @@ export function IntentPanel({
   const [centerView, setCenterView] = useState<'document' | 'list'>('document');
   const [treeCollapsed, setTreeCollapsed] = useState(false);
   const [onlyPending, setOnlyPending] = useState(false);
-  const [onlyOpenComments, setOnlyOpenComments] = useState(false);
 
   /** Rows are the truth: after any write, everything intent-scoped is re-read. */
   const invalidateIntent = () => queryClient.invalidateQueries({ queryKey: ['intent'] });
@@ -207,6 +206,7 @@ export function IntentPanel({
 
   const { filter, setFilter } = catalogue;
   const toggleOpenQuestions = () => setFilter((current) => ({ ...current, openQuestions: !current.openQuestions }));
+  const toggleOpenComments = () => setFilter((current) => ({ ...current, openComments: !current.openComments }));
   const toggleKind = (kind: IntentItemKind) =>
     setFilter((current) => ({
       ...current,
@@ -368,8 +368,8 @@ export function IntentPanel({
               onToggleOnlyPending={() => setOnlyPending((value) => !value)}
               onlyOpenQuestions={filter.openQuestions}
               onToggleOnlyOpenQuestions={toggleOpenQuestions}
-              onlyOpenComments={onlyOpenComments}
-              onToggleOnlyOpenComments={() => setOnlyOpenComments((value) => !value)}
+              onlyOpenComments={filter.openComments}
+              onToggleOnlyOpenComments={toggleOpenComments}
             />
           </div>
         )}
@@ -446,9 +446,7 @@ export function IntentPanel({
                   setFilter((current) => ({ ...current, includeResolved: !current.includeResolved }))
                 }
                 onToggleOpenQuestions={toggleOpenQuestions}
-                onToggleOpenComments={() =>
-                  setFilter((current) => ({ ...current, openComments: !current.openComments }))
-                }
+                onToggleOpenComments={toggleOpenComments}
                 onSelectItem={setSelectedItemId}
                 onLoadMore={() => void catalogue.listQuery.fetchNextPage()}
               />

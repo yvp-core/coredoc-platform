@@ -573,13 +573,13 @@ function stripRefsOutsideCode(text: string): string {
     .replace(/[ \t]+$/gm, '');
 }
 
-/** An error's message for display; `undefined` for no error. */
 /** "2 open comments", or `null` when there are none. */
 export function openCommentsLabel(count: number | undefined): string | null {
   if (!count) return null;
   return `${count} open ${count === 1 ? 'comment' : 'comments'}`;
 }
 
+/** An error's message for display; `undefined` for no error. */
 export function messageOf(error: unknown): string | undefined {
   return error instanceof Error ? error.message : error ? String(error) : undefined;
 }

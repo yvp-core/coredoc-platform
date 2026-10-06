@@ -16,6 +16,7 @@ import { IntentActorRole } from '../../mcp/intent-auth.js';
 import type { WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js';
 import {
   CreateIntentCommentSchema,
+  INTENT_CONTRACT_LIMITS,
   IntentExceptionFilter,
   ListIntentCommentsQuerySchema,
   SetIntentCommentStatusSchema,
@@ -25,6 +26,9 @@ import { IntentCommentService } from './intent-comment.service.js';
 import { parseIntentPageLimit } from './intent-cursor.js';
 import { IntentEnabledGuard } from './intent-enabled.guard.js';
 import { assertPathMatchesBody } from './intent-state-errors.js';
+
+/** A comment body may run to its full length across several paragraphs; the other content checks still apply. */
+const COMMENT_CONTENT = { maxMultilineChars: INTENT_CONTRACT_LIMITS.text };
 
 @Controller('workspaces/:workspaceId/intent/comments')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, IntentEnabledGuard)
@@ -49,7 +53,9 @@ export class IntentCommentController {
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: AuthUser,
     @WorkspaceRoleValue() role: WorkspaceMemberRole | undefined,
-    @Body(intentContractPipe(CreateIntentCommentSchema)) body: z.infer<typeof CreateIntentCommentSchema>,
+    @Body(intentContractPipe(CreateIntentCommentSchema, COMMENT_CONTENT)) body: z.infer<
+      typeof CreateIntentCommentSchema
+    >,
   ) {
     return this.comments.create(workspaceId, { id: user.id, role: role ?? IntentActorRole.ServiceToken }, body);
   }

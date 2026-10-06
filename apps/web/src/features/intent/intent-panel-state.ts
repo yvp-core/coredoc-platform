@@ -168,6 +168,8 @@ export interface IntentTreeCounts {
   features: Readonly<Record<string, IntentCountCell>>;
 }
 
+const NO_NODE_COUNTS: IntentNodeCounts = { itemCount: 0, pendingCount: 0, openQuestionCount: 0, openCommentCount: 0 };
+
 /** From the tree pages, plus the features a "show all features" read listed past the tree's cap. */
 export function intentTreeCounts(
   pages: readonly IntentTreeResponse[],
@@ -194,7 +196,7 @@ export function intentTreeCounts(
   }
   for (const feature of moreFeatures) features[feature.id] = cell(feature);
   return {
-    root: cell(pages[0]?.root ?? { itemCount: 0, pendingCount: 0, openQuestionCount: 0, openCommentCount: 0 }),
+    root: cell(pages[0]?.root ?? NO_NODE_COUNTS),
     domains,
     features,
   };
@@ -217,7 +219,10 @@ export interface IntentItemFilter {
    * together and clearing either clears both.
    */
   openQuestions: boolean;
-  /** Only items with an open comment thread. */
+  /**
+   * Only items with an open comment thread. Shared with the structure column's
+   * "Only with open comments" toggle, like `openQuestions`.
+   */
   openComments: boolean;
 }
 

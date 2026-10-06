@@ -82,6 +82,8 @@ it('replies to a thread under its root and shows the author by name', async () =
 it('resolving a thread moves it out of the open filter and into resolved', async () => {
   renderComments();
   await screen.findByText('Should partial refunds count?');
+  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+  await screen.findByRole('button', { name: 'Resolve' });
 
   fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
   await screen.findByText('No open comments.');

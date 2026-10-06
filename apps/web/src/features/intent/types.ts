@@ -414,7 +414,7 @@ export interface IntentNodeDocument {
   /** The product root only: its domains with their subtree counts, in tree order. */
   domains: IntentDocumentDomain[];
   /** The product root only: the whole product's live, waiting and open-question counts (archived domains left out). */
-  overview: { itemCount: number; pendingCount: number; openQuestionCount: number; openCommentCount: number } | null;
+  overview: IntentNodeCounts | null;
   /** The product root only: domains past the listing cap, not in `domains`. */
   moreDomains: number;
   /**
@@ -425,13 +425,9 @@ export interface IntentNodeDocument {
   truncated: boolean;
 }
 
-export interface IntentDocumentDomain {
+export interface IntentDocumentDomain extends IntentNodeCounts {
   id: string;
   title: string;
-  itemCount: number;
-  pendingCount: number;
-  openQuestionCount: number;
-  openCommentCount: number;
   /** Items below the domain that are in production. */
   effective: number;
 }

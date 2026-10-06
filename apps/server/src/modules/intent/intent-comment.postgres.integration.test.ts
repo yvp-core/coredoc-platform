@@ -321,6 +321,44 @@ describe.skipIf(!TEST_DATABASE_URL)('intent comments (PostgreSQL integration)', 
     expect(await tree()).toEqual({ feature: before.feature + 1, domain: before.domain + 1 });
   });
 
+  it('accepts a long multi-paragraph comment and still refuses an email address', async () => {
+    const paragraph = 'Partial refunds should count toward the window, but only for the refunded lines.';
+    const long = await comment({
+      target: { kind: 'feature', id: 'refunds' },
+      body: Array.from({ length: 12 }, () => paragraph).join('\n\n'),
+    });
+    expect(long.status).toBe(201);
+
+    const email = await comment({ target: { kind: 'feature', id: 'refunds' }, body: 'Ask ana@example.com' });
+    expect(email.status).toBe(400);
+    expect(email.body.code).toBe('content_email_shaped');
+  });
+
+  it('counts an open thread on a rejected item in the tree', async () => {
+    await prisma.intentItem.create({
+      data: {
+        workspaceId,
+        id: 'br-refund-cash',
+        domainId: 'billing',
+        featureId: 'refunds',
+        kind: 'business_rule',
+        title: 'Cash refunds',
+        statement: 'Refunds may be paid in cash.',
+        authority: 'rejected',
+        createdBy: OWNER.id,
+        updatedBy: OWNER.id,
+      },
+    });
+    const featureCount = async () => {
+      const response = await api().get(`/api/v1/workspaces/${workspaceId}/intent/tree`);
+      const domain = response.body.domains.find((entry: { id: string }) => entry.id === 'billing');
+      return domain.features.find((entry: { id: string }) => entry.id === 'refunds').openCommentCount as number;
+    };
+    const before = await featureCount();
+    await comment({ target: { kind: 'item', id: 'br-refund-cash' }, body: 'Why was this rejected?' });
+    expect(await featureCount()).toBe(before + 1);
+  });
+
   it('drops a feature’s threads with the feature', async () => {
     await comment({ target: { kind: 'feature', id: 'invoices' }, body: 'Will this go?' });
     await prisma.intentFeature.delete({ where: { workspaceId_id: { workspaceId, id: 'invoices' } } });

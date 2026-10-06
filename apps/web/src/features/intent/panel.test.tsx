@@ -448,6 +448,9 @@ it('keeps the nodes with open comment threads when the structure is filtered to 
 
   fireEvent.click(screen.getByRole('button', { name: 'Only with open comments' }));
   expect(await screen.findByRole('button', { name: /create-cloud-account/ })).toBeInTheDocument();
+  // One filter: the list's "Open comments only" chip follows the structure toggle.
+  fireEvent.click(screen.getByRole('button', { name: 'List' }));
+  expect(await screen.findByRole('button', { name: 'Open comments only' })).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByRole('button', { name: /^cloud/ })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /billing-setup/ })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /graph/ })).not.toBeInTheDocument();

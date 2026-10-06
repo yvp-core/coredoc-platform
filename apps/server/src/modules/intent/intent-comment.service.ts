@@ -6,7 +6,6 @@ import { Injectable } from '@nestjs/common';
 import {
   IntentAuditEntityKind,
   IntentCommentStatus,
-  type Prisma,
   type IntentComment as IntentCommentRow,
 } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../database/prisma.service.js';
@@ -26,13 +25,10 @@ import {
 } from './intent-idempotency.js';
 import { intentNotFound, intentStateError } from './intent-state-errors.js';
 
-/** A thread still open: a root comment (replies carry no status) whose status is `open`. */
-export const OPEN_COMMENT_THREAD_WHERE = {
-  parentId: null,
-  status: IntentCommentStatus.open,
-} satisfies Prisma.IntentCommentWhereInput;
-
 type CommentTarget = { kind: 'feature' | 'item'; id: string };
+
+/** The column that names each kind of target. */
+const TARGET_COLUMN = { feature: 'featureId', item: 'itemId' } as const;
 
 export interface IntentCommentView {
   id: string;
@@ -56,10 +52,9 @@ export class IntentCommentService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listThreads(workspaceId: string, query: ListIntentCommentsQuery, limit: number) {
-    const target: CommentTarget = query.featureId
-      ? { kind: 'feature', id: query.featureId }
-      : { kind: 'item', id: query.itemId as string };
-    await assertTargetExists(this.prisma, workspaceId, target, [target.kind === 'feature' ? 'featureId' : 'itemId']);
+    const kind = query.featureId ? 'feature' : 'item';
+    const target: CommentTarget = { kind, id: query[TARGET_COLUMN[kind]] as string };
+    await assertTargetExists(this.prisma, workspaceId, target, [TARGET_COLUMN[kind]]);
 
     const cursor = decodeIntentCursor(query.cursor, IntentCursorScope.Comments, 2);
     const after = cursor ? { createdAt: new Date(cursor[0] as string), id: cursor[1] as string } : null;
@@ -201,12 +196,13 @@ export class IntentCommentService {
   }
 }
 
-function targetWhere(target: CommentTarget) {
-  return target.kind === 'feature' ? { featureId: target.id } : { itemId: target.id };
+function targetWhere(target: CommentTarget): Partial<Record<(typeof TARGET_COLUMN)[CommentTarget['kind']], string>> {
+  return { [TARGET_COLUMN[target.kind]]: target.id };
 }
 
 function targetOf(row: IntentCommentRow): CommentTarget {
-  return row.featureId !== null ? { kind: 'feature', id: row.featureId } : { kind: 'item', id: row.itemId as string };
+  const kind = row.featureId !== null ? 'feature' : 'item';
+  return { kind, id: row[TARGET_COLUMN[kind]] as string };
 }
 
 function commentView(row: IntentCommentRow): IntentCommentView {

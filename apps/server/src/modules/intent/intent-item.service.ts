@@ -27,7 +27,6 @@ import { listConditionsOf } from './intent-context.service.js';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import { IntentCursorScope, decodeIntentCursor, paginate } from './intent-cursor.js';
-import { OPEN_COMMENT_THREAD_WHERE } from './intent-comment.service.js';
 
 /**
  * An OPEN QUESTION: a live (candidate or accepted) decision whose choice is
@@ -40,6 +39,12 @@ export const OPEN_QUESTION_WHERE = {
   authority: { in: ['candidate', 'accepted'] },
   payload: { path: ['choiceStatus'], equals: DecisionStatus.Open },
 } satisfies Prisma.IntentItemWhereInput;
+
+/** A comment thread still open: a root comment (replies carry no status) whose status is `open`. */
+export const OPEN_COMMENT_THREAD_WHERE = {
+  parentId: null,
+  status: 'open',
+} satisfies Prisma.IntentCommentWhereInput;
 
 @Injectable()
 export class IntentItemService {

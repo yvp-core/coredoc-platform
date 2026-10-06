@@ -20,7 +20,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { MessagesSquare } from 'lucide-react';
+import { IntentOpenCommentsBadge } from './count-badges.js';
 import {
   groupIntentItemsByKind,
   intentItemScope,
@@ -36,7 +36,6 @@ import {
   contextMatchChip,
   itemScopeLabel,
   kindLabel,
-  openCommentsLabel,
 } from './intent-presentation.js';
 import { IntentAuthority, type IntentDimension, type IntentItemKind, type IntentItemSummary } from './types.js';
 
@@ -276,7 +275,6 @@ function ItemRow({
           item.featureId === null ? null : (featureTitles?.[item.featureId] ?? item.featureId),
         ));
   const contextChip = contextMatchChip(item.contextMatch, dimensions);
-  const comments = openCommentsLabel(item.openCommentCount);
 
   return (
     <button
@@ -306,12 +304,7 @@ function ItemRow({
           </Badge>
         ))}
         {contextChip && <Badge variant="warn">{contextChip}</Badge>}
-        {comments && (
-          <Badge variant="info" className="gap-1">
-            <MessagesSquare aria-hidden="true" className="size-3" />
-            {comments}
-          </Badge>
-        )}
+        <IntentOpenCommentsBadge count={item.openCommentCount} />
         <span className="truncate font-mono text-[11.5px] text-ink-4">{item.id}</span>
       </span>
     </button>

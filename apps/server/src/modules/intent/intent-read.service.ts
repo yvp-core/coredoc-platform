@@ -24,7 +24,7 @@ import { readReleaseSnapshot } from './intent-release.service.js';
 import type { Effectivity, ReleaseSnapshot } from './intent-release.fold.js';
 import { intentStateError } from './intent-state-errors.js';
 import { type IntentNodeCounts, readIntentNodeCounts, treeConditionsOf } from './intent-tree.service.js';
-import { OPEN_COMMENT_THREAD_WHERE } from './intent-comment.service.js';
+import { OPEN_COMMENT_THREAD_WHERE } from './intent-item.service.js';
 
 export const INTENT_READ_LIMITS = {
   /** Items one node read returns before it asks to be narrowed by kind. */

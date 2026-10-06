@@ -25,7 +25,7 @@ export interface IntentCommentsProps {
 export function IntentComments({ workspaceId, target }: IntentCommentsProps) {
   const queryClient = useQueryClient();
   const writer = useIntentWriter();
-  const [status, setStatus] = useState<IntentCommentStatus | null>('open');
+  const [status, setStatus] = useState<IntentCommentStatus | null>(null);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>();
@@ -43,16 +43,8 @@ export function IntentComments({ workspaceId, target }: IntentCommentsProps) {
     setErrorMessage(undefined);
     try {
       await send();
-      // The item list, the document and the tree carry open-thread counts, so they re-read too.
-      await Promise.all(
-        [
-          ['intent', 'comments', workspaceId, target.kind, target.id],
-          ['intent', 'items'],
-          ['intent', 'document'],
-          ['intent', 'tree'],
-          ['intent', 'domain-features'],
-        ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
-      );
+      // As after any intent write, everything intent-scoped is re-read: open-thread counts show in several views.
+      await queryClient.invalidateQueries({ queryKey: ['intent'] });
       return true;
     } catch (error) {
       setErrorMessage(messageOf(error));
@@ -88,9 +80,9 @@ export function IntentComments({ workspaceId, target }: IntentCommentsProps) {
       <div className="mb-2 flex items-center justify-between gap-2">
         <h4 className="text-[11.5px] uppercase tracking-[0.04em] text-ink-4">Comments</h4>
         <span className="flex items-center gap-1">
+          <Chip pressed={status === null} label="All" onClick={() => setStatus(null)} />
           <Chip pressed={status === 'open'} label="Open" onClick={() => setStatus('open')} />
           <Chip pressed={status === 'resolved'} label="Resolved" onClick={() => setStatus('resolved')} />
-          <Chip pressed={status === null} label="All" onClick={() => setStatus(null)} />
         </span>
       </div>
 
