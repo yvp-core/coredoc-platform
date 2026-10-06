@@ -2206,7 +2206,7 @@ export class SqliteRepository implements IGraphRepository {
     // targetService → serviceName only; this wider precedence is read-side only.
     let serviceFilter = '';
     if (targetService) {
-      serviceFilter = `AND COALESCE(json_extract(ec.properties, '$.targetService'), targetRepo.name, json_extract(ec.properties, '$.serviceName')) = @targetService`;
+      serviceFilter = `AND (COALESCE(json_extract(ec.properties, '$.targetService'), targetRepo.name, json_extract(ec.properties, '$.serviceName')) = @targetService OR targetRepo.name = @targetService)`;
     }
 
     const query = `
