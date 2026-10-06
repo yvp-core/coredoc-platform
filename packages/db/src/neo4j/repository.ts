@@ -1000,16 +1000,20 @@ export class Neo4jRepository implements IGraphRepository {
       WHERE ${repoFilter}
       WITH r
       OPTIONAL MATCH (r)-[:CONTAINS_FILE]->(f:File)
-      OPTIONAL MATCH (f)-[:CONTAINS_FUNCTION]->(fn:Function)
       OPTIONAL MATCH (f)-[:CONTAINS_CLASS]->(c:Class)
       OPTIONAL MATCH (f)-[:CONTAINS_ENTITY]->(e:Entity)
       OPTIONAL MATCH (ep:Entrypoint) WHERE ep.id STARTS WITH substring(r.id, 0, 12)
       WITH r,
            count(DISTINCT f) as fileCount,
-           count(DISTINCT fn) as functionCount,
            count(DISTINCT c) as classCount,
            count(DISTINCT e) as entityCount,
            collect(DISTINCT ep.entrypointType) as entrypointTypes
+      CALL {
+        WITH r
+        MATCH (fn:CodeNode)
+        WHERE fn.id STARTS WITH substring(r.id, 0, 12) + ':' AND fn:Function
+        RETURN count(fn) as functionCount
+      }
       RETURN r.name as name,
              r.type as type,
              r.parsedAt as parsedAt,
