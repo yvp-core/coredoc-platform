@@ -4,6 +4,8 @@
  * checked-in fixture index.scip (real scip-ruby output, see __fixtures__/sample-app), so it runs
  * everywhere with no Ruby toolchain. The live-toolchain counterpart is ruby-scip.e2e.test.ts (CI only).
  */
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
@@ -71,6 +73,23 @@ describe('ruby Tier-A dispatch (integration)', () => {
     for (const e of scipEdges) {
       expect(nameById.has(e.callerId)).toBe(true);
       expect(nameById.has(e.calleeId ?? '')).toBe(true);
+    }
+  });
+
+  it('keeps enhanced analysis when the repo has rake tasks scip-ruby does not index', async () => {
+    const work = mkdtempSync(join(tmpdir(), 'ruby-rake-'));
+    try {
+      cpSync(FIXTURE, work, { recursive: true });
+      mkdirSync(join(work, 'lib/tasks'), { recursive: true });
+      writeFileSync(join(work, 'lib/tasks/seed.rake'), 'task :seed do\n  puts 1\nend\n');
+      const ruby = await withOptionalIndexHost(
+        async () => ({ path: join(work, 'index.scip') }),
+        () => rubyProvider.parse(PROFILE, { ...OPTS, repoRoot: work }),
+      );
+      expect(ruby.stats.analysis?.[0]).toMatchObject({ mode: 'enhanced', fallback: false });
+      expect(ruby.calls.some((e) => e.provenance === 'scip')).toBe(true);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
     }
   });
 
