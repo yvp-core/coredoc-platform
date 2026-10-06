@@ -154,6 +154,74 @@ describe('trace_cross_repo_call Tool Handler', () => {
       expect((result.data as { summary: string }).summary).toContain('orders');
     });
 
+    it('lists every call to the target service, resolved ones first', async () => {
+      const mockRepo = createMockRepository({
+        getExternalCalls: vi.fn().mockResolvedValue([
+          createMockExternalCallInfo({
+            id: 'aaa111:external_call:unresolved',
+            callerId: 'aaa111:function:a',
+            callerName: 'syncProfiles',
+            callerFilePath: 'src/a.ts',
+            startLine: 5,
+            targetService: 'core',
+            resolvedTargetId: undefined,
+            protocol: 'http',
+            httpMethod: 'POST',
+            pathTemplate: '/legacy',
+            messagingSystem: undefined,
+            messagingDestination: undefined,
+          }),
+          createMockExternalCallInfo({
+            id: 'aaa111:external_call:resolved',
+            callerId: 'aaa111:function:b',
+            callerName: 'getProfilesByIdentifiers',
+            callerFilePath: 'src/b.ts',
+            startLine: 9,
+            targetService: 'core',
+            resolvedTargetId: 'ccc333:entrypoint:get-externals',
+            protocol: 'http',
+            httpMethod: 'POST',
+            pathTemplate: '/user_profiles/get-externals',
+            messagingSystem: undefined,
+            messagingDestination: undefined,
+          }),
+        ]),
+        listEntrypoints: vi.fn(async ({ id }: { id?: string }) =>
+          id === 'ccc333:entrypoint:get-externals'
+            ? [
+                {
+                  id,
+                  type: 'http',
+                  method: 'POST',
+                  path: '/user_profiles/get-externals',
+                  handlerName: 'getExternals',
+                  filePath: 'src/profiles.controller.ts',
+                  startLine: 40,
+                },
+              ]
+            : [],
+        ),
+      });
+      (getRepository as Mock).mockResolvedValue(mockRepo);
+
+      const result = await handleTraceCrossRepoCall(
+        { targetService: 'core' },
+        mockScope,
+        'raw',
+        'full',
+        defaultDetailConfig,
+        mockRepo,
+      );
+
+      const data = result.data as CrossRepoCallResult;
+      expect(data.callsTotal).toBe(2);
+      expect(data.calls?.map((c) => c.caller)).toEqual(['getProfilesByIdentifiers', 'syncProfiles']);
+      expect(data.calls?.[0]?.entrypoint?.handlerName).toBe('getExternals');
+      expect(data.calls?.[1]?.entrypoint).toBeUndefined();
+      expect(data.calls?.[1]?.unresolvedReason).toBeTruthy();
+      expect(data.target.entrypoint?.handlerName).toBe('getExternals');
+    });
+
     it('should accept callPattern parameter', async () => {
       const mockRepo = createMockRepository({
         listEntrypoints: vi.fn().mockResolvedValue([]),
