@@ -1892,6 +1892,17 @@ describe('Neo4jRepository limit clamping', () => {
     expect(Number(driver.calls[driver.calls.length - 1]!.params.limitPlus1)).toBe(10_001);
   });
 
+  it('findCode treats regex metacharacters in a glob as literals', async () => {
+    const { repo, driver } = makeRepo();
+
+    await repo.findCode({ pattern: '*.Webhook(*' }, ['hash']);
+    const sent = String(driver.calls[driver.calls.length - 1]!.params.pattern);
+    expect(sent.startsWith('(?i)')).toBe(true);
+    const regex = new RegExp(`^${sent.slice('(?i)'.length)}$`, 'i');
+    expect(regex.test('Ns.Webhook(string)')).toBe(true);
+    expect(regex.test('NsXWebhook(string)')).toBe(false);
+  });
+
   it('caps findCode at 1000', async () => {
     const { repo, driver } = makeRepo();
 
