@@ -196,6 +196,21 @@ interface ChainHop {
  */
 const ALTERNATIVE_BRIDGE_LIMIT = 3;
 
+/** How many calls a `targetService` trace lists before reporting "N more". */
+const TARGET_SERVICE_CALL_LIMIT = 20;
+
+/** One call to the requested `targetService`, with where it lands. */
+export interface TargetServiceCall {
+  caller: string;
+  callerRepo: string;
+  filePath: string;
+  startLine: number;
+  pattern: string;
+  targetRepo: string;
+  entrypoint?: EntrypointInfo;
+  unresolvedReason?: string;
+}
+
 /** One other resolved bridge the same pattern matched. */
 export interface AlternativeBridge {
   caller: string;
@@ -221,6 +236,10 @@ export interface CrossRepoCallResult {
   scopeNote?: string;
   /** Other resolved bridges the same pattern matched (capped). */
   alternatives?: AlternativeBridge[];
+  /** Every call to the requested `targetService` (capped), resolved ones first. */
+  calls?: TargetServiceCall[];
+  /** Total calls matched before the cap. */
+  callsTotal?: number;
   summary: string;
 }
 
@@ -464,12 +483,47 @@ export async function handleTraceCrossRepoCall(
     debugResult('getExternalCalls', externalCalls.length);
 
     if (externalCalls.length > 0) {
-      const call = externalCalls[0]!;
+      const sorted = [...externalCalls].sort(
+        (a, b) =>
+          Number(!!b.resolvedTargetId) - Number(!!a.resolvedTargetId) ||
+          (a.callerFilePath ?? '').localeCompare(b.callerFilePath ?? '') ||
+          a.startLine - b.startLine ||
+          a.callerName.localeCompare(b.callerName),
+      );
+      const listed = sorted.slice(0, TARGET_SERVICE_CALL_LIMIT);
+      const call = listed[0]!;
+      const lookupHashes = crossRepoLookupHashes(scope);
+      const hashOf = (id: string | undefined): string => (id ? (id.split(':')[0] ?? '') : '');
+      const hashes = [
+        ...new Set(listed.flatMap((c) => [hashOf(c.callerId), hashOf(c.resolvedTargetId)]).filter(Boolean)),
+      ];
+      const nameByHash = new Map((await repository.getRepositoryNames(hashes)).map((row) => [row.hash, row.name]));
+      const config = detailConfig || resolveDetailLevel('full');
 
-      // Build call pattern from protocol-specific fields
-      const callPatternStr = buildCallPattern(call);
+      const calls: TargetServiceCall[] = [];
+      for (const c of listed) {
+        const callerRepo = nameByHash.get(hashOf(c.callerId)) ?? 'unknown';
+        const entrypoint = c.resolvedTargetId
+          ? await loadEntrypointById(repository, c.resolvedTargetId, lookupHashes)
+          : undefined;
+        calls.push({
+          caller: c.callerName,
+          callerRepo,
+          filePath: c.callerFilePath,
+          startLine: c.startLine,
+          pattern: buildCallPattern(c),
+          targetRepo: nameByHash.get(hashOf(c.resolvedTargetId)) ?? effectiveTarget(c, callerRepo) ?? 'unknown',
+          ...(entrypoint
+            ? { entrypoint: filterEntrypointInfo(entrypoint, config) as EntrypointInfo }
+            : {
+                unresolvedReason: c.resolvedTargetId
+                  ? 'resolved entrypoint is outside the repos this scope can see'
+                  : 'not resolved to an entrypoint (target repo not parsed, or no route matches the call)',
+              }),
+        });
+      }
+      const primary = calls[0]!;
 
-      // Get caller function details
       const callerFunc = await repository.findFunction(call.callerName, scope.repoHashes);
       const callerInfo: FunctionInfo = callerFunc
         ? {
@@ -490,34 +544,22 @@ export async function handleTraceCrossRepoCall(
             type: 'function',
             kind: 'function',
           };
-
-      const config = detailConfig || resolveDetailLevel('full');
       const filteredCallerFunction = filterFunctionInfo(callerInfo, config) as FunctionInfo;
 
-      // Caller repo from the caller's own node-id hash, not scope.resolvedRepos[0].
-      let s1CallerRepo = scope.resolvedRepos[0] || 'unknown';
-      const s1CallerHash = callerInfo.id ? callerInfo.id.split(':')[0] : undefined;
-      if (s1CallerHash) {
-        const ov = await repository.getRepoOverview([s1CallerHash]);
-        s1CallerRepo = ov[0]?.name || s1CallerRepo;
-      }
-
-      // Name the EFFECTIVE target: reporting serviceName here answers a query for
-      // `client-admin-api` with "calls acme-backend" whenever a profile fills both. A call that
-      // resolves back into the caller's own repo names no service, so it is reported as unknown
-      // rather than as the caller depending on itself.
-      const matchedEffectiveTarget = effectiveTarget(call, s1CallerRepo) ?? 'unknown';
-
+      const resolvedCount = calls.filter((c) => c.entrypoint).length;
       const result: CrossRepoCallResult = {
         caller: {
           function: filteredCallerFunction,
-          repo: s1CallerRepo,
+          repo: primary.callerRepo,
         },
         target: {
-          repo: matchedEffectiveTarget,
-          pattern: callPatternStr,
+          ...(primary.entrypoint ? { entrypoint: primary.entrypoint } : {}),
+          repo: primary.targetRepo,
+          pattern: primary.pattern,
         },
-        summary: `${call.callerName} calls ${matchedEffectiveTarget} via ${call.protocol}: ${callPatternStr}`,
+        calls,
+        callsTotal: sorted.length,
+        summary: `${call.callerName} calls ${primary.targetRepo} via ${call.protocol}: ${primary.pattern} (1 of ${sorted.length} call(s) to \`${targetService}\`; ${resolvedCount} of the ${calls.length} listed resolve to an entrypoint)`,
       };
 
       const metadata = await createMetadata(scope, format, detailLevel, detailConfig, repository);
@@ -995,6 +1037,21 @@ function formatCrossRepoCall(
     lines.push(`- Location: ${ep.filePath}:${ep.startLine}`);
   } else {
     lines.push(`- *Target entrypoint not found in parsed data*`);
+  }
+
+  if (result.calls && result.calls.length > 0) {
+    lines.push('');
+    lines.push(`### Matching calls (${result.calls.length} of ${result.callsTotal ?? result.calls.length})`);
+    for (const c of result.calls) {
+      const landing = c.entrypoint
+        ? `${c.entrypoint.method || c.entrypoint.type} ${c.entrypoint.fullPath || c.entrypoint.path || ''} → \`${c.entrypoint.handlerName}\` (${c.entrypoint.filePath}:${c.entrypoint.startLine})`
+        : `*${c.unresolvedReason}*`;
+      lines.push(
+        `- \`${c.caller}\` (${c.callerRepo}) ${c.filePath}:${c.startLine} — \`${c.pattern}\` → ${c.targetRepo}: ${landing}`,
+      );
+    }
+    const more = (result.callsTotal ?? 0) - result.calls.length;
+    if (more > 0) lines.push(`- … ${more} more`);
   }
 
   // Other bridges the same pattern matched — named with both repos so the agent
