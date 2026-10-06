@@ -1896,6 +1896,32 @@ describe('trace_cross_repo_call Tool Handler', () => {
       expect(externalCallScans.every(([hashes]: [string[]]) => hashes.length > 0)).toBe(true);
     });
 
+    // A `scope` argument narrows a workspace scope to one repo; the bridge's other
+    // side is still a connected repo and must be reachable.
+    it('widens a narrowed workspace scope to the connected repos only', async () => {
+      const connected = [CALCULATIONS, ADMIN, API];
+      const mockRepo = bridgeRepository({
+        getExternalCalls: vi
+          .fn()
+          .mockImplementation(async (repoHashes: string[]) => (repoHashes.includes(ADMIN) ? [adminCall] : [])),
+      });
+
+      const result = await handleTraceCrossRepoCall(
+        { callPattern: 'GET /companies/{companyUuid}/superbooking_groups' },
+        { ...scopedElsewhere, origin: 'workspace', workspaceRepoHashes: connected },
+        'raw',
+        'full',
+        defaultDetailConfig,
+        mockRepo,
+      );
+
+      const data = result.data as CrossRepoCallResult;
+      expect(data.caller.repo).toBe('acme-admin');
+      expect(data.target.repo).toBe('acme-client-admin-api');
+      const externalCallScans = (mockRepo.getExternalCalls as Mock).mock.calls;
+      expect(externalCallScans.every(([hashes]: [string[]]) => hashes.every((h) => connected.includes(h)))).toBe(true);
+    });
+
     it('matches a pathTemplate whose query-string builder is glued to the last segment', async () => {
       const mockRepo = bridgeRepository();
 

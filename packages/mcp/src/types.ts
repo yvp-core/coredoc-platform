@@ -79,6 +79,12 @@ export interface ScopeContext {
    * repos whose data is not purged). Absent for locally resolved scopes.
    */
   origin?: 'workspace' | 'local';
+  /**
+   * Every repo hash connected to the workspace, set with `origin: 'workspace'`.
+   * A `scope` argument narrows `repoHashes` to one repo; this keeps the
+   * membership boundary so a cross-repo lookup can still reach the other side.
+   */
+  workspaceRepoHashes?: string[];
 }
 
 /**

@@ -91,4 +91,10 @@ describe('resolveWorkspaceScope qualified target', () => {
     expect(resolveWorkspaceScope(repos).origin).toBe('workspace');
     expect(resolveWorkspaceScope(repos, 'web-app').origin).toBe('workspace');
   });
+
+  it('keeps every connected repo as the cross-repo boundary when narrowed to one', () => {
+    const scope = resolveWorkspaceScope(repos, 'web-app');
+    expect(scope.repoHashes).toEqual(['hashshifts']);
+    expect(scope.workspaceRepoHashes).toEqual(['hashcore', 'hashshifts']);
+  });
 });

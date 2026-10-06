@@ -80,6 +80,7 @@ export function resolveWorkspaceScope(workspaceRepos: WorkspaceRepo[], targetRep
     // boundary tools must not widen past (the topic tools' whole-graph `[]`
     // default keys off this — see resolveTopicQueryHashes).
     origin: 'workspace',
+    workspaceRepoHashes: workspaceRepos.map((r) => r.repoKey),
   };
 }
 
