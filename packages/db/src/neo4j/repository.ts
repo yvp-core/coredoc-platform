@@ -566,8 +566,10 @@ export class Neo4jRepository implements IGraphRepository {
 
     // Convert glob to regex. `(?i)` makes the match case-insensitive to mirror
     // SQLite's `LIKE` (ASCII-case-insensitive by default) — without it, Neo4j's
-    // `=~` under-reports mixed-case queries (search_symbols parity).
-    const regex = `(?i)${pattern.replace(/\*/g, '.*').replace(/\?/g, '.')}`;
+    // `=~` under-reports mixed-case queries (search_symbols parity). Other regex
+    // metacharacters are literal, as in `LIKE`: C# lookups pass globs like `*.Foo(*`.
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    const regex = `(?i)${escaped.replace(/\*/g, '.*').replace(/\?/g, '.')}`;
     // Project source only when requested (it's a flattened node property).
     const sourceReturn = includeSource ? ',\n             n.sourceCode as sourceCode' : '';
 
