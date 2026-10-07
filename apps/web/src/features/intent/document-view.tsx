@@ -93,7 +93,7 @@ export function IntentDocumentView({
       {approveAll && includeCandidates && proposalCount > 0 && (
         <ApproveAllBar count={proposalCount} approveAll={approveAll} />
       )}
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex justify-center py-10">
             <Spinner className="text-ink-4" />

@@ -171,7 +171,7 @@ export function IntentItemsList({
           Select visible rules (up to {200 - deliverySelection.length} more)
         </Button>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto pb-3.5 pt-1.5">
+      <div className="relative min-h-0 flex-1 overflow-y-auto pb-3.5 pt-1.5">
         {loading ? (
           <div className="flex justify-center py-10">
             <Spinner className="text-ink-4" />
