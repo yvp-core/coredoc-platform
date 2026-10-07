@@ -457,7 +457,7 @@ export function IntentPanel({
         {selectedItemId === null && showNodePanel && selectedDomain && (
           <div className="col-span-2 flex min-h-0 min-w-0 flex-col border-t border-border-soft min-[1100px]:col-span-1 min-[1100px]:border-l min-[1100px]:border-t-0">
             <ColHead title={nodeFeature ? 'Feature' : 'Domain'} />
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="relative min-h-0 flex-1 overflow-y-auto">
               <IntentNodePanel
                 domain={selectedDomain}
                 feature={nodeFeature}
@@ -499,7 +499,7 @@ export function IntentPanel({
                 ← Back to {(nodeFeature ?? selectedDomain)?.title}
               </Button>
             )}
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="relative min-h-0 flex-1 overflow-y-auto">
               {detailMatch?.authority === IntentAuthority.Candidate && (
                 <IntentItemReview
                   key={`${detailMatch.id}:${detailMatch.version}`}

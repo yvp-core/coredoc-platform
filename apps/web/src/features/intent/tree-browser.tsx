@@ -154,7 +154,7 @@ export function IntentTreeBrowser({
           )}
         </div>
       </TooltipProvider>
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-2.5 pt-1.5">
+      <nav className="relative min-h-0 flex-1 overflow-y-auto px-2 pb-2.5 pt-1.5">
         <TreeRow
           label="All product rules"
           title="product root"
