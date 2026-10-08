@@ -3,26 +3,48 @@
  * assembles them so agent-written text is sanitised in one place: issue keys
  * other than the run's own get a non-breaking hyphen (Delivery analytics
  * reads keys from titles and bodies and must not link unrelated tasks), and
- * images are removed. The full spec is never included; the run page has it.
+ * nothing in them can load a remote resource. The full spec is never
+ * included; the run page has it.
  */
 
 export const MAX_PULL_REQUEST_BODY_CHARS = 60_000;
 
 const NON_BREAKING_HYPHEN = '‑';
+/**
+ * A superset of what Delivery analytics reads as a key (`\b[A-Z][A-Z0-9]{1,9}-\d+\b`
+ * in the GitHub normalizer): neutralising a little too much is harmless.
+ */
 const ISSUE_KEY = /(?<![A-Za-z0-9])([A-Z][A-Z0-9_]+)-(\d+)(?![A-Za-z0-9])/g;
-const INLINE_IMAGE = /!\[([^\]]*)\]\([^)]*\)/g;
-const REFERENCE_IMAGE = /!\[([^\]]*)\]\[[^\]]*\]/g;
-const HTML_IMAGE = /<img\b[^>]*>/gi;
 const TRUNCATION_NOTE = '\n\n_This description was truncated; the run page has the rest._';
 
+/**
+ * Escapes rather than removes, so nothing can be reassembled from the
+ * pieces: no raw HTML renders (`<` and `>` become entities, which covers
+ * `<img>`, `<picture>`, `<video poster>` and SVG `<image>` alike), and no
+ * markdown image forms (every `![` becomes `\![`, with backslashes doubled
+ * first so an agent-written `\` cannot cancel that escape).
+ */
+function escapeAgentMarkdown(text: string): string {
+  return text.replace(/\\/g, '\\\\').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/!\[/g, '\\![');
+}
+
+function neutraliseIssueKeys(text: string, ownIssueKey: string): string {
+  return text.replace(ISSUE_KEY, (key, project: string, number: string) =>
+    key === ownIssueKey ? key : `${project}${NON_BREAKING_HYPHEN}${number}`,
+  );
+}
+
+/** Every agent-written part of a title or body goes through this; the server's own template does not. */
 export function sanitiseAgentText(text: string, ownIssueKey: string): string {
-  return text
-    .replace(INLINE_IMAGE, '$1')
-    .replace(REFERENCE_IMAGE, '$1')
-    .replace(HTML_IMAGE, '')
-    .replace(ISSUE_KEY, (key, project: string, number: string) =>
-      key === ownIssueKey ? key : `${project}${NON_BREAKING_HYPHEN}${number}`,
-    );
+  return neutraliseIssueKeys(escapeAgentMarkdown(text), ownIssueKey);
+}
+
+/**
+ * A path as a one-line code span, where nothing renders: backticks would end
+ * the span and line breaks could end the paragraph, so both are replaced.
+ */
+function codePath(path: string, ownIssueKey: string): string {
+  return `\`${neutraliseIssueKeys(path.replace(/[`\r\n]/g, ' '), ownIssueKey)}\``;
 }
 
 export interface PullRequestBodyInput {
@@ -44,9 +66,6 @@ export interface PullRequestBodyInput {
   previousRunUrl: string | null;
 }
 
-/** A path as inline code; a backtick in it would end the span early. */
-const codePath = (path: string) => `\`${path.replace(/`/g, "'")}\``;
-
 export function assemblePullRequest(input: PullRequestBodyInput): { title: string; body: string } {
   const clean = (text: string) => sanitiseAgentText(text, input.issueKey);
   const sections: string[] = [
@@ -61,12 +80,12 @@ export function assemblePullRequest(input: PullRequestBodyInput): { title: strin
   const review: string[] = [];
   if (input.withheldPaths.length) {
     review.push(
-      `Withheld from the push, for a person to apply:\n\n${input.withheldPaths.map((p) => `- ${clean(codePath(p))}`).join('\n')}`,
+      `Withheld from the push, for a person to apply:\n\n${input.withheldPaths.map((p) => `- ${codePath(p, input.issueKey)}`).join('\n')}`,
     );
   }
   if (input.binaryPaths.length) {
     review.push(
-      `Binary files the secret scan could not review:\n\n${input.binaryPaths.map((p) => `- ${clean(codePath(p))}`).join('\n')}`,
+      `Binary files the secret scan could not review:\n\n${input.binaryPaths.map((p) => `- ${codePath(p, input.issueKey)}`).join('\n')}`,
     );
   }
   if (review.length) sections.push(`## For review\n\n${review.join('\n\n')}`);

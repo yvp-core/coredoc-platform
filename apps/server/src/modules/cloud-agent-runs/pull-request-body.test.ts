@@ -6,7 +6,12 @@ import {
   sanitiseAgentText,
 } from './pull-request-body.js';
 
-const NB = '‑';
+const NB = '\u2011';
+
+/** True when markdown would read an image: a `![` whose `!` is not escaped by an odd run of backslashes. */
+const formsImage = (text: string) => /(?:^|[^\\])(?:\\\\)*!\[/.test(text);
+/** What Delivery analytics reads as an issue key (the GitHub normalizer's pattern). */
+const analyticsKeys = (text: string) => [...text.matchAll(/\b([A-Z][A-Z0-9]{1,9}-\d+)\b/g)].map((m) => m[1]);
 
 describe('sanitiseAgentText', () => {
   it.each([
@@ -15,12 +20,36 @@ describe('sanitiseAgentText', () => {
     ['an epic child key counts as foreign', 'Split from PROJ-13 and PROJ-12', `Split from PROJ${NB}13 and PROJ-12`],
     ['keys inside words are not keys', 'utf-8 and X-1 and abcPROJ-9', `utf-8 and X-1 and abcPROJ-9`],
     ['keys with digits and underscores', 'A2_B-44, PROJ-120', `A2_B${NB}44, PROJ${NB}120`],
-    ['an inline image keeps only its alt text', 'Look ![the chart](https://x.example/c.png) here', 'Look the chart here'],
-    ['a reference image keeps only its alt text', 'Look ![chart][1] here', 'Look chart here'],
-    ['an HTML image is removed', 'Look <img src="https://x.example/c.png" alt="c"> here', 'Look  here'],
+    ['an inline image is escaped', 'Look ![chart](https://x.example/c.png)', 'Look \\![chart](https://x.example/c.png)'],
+    ['an HTML image is escaped', 'Look <img src="https://x.example/c.png">', 'Look &lt;img src="https://x.example/c.png"&gt;'],
     ['an ordinary link stays', 'Docs at [the guide](https://x.example/g)', 'Docs at [the guide](https://x.example/g)'],
+    ['a key wrapped in markup is still neutralised', '<OPS-7>', `&lt;OPS${NB}7&gt;`],
   ])('%s', (_name, text, expected) => {
     expect(sanitiseAgentText(text, 'PROJ-12')).toBe(expected);
+  });
+
+  it.each([
+    ['a nested image tag', '<im<img>g src="https://x.example/p.png">'],
+    ['a picture with a source set', '<picture><source srcset="https://x.example/p.png"></picture>'],
+    ['a video poster', '<video poster="https://x.example/p.png"></video>'],
+    ['an SVG image', '<svg><image href="https://x.example/p.png"/></svg>'],
+    ['a reference image with its definition', '![chart][1]\n\n[1]: https://x.example/p.png'],
+    ['an image URL with parentheses', '![chart](https://x.example/a_(b).png)'],
+    ['a doubled bang', '!![x](https://x.example/a.png)[y](https://x.example/b.png)'],
+    ['an agent-written escape before the image', '\\![x](https://x.example/a.png) and \\\\![y](https://x.example/b.png)'],
+    ['an image inside a link', '[![x](https://x.example/a.png)](https://x.example)'],
+  ])('%s cannot render HTML or an image', (_name, text) => {
+    const out = sanitiseAgentText(text, 'PROJ-12');
+    expect(out).not.toMatch(/</);
+    expect(formsImage(out)).toBe(false);
+  });
+
+  it.each([
+    ['split by a tag', 'OPS-<b>7</b> and <i>OPS</i>-8'],
+    ['split by an escaped bang', 'OPS-![7](u)'],
+    ['next to entities the escaping adds', '<OPS-9>&OPS-10;'],
+  ])('a key %s is never left for analytics to read', (_name, text) => {
+    expect(analyticsKeys(sanitiseAgentText(text, 'PROJ-12'))).toEqual([]);
   });
 });
 
@@ -72,20 +101,24 @@ describe('assemblePullRequest', () => {
     expect(body).toMatch(/previous run[^\n]*https:\/\/coredoc\.example\/w\/acme\/agent-runs\/run-0/i);
   });
 
-  it('neutralises foreign keys and removes images in every agent-written part, title included', () => {
+  it('neutralises foreign keys and escapes HTML and images in every agent-written part, title included', () => {
     const { title, body } = assemblePullRequest(
       input({
-        specTitle: 'Exports for OPS-1',
+        specTitle: 'Exports for OPS-1 <img src="https://x.example/t.png">',
         summary: 'Follows OPS-2 ![diagram](https://x.example/d.png)',
-        assumptions: ['Same as PROJ-13'],
-        withheldPaths: ['docs/OPS-3.md'],
+        assumptions: ['Same as PROJ-13 <video poster="https://x.example/v.png">'],
+        withheldPaths: ['docs/OPS-3.md', 'evil`\n\n<img src="https://x.example/w.png">'],
+        binaryPaths: ['assets/![x](https://x.example/b.png)'],
         notBuiltOrTested: 'Blocked by INFRA-4 <img src="https://x.example/p.png">',
       }),
     );
-    expect(title).toBe(`PROJ-12: Exports for OPS${NB}1`);
-    expect(`${title}\n${body}`).not.toMatch(/(?<![A-Za-z0-9])(?!PROJ-12\b)[A-Z][A-Z0-9_]+-\d+/);
-    expect(body).not.toMatch(/!\[|<img/i);
-    expect(body).toContain('diagram');
+    expect(title).toBe(`PROJ-12: Exports for OPS${NB}1 &lt;img src="https://x.example/t.png"&gt;`);
+    expect(analyticsKeys(`${title}\n${body}`).filter((key) => key !== 'PROJ-12')).toEqual([]);
+    // Paths are one-line code spans, where nothing renders; everything else is escaped.
+    const outsideCode = body.replace(/`[^`\n]*`/g, '');
+    expect(outsideCode).not.toMatch(/</);
+    expect(formsImage(outsideCode)).toBe(false);
+    expect(body).toContain('`evil   <img src="https://x.example/w.png">`');
   });
 
   it('caps the body with a truncation note, keeping the run link', () => {
