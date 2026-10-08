@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { JiraClient, JiraAuthError, JiraRateLimitError } from './jira-client.js';
+import { JiraClient, JiraAuthError, JiraNotFoundError, JiraRateLimitError } from './jira-client.js';
 
 /** Build a mock `Response`-like object with a JSON body + header support. */
 function jsonResponse(body: unknown, init?: { status?: number; headers?: Record<string, string> }): Response {
@@ -428,5 +428,51 @@ describe('JiraClient tolerance', () => {
 
     expect(() => makeClient(baseUrl)).toThrow(/Jira baseUrl/);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('JiraClient reads for agent runs', () => {
+  it('getIssue GETs one issue with explicit fields, the description included', async () => {
+    const issue = { id: '10001', key: 'PROJ-1', fields: { summary: 'Export', description: { type: 'doc' } } };
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(issue));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(makeClient().getIssue('PROJ-1', ['summary', 'description'])).resolves.toEqual(issue);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://acme.atlassian.net/rest/api/3/issue/PROJ-1?fields=summary%2Cdescription',
+    );
+  });
+
+  it.each([
+    404, 400,
+  ])('maps %s to a permanent not-found error, since Jira hides missing permission that way', async (status) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse({ errorMessages: ['secret'] }, { status })));
+    const error = await makeClient()
+      .getIssue('PROJ-404', ['summary'])
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(JiraNotFoundError);
+    expect((error as Error).message).not.toContain('secret');
+  });
+
+  it('carries the Retry-After delay on a rate-limit error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(jsonResponse({}, { status: 429, headers: { 'retry-after': '7' } })),
+    );
+    const error = await makeClient()
+      .getIssue('PROJ-1', ['summary'])
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(JiraRateLimitError);
+    expect((error as JiraRateLimitError).retryAfterMs).toBe(7_000);
+  });
+
+  it('searches without changelog expansion when asked, leaving the importer default unchanged', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ issues: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await makeClient().searchIssues('parent = PROJ-1 ORDER BY rank', ['summary'], { expandChangelog: false });
+    await makeClient().searchIssues('project = PROJ', ['summary']);
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).not.toHaveProperty('expand');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string).expand).toBe('changelog');
   });
 });

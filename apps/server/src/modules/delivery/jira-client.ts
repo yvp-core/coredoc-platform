@@ -12,7 +12,21 @@ const MAX_BASE_URL_CHARS = 512;
 const MAX_NEXT_PAGE_URL_CHARS = 4_096;
 
 export class JiraAuthError extends Error {}
-export class JiraRateLimitError extends Error {}
+export class JiraRateLimitError extends Error {
+  /** From `Retry-After` (seconds) when Jira sent one; callers cap the wait. */
+  constructor(
+    message: string,
+    readonly retryAfterMs: number | null = null,
+  ) {
+    super(message);
+  }
+}
+/**
+ * 404 or 400: the issue is missing or invisible to the connector's user (Jira
+ * answers these, not 401/403, for missing permission). Permanent for agent-run
+ * reads; still a plain Error to the importer's classifier.
+ */
+export class JiraNotFoundError extends Error {}
 
 export interface JiraIssue {
   [k: string]: unknown;
@@ -21,6 +35,8 @@ export interface JiraIssue {
 export interface JiraSearchOptions {
   maxPages?: number;
   nextPageToken?: string | null;
+  /** Default true (the importer reads changelogs); agent-run reads leave it out. */
+  expandChangelog?: boolean;
 }
 
 export interface JiraIssueSearchResult {
@@ -113,7 +129,14 @@ export class JiraClient {
       throw new JiraAuthError(`Jira auth/permission failure (${res.status}) for ${path}`);
     }
     if (res.status === 429) {
-      throw new JiraRateLimitError(`Jira rate limit (429) for ${path}`);
+      const seconds = Number(res.headers.get('retry-after'));
+      throw new JiraRateLimitError(
+        `Jira rate limit (429) for ${path}`,
+        Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : null,
+      );
+    }
+    if (res.status === 404 || res.status === 400) {
+      throw new JiraNotFoundError(`Jira API ${res.status} for ${path}`);
     }
     if (!res.ok) {
       // Provider bodies may contain tenant/project details. Status + the fixed
@@ -133,10 +156,10 @@ export class JiraClient {
         jql,
         maxResults: PAGE_SIZE,
         fields,
-        // `expand` is a comma-separated STRING on /search/jql (the removed
-        // /search endpoint took an array; live Jira Cloud 400s on the array).
-        expand: 'changelog',
       };
+      // `expand` is a comma-separated STRING on /search/jql (the removed
+      // /search endpoint took an array; live Jira Cloud 400s on the array).
+      if (options.expandChangelog !== false) body.expand = 'changelog';
       if (nextPageToken) body.nextPageToken = nextPageToken;
       const res = asRecord(await this.request('/rest/api/3/search/jql', { method: 'POST', body }));
       const issues = Array.isArray(res.issues) ? (res.issues as JiraIssue[]) : [];
@@ -145,6 +168,12 @@ export class JiraClient {
       if (!nextPageToken) break;
     }
     return { items: out, nextPageToken: nextPageToken ?? null };
+  }
+
+  /** One issue with exactly the fields asked for. */
+  async getIssue(issueIdOrKey: string, fields: string[]): Promise<JiraIssue> {
+    const query = new URLSearchParams({ fields: fields.join(',') });
+    return asRecord(await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}?${query}`));
   }
 
   async listChangelog(issueIdOrKey: string, options: JiraChangelogOptions = {}): Promise<JiraChangelogResult> {
