@@ -94,6 +94,44 @@ function spec(version: number, status: string, overrides: Record<string, unknown
   };
 }
 
+const REQUEST_ID = '5d7e8f90-1a2b-4c3d-9e8f-7a6b5c4d3e2f';
+
+function openQuestion() {
+  return {
+    requestId: REQUEST_ID,
+    kind: 'clarification',
+    phase: 'scope',
+    state: 'open',
+    questions: [
+      {
+        question: 'Which colour should the export button use?',
+        header: 'Colour',
+        options: [
+          { label: 'Red', description: 'Matches the alerts' },
+          { label: 'Blue', description: 'Matches the brand', preview: '<button class="blue">Export</button>' },
+        ],
+        multiSelect: false,
+      },
+      {
+        question: 'Which formats should the export offer?',
+        header: 'Formats',
+        options: [
+          { label: 'CSV', description: 'Spreadsheets' },
+          { label: 'JSON', description: 'Integrations' },
+        ],
+        multiSelect: true,
+      },
+    ],
+    answers: null,
+    askedAt: '2026-10-10T09:00:00.000Z',
+    answeredAt: null,
+    answeredBy: null,
+  };
+}
+
+/** What an answer POST answers: success, or the question was answered by someone else first. */
+let answerReply: 'ok' | 'already_answered' = 'ok';
+
 let specs: ReturnType<typeof spec>[] = [];
 /** What a scope review POST answers: success, or a stale-version refusal. */
 let reviewAnswer: 'ok' | 'stale' = 'ok';
@@ -109,6 +147,7 @@ beforeEach(() => {
   detail = run();
   specs = [];
   reviewAnswer = 'ok';
+  answerReply = 'ok';
   availability = { available: true, reasons: [] };
   vi.stubGlobal(
     'fetch',
@@ -123,6 +162,19 @@ beforeEach(() => {
                 statusCode: 409,
                 code: 'SPEC_VERSION_STALE',
                 message: 'Scope version 2 is not the latest proposed version; reload the run to review the current one',
+              }),
+              { status: 409 },
+            );
+          }
+          return new Response(JSON.stringify(detail));
+        }
+        if (/\/questions\/[^/]+\/answer$/.test(path)) {
+          if (answerReply === 'already_answered') {
+            return new Response(
+              JSON.stringify({
+                statusCode: 409,
+                code: 'QUESTION_ALREADY_ANSWERED',
+                message: 'This question has already been answered',
               }),
               { status: 409 },
             );
@@ -250,6 +302,101 @@ describe('agent runs routes', () => {
     mount(`/w/acme/agent-runs/${RUN_ID}`);
     expect(await screen.findByRole('heading', { name: 'PROJ-7' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Re-run' })).toBeNull();
+  });
+
+  describe('questions', () => {
+    beforeEach(() => {
+      detail = run({
+        status: 'awaiting_answer',
+        currentTurn: null,
+        openQuestion: openQuestion(),
+        questions: [openQuestion()],
+        assumptions: [],
+      });
+    });
+
+    it('shows the open question with headers, option descriptions, previews and the right kind of choice', async () => {
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      const card = await screen.findByRole('region', { name: 'Question from the agent' });
+
+      const colour = within(card).getByRole('group', { name: /Colour/ });
+      expect(within(colour).getByText('Which colour should the export button use?')).toBeInTheDocument();
+      expect(within(colour).getByRole('radio', { name: /Blue/ })).toBeInTheDocument();
+      expect(within(colour).getByText('Matches the brand')).toBeInTheDocument();
+      expect(within(colour).getByText('<button class="blue">Export</button>')).toBeInTheDocument();
+      expect(card.querySelector('button.blue')).toBeNull();
+
+      const formats = within(card).getByRole('group', { name: /Formats/ });
+      expect(within(formats).getAllByRole('checkbox')).toHaveLength(2);
+      expect(within(formats).queryByRole('radio')).toBeNull();
+    });
+
+    it('answers with the chosen options and free text', async () => {
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      const card = await screen.findByRole('region', { name: 'Question from the agent' });
+      const send = within(card).getByRole('button', { name: 'Send answer' });
+      expect(send).toBeDisabled();
+
+      const colour = within(card).getByRole('group', { name: /Colour/ });
+      fireEvent.click(within(colour).getByRole('radio', { name: /Blue/ }));
+      const formats = within(card).getByRole('group', { name: /Formats/ });
+      fireEvent.click(within(formats).getByRole('checkbox', { name: /CSV/ }));
+      fireEvent.change(within(formats).getByLabelText('Other answer'), { target: { value: 'Parquet' } });
+      fireEvent.click(send);
+
+      await waitFor(() =>
+        expect(posts).toEqual([
+          {
+            path: `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/questions/${REQUEST_ID}/answer`,
+            body: { answers: [{ labels: ['Blue'] }, { labels: ['CSV'], other: 'Parquet' }] },
+          },
+        ]),
+      );
+    });
+
+    it('a single-choice question can be answered with free text instead of an option', async () => {
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      const card = await screen.findByRole('region', { name: 'Question from the agent' });
+      const colour = within(card).getByRole('group', { name: /Colour/ });
+      fireEvent.click(within(colour).getByRole('radio', { name: /Red/ }));
+      fireEvent.click(within(colour).getByRole('radio', { name: 'Other' }));
+      fireEvent.change(within(colour).getByLabelText('Other answer'), { target: { value: 'Brand green' } });
+      const formats = within(card).getByRole('group', { name: /Formats/ });
+      fireEvent.click(within(formats).getByRole('checkbox', { name: /JSON/ }));
+      fireEvent.click(within(card).getByRole('button', { name: 'Send answer' }));
+
+      await waitFor(() =>
+        expect(posts[0]?.body).toEqual({ answers: [{ labels: [], other: 'Brand green' }, { labels: ['JSON'] }] }),
+      );
+    });
+
+    it('says so when someone else answered first', async () => {
+      answerReply = 'already_answered';
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      const card = await screen.findByRole('region', { name: 'Question from the agent' });
+      fireEvent.click(within(within(card).getByRole('group', { name: /Colour/ })).getByRole('radio', { name: /Red/ }));
+      fireEvent.click(
+        within(within(card).getByRole('group', { name: /Formats/ })).getByRole('checkbox', { name: /CSV/ }),
+      );
+      fireEvent.click(within(card).getByRole('button', { name: 'Send answer' }));
+
+      expect(await within(card).findByText(/already been answered/)).toBeInTheDocument();
+    });
+
+    it('lists the assumptions the agent made', async () => {
+      detail = run({
+        status: 'awaiting_scope_acceptance',
+        currentTurn: null,
+        openQuestion: null,
+        questions: [],
+        assumptions: [{ phase: 'scope', text: 'Exports are CSV only' }],
+      });
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+
+      const assumptions = await screen.findByRole('region', { name: 'Assumptions' });
+      expect(within(assumptions).getByText('Exports are CSV only')).toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'Question from the agent' })).toBeNull();
+    });
   });
 
   describe('scope review', () => {

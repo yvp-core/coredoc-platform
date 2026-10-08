@@ -62,6 +62,12 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+const TURN_OUTCOME_WORDS: Record<string, string> = {
+  no_outcome: 'without an outcome',
+  question_asked: 'with a question for a person',
+  scope_proposed: 'with a scope proposal',
+};
+
 function describeEvent(event: AgentRunEvent): string {
   const payload = event.payload ?? {};
   switch (event.type) {
@@ -75,7 +81,7 @@ function describeEvent(event: AgentRunEvent): string {
       return `${capitalize(kind)} turn started${attempt}`;
     }
     case 'turn_ended': {
-      const outcome = payload.outcome === 'no_outcome' ? 'without an outcome' : text(payload.outcome);
+      const outcome = TURN_OUTCOME_WORDS[String(payload.outcome)] ?? text(payload.outcome);
       const spend = typeof payload.spendUsd === 'number' ? `$${payload.spendUsd.toFixed(2)}` : 'spend not reported';
       return `Turn ended${outcome ? ` ${outcome}` : ''} (${spend})`;
     }
@@ -85,6 +91,15 @@ function describeEvent(event: AgentRunEvent): string {
     }
     case 'todos':
       return 'Task list updated';
+    case 'question': {
+      const headers = Array.isArray(payload.headers) ? payload.headers.filter((h) => typeof h === 'string') : [];
+      const about = headers.length ? `: ${headers.join(', ')}` : '';
+      return payload.state === 'auto_answered'
+        ? `The agent asked${about}; answered automatically (assume policy)`
+        : `The agent asked a question${about}`;
+    }
+    case 'question_resolved':
+      return payload.state === 'cancelled' ? 'Question cancelled: the run ended' : 'Question answered';
     case 'done':
       return payload.ok === false
         ? `Agent session failed${text(payload.error) ? `: ${payload.error}` : ''}`

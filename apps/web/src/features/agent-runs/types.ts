@@ -85,11 +85,51 @@ export interface AgentRunSpec {
   autoAccepted: boolean;
 }
 
+/** One clarification in Claude Code's AskUserQuestion shape. */
+export interface AskedQuestion {
+  question: string;
+  /** A short chip label. */
+  header: string;
+  options: Array<{ label: string; description: string; preview?: string }>;
+  multiSelect: boolean;
+}
+
+/** Per question, in order: the chosen option labels and an optional free-text "Other". */
+export interface QuestionAnswer {
+  labels: string[];
+  other?: string;
+}
+
+/** A question the agent asked (cloud-agent-run-questions.service.ts `projectQuestion`). */
+export interface AgentRunQuestion {
+  requestId: string;
+  kind: 'clarification' | 'repository_request';
+  phase: TurnKind;
+  state: 'open' | 'answered' | 'auto_answered' | 'cancelled';
+  questions: AskedQuestion[];
+  answers: QuestionAnswer[] | null;
+  askedAt: string;
+  answeredAt: string | null;
+  /** Null when answered automatically. */
+  answeredBy: string | null;
+}
+
+/** An assumption the agent listed instead of asking. */
+export interface AgentRunAssumption {
+  phase: TurnKind;
+  text: string;
+}
+
 /** One run as the run page reads it. */
 export interface AgentRunDetail extends AgentRun {
   latestSpec: AgentRunSpec | null;
   repositories: Array<{ key: string; reason: string; mergeOrder: number; origin: string; eligible: boolean }>;
   droppedSeeds: Array<{ key: string; reason: string }>;
+  assumptions: AgentRunAssumption[];
+  /** The question waiting for a person, if any. */
+  openQuestion: AgentRunQuestion | null;
+  /** Every question of the run, oldest first. */
+  questions: AgentRunQuestion[];
 }
 
 export interface AgentRunList {

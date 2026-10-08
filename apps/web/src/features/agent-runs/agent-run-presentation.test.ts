@@ -62,6 +62,24 @@ describe('timelineItems', () => {
     ]);
   });
 
+  it('describes questions: parked, answered at once, answered and cancelled', () => {
+    const items = timelineItems([
+      event(1, 'question', { state: 'open', headers: ['Colour', 'Formats'] }),
+      event(2, 'turn_ended', { outcome: 'question_asked', spendUsd: 0.5 }),
+      event(3, 'question_resolved', { state: 'answered' }),
+      event(4, 'question', { state: 'auto_answered', headers: ['Colour'] }),
+      event(5, 'question_resolved', { state: 'cancelled' }),
+    ]);
+
+    expect(items.map((item) => item.kind === 'entry' && item.text)).toEqual([
+      'The agent asked a question: Colour, Formats',
+      'Turn ended with a question for a person ($0.50)',
+      'Question answered',
+      'The agent asked: Colour; answered automatically (assume policy)',
+      'Question cancelled: the run ended',
+    ]);
+  });
+
   it('never throws on an event type or payload it does not know', () => {
     expect(timelineItems([event(1, 'something_new', { odd: [1, 2] })])).toEqual([
       { kind: 'entry', seq: 1, text: 'something_new' },
