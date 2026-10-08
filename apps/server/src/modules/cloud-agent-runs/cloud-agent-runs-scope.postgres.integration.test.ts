@@ -574,14 +574,17 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
     });
   });
 
-  it('a failure the runner reports fails the run with its code and reason', async () => {
+  it.each([
+    ['agent_error', 'The model API refused the key'],
+    ['budget_exhausted', 'No spend remains for this run (remaining: 0 USD).'],
+  ])('a %s failure the runner reports fails the run with its code and reason', async (code, reason) => {
     const run = await startRun();
     const turn = await claimTurn();
-    await complete(turn, { kind: 'failed', code: 'agent_error', reason: 'The model API refused the key' }).expect(200);
+    await complete(turn, { kind: 'failed', code, reason }).expect(200);
     expect(await detail(run.id)).toMatchObject({
       status: 'failed',
-      failureCode: 'agent_error',
-      failureReason: 'The model API refused the key',
+      failureCode: code,
+      failureReason: reason,
       currentTurn: null,
     });
   });

@@ -49,7 +49,14 @@ export const MAX_STATE_ARCHIVE_BYTES = 128 * 1024 * 1024;
  * fails the run with the code and keeps the reason (agent-written text stays
  * on the run page, never in Jira).
  */
-export const RUNNER_FAILURE_CODES = ['plugin_missing', 'session_mismatch', 'agent_error', 'archive_too_large'] as const;
+export const RUNNER_FAILURE_CODES = [
+  'plugin_missing',
+  'session_mismatch',
+  'agent_error',
+  'archive_too_large',
+  /** No spend left to bound a session with: the runner starts none. */
+  'budget_exhausted',
+] as const;
 export type RunnerFailureCode = (typeof RUNNER_FAILURE_CODES)[number];
 
 /** A repository the run works in (implement turns); the scope phase has none yet. */

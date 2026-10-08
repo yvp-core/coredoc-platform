@@ -194,6 +194,56 @@ describe('Claude executor in the runner loop', () => {
     expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code });
   });
 
+  it.each([
+    0, -3,
+  ])('with a remaining budget of %s, starts no session and fails the run with budget_exhausted', async (remainingSpendUsd) => {
+    const turn = assignment({ run: { ...assignment().run, remainingSpendUsd } });
+    const { done, seen } = runTurn(turn, { propose: [proposal] });
+
+    await expect(done).resolves.toBe('completed');
+    expect(seen).toEqual([]);
+    expect(api.uploads).toBe(0);
+    expect(api.completions[0]!.body).toMatchObject({
+      outcome: { kind: 'failed', code: 'budget_exhausted' },
+      spend: null,
+    });
+  });
+
+  it.each([
+    ['a missing remaining budget', { remainingSpendUsd: undefined }, 'budget_exhausted'],
+    ['a non-finite remaining budget', { remainingSpendUsd: Number.POSITIVE_INFINITY }, 'budget_exhausted'],
+    ['a missing turn duration limit', { maxTurnDurationSeconds: undefined }, 'agent_error'],
+    ['a zero turn duration limit', { maxTurnDurationSeconds: 0 }, 'agent_error'],
+  ])('fails closed on %s, without starting a session', async (_name, overrides, code) => {
+    const seen: Parameters<typeof fakeQuery>[1] = [];
+    const executor = new ClaudeExecutor({
+      query: fakeQuery({ propose: [proposal] }, seen),
+      api: new RunnerApiClient({ baseUrl: api.baseUrl, workspaceId: WORKSPACE, token: TOKEN }),
+      scratchRoot: scratch,
+      pluginPath: PLUGIN,
+      modelApiKey: 'sk-ant-test',
+      hostEnv: {},
+    });
+    const turn = assignment();
+    // The contract refuses these shapes; the executor must not rely on that alone.
+    const hostile = { ...turn, run: { ...turn.run, ...overrides } } as unknown as TurnAssignment;
+    const io = {
+      signal: new AbortController().signal,
+      emit: async () => undefined,
+      proposeScope: async () => {
+        throw new Error('no session may run');
+      },
+      downloadArchive: async () => Buffer.alloc(0),
+      uploadArchive: async () => {
+        throw new Error('nothing may be uploaded');
+      },
+    };
+
+    const result = await executor.run(hostile, io);
+    expect(seen).toEqual([]);
+    expect(result).toMatchObject({ spend: null, outcome: { kind: 'failed', code } });
+  });
+
   it('an archive over the cap fails the run with archive_too_large instead of uploading', async () => {
     const turn = assignment();
     api.queue.push(turn);

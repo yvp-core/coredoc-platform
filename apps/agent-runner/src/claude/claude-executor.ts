@@ -25,6 +25,8 @@ export type QueryFn = (params: { prompt: string; options: Options }) => AsyncIte
 const SDK_MAX_TURNS = 500;
 /** Coredoc MCP tool calls are otherwise effectively unbounded. */
 const MCP_TOOL_TIMEOUT_MS = 120_000;
+/** setTimeout's ceiling; a longer turn limit is clamped to it. */
+const MAX_TIMER_MS = 2_147_483_647;
 /** Long enough for the plugin to suspend its run at session end; Phase 0 measures it with five clones. */
 const SESSION_END_HOOK_TIMEOUT_MS = 120_000;
 
@@ -60,6 +62,9 @@ export class ClaudeExecutor implements TurnExecutor {
       await io.emit([{ type: 'raw', text: `[runner] ${turn.turn.kind} turns are not supported by this runner yet` }]);
       return { spend: null };
     }
+    // Fail closed: a session never starts without a spend budget and a duration limit to bound it.
+    const unbounded = missingLimit(turn);
+    if (unbounded) return { spend: null, outcome: unbounded };
     const paths = turnPaths(this.options.scratchRoot, turn.run.id, turn.turn.id);
     try {
       await createTurnDirectories(paths);
@@ -119,7 +124,7 @@ export class ClaudeExecutor implements TurnExecutor {
     const stop = () => abort.abort();
     io.signal.addEventListener('abort', stop, { once: true });
     // Reaching the turn's duration limit stops the session; the server's checkpoint rule continues it.
-    const deadline = setTimeout(stop, turn.run.maxTurnDurationSeconds * 1000);
+    const deadline = setTimeout(stop, Math.min(turn.run.maxTurnDurationSeconds * 1000, MAX_TIMER_MS));
 
     const outcome: SessionOutcome = { failure: null, result: null };
     const fail = (failure: NonNullable<SessionOutcome['failure']>) => {
@@ -237,7 +242,8 @@ export class ClaudeExecutor implements TurnExecutor {
       hooks: { PreToolUse: [{ hooks: [preToolUse] }] },
       disallowedTools: [...DENIED_TOOLS],
       maxTurns: SDK_MAX_TURNS,
-      ...(turn.run.remainingSpendUsd > 0 ? { maxBudgetUsd: turn.run.remainingSpendUsd } : {}),
+      // Positive and finite: checked before the session starts (missingLimit).
+      maxBudgetUsd: turn.run.remainingSpendUsd,
       abortController,
       stderr: (line) => this.log(`[claude] ${line.trimEnd()}`),
     };
@@ -260,6 +266,29 @@ export function pluginProblem(
   if (!plugin) return `The plugin at ${pluginPath} is not listed by Claude Code.`;
   if (!init.skills?.some((skill) => skill.startsWith(`${plugin.name}:`))) {
     return `The plugin ${plugin.name} loaded without its skills.`;
+  }
+  return null;
+}
+
+function isPositiveFinite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+/** The failure to report instead of starting a session whose spend or duration nothing would bound. */
+function missingLimit(turn: TurnAssignment): TurnOutcome | null {
+  if (!isPositiveFinite(turn.run.remainingSpendUsd)) {
+    return {
+      kind: 'failed',
+      code: 'budget_exhausted',
+      reason: `No spend remains for this run (remaining: ${String(turn.run.remainingSpendUsd)} USD).`,
+    };
+  }
+  if (!isPositiveFinite(turn.run.maxTurnDurationSeconds)) {
+    return {
+      kind: 'failed',
+      code: 'agent_error',
+      reason: 'The turn carries no valid duration limit, so no session was started.',
+    };
   }
   return null;
 }
