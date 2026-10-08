@@ -51,6 +51,7 @@ INTENT_CONTEXT_TEST_DATABASE_URL="${database_url}" \
 INTENT_BINDINGS_TEST_DATABASE_URL="${database_url}" \
 INTENT_TRANSFER_TEST_DATABASE_URL="${database_url}" \
 REPOS_IDENTITY_TEST_DATABASE_URL="${database_url}" \
+CLOUD_AGENT_RUNS_TEST_DATABASE_URL="${database_url}" \
   pnpm exec vitest run \
     src/modules/capture/capture.postgres.integration.test.ts \
     src/modules/tokens/telemetry-token.postgres.integration.test.ts \
@@ -78,6 +79,7 @@ REPOS_IDENTITY_TEST_DATABASE_URL="${database_url}" \
     src/modules/intent/intent-handoff.postgres.integration.test.ts \
     src/modules/intent/intent-import-export.postgres.integration.test.ts \
     src/modules/intent/intent-read-workspace.postgres.integration.test.ts \
+    src/modules/cloud-agent-runs/cloud-agent-runs.postgres.integration.test.ts \
     src/auth/oauth/prisma-oauth.store.test.ts \
     src/database/graph-version-migration.integration.test.ts \
     src/modules/graph-snapshot/graph-snapshot-batch.e2e.integration.test.ts \

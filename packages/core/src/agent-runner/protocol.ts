@@ -103,9 +103,7 @@ export const RunnerEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('phase'), phase: z.string().min(1).max(64) }),
   z.object({
     type: z.literal('todos'),
-    items: z
-      .array(z.object({ text: z.string().max(2_000), status: z.enum(AGENT_TODO_STATUSES) }))
-      .max(200),
+    items: z.array(z.object({ text: z.string().max(2_000), status: z.enum(AGENT_TODO_STATUSES) })).max(200),
   }),
   z.object({ type: z.literal('raw'), text: boundedText }),
   z.object({

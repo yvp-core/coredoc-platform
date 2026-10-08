@@ -13,6 +13,7 @@ import { AgentSessionsModule } from './modules/agent-sessions/agent-sessions.mod
 import { AnalyticsModule } from './modules/analytics/analytics.module.js';
 import { CaptureModule } from './modules/capture/capture.module.js';
 import { CliBundleModule } from './modules/cli-bundle/cli-bundle.module.js';
+import { CloudAgentRunsApiModule } from './modules/cloud-agent-runs/cloud-agent-runs.module.js';
 import { DeliveryApiModule } from './modules/delivery/delivery.module.js';
 import { FeedbackModule } from './modules/feedback/feedback.module.js';
 import { GraphModule } from './modules/graph/graph.module.js';
@@ -62,6 +63,7 @@ const optionalModules = [
     CaptureModule,
     AgentRunsModule,
     DeliveryApiModule,
+    CloudAgentRunsApiModule,
     JobsApiModule,
     HealthModule,
     MetaModule,

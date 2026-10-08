@@ -47,6 +47,13 @@ export enum TokenPermission {
   IntentRelease = 'intent:release',
   /** Apply a PR's CI anchor operations against the graph its CI run published. */
   IntentBindings = 'intent:bindings',
+  /**
+   * Act as a cloud agent runner of the workspace (SF-001): claim turns and
+   * report on them over the runner API. An exact-purpose token holding only
+   * this permission is refused everywhere else (AuthGuard and the MCP
+   * middleware), and the legacy wildcard never grants it.
+   */
+  AgentRunnerRun = 'agent-runner:run',
 }
 
 /** Explicit CI grants: graph publishing and automatic intent writes, never human authority or administration. */
@@ -80,6 +87,9 @@ export const INTENT_AGENT_TOKEN_PERMISSIONS: TokenPermission[] = [
  */
 export const TELEMETRY_TOKEN_PERMISSIONS: TokenPermission[] = [TokenPermission.TelemetryWrite];
 
+/** A runner token's whole grant: the runner API of its own workspace, nothing else. */
+export const AGENT_RUNNER_TOKEN_PERMISSIONS: TokenPermission[] = [TokenPermission.AgentRunnerRun];
+
 /**
  * Legacy grant-all marker some service tokens carry in their permissions array.
  * No code path mints it today; rows predating the curated permission lists can
@@ -90,12 +100,15 @@ export const PERMISSION_WILDCARD = '*';
 /**
  * Intent permissions stay explicit. The CI-token migration updates the known
  * CI purpose only; legacy wildcards and unrelated tokens gain no intent grants.
+ * The runner permission is exempt too: a grant-all token never passes a runner
+ * route, and a service token can never reveal a runner token.
  */
 export const WILDCARD_EXEMPT_PERMISSIONS: TokenPermission[] = [
   TokenPermission.IntentRead,
   TokenPermission.IntentPropose,
   TokenPermission.IntentRelease,
   TokenPermission.IntentBindings,
+  TokenPermission.AgentRunnerRun,
 ];
 
 /** True when `*` must not stand in for this permission — see WILDCARD_EXEMPT_PERMISSIONS. */
@@ -106,4 +119,9 @@ export function isWildcardExemptPermission(permission: string): boolean {
 /** Exact-purpose telemetry tokens are write-only even on auth paths outside Nest guards. */
 export function isExactTelemetryPurpose(permissions: readonly string[] | null | undefined): boolean {
   return permissions?.length === 1 && permissions[0] === TokenPermission.TelemetryWrite;
+}
+
+/** Exact-purpose runner tokens work only on the runner API, including outside Nest guards. */
+export function isExactAgentRunnerPurpose(permissions: readonly string[] | null | undefined): boolean {
+  return permissions?.length === 1 && permissions[0] === TokenPermission.AgentRunnerRun;
 }

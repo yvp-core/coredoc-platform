@@ -99,6 +99,7 @@ describe('CI_TOKEN_PERMISSIONS', () => {
         TokenPermission.IntentPropose,
         TokenPermission.IntentRelease,
         TokenPermission.IntentBindings,
+        TokenPermission.AgentRunnerRun,
       ]);
       expect(isWildcardExemptPermission(TokenPermission.IntentRead)).toBe(true);
       expect(isWildcardExemptPermission(TokenPermission.IntentPropose)).toBe(true);

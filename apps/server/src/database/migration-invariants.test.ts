@@ -54,26 +54,26 @@ describe('database migration invariants', () => {
     expect(sql).not.toMatch(/"active"\s+BOOLEAN/i);
   });
 
-  it.each(HAND_WRITTEN_PARTIAL_INDEXES)(
-    'keeps the hand-written partial index $name in the migration history',
-    async ({ name, migration }) => {
-      const migrationsDir = resolve(process.cwd(), 'prisma/migrations');
-      const migrationNames = (await readdir(migrationsDir)).sort();
-      let createMigration: string | null = null;
+  it.each(HAND_WRITTEN_PARTIAL_INDEXES)('keeps the hand-written partial index $name in the migration history', async ({
+    name,
+    migration,
+  }) => {
+    const migrationsDir = resolve(process.cwd(), 'prisma/migrations');
+    const migrationNames = (await readdir(migrationsDir)).sort();
+    let createMigration: string | null = null;
 
-      for (const migrationName of migrationNames) {
-        const sql = await readFile(resolve(migrationsDir, migrationName, 'migration.sql'), 'utf8').catch(() => '');
-        if (sql.includes(`CREATE UNIQUE INDEX "${name}"`)) createMigration = migrationName;
-        if (createMigration && sql.includes(`DROP INDEX "${name}"`)) {
-          throw new Error(
-            `${migrationName} drops ${name}; Prisma cannot represent this partial index, so recreate it in the same migration`,
-          );
-        }
+    for (const migrationName of migrationNames) {
+      const sql = await readFile(resolve(migrationsDir, migrationName, 'migration.sql'), 'utf8').catch(() => '');
+      if (sql.includes(`CREATE UNIQUE INDEX "${name}"`)) createMigration = migrationName;
+      if (createMigration && sql.includes(`DROP INDEX "${name}"`)) {
+        throw new Error(
+          `${migrationName} drops ${name}; Prisma cannot represent this partial index, so recreate it in the same migration`,
+        );
       }
+    }
 
-      expect(createMigration).toBe(migration);
-    },
-  );
+    expect(createMigration).toBe(migration);
+  });
 
   it('adds canonical delivery tasks and stage occurrences without replacing legacy delivery rows', async () => {
     const migration = await readFile(

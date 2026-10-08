@@ -19,6 +19,7 @@ import {
   TokenPermission,
   CI_TOKEN_PERMISSIONS,
   INTENT_AGENT_TOKEN_PERMISSIONS,
+  AGENT_RUNNER_TOKEN_PERMISSIONS,
 } from '../../auth/permissions.guard.js';
 import { WorkspaceRole } from '../../auth/decorators/workspace-role.decorator.js';
 import { RequirePermission } from '../../auth/decorators/require-permission.decorator.js';
@@ -35,11 +36,20 @@ function isServiceTokenRequest(request: Request): boolean {
 }
 
 const INTENT_AGENT_USER_SESSION_RULE =
-  'Minting or revealing a CI or intent-agent token requires a user session, not a service token: ' +
-  'intent scopes are granted only by a human admin, and a service token must not obtain them by delegation';
+  'Minting or revealing a CI, intent-agent or agent-runner token requires a user session, not a service token: ' +
+  'these scopes are granted only by a human admin, and a service token must not obtain them by delegation';
 
 /** The scopes whose permissions a service token must never obtain by delegation. */
-const USER_SESSION_ONLY_SCOPES: TokenScope[] = [TokenScope.Ci, TokenScope.IntentAgent];
+const USER_SESSION_ONLY_SCOPES: TokenScope[] = [TokenScope.Ci, TokenScope.IntentAgent, TokenScope.AgentRunner];
+
+/** Curated per scope — a request never supplies a permission array. */
+const SCOPE_PERMISSIONS: Record<Exclude<TokenScope, TokenScope.Telemetry>, TokenPermission[]> = {
+  [TokenScope.Ci]: CI_TOKEN_PERMISSIONS,
+  // Read + propose and nothing else: authority changes have no permission to
+  // grant (see TokenPermission.IntentPropose).
+  [TokenScope.IntentAgent]: INTENT_AGENT_TOKEN_PERMISSIONS,
+  [TokenScope.AgentRunner]: AGENT_RUNNER_TOKEN_PERMISSIONS,
+};
 
 // Token lifecycle is high-privilege. AuthGuard + WorkspaceRoleGuard alone would
 // let any workspace-admin-scoped service token (e.g. a leaked CI/CD token) mint,
@@ -70,10 +80,7 @@ export class TokensController {
       throw new ForbiddenException(INTENT_AGENT_USER_SESSION_RULE);
     }
 
-    // Curated per scope — a request never supplies a permission array. An
-    // intent-agent token gets read + propose and nothing else: authority
-    // changes have no permission to grant (see TokenPermission.IntentPropose).
-    const permissions = dto.scope === TokenScope.IntentAgent ? INTENT_AGENT_TOKEN_PERMISSIONS : CI_TOKEN_PERMISSIONS;
+    const permissions = SCOPE_PERMISSIONS[dto.scope ?? TokenScope.Ci];
 
     return this.tokensService.createToken(
       workspaceId,

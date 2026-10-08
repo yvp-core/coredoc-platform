@@ -14,10 +14,12 @@ describe('runner event batches', () => {
     expect(batch.events.map((event) => event.type)).toEqual(['phase', 'todos', 'raw', 'done']);
   });
 
-  it.each(['status_changed', 'turn_started', 'turn_ended', 'run_event'])(
-    'refuse the server-owned %s event, so a runner cannot forge the timeline',
-    (type) => {
-      expect(EventBatchSchema.safeParse({ events: [{ type, to: 'done' }] }).success).toBe(false);
-    },
-  );
+  it.each([
+    'status_changed',
+    'turn_started',
+    'turn_ended',
+    'run_event',
+  ])('refuse the server-owned %s event, so a runner cannot forge the timeline', (type) => {
+    expect(EventBatchSchema.safeParse({ events: [{ type, to: 'done' }] }).success).toBe(false);
+  });
 });
