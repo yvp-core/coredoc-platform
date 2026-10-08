@@ -98,6 +98,7 @@ appendFileSync(${JSON.stringify(log)}, JSON.stringify({
   args, cwd: process.cwd(),
   GIT_DIR: process.env.GIT_DIR, GIT_WORK_TREE: process.env.GIT_WORK_TREE, GIT_INDEX_FILE: process.env.GIT_INDEX_FILE,
   auth: process.env.GIT_CONFIG_COUNT ? process.env.GIT_CONFIG_VALUE_0 : null,
+  authKey: process.env.GIT_CONFIG_COUNT ? process.env.GIT_CONFIG_KEY_0 : null,
 }) + '\\n');
 const git = (...a) => execFileSync('git', a, { encoding: 'utf8' });
 let patch = '';

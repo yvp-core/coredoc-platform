@@ -1,8 +1,9 @@
 /**
  * The runner's own git, run after the agent's session has exited. It gets an
  * explicit environment, and the bot's token reaches network commands only, as
- * a per-command HTTP authorization header passed in the environment: never in
- * a remote URL, a config file or the process arguments.
+ * a per-command HTTP authorization header scoped to the assigned clone URL and
+ * passed in the environment: never in a remote URL, a config file or the
+ * process arguments.
  */
 import { spawn } from 'node:child_process';
 
@@ -14,8 +15,8 @@ export interface GitResult {
 
 export interface GitRunOptions {
   cwd: string;
-  /** Adds the bot's credentials; for clone, fetch, ls-remote and push. */
-  network?: boolean;
+  /** Adds the bot's credentials, scoped to this URL; for clone and push to that exact URL. */
+  authUrl?: string;
   /** Written to stdin. */
   input?: string;
   env?: Record<string, string>;
@@ -33,8 +34,22 @@ export class GitError extends Error {
   }
 }
 
-/** Agent-written repository config must not run code in the runner's git: no hooks, no fsmonitor. */
-const SAFE_CONFIG = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'];
+/**
+ * Code the agent could plant through repository config never runs in the
+ * runner's git: no hooks, no fsmonitor, no credential helpers. The command
+ * line wins over every config file. (The clone's config is also rewritten
+ * from a runner-written template before any post-session git; see TurnGit.)
+ */
+const SAFE_CONFIG = [
+  '-c',
+  'core.hooksPath=/dev/null',
+  '-c',
+  'core.fsmonitor=false',
+  '-c',
+  'credential.helper=',
+  '-c',
+  'protocol.ext.allow=never',
+];
 const TIMEOUT_MS = 10 * 60_000;
 
 export class Git {
@@ -43,13 +58,16 @@ export class Git {
     private readonly token: string | null,
   ) {}
 
-  /** The environment that carries the bot's credentials, for git and for the plugin's push preflight. */
-  authEnv(): Record<string, string> {
+  /**
+   * The bot's credentials for one URL, for git and for the plugin's push
+   * preflight: an authorization header scoped to that URL, never global.
+   */
+  authEnv(url: string): Record<string, string> {
     if (!this.token) return {};
     const basic = Buffer.from(`x-access-token:${this.token}`).toString('base64');
     return {
       GIT_CONFIG_COUNT: '2',
-      GIT_CONFIG_KEY_0: 'http.extraHeader',
+      GIT_CONFIG_KEY_0: `http.${url}.extraHeader`,
       GIT_CONFIG_VALUE_0: `Authorization: Basic ${basic}`,
       // A redirect must not carry the header to another host; a moved repository fails instead.
       GIT_CONFIG_KEY_1: 'http.followRedirects',
@@ -57,12 +75,13 @@ export class Git {
     };
   }
 
+  /** The environment of local commands: never the token. */
   env(extra: Record<string, string> = {}): Record<string, string> {
     return { ...this.baseEnv, ...extra };
   }
 
   async run(args: string[], options: GitRunOptions): Promise<GitResult> {
-    const env = this.env({ ...(options.network ? this.authEnv() : {}), ...options.env });
+    const env = this.env({ ...(options.authUrl ? this.authEnv(options.authUrl) : {}), ...options.env });
     const result = await new Promise<GitResult>((resolve, reject) => {
       const child = spawn('git', [...SAFE_CONFIG, ...args], {
         cwd: options.cwd,
