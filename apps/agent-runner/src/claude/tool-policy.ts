@@ -7,7 +7,7 @@
 export type ToolVerdict = { decision: 'allow' } | { decision: 'deny'; reason: string };
 
 /** Web tools, worktrees and scheduling have no place in a runner turn. */
-const DENIED_TOOLS = new Set([
+export const DENIED_TOOLS: ReadonlySet<string> = new Set([
   'WebSearch',
   'WebFetch',
   'EnterWorktree',
