@@ -3,14 +3,8 @@
  * inside the caller's transaction, after the caller locked the run row.
  */
 import type { CloudAgentRun } from '../../generated/prisma/client.js';
-import {
-  FAILURE_MESSAGES,
-  isTerminalRunStatus,
-  type RunFailureCode,
-  RunStatus,
-  ServerEventType,
-  TurnState,
-} from './run-states.js';
+import { FAILURE_MESSAGES } from './failure-codes.js';
+import { isTerminalRunStatus, type RunFailureCode, RunStatus, ServerEventType, TurnState } from './run-states.js';
 import { appendRunEvents, type NewRunEvent, type Tx } from './run-store.js';
 
 const WAITING_STATUSES: readonly string[] = [RunStatus.AwaitingAnswer, RunStatus.AwaitingScopeAcceptance];

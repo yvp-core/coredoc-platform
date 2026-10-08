@@ -7,13 +7,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { RUNNER_LEASE_HEADER, RUNNER_PROTOCOL_VERSION } from '@coredoc/core/agent-runner';
 import { AuthService } from '../../auth/auth.service.js';
 import { TokenPermission } from '../../auth/token-permissions.js';
+import { STORAGE_CONFIG, storageConfigFromEnv } from '../../config/app-config.js';
 import { ControlPlaneService } from '../../database/control-plane.service.js';
 import { buildPrismaAdapter } from '../../database/create-prisma-client.js';
+import { encrypt } from '../../database/encryption.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { TokensController } from '../tokens/tokens.controller.js';
 import { TokensService } from '../tokens/tokens.service.js';
-import { encrypt } from '../../database/encryption.js';
 import { JIRA_CLIENT_FACTORY } from '../delivery/jira-importer.service.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE } from './cloud-agent-run-archive.store.js';
 import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
@@ -66,8 +67,24 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     prisma = new PrismaClient({ adapter: pool?.adapter } as never);
     await prisma.$connect();
 
-    const workspace = await prisma.workspace.create({ data: { name: `car-${RUN}`, slug: `car-${RUN}` } });
+    // Available for agent runs: Delivery analytics with active Jira (project PROJ) and GitHub connectors.
+    const workspace = await prisma.workspace.create({
+      data: { name: `car-${RUN}`, slug: `car-${RUN}`, deliveryEnabled: true },
+    });
     workspaceId = workspace.id;
+    await prisma.deliveryConnector.createMany({
+      data: [
+        {
+          workspaceId,
+          provider: 'jira',
+          displayName: 'Jira',
+          baseUrl: 'https://example.atlassian.net',
+          credentialsEncrypted: encrypt(JSON.stringify({ email: 'bot@example.com', apiToken: 'jira-token' })),
+          config: { projects: ['PROJ'] },
+        },
+        { workspaceId, provider: 'github', displayName: 'GitHub', credentialsEncrypted: encrypt('github-token') },
+      ],
+    });
     const other = await prisma.workspace.create({ data: { name: `car-other-${RUN}`, slug: `car-other-${RUN}` } });
     otherWorkspaceId = other.id;
     await prisma.workspaceMember.createMany({
@@ -78,18 +95,8 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
         { workspaceId: otherWorkspaceId, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
       ],
     });
-    await prisma.deliveryConnector.create({
-      data: {
-        workspaceId,
-        provider: 'jira',
-        displayName: 'Jira',
-        baseUrl: 'https://example.atlassian.net',
-        credentialsEncrypted: encrypt(JSON.stringify({ email: 'bot@example.com', apiToken: 'jira-token' })),
-        config: { projects: ['PROJ'] },
-      },
-    });
-
     const users = new Map([ADMIN, MEMBER, DEMOTED].map((user) => [user.id, user]));
+    const storage = storageConfigFromEnv();
     const moduleRef = await Test.createTestingModule({
       controllers: [CloudAgentRunsController, CloudAgentRunnerController, TokensController],
       providers: [
@@ -100,6 +107,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
         { provide: CLOUD_AGENT_RUNS_CLOCK, useValue: () => now },
         { provide: JIRA_CLIENT_FACTORY, useValue: () => jira.client() },
         { provide: CLOUD_AGENT_RUN_ARCHIVE_STORE, useValue: new InMemoryArchiveStore() },
+        { provide: STORAGE_CONFIG, useValue: { ...storage, r2: { ...storage.r2, endpoint: 'https://r2.example' } } },
         {
           provide: AuthService,
           useValue: {
@@ -161,8 +169,13 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     return plaintext;
   }
 
+  /** Runs never finish in this suite, so the concurrency limit is set high enough that every start starts. */
   async function enable(): Promise<void> {
-    await api().put(`${runsBase()}/settings`).set('Authorization', human(ADMIN)).send({ enabled: true }).expect(200);
+    await api()
+      .put(`${runsBase()}/settings`)
+      .set('Authorization', human(ADMIN))
+      .send({ enabled: true, maxStartedRuns: 50 })
+      .expect(200);
   }
 
   function start(issueKey: string, user = MEMBER) {

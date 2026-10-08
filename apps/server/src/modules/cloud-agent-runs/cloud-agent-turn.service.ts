@@ -23,7 +23,7 @@ import {
   type CloudAgentRunArchiveStore,
   stateArchiveKey,
 } from './cloud-agent-run-archive.store.js';
-import { CloudAgentRunJiraService, JiraReadFailure } from './cloud-agent-run-jira.service.js';
+import { CloudAgentRunIssueReader, JiraReadFailure } from './cloud-agent-run-issue-reader.js';
 import { CloudAgentRunScopeService, type RunRepository } from './cloud-agent-run-scope.service.js';
 import {
   CloudAgentRunErrorCode,
@@ -94,7 +94,7 @@ export class CloudAgentTurnService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly jira: CloudAgentRunJiraService,
+    private readonly jira: CloudAgentRunIssueReader,
     private readonly scope: CloudAgentRunScopeService,
     @Inject(CLOUD_AGENT_RUN_ARCHIVE_STORE) private readonly archives: CloudAgentRunArchiveStore,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,

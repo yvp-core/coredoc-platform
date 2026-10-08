@@ -1,8 +1,8 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { CloudAgentRunJiraService, JiraReadFailure, type ResolvedIssue } from './cloud-agent-run-jira.service.js';
+import { CloudAgentRunIssueReader, JiraReadFailure, type ResolvedIssue } from './cloud-agent-run-issue-reader.js';
 import { CloudAgentRunErrorCode, cloudAgentRunError, RunFailureCode } from './run-states.js';
 
-export type { ResolvedIssue } from './cloud-agent-run-jira.service.js';
+export type { ResolvedIssue } from './cloud-agent-run-issue-reader.js';
 
 /**
  * Maps a manual start's issue key to the Jira issue identity through the
@@ -11,7 +11,7 @@ export type { ResolvedIssue } from './cloud-agent-run-jira.service.js';
  */
 @Injectable()
 export class CloudAgentRunIssueResolver {
-  constructor(private readonly jira: CloudAgentRunJiraService) {}
+  constructor(private readonly jira: CloudAgentRunIssueReader) {}
 
   async resolve(workspaceId: string, issueKey: string): Promise<ResolvedIssue> {
     try {

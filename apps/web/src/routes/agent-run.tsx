@@ -1,14 +1,17 @@
-import { useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { Link, useParams } from '@tanstack/react-router';
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 
-import { agentRunQueryOptions, agentRunTimelineQueryOptions } from '@/api/queries/agent-runs';
+import { ApiError } from '@/api/client';
+import { agentRunQueryOptions, agentRunTimelineQueryOptions, rerunAgentRun } from '@/api/queries/agent-runs';
 import { meQueryOptions } from '@/api/queries/me';
 import { EmptyNote } from '@/components/empty-note';
 import { PageHead } from '@/components/page-head';
 import { QueryBoundary } from '@/components/query-boundary';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
 import {
+  isTerminalStatus,
   spendText,
   statusLabel,
   statusTone,
@@ -31,11 +34,43 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function RunHeader({ run }: { run: AgentRun }) {
+/** A terminal run can be re-run: a new run for the same issue, which opens at once. */
+function RerunAction({ wsId, slug, run }: { wsId: string; slug: string; run: AgentRun }) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const mutation = useMutation({
+    mutationFn: rerunAgentRun,
+    onSuccess: (next) => {
+      void queryClient.invalidateQueries({ queryKey: ['ws', wsId, 'agent-runs', 'list'] });
+      void navigate({ to: '/w/$slug/agent-runs/$runId', params: { slug, runId: next.id } });
+    },
+  });
+  if (!isTerminalStatus(run.status)) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={mutation.isPending}
+        onClick={() => mutation.mutate({ wsId, runId: run.id })}
+      >
+        {mutation.isPending ? 'Starting…' : 'Re-run'}
+      </Button>
+      {mutation.error && (
+        <span className="text-[13px] text-danger-text">
+          {mutation.error instanceof ApiError ? mutation.error.message : 'Failed to re-run'}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function RunHeader({ wsId, slug, run }: { wsId: string; slug: string; run: AgentRun }) {
   const waiting = waitingForRunnerSince(run);
   return (
     <Card>
       <CardBody className="flex flex-col gap-3">
+        <RerunAction wsId={wsId} slug={slug} run={run} />
         {waiting && (
           <p className="rounded-lg bg-warn-wash px-3 py-2 text-[13px] text-warn-text">
             Waiting for an agent runner since {formatRelativeTime(waiting)}.
@@ -58,6 +93,22 @@ function RunHeader({ run }: { run: AgentRun }) {
             <span className="font-mono text-[12.5px]">{run.branch}</span>
           </Field>
           <Field label="Model">{run.model ?? 'Claude Code default'}</Field>
+          {run.seeds.length > 0 && (
+            <Field label="Seed repositories">
+              <span className="font-mono text-[12.5px]">{run.seeds.join(', ')}</span>
+            </Field>
+          )}
+          {run.previousRunId && (
+            <Field label="Re-run of">
+              <Link
+                to="/w/$slug/agent-runs/$runId"
+                params={{ slug, runId: run.previousRunId }}
+                className="hover:underline"
+              >
+                Previous run
+              </Link>
+            </Field>
+          )}
         </dl>
       </CardBody>
     </Card>
@@ -125,7 +176,7 @@ export function WorkspaceAgentRun() {
                 </>
               }
             />
-            <RunHeader run={data} />
+            <RunHeader wsId={workspace.id} slug={slug} run={data} />
             <Timeline wsId={workspace.id} run={data} />
           </>
         )}

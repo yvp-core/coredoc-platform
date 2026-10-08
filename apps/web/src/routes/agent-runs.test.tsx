@@ -20,6 +20,8 @@ function run(overrides: Record<string, unknown> = {}) {
     phase: 'scope',
     trigger: 'manual',
     startedBy: 'u1',
+    previousRunId: null,
+    seeds: [],
     runOwner: { userId: 'u1', email: 'm@x.test' },
     questionsPolicy: 'pause',
     scopeAcceptancePolicy: 'required',
@@ -51,24 +53,39 @@ const EVENTS = [
   { seq: 4, type: 'raw', payload: { text: '[runner] no agent configured' } },
 ].map((event) => ({ ...event, truncated: false, createdAt: '2026-10-10T09:00:00.000Z' }));
 
+const RERUN_ID = '7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f';
+
 let agentRunsEnabled = true;
 let posts: { path: string; body: unknown }[] = [];
+let detail: Record<string, unknown>;
+let availability: { available: boolean; reasons: { code: string; message: string }[] };
 
 beforeEach(() => {
   agentRunsEnabled = true;
   posts = [];
+  detail = run();
+  availability = { available: true, reasons: [] };
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       const { pathname: path } = new URL(url, 'http://local.test');
       if (init?.method === 'POST') {
-        posts.push({ path, body: JSON.parse(String(init.body)) });
+        posts.push({ path, body: init.body ? JSON.parse(String(init.body)) : undefined });
+        if (path.endsWith('/rerun')) {
+          return new Response(JSON.stringify(run({ id: RERUN_ID, trigger: 'rerun', previousRunId: RUN_ID })), {
+            status: 201,
+          });
+        }
         return new Response(JSON.stringify(run({ issueKey: 'PROJ-9' })), { status: 201 });
       }
       if (path === '/api/v1/me') return new Response(JSON.stringify(me(agentRunsEnabled)));
       if (path === '/api/v1/workspaces/ws1/cloud-agent-runs')
         return new Response(JSON.stringify({ runs: [run()], nextOffset: null }));
-      if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}`) return new Response(JSON.stringify(run()));
+      if (path === '/api/v1/workspaces/ws1/cloud-agent-runs/settings')
+        return new Response(JSON.stringify({ availability }));
+      if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}`) return new Response(JSON.stringify(detail));
+      if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RERUN_ID}`)
+        return new Response(JSON.stringify(run({ id: RERUN_ID, trigger: 'rerun', previousRunId: RUN_ID })));
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/events`)
         return new Response(JSON.stringify({ events: EVENTS, lastSeq: 4 }));
       // Unrelated shell reads (repos, members) stay pending.
@@ -126,5 +143,52 @@ describe('agent runs routes', () => {
       expect.stringContaining('Scope turn started (attempt 1)'),
       expect.stringContaining('Agent activity (1)'),
     ]);
+  });
+
+  it('starts a run with seed repository keys', async () => {
+    mount('/w/acme/agent-runs');
+    fireEvent.change(await screen.findByLabelText('Jira issue key'), { target: { value: 'PROJ-9' } });
+    fireEvent.change(screen.getByLabelText('Repository keys (optional)'), {
+      target: { value: 'orders-api, billing-api' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+
+    await waitFor(() =>
+      expect(posts).toEqual([
+        {
+          path: '/api/v1/workspaces/ws1/cloud-agent-runs',
+          body: { issueKey: 'PROJ-9', repositoryKeys: ['orders-api', 'billing-api'] },
+        },
+      ]),
+    );
+  });
+
+  it('tells members why runs cannot start', async () => {
+    availability = {
+      available: false,
+      reasons: [{ code: 'github_connector_inactive', message: 'The GitHub connector is paused.' }],
+    };
+    mount('/w/acme/agent-runs');
+
+    expect(await screen.findByText(/Runs cannot start right now/)).toBeInTheDocument();
+    expect(screen.getByText('The GitHub connector is paused.')).toBeInTheDocument();
+  });
+
+  it('re-runs a finished run and opens the new run, which links back to the previous one', async () => {
+    detail = run({ status: 'failed', failureCode: 'no_outcome', failureReason: 'Stopped', currentTurn: null });
+    mount(`/w/acme/agent-runs/${RUN_ID}`);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Re-run' }));
+
+    await waitFor(() =>
+      expect(posts).toEqual([{ path: `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/rerun`, body: undefined }]),
+    );
+    expect(await screen.findByRole('link', { name: 'Previous run' })).toBeInTheDocument();
+  });
+
+  it('offers no re-run while the run is active', async () => {
+    mount(`/w/acme/agent-runs/${RUN_ID}`);
+    expect(await screen.findByRole('heading', { name: 'PROJ-7' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Re-run' })).toBeNull();
   });
 });

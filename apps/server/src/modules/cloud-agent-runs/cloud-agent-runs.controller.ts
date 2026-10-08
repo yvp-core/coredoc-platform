@@ -122,6 +122,16 @@ export class CloudAgentRunsController {
     return this.runs.requestScopeChanges(workspaceId, runId, version, user.id, body.text);
   }
 
+  @Post(':runId/rerun')
+  @WorkspaceRole('member')
+  rerun(
+    @Param('workspaceId') workspaceId: string,
+    @Param('runId', ParseUUIDPipe) runId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.runs.rerun(workspaceId, user.id, runId);
+  }
+
   @Get(':runId/events')
   @WorkspaceRole('member')
   events(

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentRunsPanel } from './AgentRunsPanel';
 
@@ -32,12 +32,19 @@ beforeEach(() => {
     enabled: false,
     runOwner: null,
     triggerLabel: 'coredoc-agent',
+    doneStatus: null,
     questionsPolicy: 'pause',
     scopeAcceptancePolicy: 'required',
     maxSpendUsd: 25,
+    maxTurnDurationSeconds: 3 * 3600,
+    maxActiveSeconds: 24 * 3600,
+    waitingLimitSeconds: 7 * 86_400,
     maxStartedRuns: 2,
     maxRepositories: 5,
     model: null,
+    availability: { available: true, reasons: [] },
+    trigger: { ready: false, projectKeys: ['ORD'], reasons: [] },
+    repositories: [],
     runnerTokens: [],
   };
   vi.stubGlobal(
@@ -133,5 +140,77 @@ describe('AgentRunsPanel', () => {
     expect(await screen.findByText(/heartbeat just now/)).toBeInTheDocument();
     expect(screen.getByText(/runner 1\.1\.0 · sdk 0\.3\.285/)).toBeInTheDocument();
     expect(screen.getByText(/creator is no longer an admin/)).toBeInTheDocument();
+  });
+
+  it('lists what keeps runs from starting, why the trigger is idle, and each repository’s eligibility', async () => {
+    settings = {
+      ...settings,
+      enabled: true,
+      runOwner: { userId: 'u1', email: 'admin@x.test', valid: true },
+      availability: {
+        available: false,
+        reasons: [{ code: 'github_connector_inactive', message: 'The GitHub connector is paused.' }],
+      },
+      trigger: {
+        ready: false,
+        projectKeys: [],
+        reasons: [{ code: 'no_project_keys', message: 'The Jira connector has no project keys; nothing is searched.' }],
+      },
+      repositories: [
+        { key: 'orders-api', name: 'orders-api', eligible: true, reason: null },
+        { key: null, name: 'legacy-billing', eligible: false, reason: 'repository_key_missing' },
+      ],
+    };
+    mount();
+
+    expect(await screen.findByText('The GitHub connector is paused.')).toBeInTheDocument();
+    expect(screen.getByText(/nothing is searched/)).toBeInTheDocument();
+    const rows = within(screen.getByRole('region', { name: 'Repositories' })).getAllByRole('row');
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining('Key'),
+      expect.stringMatching(/orders-api.*Eligible/),
+      expect.stringMatching(/legacy-billing.*push again with a current CLI or desktop/),
+    ]);
+  });
+
+  it('saves the trigger label, done status, policies, budgets and model in one update', async () => {
+    settings = { ...settings, enabled: true, runOwner: { userId: 'u1', email: 'admin@x.test', valid: true } };
+    mount();
+
+    fireEvent.change(await screen.findByLabelText('Trigger label'), { target: { value: 'ai-build' } });
+    fireEvent.change(screen.getByLabelText('Done status id'), { target: { value: '31' } });
+    fireEvent.change(screen.getByLabelText('Done status name'), { target: { value: 'In Review' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Assume' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Automatic' }));
+    fireEvent.change(screen.getByLabelText('Spend per run (USD)'), { target: { value: '40' } });
+    fireEvent.change(screen.getByLabelText('Turn duration (hours)'), { target: { value: '2' } });
+    fireEvent.change(screen.getByLabelText('Active time per run (hours)'), { target: { value: '12' } });
+    fireEvent.change(screen.getByLabelText('Waiting limit (days)'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('Started runs at once'), { target: { value: '4' } });
+    fireEvent.change(screen.getByLabelText('Repositories per run'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'test-model' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+
+    await waitFor(() =>
+      expect(writes).toEqual([
+        {
+          method: 'PUT',
+          path: SETTINGS_PATH,
+          body: {
+            triggerLabel: 'ai-build',
+            doneStatus: { id: '31', name: 'In Review' },
+            questionsPolicy: 'assume',
+            scopeAcceptancePolicy: 'automatic',
+            maxSpendUsd: 40,
+            maxTurnDurationSeconds: 7200,
+            maxActiveSeconds: 43_200,
+            waitingLimitSeconds: 259_200,
+            maxStartedRuns: 4,
+            maxRepositories: 3,
+            model: 'test-model',
+          },
+        },
+      ]),
+    );
   });
 });

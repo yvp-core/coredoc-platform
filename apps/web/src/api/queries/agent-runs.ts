@@ -6,6 +6,7 @@ import type {
   AgentRunEventPage,
   AgentRunList,
   AgentRunSettings,
+  AgentRunSettingsUpdate,
 } from '../../features/agent-runs/types.js';
 import { request } from '../client.js';
 
@@ -51,12 +52,22 @@ export const agentRunTimelineQueryOptions = (
     refetchInterval: pollInterval(status),
   });
 
-export function startAgentRun(params: { wsId: string; issueKey: string }): Promise<AgentRun> {
-  return request<AgentRun>(base(params.wsId), {
+export function startAgentRun(params: {
+  wsId: string;
+  issueKey: string;
+  repositoryKeys?: string[];
+}): Promise<AgentRun> {
+  const { wsId, ...body } = params;
+  return request<AgentRun>(base(wsId), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ issueKey: params.issueKey }),
+    body: JSON.stringify(body),
   });
+}
+
+/** A new run for the same issue from a terminal run. */
+export function rerunAgentRun(params: { wsId: string; runId: string }): Promise<AgentRun> {
+  return request<AgentRun>(`${base(params.wsId)}/${params.runId}/rerun`, { method: 'POST' });
 }
 
 export const agentRunSettingsQueryOptions = (wsId: string) =>
@@ -66,11 +77,7 @@ export const agentRunSettingsQueryOptions = (wsId: string) =>
     staleTime: 0,
   });
 
-export function updateAgentRunSettings(params: {
-  wsId: string;
-  enabled?: boolean;
-  takeOverOwnership?: true;
-}): Promise<AgentRunSettings> {
+export function updateAgentRunSettings(params: { wsId: string } & AgentRunSettingsUpdate): Promise<AgentRunSettings> {
   const { wsId, ...body } = params;
   return request<AgentRunSettings>(`${base(wsId)}/settings`, {
     method: 'PUT',

@@ -111,6 +111,16 @@ describe('JiraClient.searchIssues', () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body.nextPageToken).toBe('opaque-resume');
   });
+
+  it('case 3c: expandChangelog false leaves changelog expansion out of the request', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ issues: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await makeClient().searchIssues('project = FOO', ['labels'], { expandChangelog: false });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body).not.toHaveProperty('expand');
+  });
 });
 
 describe('JiraClient error taxonomy', () => {

@@ -12,6 +12,7 @@ import {
   RUNNER_PROTOCOL_VERSION,
 } from '@coredoc/core/agent-runner';
 import { AuthService } from '../../auth/auth.service.js';
+import { STORAGE_CONFIG, storageConfigFromEnv } from '../../config/app-config.js';
 import { ControlPlaneService } from '../../database/control-plane.service.js';
 import { buildPrismaAdapter } from '../../database/create-prisma-client.js';
 import { encrypt } from '../../database/encryption.js';
@@ -75,7 +76,9 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
     prisma = new PrismaClient({ adapter: pool?.adapter } as never);
     await prisma.$connect();
 
-    const workspace = await prisma.workspace.create({ data: { name: `cars-${RUN}`, slug: `cars-${RUN}` } });
+    const workspace = await prisma.workspace.create({
+      data: { name: `cars-${RUN}`, slug: `cars-${RUN}`, deliveryEnabled: true },
+    });
     workspaceId = workspace.id;
     await prisma.workspaceMember.createMany({
       data: [
@@ -126,6 +129,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
     });
 
     const users = new Map([ADMIN, MEMBER, OUTSIDER].map((user) => [user.id, user]));
+    const storage = storageConfigFromEnv();
     const moduleRef = await Test.createTestingModule({
       controllers: [CloudAgentRunsController, CloudAgentRunnerController, TokensController],
       providers: [
@@ -136,6 +140,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
         { provide: CLOUD_AGENT_RUNS_CLOCK, useValue: () => now },
         { provide: JIRA_CLIENT_FACTORY, useValue: () => jira.client() },
         { provide: CLOUD_AGENT_RUN_ARCHIVE_STORE, useValue: archives },
+        { provide: STORAGE_CONFIG, useValue: { ...storage, r2: { ...storage.r2, endpoint: 'https://r2.example' } } },
         {
           provide: AuthService,
           useValue: {
@@ -158,7 +163,12 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
     await app.init();
     await app.listen(0, '127.0.0.1');
 
-    await api().put(`${runsBase()}/settings`).set('Authorization', human(ADMIN)).send({ enabled: true }).expect(200);
+    // Scenarios leave runs open; the concurrency queue is ticket 09's subject, not this suite's.
+    await api()
+      .put(`${runsBase()}/settings`)
+      .set('Authorization', human(ADMIN))
+      .send({ enabled: true, maxStartedRuns: 50 })
+      .expect(200);
     const minted = await api()
       .post(`/api/v1/workspaces/${workspaceId}/tokens`)
       .set('Authorization', human(ADMIN))

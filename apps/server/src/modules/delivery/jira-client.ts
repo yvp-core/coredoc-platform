@@ -35,7 +35,7 @@ export interface JiraIssue {
 export interface JiraSearchOptions {
   maxPages?: number;
   nextPageToken?: string | null;
-  /** Default true (the importer reads changelogs); agent-run reads leave it out. */
+  /** Default true (the importer reads changelogs); false leaves `expand` out of the request. */
   expandChangelog?: boolean;
 }
 
@@ -156,10 +156,10 @@ export class JiraClient {
         jql,
         maxResults: PAGE_SIZE,
         fields,
+        // `expand` is a comma-separated STRING on /search/jql (the removed
+        // /search endpoint took an array; live Jira Cloud 400s on the array).
+        ...(options.expandChangelog === false ? {} : { expand: 'changelog' }),
       };
-      // `expand` is a comma-separated STRING on /search/jql (the removed
-      // /search endpoint took an array; live Jira Cloud 400s on the array).
-      if (options.expandChangelog !== false) body.expand = 'changelog';
       if (nextPageToken) body.nextPageToken = nextPageToken;
       const res = asRecord(await this.request('/rest/api/3/search/jql', { method: 'POST', body }));
       const issues = Array.isArray(res.issues) ? (res.issues as JiraIssue[]) : [];
