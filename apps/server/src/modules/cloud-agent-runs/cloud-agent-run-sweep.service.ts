@@ -12,6 +12,7 @@ import {
   TurnState,
 } from './run-states.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock } from './run-store.js';
+import { expireActiveTime, expireLeases, type SweepDeps } from './run-limits.sweep.js';
 import { deleteTurnTokens, failRun, lockRun } from './run-transitions.js';
 
 /** Rows handled per job and tick; the next tick takes the rest. */
@@ -37,14 +38,20 @@ export class CloudAgentRunSweep {
 
   async tick(): Promise<void> {
     await this.completeParkedTurns();
+    await expireLeases(this.deps);
     await this.expireWaiting();
+    await expireActiveTime(this.deps);
+  }
+
+  private get deps(): SweepDeps {
+    return { prisma: this.prisma, archives: this.archives, now: this.now, logger: this.logger };
   }
 
   /**
    * A claimed turn whose lease expired after it parked a question is completed
    * as paused instead of re-queued: the session already ended with the
    * question, and the answer queues the next turn. Other expired leases are
-   * left to the general lease-expiry job.
+   * left to the lease-expiry job (run-limits.sweep.ts).
    */
   async completeParkedTurns(): Promise<void> {
     const at = this.now();

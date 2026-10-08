@@ -50,6 +50,8 @@ export const TurnOutcome = {
   Checkpoint: 'checkpoint',
   /** Ended after a valid `submit_result`. */
   ResultSubmitted: 'result_submitted',
+  /** The lease expired without a completion: the turn was re-queued, or the run failed on the third loss. */
+  RunnerLost: 'runner_lost',
 } as const;
 
 export const QuestionKind = { Clarification: 'clarification', RepositoryRequest: 'repository_request' } as const;

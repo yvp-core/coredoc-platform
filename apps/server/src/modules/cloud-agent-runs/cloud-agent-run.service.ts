@@ -21,6 +21,7 @@ import {
 } from './run-states.js';
 import { createRun, type NewRun, promoteQueuedRuns } from './run-queue.js';
 import { CLOUD_AGENT_RUNS_CLOCK, type Clock, lockCloudAgentRunCreation, systemClock, type Tx } from './run-store.js';
+import { cancelRun, lockRun } from './run-transitions.js';
 
 const PENDING_TURN_STATES = [TurnState.Queued, TurnState.Claimed];
 
@@ -223,6 +224,23 @@ export class CloudAgentRunService {
 
   async requestScopeChanges(workspaceId: string, runId: string, version: number, actorId: string, text: string) {
     await this.scope.requestChanges(workspaceId, runId, version, actorId, text);
+    return this.detail(workspaceId, runId);
+  }
+
+  /**
+   * A member cancels at any point before the run ends: the queued or claimed
+   * turn is abandoned, so nothing claims or re-queues it, and a runner working
+   * on it hears `stop` at its next heartbeat.
+   */
+  async cancel(workspaceId: string, runId: string) {
+    await this.prisma.$transaction(async (tx) => {
+      const run = await lockRun(tx, workspaceId, runId);
+      if (!run) throw runNotFound();
+      if (isTerminalRunStatus(run.status)) {
+        throw cloudAgentRunError(CloudAgentRunErrorCode.RunTerminal, 'This run has already ended');
+      }
+      await cancelRun(tx, run, this.now());
+    });
     return this.detail(workspaceId, runId);
   }
 

@@ -43,6 +43,7 @@ import {
   TurnState,
 } from './run-states.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
+import { failIfBudgetSpent, spendBudgetFailure } from './run-budget.js';
 import { deleteTurnTokens, failRun, lockRun, queueTurn } from './run-transitions.js';
 
 /** A claim's lease; the runner heartbeats every 20 s, so this tolerates several missed beats. */
@@ -126,6 +127,7 @@ export class CloudAgentTurnService {
     for (let attempt = 0; attempt < MAX_CLAIM_ATTEMPTS && !assignment; attempt += 1) {
       const claimed = await this.claimNext(runner, request);
       if (!claimed) break;
+      if (claimed === 'refused') continue;
       assignment = await this.withRunChecks(claimed);
     }
     await this.recordSeen(runner, 'claim', request.protocolVersion, request.versions, null);
@@ -172,7 +174,8 @@ export class CloudAgentTurnService {
     }
   }
 
-  private async claimNext(runner: RunnerPrincipal, request: ClaimRequest): Promise<ClaimedTurn | null> {
+  /** The next claimable turn; `refused` when its run failed a check under the claim and another may be tried. */
+  private async claimNext(runner: RunnerPrincipal, request: ClaimRequest): Promise<ClaimedTurn | 'refused' | null> {
     const at = this.now();
     return this.prisma.$transaction(async (tx) => {
       // One statement: a skip-locked pick plus the lease, so two runners never
@@ -204,9 +207,13 @@ export class CloudAgentTurnService {
       const claimed = rows[0];
       if (!claimed) return null;
 
-      const run = await tx.cloudAgentRun.findFirstOrThrow({
-        where: { id: claimed.run_id, workspaceId: runner.workspaceId },
-      });
+      const run = (await lockRun(tx, runner.workspaceId, claimed.run_id))!;
+      // No agent session starts without spend left to bound it.
+      const overBudget = claimed.kind === RunPhase.Delivery ? null : spendBudgetFailure(run);
+      if (overBudget) {
+        await failRun(tx, run, RunFailureCode.BudgetExhausted, overBudget, at);
+        return 'refused' as const;
+      }
       const mcpToken =
         claimed.kind === RunPhase.Delivery ? null : await this.mintMcpToken(tx, run, claimed.id, claimed.kind, at);
       // The pinned SDK reports a resumed session's cost cumulatively; the
@@ -568,6 +575,7 @@ export class CloudAgentTurnService {
         await failRun(tx, updated, request.outcome.code, request.outcome.reason || null, at);
       } else if (live && (row.kind === RunPhase.Scope || row.kind === RunPhase.Implement)) {
         outcome = await this.advanceAfterAgentTurn(tx, updated, row.kind, turn.id, request, eligibility, at);
+        await failIfBudgetSpent(tx, await tx.cloudAgentRun.findUniqueOrThrow({ where: { id: run.id } }), at);
       }
 
       await tx.cloudAgentRunTurn.update({ where: { id: turn.id }, data: { outcome } });
