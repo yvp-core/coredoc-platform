@@ -11,6 +11,8 @@ import {
   MAX_STATE_ARCHIVE_BYTES,
   type ProposeScope,
   type ProposeScopeResponse,
+  type ReportQuestion,
+  type ReportQuestionResponse,
   type RunnerVersions,
   SUPPORTED_RUNNER_PROTOCOL_VERSIONS,
   type TurnAssignment,
@@ -24,6 +26,7 @@ import {
   stateArchiveKey,
 } from './cloud-agent-run-archive.store.js';
 import { CloudAgentRunIssueReader, JiraReadFailure } from './cloud-agent-run-issue-reader.js';
+import { answerForTurn, recordQuestion, settleTurnQuestions } from './cloud-agent-run-questions.service.js';
 import { CloudAgentRunScopeService, type RunRepository } from './cloud-agent-run-scope.service.js';
 import {
   CloudAgentRunErrorCode,
@@ -37,7 +40,7 @@ import {
   TurnState,
 } from './run-states.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
-import { deleteTurnTokens, failRun, lockRun } from './run-transitions.js';
+import { deleteTurnTokens, failRun, lockRun, queueTurn } from './run-transitions.js';
 
 /** A claim's lease; the runner heartbeats every 20 s, so this tolerates several missed beats. */
 export const LEASE_MS = 2 * 60_000;
@@ -226,6 +229,7 @@ export class CloudAgentTurnService {
         repositories: claimed.kind === RunPhase.Implement ? assignedRepositories(run) : [],
         mcp: mcpToken ? { token: mcpToken, path: `/api/v1/workspaces/${run.workspaceId}/mcp` } : null,
         hasStateArchive: run.stateArchiveKey !== null,
+        answer: await answerForTurn(tx, run.workspaceId, claimed.id),
       };
       return { assignment, jiraIssueId: run.jiraIssueId, workspaceId: run.workspaceId };
     });
@@ -330,6 +334,30 @@ export class CloudAgentTurnService {
       if (errors.length) return { accepted: false, errors, stop: false };
       const version = await this.scope.saveDraft(tx, run, turn.id, proposal, this.now());
       return { accepted: true, version, stop: false };
+    });
+  }
+
+  /**
+   * An AskUserQuestion call from the live turn: answered at once under the
+   * assume policy, parked for a person under pause (the run moves to
+   * `awaiting_answer` and the runner ends the session).
+   */
+  async reportQuestion(
+    runner: RunnerPrincipal,
+    turnId: string,
+    leaseToken: string,
+    report: ReportQuestion,
+  ): Promise<ReportQuestionResponse> {
+    return this.prisma.$transaction(async (tx) => {
+      const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
+      if (standing === 'completed') throw leaseLost();
+      if (standing === 'stopped') return { state: 'refused', reason: 'The run has ended; stop.', stop: true };
+      const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { kind: true } });
+      if (row.kind !== RunPhase.Scope && row.kind !== RunPhase.Implement) {
+        return { state: 'refused', reason: 'Questions are asked only while scoping or implementing.', stop: false };
+      }
+      const run = (await lockRun(tx, runner.workspaceId, turn.run_id))!;
+      return recordQuestion(tx, run, turn.id, report, this.now());
     });
   }
 
@@ -449,8 +477,8 @@ export class CloudAgentTurnService {
 
       if (live && request.outcome.kind === 'failed') {
         await failRun(tx, updated, request.outcome.code, request.outcome.reason || null, at);
-      } else if (live && row.kind === RunPhase.Scope) {
-        if (await this.scope.publishDraft(tx, updated, turn.id, eligibility, at)) outcome = TurnOutcome.ScopeProposed;
+      } else if (live && (row.kind === RunPhase.Scope || row.kind === RunPhase.Implement)) {
+        outcome = await this.advanceAfterAgentTurn(tx, updated, row.kind, turn.id, request, eligibility, at);
       }
 
       await tx.cloudAgentRunTurn.update({ where: { id: turn.id }, data: { outcome } });
@@ -473,6 +501,34 @@ export class CloudAgentTurnService {
       });
     }
     return { completed: true };
+  }
+
+  /**
+   * What an agent turn that ended normally achieved: a parked question, a
+   * published proposal, or nothing. An outcome-less turn is resumed once with
+   * a nudge; the second in a row fails the run with the agent's last message.
+   */
+  private async advanceAfterAgentTurn(
+    tx: Tx,
+    run: CloudAgentRun,
+    kind: string,
+    turnId: string,
+    request: CompleteTurnRequest,
+    eligibility: Map<string, string | null>,
+    at: Date,
+  ): Promise<string> {
+    if (await settleTurnQuestions(tx, run, turnId, at)) return TurnOutcome.QuestionAsked;
+    if (kind === RunPhase.Scope && (await this.scope.publishDraft(tx, run, turnId, eligibility, at))) {
+      return TurnOutcome.ScopeProposed;
+    }
+    const count = run.outcomeLessCount + 1;
+    if (count >= MAX_OUTCOME_LESS_TURNS) {
+      await failRun(tx, run, RunFailureCode.NoOutcome, request.lastMessage?.trim() || null, at);
+    } else {
+      const nudged = await tx.cloudAgentRun.update({ where: { id: run.id }, data: { outcomeLessCount: count } });
+      await queueTurn(tx, nudged, kind, nudge(run.questionsPolicy, kind), at);
+    }
+    return TurnOutcome.NoOutcome;
   }
 
   private async liveTurn(runner: RunnerPrincipal, turnId: string, leaseToken: string): Promise<FencedTurn> {
@@ -538,6 +594,17 @@ export class CloudAgentTurnService {
       update: data,
     });
   }
+}
+
+/** The second outcome-less turn in a row fails the run. */
+const MAX_OUTCOME_LESS_TURNS = 2;
+
+/** The resume message after an outcome-less turn, by questions policy. */
+function nudge(questionsPolicy: string, kind: string): string {
+  const tool = kind === RunPhase.Scope ? 'propose_scope' : 'submit_result';
+  return questionsPolicy === 'assume'
+    ? `Your last turn ended without an outcome. Finish on stated assumptions: call ${tool} and list every assumption you made in it.`
+    : `Your last turn ended without an outcome. Finish with ${tool}, or ask a person through AskUserQuestion.`;
 }
 
 function assignedRepositories(run: CloudAgentRun): AssignedRepository[] {

@@ -90,6 +90,27 @@ export const RequestScopeChangesSchema = z.object({
 });
 export type RequestScopeChangesInput = z.infer<typeof RequestScopeChangesSchema>;
 
+/** One answer per question, in order: chosen option labels and an optional free-text "Other". */
+export const AnswerQuestionSchema = z.object({
+  answers: z
+    .array(
+      z.object({
+        labels: z.array(z.string().max(200), { error: 'labels must be an array of option labels' }).max(4).default([]),
+        other: z
+          .string({ error: 'other must be a string' })
+          .trim()
+          .max(4_000, { error: 'other must be at most 4000 characters' })
+          .optional()
+          .transform((value) => value || undefined),
+      }),
+      { error: 'answers must be an array with one answer per question' },
+    )
+    .min(1)
+    .max(4),
+});
+export type AnswerQuestionInput = z.output<typeof AnswerQuestionSchema>;
+export type QuestionAnswer = AnswerQuestionInput['answers'][number];
+
 export const EventsQuerySchema = z.object({
   after: nonNegativeInt('after', 0, 2_147_483_647),
   limit: nonNegativeInt('limit', 200, 500),

@@ -15,6 +15,9 @@ import {
   ProposeScopeResponseSchema,
   type ReserveBranchRequest,
   ReserveBranchResponseSchema,
+  type ReportQuestionRequest,
+  type ReportQuestionResponse,
+  ReportQuestionResponseSchema,
   RUNNER_LEASE_HEADER,
   RunnerErrorBodySchema,
   RunnerErrorCode,
@@ -114,6 +117,12 @@ export class RunnerApiClient {
   async reserveBranch(turn: TurnRef, request: ReserveBranchRequest): Promise<void> {
     const response = await this.post(`/turns/${turn.turnId}/branches`, request, turn.leaseToken);
     ReserveBranchResponseSchema.parse(await this.json(response));
+  }
+
+  /** An AskUserQuestion call: parked for a person, answered at once, or refused. */
+  async reportQuestion(turn: TurnRef, question: ReportQuestionRequest): Promise<ReportQuestionResponse> {
+    const response = await this.post(`/turns/${turn.turnId}/questions`, question, turn.leaseToken);
+    return ReportQuestionResponseSchema.parse(await this.json(response));
   }
 
   /** The run's previous state archive (gzip tar), fetched with the live lease. */

@@ -283,7 +283,12 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     await turnCall(token, turnId, lease, 'complete', completion).expect(200);
 
     const detail = await api().get(`${runsBase()}/${run.id}`).set('Authorization', human(MEMBER)).expect(200);
-    expect(detail.body).toMatchObject({ status: 'scoping', spend: { usd: 0.25, unknownTurns: 0 }, currentTurn: null });
+    // The turn ended without an outcome, so the nudge turn is queued.
+    expect(detail.body).toMatchObject({
+      status: 'scoping',
+      spend: { usd: 0.25, unknownTurns: 0 },
+      currentTurn: { kind: 'scope', ordinal: 2, state: 'queued' },
+    });
 
     const timeline = await api()
       .get(`${runsBase()}/${run.id}/events?after=0`)

@@ -7,6 +7,8 @@ import {
   type ProposeScopeRequest,
   type ProposeScopeResponse,
   type RepositoryReport,
+  type ReportQuestionRequest,
+  type ReportQuestionResponse,
   RUNNER_PROTOCOL_VERSION,
   type RunnerEvent,
   type RunnerVersions,
@@ -28,6 +30,8 @@ export interface TurnIO {
   submitResult(result: SubmitResultRequest): Promise<SubmitResultResponse>;
   /** Records that this run creates the run branch in a repository; called before its first push there. */
   reserveBranch(repository: string): Promise<void>;
+  /** Report an AskUserQuestion call; the server answers by the run's questions policy. */
+  reportQuestion(question: ReportQuestionRequest): Promise<ReportQuestionResponse>;
   /** The run's previous state archive; call only when the assignment says one exists. */
   downloadArchive(): Promise<Buffer>;
   uploadArchive(archive: Buffer): Promise<void>;
@@ -40,6 +44,8 @@ export interface TurnResult {
   outcome?: TurnOutcome;
   /** Implement turns: what the end of the turn left in each repository. */
   repositories?: RepositoryReport[];
+  /** The agent's final message; the server keeps it as the reason when outcome-less turns fail the run. */
+  lastMessage?: string | null;
 }
 
 /** What does the work of a turn: the Claude Code executor in production. */
@@ -183,6 +189,11 @@ export class Runner {
         reserveBranch: async (repository) => {
           await this.options.api.reserveBranch(ref, { repository });
         },
+        reportQuestion: async (question) => {
+          const answer = await this.options.api.reportQuestion(ref, question);
+          if (answer.stop) stop('stopped');
+          return answer;
+        },
         downloadArchive: () => this.options.api.downloadArchive(ref),
         uploadArchive: (archive) => this.options.api.uploadArchive(ref, archive),
       };
@@ -194,6 +205,7 @@ export class Runner {
         spend: result.spend,
         versions: this.versions,
         ...(result.repositories?.length ? { repositories: result.repositories } : {}),
+        ...(result.lastMessage ? { lastMessage: result.lastMessage.slice(0, 2_000) } : {}),
       });
       return 'completed';
     } catch (error) {

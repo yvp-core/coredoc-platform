@@ -9,7 +9,10 @@ import { LicenseCoreModule } from '../license/license.module.js';
 import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
 import { CloudAgentRunIssueResolver } from './cloud-agent-run-issue.resolver.js';
 import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira.service.js';
+import { CloudAgentRunQuestionService } from './cloud-agent-run-questions.service.js';
 import { CloudAgentRunSettingsService } from './cloud-agent-run-settings.service.js';
+import { CloudAgentRunSweep } from './cloud-agent-run-sweep.service.js';
+import { CloudAgentRunSweepCron } from './cloud-agent-run-sweep.cron.js';
 import { CloudAgentRunTriggerCron } from './cloud-agent-run-trigger.cron.js';
 import { CloudAgentRunTrigger } from './cloud-agent-run-trigger.service.js';
 import { CloudAgentRunService } from './cloud-agent-run.service.js';
@@ -34,6 +37,8 @@ export const cloudAgentRunsCoreProviders = [
   CloudAgentRunAvailability,
   CloudAgentRunJiraConnector,
   CloudAgentRunTrigger,
+  CloudAgentRunQuestionService,
+  CloudAgentRunSweep,
   GithubRepositoryResolver,
 ];
 
@@ -53,9 +58,9 @@ export class CloudAgentRunsCoreModule {}
 })
 export class CloudAgentRunsApiModule {}
 
-/** The trigger cron (creation and promotion). Worker graph only: crons never run in the api role. */
+/** The trigger cron (creation and promotion) and the run sweep. Worker graph only: crons never run in the api role. */
 @Module({
   imports: [CloudAgentRunsCoreModule, LicenseCoreModule],
-  providers: [CloudAgentRunTriggerCron],
+  providers: [CloudAgentRunTriggerCron, CloudAgentRunSweepCron],
 })
 export class CloudAgentRunsWorkerScheduleModule {}

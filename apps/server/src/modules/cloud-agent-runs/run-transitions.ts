@@ -4,7 +4,14 @@
  */
 import type { CloudAgentRun } from '../../generated/prisma/client.js';
 import { FAILURE_MESSAGES } from './failure-codes.js';
-import { isTerminalRunStatus, type RunFailureCode, RunStatus, ServerEventType, TurnState } from './run-states.js';
+import {
+  isTerminalRunStatus,
+  QuestionState,
+  type RunFailureCode,
+  RunStatus,
+  ServerEventType,
+  TurnState,
+} from './run-states.js';
 import { appendRunEvents, type NewRunEvent, type Tx } from './run-store.js';
 
 const WAITING_STATUSES: readonly string[] = [RunStatus.AwaitingAnswer, RunStatus.AwaitingScopeAcceptance];
@@ -63,7 +70,8 @@ export async function deleteTurnTokens(tx: Tx, turnIds: string[]): Promise<void>
 
 /**
  * Fail the run: record the code, abandon its queued or claimed turn and
- * delete that turn's MCP token, so nothing restarts it.
+ * delete that turn's MCP token, so nothing restarts it. An open question is
+ * cancelled: nobody can answer it any more.
  */
 export async function failRun(
   tx: Tx,
@@ -85,15 +93,39 @@ export async function failRun(
     tx,
     pending.map((turn) => turn.id),
   );
+  await cancelOpenQuestions(tx, run, at);
   await setRunStatus(tx, run, RunStatus.Failed, at, {
     failureCode: code,
     failureReason: (reason ?? FAILURE_MESSAGES[code]).slice(0, 2_000),
   });
 }
 
+/** Questions still open when a run ends are cancelled, with a timeline entry each. */
+export async function cancelOpenQuestions(tx: Tx, run: CloudAgentRun, at: Date): Promise<void> {
+  const open = await tx.cloudAgentRunQuestion.findMany({
+    where: { workspaceId: run.workspaceId, runId: run.id, state: QuestionState.Open },
+    select: { id: true, requestId: true },
+  });
+  if (open.length === 0) return;
+  await tx.cloudAgentRunQuestion.updateMany({
+    where: { id: { in: open.map((question) => question.id) } },
+    data: { state: QuestionState.Cancelled },
+  });
+  await appendRunEvents(
+    tx,
+    { workspaceId: run.workspaceId, runId: run.id },
+    open.map((question) => ({
+      type: ServerEventType.QuestionResolved,
+      payload: { requestId: question.requestId, state: QuestionState.Cancelled },
+    })),
+    at,
+  );
+}
+
 /**
  * Queue the run's next turn unless one is already queued or claimed; a turn
- * still completing queues it from the stored decision instead.
+ * still completing queues it from the stored decision instead. Returns the
+ * new turn's id, or null when none was queued.
  */
 export async function queueTurn(
   tx: Tx,
@@ -101,13 +133,13 @@ export async function queueTurn(
   kind: string,
   inputText: string | null,
   at: Date,
-): Promise<boolean> {
+): Promise<string | null> {
   const pending = await tx.cloudAgentRunTurn.count({
     where: { runId: run.id, state: { in: [TurnState.Queued, TurnState.Claimed] } },
   });
-  if (pending > 0) return false;
+  if (pending > 0) return null;
   const last = await tx.cloudAgentRunTurn.aggregate({ where: { runId: run.id }, _max: { ordinal: true } });
-  await tx.cloudAgentRunTurn.create({
+  const turn = await tx.cloudAgentRunTurn.create({
     data: {
       workspaceId: run.workspaceId,
       runId: run.id,
@@ -116,6 +148,7 @@ export async function queueTurn(
       inputText,
       createdAt: at,
     },
+    select: { id: true },
   });
-  return true;
+  return turn.id;
 }

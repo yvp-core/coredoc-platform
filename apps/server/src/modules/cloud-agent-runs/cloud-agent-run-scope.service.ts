@@ -39,6 +39,12 @@ export interface SpecContent {
   candidates: Array<{ question: string; blocks: string }>;
 }
 
+/** An assumption the agent listed, stored on the run with its phase and shown on the run page. */
+export interface RunAssumption {
+  phase: string;
+  text: string;
+}
+
 /** A run repository; implement, delivery and the run page read these. */
 export interface RunRepository {
   key: string;
@@ -196,6 +202,15 @@ export class CloudAgentRunScopeService {
         version: draft.version,
       },
     };
+    // The run keeps the latest proposal's assumptions; implement-phase ones come from submit_result.
+    const kept = ((Array.isArray(run.assumptions) ? run.assumptions : []) as unknown as RunAssumption[]).filter(
+      (assumption) => assumption.phase !== RunPhase.Scope,
+    );
+    const assumptions = [...kept, ...content.assumptions.map((text) => ({ phase: RunPhase.Scope, text }))];
+    await tx.cloudAgentRun.update({
+      where: { id: run.id },
+      data: { assumptions: assumptions as unknown as Prisma.InputJsonArray },
+    });
     const automatic =
       run.scopeAcceptancePolicy === 'automatic' &&
       content.repositories.every((repository) => repository.eligible) &&

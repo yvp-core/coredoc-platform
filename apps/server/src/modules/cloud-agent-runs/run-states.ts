@@ -44,6 +44,19 @@ export const TurnOutcome = {
   NoOutcome: 'no_outcome',
   /** Ended after a valid `propose_scope`, published at completion. */
   ScopeProposed: 'scope_proposed',
+  /** Ended with a question parked for a person (pause policy). */
+  QuestionAsked: 'question_asked',
+} as const;
+
+export const QuestionKind = { Clarification: 'clarification', RepositoryRequest: 'repository_request' } as const;
+
+export const QuestionState = {
+  Open: 'open',
+  Answered: 'answered',
+  /** Answered by the runner at once under the assume policy. */
+  AutoAnswered: 'auto_answered',
+  /** The run ended while the question was open. */
+  Cancelled: 'cancelled',
 } as const;
 
 /** The closed set of run failure codes, each with the plain-words message the run page and Jira show. */
@@ -99,6 +112,10 @@ export const ServerEventType = {
   TurnStarted: 'turn_started',
   TurnEnded: 'turn_ended',
   RunEvent: 'run_event',
+  /** A question the agent asked, open or answered at once. */
+  Question: 'question',
+  /** A person answered, or the run ended while it was open. */
+  QuestionResolved: 'question_resolved',
 } as const;
 
 /** Upper-snake codes on refusals, which the web app and the runner branch on. */
@@ -117,6 +134,8 @@ export const CloudAgentRunErrorCode = {
   RunTerminal: 'RUN_TERMINAL',
   RunStateConflict: 'RUN_STATE_CONFLICT',
   SpecVersionStale: 'SPEC_VERSION_STALE',
+  QuestionAlreadyAnswered: 'QUESTION_ALREADY_ANSWERED',
+  QuestionNotFound: 'QUESTION_NOT_FOUND',
   ArchiveTooLarge: 'ARCHIVE_TOO_LARGE',
   ArchiveNotFound: 'ARCHIVE_NOT_FOUND',
 } as const;

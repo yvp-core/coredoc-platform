@@ -20,8 +20,11 @@ import { UserSessionGuard } from '../../auth/user-session.guard.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { CloudAgentRunSettingsService } from './cloud-agent-run-settings.service.js';
+import { CloudAgentRunQuestionService } from './cloud-agent-run-questions.service.js';
 import { CloudAgentRunService } from './cloud-agent-run.service.js';
 import {
+  type AnswerQuestionInput,
+  AnswerQuestionSchema,
   EventsQuerySchema,
   ListRunsQuerySchema,
   RequestScopeChangesSchema,
@@ -45,6 +48,7 @@ export class CloudAgentRunsController {
   constructor(
     private readonly runs: CloudAgentRunService,
     private readonly settings: CloudAgentRunSettingsService,
+    private readonly questions: CloudAgentRunQuestionService,
   ) {}
 
   // Declared before `/:runId`, so `settings` is never taken for a run id.
@@ -120,6 +124,21 @@ export class CloudAgentRunsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.runs.requestScopeChanges(workspaceId, runId, version, user.id, body.text);
+  }
+
+  /** One answer per question; a second answer is refused with QUESTION_ALREADY_ANSWERED. */
+  @Post(':runId/questions/:requestId/answer')
+  @HttpCode(200)
+  @WorkspaceRole('member')
+  async answerQuestion(
+    @Param('workspaceId') workspaceId: string,
+    @Param('runId', ParseUUIDPipe) runId: string,
+    @Param('requestId', ParseUUIDPipe) requestId: string,
+    @Body(new ZodValidationPipe(AnswerQuestionSchema)) body: AnswerQuestionInput,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.questions.answer(workspaceId, runId, requestId, user.id, body.answers);
+    return this.runs.detail(workspaceId, runId);
   }
 
   @Post(':runId/rerun')

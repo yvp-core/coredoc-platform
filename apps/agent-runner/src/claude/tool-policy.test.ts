@@ -24,12 +24,6 @@ describe('runner tool policy', () => {
     expect(verdict.decision === 'deny' && verdict.reason).toMatch(/runner/i);
   });
 
-  it('answers AskUserQuestion with the assume-style instruction until questions are bridged', () => {
-    const verdict = evaluateToolUse('AskUserQuestion', { questions: [] });
-    expect(verdict).toMatchObject({ decision: 'deny' });
-    expect(verdict.decision === 'deny' && verdict.reason).toMatch(/assumptions/);
-  });
-
   it.each([
     ['Bash', { command: 'git status && git diff --stat' }],
     ['Bash', { command: 'git log --oneline -5' }],

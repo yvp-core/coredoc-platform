@@ -9,6 +9,7 @@ import type {
   AgentRunSettings,
   AgentRunSettingsUpdate,
   AgentRunSpec,
+  QuestionAnswer,
 } from '../../features/agent-runs/types.js';
 import { request } from '../client.js';
 
@@ -92,6 +93,20 @@ export function requestAgentRunScopeChanges(params: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: params.text }),
+  });
+}
+
+/** Answer an open question; a second answer is refused with QUESTION_ALREADY_ANSWERED. */
+export function answerAgentRunQuestion(params: {
+  wsId: string;
+  runId: string;
+  requestId: string;
+  answers: QuestionAnswer[];
+}): Promise<AgentRunDetail> {
+  return request<AgentRunDetail>(`${base(params.wsId)}/${params.runId}/questions/${params.requestId}/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answers: params.answers }),
   });
 }
 

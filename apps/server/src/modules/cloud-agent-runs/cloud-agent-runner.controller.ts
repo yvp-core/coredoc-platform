@@ -21,6 +21,8 @@ import {
   HeartbeatRequestSchema,
   type ProposeScope,
   ProposeScopeRequestSchema,
+  type ReportQuestion,
+  ReportQuestionRequestSchema,
   RUNNER_LEASE_HEADER,
   type ClaimRequest,
   type CompleteTurnRequest,
@@ -107,6 +109,20 @@ export class CloudAgentRunnerController {
     @Body(new ZodValidationPipe(ProposeScopeRequestSchema)) body: ProposeScope,
   ) {
     return this.turns.proposeScope(principal(request), turnId, lease ?? '', body);
+  }
+
+  /** An AskUserQuestion call; the answer says whether it is parked, answered at once or refused. */
+  @Post('turns/:turnId/questions')
+  @HttpCode(200)
+  @WorkspaceRole('admin')
+  @RequirePermission(TokenPermission.AgentRunnerRun)
+  reportQuestion(
+    @Req() request: RunnerRequest,
+    @Param('turnId', ParseUUIDPipe) turnId: string,
+    @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
+    @Body(new ZodValidationPipe(ReportQuestionRequestSchema)) body: ReportQuestion,
+  ) {
+    return this.turns.reportQuestion(principal(request), turnId, lease ?? '', body);
   }
 
   /** The previous state archive, streamed only to the turn's live lease. */
