@@ -23,6 +23,11 @@ import { WorkspaceShell, findWorkspace } from './routes/workspace.js';
 // path. The router's defaultPendingComponent covers the chunk fetch.
 const WorkspaceAnalytics = lazy(() => import('./routes/analytics.js').then((m) => ({ default: m.WorkspaceAnalytics })));
 const WorkspaceIntent = lazy(() => import('./routes/intent.js').then((m) => ({ default: m.WorkspaceIntent })));
+// Agent runs render agent-written markdown; lazy keeps the renderer out of the main bundle.
+const WorkspaceAgentRuns = lazy(() =>
+  import('./routes/agent-runs.js').then((m) => ({ default: m.WorkspaceAgentRuns })),
+);
+const WorkspaceAgentRun = lazy(() => import('./routes/agent-run.js').then((m) => ({ default: m.WorkspaceAgentRun })));
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -105,6 +110,19 @@ const workspaceIntentRoute = createRoute({
   component: WorkspaceIntent,
 });
 
+// Siblings, not nested: the list page renders no <Outlet/>.
+const workspaceAgentRunsRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: '/agent-runs',
+  component: WorkspaceAgentRuns,
+});
+
+const workspaceAgentRunRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: '/agent-runs/$runId',
+  component: WorkspaceAgentRun,
+});
+
 const workspaceSettingsRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: '/settings',
@@ -120,6 +138,8 @@ const routeTree = rootRoute.addChildren([
     workspaceTeamsRoute,
     workspaceAnalyticsRoute,
     workspaceIntentRoute,
+    workspaceAgentRunsRoute,
+    workspaceAgentRunRoute,
     workspaceSettingsRoute,
   ]),
 ]);
