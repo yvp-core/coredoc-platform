@@ -13,6 +13,7 @@ import { PrismaService } from '../../database/prisma.service.js';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { type JiraClient, type JiraIssue, JiraNotFoundError, type JiraSearchOptions } from '../delivery/jira-client.js';
 import { JIRA_CLIENT_FACTORY, type JiraClientFactory } from '../delivery/jira-importer.service.js';
+import { LicenseService } from '../license/license.service.js';
 import { graphRepoHashOf } from '../repos/repo-intent-identity.js';
 import { CloudAgentRunTriggerCron } from './cloud-agent-run-trigger.cron.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
@@ -97,6 +98,8 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
   let app: INestApplication;
   const workspaces: string[] = [];
   const jiraSites = new Map<string, FakeJira>();
+  /** The trigger cron's license; the global license guard refusing writes is tested with the guard. */
+  const license = { expired: false, isExpired: () => license.expired };
   let tick = 0;
   const clock = () => new Date(Date.UTC(2026, 9, 10, 9, 0, 0) + tick++ * 1000);
 
@@ -119,6 +122,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
         ControlPlaneService,
         ...cloudAgentRunsCoreProviders,
         CloudAgentRunTriggerCron,
+        { provide: LicenseService, useValue: license },
         { provide: CLOUD_AGENT_RUNS_CLOCK, useValue: clock },
         { provide: JIRA_CLIENT_FACTORY, useValue: jiraFactory },
         { provide: CLOUD_AGENT_RUN_ARCHIVE_STORE, useValue: new InMemoryArchiveStore() },
@@ -240,13 +244,13 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     return api().post(runsBase(workspaceId)).set('Authorization', human(user)).send(body);
   }
 
-  /** What a terminal transition does to the run row; cancel and the failure paths arrive with ticket 10. */
+  /** Ends a run the way a member does: cancelling it frees its slot. */
   async function finish(runId: string) {
-    await prisma.cloudAgentRun.update({ where: { id: runId }, data: { status: 'failed', finishedAt: clock() } });
-    await prisma.cloudAgentRunTurn.updateMany({
-      where: { runId, state: { in: ['queued', 'claimed'] } },
-      data: { state: 'abandoned' },
-    });
+    const run = await prisma.cloudAgentRun.findUniqueOrThrow({ where: { id: runId } });
+    await api()
+      .post(`${runsBase(run.workspaceId)}/${runId}/cancel`)
+      .set('Authorization', human(MEMBER))
+      .expect(200);
   }
 
   it('concurrent trigger ticks create exactly one run per labelled issue, a failing one included; the label never re-creates a run', async () => {
@@ -441,6 +445,30 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
       .send({ enabled: true })
       .expect(400);
     expect(switchOn.body.code).toBe('AGENT_RUNS_UNAVAILABLE');
+  });
+
+  it('while the license is expired nothing is created or promoted; queued runs start after renewal', async () => {
+    const { id, jira } = await workspace({ settings: { maxStartedRuns: 1 } });
+    const { body: started } = await start(id, { issueKey: 'ORD-71' }).expect(201);
+    const { body: waiting } = await start(id, { issueKey: 'ORD-72' }).expect(201);
+    expect(waiting.status).toBe('queued');
+    jira.issues = [{ id: '10073', key: 'ORD-73', labels: ['coredoc-agent'] }];
+    await finish(started.id);
+
+    license.expired = true;
+    try {
+      await trigger();
+      const during = await runs(id);
+      expect(during.map((run) => run.issueKey).sort()).toEqual(['ORD-71', 'ORD-72']);
+      expect(during.find((run) => run.id === waiting.id)).toMatchObject({ status: 'queued', currentTurn: null });
+    } finally {
+      license.expired = false;
+    }
+
+    await trigger();
+    const after = await runs(id);
+    expect(after.find((run) => run.id === waiting.id)).toMatchObject({ status: 'scoping' });
+    expect(after.find((run) => run.issueKey === 'ORD-73')).toMatchObject({ status: 'queued' });
   });
 
   it('re-run creates a new run for the same issue from a terminal run, linked to it, on the next branch', async () => {
