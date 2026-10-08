@@ -36,10 +36,13 @@ function QuestionFields({
   question,
   draft,
   onChange,
+  freeText,
 }: {
   question: AskedQuestion;
   draft: Draft;
   onChange: (draft: Draft) => void;
+  /** Repository requests take one of their fixed options only. */
+  freeText: boolean;
 }) {
   const name = useId();
   const otherId = useId();
@@ -81,34 +84,36 @@ function QuestionFields({
           </span>
         </label>
       ))}
-      <div className="flex items-center gap-2 px-3 text-[13.5px]">
-        {!question.multiSelect && (
-          <label className="flex items-center gap-2">
-            <input
-              type="radio"
-              name={name}
-              checked={draft.otherChosen}
-              onChange={() => onChange({ ...draft, labels: [], otherChosen: true })}
-            />
-            Other
+      {freeText && (
+        <div className="flex items-center gap-2 px-3 text-[13.5px]">
+          {!question.multiSelect && (
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name={name}
+                checked={draft.otherChosen}
+                onChange={() => onChange({ ...draft, labels: [], otherChosen: true })}
+              />
+              Other
+            </label>
+          )}
+          <label htmlFor={otherId} className="sr-only">
+            Other answer
           </label>
-        )}
-        <label htmlFor={otherId} className="sr-only">
-          Other answer
-        </label>
-        <Input
-          id={otherId}
-          value={draft.other}
-          placeholder={question.multiSelect ? 'Something else (optional)' : 'Your own answer'}
-          onChange={(event) =>
-            onChange({
-              ...draft,
-              other: event.target.value,
-              ...(question.multiSelect ? {} : { labels: [], otherChosen: true }),
-            })
-          }
-        />
-      </div>
+          <Input
+            id={otherId}
+            value={draft.other}
+            placeholder={question.multiSelect ? 'Something else (optional)' : 'Your own answer'}
+            onChange={(event) =>
+              onChange({
+                ...draft,
+                other: event.target.value,
+                ...(question.multiSelect ? {} : { labels: [], otherChosen: true }),
+              })
+            }
+          />
+        </div>
+      )}
     </fieldset>
   );
 }
@@ -124,12 +129,20 @@ function OpenQuestion({ wsId, run, open }: { wsId: string; run: AgentRunDetail; 
     },
   });
   const ready = open.questions.every((question, index) => isAnswered(question, drafts[index]!));
+  const repositoryRequest = open.kind === 'repository_request';
 
   return (
-    <Card role="region" aria-label="Question from the agent">
+    <Card
+      role="region"
+      aria-label={repositoryRequest ? 'Repository request from the agent' : 'Question from the agent'}
+    >
       <CardHead
-        title="The agent is waiting for an answer"
-        sub={`Asked ${formatRelativeTime(open.askedAt)}, while ${open.phase === 'scope' ? 'scoping' : 'implementing'}. Your answer resumes the same session.`}
+        title={repositoryRequest ? 'The agent asks to add a repository' : 'The agent is waiting for an answer'}
+        sub={
+          repositoryRequest
+            ? `Asked ${formatRelativeTime(open.askedAt)}, while implementing. Adding it widens the accepted scope; your decision resumes the same session.`
+            : `Asked ${formatRelativeTime(open.askedAt)}, while ${open.phase === 'scope' ? 'scoping' : 'implementing'}. Your answer resumes the same session.`
+        }
       />
       <CardBody>
         <form
@@ -151,11 +164,12 @@ function OpenQuestion({ wsId, run, open }: { wsId: string; run: AgentRunDetail; 
               question={question}
               draft={drafts[index]!}
               onChange={(draft) => setDrafts((current) => current.map((d, i) => (i === index ? draft : d)))}
+              freeText={!repositoryRequest}
             />
           ))}
           <div className="flex flex-wrap items-center gap-2">
             <Button type="submit" size="sm" disabled={!ready || answer.isPending}>
-              {answer.isPending ? 'Sending…' : 'Send answer'}
+              {answer.isPending ? 'Sending…' : repositoryRequest ? 'Send decision' : 'Send answer'}
             </Button>
             {answer.error && (
               <span className="text-[13px] text-danger-text">
@@ -172,6 +186,7 @@ function OpenQuestion({ wsId, run, open }: { wsId: string; run: AgentRunDetail; 
 /**
  * The question card: the agent's open question with headers, options,
  * descriptions, previews, single or multiple choice and a free-text "Other".
+ * A repository request offers only its fixed "Add" and "Don't add".
  * Exactly one answer is accepted; a reviewer who answers second is told so.
  */
 export function QuestionCard({ wsId, run }: { wsId: string; run: AgentRunDetail }) {

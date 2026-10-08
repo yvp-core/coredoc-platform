@@ -372,6 +372,35 @@ describe('agent runs routes', () => {
       );
     });
 
+    it('a repository request offers only "Add" and "Don\'t add", with no free text', async () => {
+      const request = {
+        ...openQuestion(),
+        kind: 'repository_request',
+        phase: 'implement',
+        questions: [
+          {
+            question: 'The agent asks to add repository `search-api` to this run. Add it?',
+            header: 'Repository',
+            options: [
+              { label: 'Add', description: "Clone it into the run. The agent's reason: Owns the search index" },
+              { label: "Don't add", description: 'The agent continues without it.' },
+            ],
+            multiSelect: false,
+          },
+        ],
+      };
+      detail = run({ status: 'awaiting_answer', currentTurn: null, openQuestion: request, questions: [request] });
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      const card = await screen.findByRole('region', { name: 'Repository request from the agent' });
+      expect(within(card).getByText(/Owns the search index/)).toBeInTheDocument();
+      expect(within(card).getAllByRole('radio')).toHaveLength(2);
+      expect(within(card).queryByLabelText('Other answer')).toBeNull();
+
+      fireEvent.click(within(card).getByRole('radio', { name: /Don't add/ }));
+      fireEvent.click(within(card).getByRole('button', { name: 'Send decision' }));
+      await waitFor(() => expect(posts[0]?.body).toEqual({ answers: [{ labels: ["Don't add"] }] }));
+    });
+
     it('says so when someone else answered first', async () => {
       answerReply = 'already_answered';
       mount(`/w/acme/agent-runs/${RUN_ID}`);
