@@ -28,7 +28,10 @@ import { failRun, queueTurn, setRunStatus } from './run-transitions.js';
 /** A run-level condition a claim re-checks; the run fails with the code instead of getting the turn. */
 export class RunCheckFailure extends Error {
   constructor(
-    readonly code: typeof RunFailureCode.RepositoryNotEligible,
+    readonly code:
+      | typeof RunFailureCode.RepositoryNotEligible
+      | typeof RunFailureCode.RunOwnerRemoved
+      | typeof RunFailureCode.ConnectorInactive,
     reason: string,
   ) {
     super(reason);

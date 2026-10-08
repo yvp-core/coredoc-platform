@@ -455,6 +455,60 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
     );
   });
 
+  describe('run-level checks at claim', () => {
+    it('a run whose owner left the workspace fails with run_owner_removed instead of getting its turn', async () => {
+      const run = await startRun();
+      await prisma.workspaceMember.delete({ where: { workspaceId_userId: { workspaceId, userId: MEMBER.id } } });
+      try {
+        await claim().expect(204);
+        const failed = await prisma.cloudAgentRun.findUniqueOrThrow({ where: { id: run.id } });
+        expect(failed).toMatchObject({ status: 'failed', failureCode: 'run_owner_removed' });
+      } finally {
+        await prisma.workspaceMember.create({
+          data: { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
+        });
+      }
+    });
+
+    it('a paused GitHub connector fails the run with connector_inactive', async () => {
+      const run = await startRun();
+      await prisma.deliveryConnector.updateMany({
+        where: { workspaceId, provider: 'github' },
+        data: { status: 'paused' },
+      });
+      try {
+        await claim().expect(204);
+        expect(await detail(run.id)).toMatchObject({ status: 'failed', failureCode: 'connector_inactive' });
+      } finally {
+        await prisma.deliveryConnector.updateMany({
+          where: { workspaceId, provider: 'github' },
+          data: { status: 'active' },
+        });
+      }
+    });
+
+    it('an implement turn whose issue left the configured projects fails with issue_not_readable', async () => {
+      const run = await startRun();
+      const scoping = await claimTurn();
+      await turnCall(scoping, 'propose-scope', {
+        title: 'Order exports',
+        summary: 'Adds CSV exports to the orders service.',
+        specMarkdown: '# Spec',
+        repositories: [{ key: 'orders-api', reason: 'Owns the order records', changes: 'New export endpoint' }],
+      }).expect(200);
+      await turnCall(scoping, 'complete', {
+        outcome: { kind: 'ended' },
+        spend: { costUsd: 1 },
+        versions: VERSIONS,
+      }).expect(200);
+      await api().post(`${runsBase()}/${run.id}/specs/1/accept`).set('Authorization', human(MEMBER)).expect(200);
+      jira.issues.get(`PROJ-${issueSeed}`)!.project = 'OPS';
+
+      await claim().expect(204);
+      expect(await detail(run.id)).toMatchObject({ status: 'failed', failureCode: 'issue_not_readable' });
+    });
+  });
+
   describe('retention', () => {
     const proposal = {
       title: 'Order exports',

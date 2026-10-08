@@ -44,6 +44,7 @@ import {
 } from './run-states.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
 import { CLOUD_AGENT_RUN_REPORT_CAPS, chargeReport, DEFAULT_REPORT_CAPS, type ReportCaps } from './report-limits.js';
+import { checkRunOwnerAndConnectors } from './run-checks.js';
 import { failIfBudgetSpent, spendBudgetFailure } from './run-budget.js';
 import { deleteTurnTokens, failRun, lockRun, queueTurn } from './run-transitions.js';
 
@@ -145,6 +146,9 @@ export class CloudAgentTurnService {
   private async withRunChecks(claimed: ClaimedTurn): Promise<TurnAssignment | null> {
     const { assignment, run } = claimed;
     try {
+      if (assignment.turn.kind !== RunPhase.Delivery) await checkRunOwnerAndConnectors(this.prisma, run);
+      // A scope turn reads the issue for its PRD below; an implement turn only checks it is still readable.
+      if (assignment.turn.kind === RunPhase.Implement) await this.jira.resolveIssue(run.workspaceId, run.jiraIssueId);
       const repositories = await this.implement.repositoriesFor(run, assignment.turn.kind);
       if (assignment.turn.kind === RunPhase.Implement) {
         return { ...assignment, repositories, acceptedSpec: await this.implement.acceptedSpec(run) };
