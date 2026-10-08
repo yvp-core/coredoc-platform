@@ -6,6 +6,8 @@
 import {
   type ProposeScopeRequest,
   type ProposeScopeResponse,
+  type ReportQuestionRequest,
+  type ReportQuestionResponse,
   RUNNER_PROTOCOL_VERSION,
   type RunnerEvent,
   type RunnerVersions,
@@ -21,6 +23,8 @@ export interface TurnIO {
   signal: AbortSignal;
   /** The run-control call; validation errors come back for the agent to fix. */
   proposeScope(proposal: ProposeScopeRequest): Promise<ProposeScopeResponse>;
+  /** Report an AskUserQuestion call; the server answers by the run's questions policy. */
+  reportQuestion(question: ReportQuestionRequest): Promise<ReportQuestionResponse>;
   /** The run's previous state archive; call only when the assignment says one exists. */
   downloadArchive(): Promise<Buffer>;
   uploadArchive(archive: Buffer): Promise<void>;
@@ -31,6 +35,8 @@ export interface TurnResult {
   spend: { costUsd: number; sdkTurns?: number } | null;
   /** Defaults to `ended`: the server judges the turn from what it reported. */
   outcome?: TurnOutcome;
+  /** The agent's final message; the server keeps it as the reason when outcome-less turns fail the run. */
+  lastMessage?: string | null;
 }
 
 /** What does the work of a turn: the Claude Code executor in production. */
@@ -170,6 +176,11 @@ export class Runner {
           }
         },
         proposeScope: (proposal) => this.options.api.proposeScope(ref, proposal),
+        reportQuestion: async (question) => {
+          const answer = await this.options.api.reportQuestion(ref, question);
+          if (answer.stop) stop('stopped');
+          return answer;
+        },
         downloadArchive: () => this.options.api.downloadArchive(ref),
         uploadArchive: (archive) => this.options.api.uploadArchive(ref, archive),
       };
@@ -180,6 +191,7 @@ export class Runner {
         outcome: result.outcome ?? { kind: 'ended' },
         spend: result.spend,
         versions: this.versions,
+        ...(result.lastMessage ? { lastMessage: result.lastMessage.slice(0, 2_000) } : {}),
       });
       return 'completed';
     } catch (error) {

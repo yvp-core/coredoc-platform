@@ -226,6 +226,7 @@ export class CloudAgentTurnService {
         repositories: claimed.kind === RunPhase.Implement ? assignedRepositories(run) : [],
         mcp: mcpToken ? { token: mcpToken, path: `/api/v1/workspaces/${run.workspaceId}/mcp` } : null,
         hasStateArchive: run.stateArchiveKey !== null,
+        answer: null,
       };
       return { assignment, jiraIssueId: run.jiraIssueId, workspaceId: run.workspaceId };
     });

@@ -13,6 +13,9 @@ import {
   type ProposeScopeRequest,
   type ProposeScopeResponse,
   ProposeScopeResponseSchema,
+  type ReportQuestionRequest,
+  type ReportQuestionResponse,
+  ReportQuestionResponseSchema,
   RUNNER_LEASE_HEADER,
   RunnerErrorBodySchema,
   RunnerErrorCode,
@@ -97,6 +100,12 @@ export class RunnerApiClient {
   async proposeScope(turn: TurnRef, proposal: ProposeScopeRequest): Promise<ProposeScopeResponse> {
     const response = await this.post(`/turns/${turn.turnId}/propose-scope`, proposal, turn.leaseToken);
     return ProposeScopeResponseSchema.parse(await this.json(response));
+  }
+
+  /** An AskUserQuestion call: parked for a person, answered at once, or refused. */
+  async reportQuestion(turn: TurnRef, question: ReportQuestionRequest): Promise<ReportQuestionResponse> {
+    const response = await this.post(`/turns/${turn.turnId}/questions`, question, turn.leaseToken);
+    return ReportQuestionResponseSchema.parse(await this.json(response));
   }
 
   /** The run's previous state archive (gzip tar), fetched with the live lease. */

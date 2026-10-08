@@ -14,6 +14,8 @@ import {
   HeartbeatRequestSchema,
   type ProposeScope,
   ProposeScopeRequestSchema,
+  type ReportQuestion,
+  ReportQuestionRequestSchema,
   RUNNER_LEASE_HEADER,
   type RunnerEvent,
   type TurnAssignment,
@@ -42,6 +44,7 @@ export function assignment(overrides: Partial<TurnAssignment> = {}): TurnAssignm
     repositories: [],
     mcp: { token: 'cdt_turn_token', path: `/api/v1/workspaces/${WORKSPACE}/mcp` },
     hasStateArchive: false,
+    answer: null,
     ...overrides,
   };
 }
@@ -58,6 +61,9 @@ export class FakeCoredocApi {
   claims: unknown[] = [];
   /** What a heartbeat answers: keep going, stop (run became terminal) or a lost lease. */
   heartbeatAnswer: 'continue' | 'stop' | 'lease_lost' = 'continue';
+  readonly questions: ReportQuestion[] = [];
+  /** How the server treats a reported question: the run's policy, or a refusal. */
+  questionState: 'open' | 'auto_answered' | 'refused' = 'open';
   /** Errors the next proposal gets back, once. */
   proposalErrors: string[] = [];
   private readonly leases = new Map<string, string>();
@@ -99,7 +105,9 @@ export class FakeCoredocApi {
       return reply(200, next);
     }
 
-    const match = path.match(new RegExp(`^${prefix}/turns/([^/]+)/(heartbeat|events|complete|propose-scope|archive)$`));
+    const match = path.match(
+      new RegExp(`^${prefix}/turns/([^/]+)/(heartbeat|events|complete|propose-scope|questions|archive)$`),
+    );
     if (!match) return reply(404, { message: 'not found' });
     const [, turnId, action] = match;
     if (this.leases.get(turnId!) !== req.headers[RUNNER_LEASE_HEADER]) {
@@ -132,6 +140,22 @@ export class FakeCoredocApi {
         }
         this.proposals.push(proposal);
         return reply(200, { accepted: true, version: this.proposals.length, stop: false });
+      }
+      case 'questions': {
+        const question = ReportQuestionRequestSchema.parse(body);
+        if (this.questionState === 'refused') {
+          return reply(200, { state: 'refused', reason: 'A question is already open.', stop: false });
+        }
+        this.questions.push(question);
+        const requestId = randomUUID();
+        if (this.questionState === 'open') return reply(200, { state: 'open', requestId, stop: false });
+        const answers = Object.fromEntries(
+          question.questions.map((q) => [
+            q.question,
+            'No one is available to answer. Choose the option you judge best.',
+          ]),
+        );
+        return reply(200, { state: 'auto_answered', requestId, answers, stop: false });
       }
       case 'archive':
         if (req.method === 'PUT') {

@@ -11,6 +11,7 @@ import { MAX_STATE_ARCHIVE_BYTES, type TurnAssignment, type TurnOutcome } from '
 import type { RunnerApiClient } from '../runner-api.js';
 import type { TurnExecutor, TurnIO, TurnResult } from '../runner.js';
 import { runPreamble, scopePrompt } from './prompts.js';
+import { QuestionBridge } from './question-bridge.js';
 import { RUN_CONTROL_SERVER, type RunControlState, runControlServer } from './run-control.js';
 import { sessionEnvironment } from './session-environment.js';
 import { eventsFor } from './session-events.js';
@@ -50,6 +51,9 @@ interface SessionOutcome {
   result: Extract<SDKMessage, { type: 'result' }> | null;
 }
 
+/** The pinned SDK ends a session whose AskUserQuestion call the hook deferred with this reason. */
+const TOOL_DEFERRED = 'tool_deferred';
+
 export class ClaudeExecutor implements TurnExecutor {
   private readonly log: (message: string) => void;
 
@@ -88,7 +92,8 @@ export class ClaudeExecutor implements TurnExecutor {
         : firstPrompt;
 
     const control: RunControlState = { proposedVersion: null };
-    const session = await this.runSession(turn, io, paths, prompt, resume, control);
+    const questions = new QuestionBridge(turn, io);
+    const session = await this.runSession(turn, io, paths, prompt, resume, control, questions);
     if (io.signal.aborted) return { spend: spendOf(session.result, turn) };
 
     let outcome: TurnOutcome = { kind: 'ended' };
@@ -109,7 +114,7 @@ export class ClaudeExecutor implements TurnExecutor {
         await io.uploadArchive(archive);
       }
     }
-    return { spend: spendOf(session.result, turn), outcome };
+    return { spend: spendOf(session.result, turn), outcome, lastMessage: lastMessageOf(session.result) };
   }
 
   private async runSession(
@@ -119,6 +124,7 @@ export class ClaudeExecutor implements TurnExecutor {
     prompt: string,
     resume: boolean,
     control: RunControlState,
+    questions: QuestionBridge,
   ): Promise<SessionOutcome> {
     const abort = new AbortController();
     const stop = () => abort.abort();
@@ -134,7 +140,7 @@ export class ClaudeExecutor implements TurnExecutor {
     try {
       for await (const message of this.options.query({
         prompt,
-        options: this.sessionOptions(turn, io, paths, resume, control, abort),
+        options: this.sessionOptions(turn, io, paths, resume, control, questions, abort),
       })) {
         if (message.type === 'system' && message.subtype === 'init') {
           const problem = this.initProblem(message, turn.run.sessionId);
@@ -145,7 +151,9 @@ export class ClaudeExecutor implements TurnExecutor {
         }
         if (message.type === 'result') {
           outcome.result = message;
-          if (message.subtype !== 'success' || message.is_error) {
+          // A parked question ends the session by design, whatever subtype the SDK gives it.
+          const parked = message.terminal_reason === TOOL_DEFERRED && questions.state.parkedQuestion !== null;
+          if (!parked && (message.subtype !== 'success' || message.is_error)) {
             const errors = 'errors' in message ? message.errors : [];
             fail({ code: 'agent_error', reason: errors?.join('; ') || `The session ended with ${message.subtype}` });
           }
@@ -194,10 +202,13 @@ export class ClaudeExecutor implements TurnExecutor {
     paths: TurnPaths,
     resume: boolean,
     control: RunControlState,
+    questions: QuestionBridge,
     abortController: AbortController,
   ): Options {
     const preToolUse: HookCallback = async (input) => {
       if (input.hook_event_name !== 'PreToolUse') return {};
+      const bridged = await questions.preToolUse(input);
+      if (bridged) return bridged;
       const verdict = evaluateToolUse(input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
       if (verdict.decision === 'allow') return {};
       return {
@@ -238,7 +249,7 @@ export class ClaudeExecutor implements TurnExecutor {
       systemPrompt: { type: 'preset', preset: 'claude_code', append: runPreamble(turn) },
       permissionMode: 'default',
       // AskUserQuestion is offered only when a permission callback is set; the policy lives in the hook.
-      canUseTool: async (_name, input) => ({ behavior: 'allow', updatedInput: input }),
+      canUseTool: questions.canUseTool,
       hooks: { PreToolUse: [{ hooks: [preToolUse] }] },
       disallowedTools: [...DENIED_TOOLS],
       maxTurns: SDK_MAX_TURNS,
@@ -291,6 +302,12 @@ function missingLimit(turn: TurnAssignment): TurnOutcome | null {
     };
   }
   return null;
+}
+
+/** The agent's final message, when the session produced one. */
+function lastMessageOf(result: SessionOutcome['result']): string | null {
+  const text = result?.subtype === 'success' && typeof result.result === 'string' ? result.result.trim() : '';
+  return text || null;
 }
 
 /** The pinned SDK reports a resumed session's cost cumulatively; this turn's spend is the difference. */

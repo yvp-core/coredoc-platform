@@ -127,6 +127,19 @@ export const TurnAssignmentSchema = z.object({
   mcp: z.object({ token: z.string().min(1), path: z.string().startsWith('/') }).nullable(),
   /** Whether a previous state archive exists to download before the session starts. */
   hasStateArchive: z.boolean(),
+  /**
+   * On the turn that resumes after a person answered a clarification: the
+   * answers, keyed by question text as AskUserQuestion takes them. The
+   * resumed session re-runs the deferred AskUserQuestion call and the
+   * runner's pre-tool hook supplies these answers.
+   */
+  answer: z
+    .object({
+      requestId: z.uuid(),
+      toolUseId: z.string(),
+      answers: z.record(z.string(), z.string()),
+    })
+    .nullable(),
 });
 export type TurnAssignment = z.infer<typeof TurnAssignmentSchema>;
 
@@ -203,6 +216,8 @@ export const CompleteTurnRequestSchema = z.object({
   outcome: TurnOutcomeSchema,
   spend: TurnSpendSchema,
   versions: RunnerVersionsSchema,
+  /** The agent's final message, the reason a second outcome-less turn in a row fails the run with. */
+  lastMessage: z.string().max(2_000).nullable().optional(),
 });
 export type CompleteTurnRequest = z.infer<typeof CompleteTurnRequestSchema>;
 
@@ -253,6 +268,52 @@ export const ProposeScopeResponseSchema = z.discriminatedUnion('accepted', [
   z.object({ accepted: z.literal(false), errors: z.array(z.string()).min(1), stop: z.boolean() }),
 ]);
 export type ProposeScopeResponse = z.infer<typeof ProposeScopeResponseSchema>;
+
+/**
+ * One clarification in Claude Code's AskUserQuestion shape: a header, two to
+ * four options with descriptions and optional previews, optional multiple
+ * selection. The host adds the free-text "Other" answer.
+ */
+export const AskedQuestionSchema = z.object({
+  question: z.string().trim().min(1).max(2_000),
+  header: z.string().trim().min(1).max(64),
+  options: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(200),
+        description: z.string().max(2_000),
+        preview: z.string().max(16_384).optional(),
+      }),
+    )
+    .min(2)
+    .max(4),
+  multiSelect: z.boolean().default(false),
+});
+export type AskedQuestion = z.output<typeof AskedQuestionSchema>;
+
+/** A question the agent asked through AskUserQuestion; the server decides by the run's policy what happens to it. */
+export const ReportQuestionRequestSchema = z.object({
+  /** The AskUserQuestion call's tool use id; the resume turn re-runs that call. */
+  toolUseId: z.string().min(1).max(255),
+  questions: z.array(AskedQuestionSchema).min(1).max(4),
+});
+export type ReportQuestionRequest = z.input<typeof ReportQuestionRequestSchema>;
+export type ReportQuestion = z.output<typeof ReportQuestionRequestSchema>;
+
+export const ReportQuestionResponseSchema = z.discriminatedUnion('state', [
+  /** Pause policy: the question waits for a person; defer the call so the session ends without losing it. */
+  z.object({ state: z.literal('open'), requestId: z.uuid(), stop: z.boolean() }),
+  /** Assume policy: answer the call at once with these answers, keyed by question text. */
+  z.object({
+    state: z.literal('auto_answered'),
+    requestId: z.uuid(),
+    answers: z.record(z.string(), z.string()),
+    stop: z.boolean(),
+  }),
+  /** The question was not recorded (the run ended, or a question is already open); do not let it through. */
+  z.object({ state: z.literal('refused'), reason: z.string(), stop: z.boolean() }),
+]);
+export type ReportQuestionResponse = z.infer<typeof ReportQuestionResponseSchema>;
 
 /** The error body every runner-facing refusal carries. */
 export const RunnerErrorBodySchema = z.object({

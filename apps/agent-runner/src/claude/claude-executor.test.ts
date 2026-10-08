@@ -22,12 +22,40 @@ const proposal: ProposeScopeRequest = {
   repositories: [{ key: 'orders-api', reason: 'Owns orders', changes: 'Export endpoint' }],
 };
 
+const COLOUR_QUESTION = {
+  question: 'Which colour should the export button use?',
+  header: 'Colour',
+  options: [
+    { label: 'Red', description: 'Matches the alerts' },
+    { label: 'Blue', description: 'Matches the brand', preview: '<button class="blue">' },
+  ],
+  multiSelect: false,
+};
+
+/** An AskUserQuestion call the fake model makes. */
+interface AskScript {
+  toolUseId: string;
+  /** Set when the call comes from a subagent. */
+  agentId?: string;
+  /** Model a hook that timed out or errored: Claude Code falls through to the permission callback. */
+  skipHooks?: boolean;
+}
+
+/** How Claude Code resolved an AskUserQuestion call. */
+interface AskRecord {
+  decision: 'allow' | 'deny' | 'defer';
+  reason?: string;
+  answers?: Record<string, string>;
+}
+
 interface SessionScript {
   /** The session id the init message reports; the expected one when omitted. */
   reportSessionId?: string;
   plugins?: Array<{ name: string; path: string }>;
   pluginErrors?: Array<{ plugin: string; type: string; message: string }>;
   propose?: ProposeScopeRequest[];
+  /** AskUserQuestion calls, in order, before any proposal; a deferred one ends the session. */
+  ask?: AskScript[];
   result?: Partial<Extract<SDKMessage, { type: 'result' }>> | 'throw';
 }
 
@@ -38,11 +66,17 @@ interface SessionScript {
  */
 function fakeQuery(
   script: SessionScript,
-  seen: Array<{ prompt: string; options: Options; prd?: string; toolErrors: string[] }>,
+  seen: Array<{ prompt: string; options: Options; prd?: string; toolErrors: string[]; asks: AskRecord[] }>,
 ): QueryFn {
   return ({ prompt, options }) =>
     (async function* () {
-      const record = { prompt, options, toolErrors: [] as string[], prd: undefined as string | undefined };
+      const record = {
+        prompt,
+        options,
+        toolErrors: [] as string[],
+        prd: undefined as string | undefined,
+        asks: [] as AskRecord[],
+      };
       seen.push(record);
       const sessionId = options.sessionId ?? options.resume!;
       yield {
@@ -68,6 +102,26 @@ function fakeQuery(
           flag: 'a',
         },
       );
+
+      for (const ask of script.ask ?? []) {
+        const outcome = await askUserQuestion(options, ask, sessionId);
+        record.asks.push(outcome);
+        if (outcome.decision === 'defer') {
+          yield {
+            type: 'result',
+            subtype: 'success',
+            is_error: false,
+            result: '',
+            total_cost_usd: 0.4,
+            num_turns: 2,
+            duration_ms: 500,
+            session_id: sessionId,
+            terminal_reason: 'tool_deferred',
+            deferred_tool_use: { id: ask.toolUseId, name: 'AskUserQuestion', input: { questions: [COLOUR_QUESTION] } },
+          } as unknown as SDKMessage;
+          return;
+        }
+      }
 
       if (script.propose?.length) {
         const server = options.mcpServers!.agent_run as { instance: { connect(transport: unknown): Promise<void> } };
@@ -97,6 +151,56 @@ function fakeQuery(
         ...script.result,
       } as unknown as SDKMessage;
     })();
+}
+
+/**
+ * Claude Code's handling of one AskUserQuestion call: the pre-tool hooks
+ * decide first (deny over defer over allow); with no decision, the permission
+ * callback does.
+ */
+async function askUserQuestion(options: Options, ask: AskScript, sessionId: string): Promise<AskRecord> {
+  const toolInput = { questions: [COLOUR_QUESTION] };
+  const outputs = [];
+  if (!ask.skipHooks) {
+    for (const matcher of options.hooks?.PreToolUse ?? []) {
+      if (matcher.matcher && !new RegExp(`^(?:${matcher.matcher})$`).test('AskUserQuestion')) continue;
+      for (const hook of matcher.hooks) {
+        const output = await hook(
+          {
+            hook_event_name: 'PreToolUse',
+            session_id: sessionId,
+            transcript_path: '/dev/null',
+            cwd: options.cwd!,
+            tool_name: 'AskUserQuestion',
+            tool_input: toolInput,
+            tool_use_id: ask.toolUseId,
+            ...(ask.agentId ? { agent_id: ask.agentId, agent_type: 'general-purpose' } : {}),
+          },
+          ask.toolUseId,
+          { signal: new AbortController().signal },
+        );
+        if ('hookSpecificOutput' in output && output.hookSpecificOutput?.hookEventName === 'PreToolUse') {
+          outputs.push(output.hookSpecificOutput);
+        }
+      }
+    }
+  }
+  const denied = outputs.find((output) => output.permissionDecision === 'deny');
+  if (denied) return { decision: 'deny', reason: denied.permissionDecisionReason };
+  if (outputs.some((output) => output.permissionDecision === 'defer')) return { decision: 'defer' };
+  const allowed = outputs.find((output) => output.permissionDecision === 'allow');
+  if (allowed) {
+    const input = (allowed.updatedInput ?? toolInput) as { answers?: Record<string, string> };
+    return { decision: 'allow', answers: input.answers };
+  }
+  const verdict = await options.canUseTool!('AskUserQuestion', toolInput, {
+    signal: new AbortController().signal,
+    toolUseID: ask.toolUseId,
+    requestId: 'req-1',
+    ...(ask.agentId ? { agentID: ask.agentId } : {}),
+  });
+  if (verdict.behavior === 'deny') return { decision: 'deny', reason: verdict.message };
+  return { decision: 'allow', answers: (verdict.updatedInput as { answers?: Record<string, string> }).answers };
 }
 
 describe('Claude executor in the runner loop', () => {
@@ -242,6 +346,98 @@ describe('Claude executor in the runner loop', () => {
     const result = await executor.run(hostile, io);
     expect(seen).toEqual([]);
     expect(result).toMatchObject({ spend: null, outcome: { kind: 'failed', code } });
+  });
+
+  describe('questions', () => {
+    it('under pause, reports the question, defers the call and completes the turn with the question parked', async () => {
+      api.questionState = 'open';
+      const turn = assignment();
+      const { done, seen } = runTurn(turn, { ask: [{ toolUseId: 'toolu_ask_1' }] });
+
+      await expect(done).resolves.toBe('completed');
+      expect(api.questions).toEqual([{ toolUseId: 'toolu_ask_1', questions: [COLOUR_QUESTION] }]);
+      expect(seen[0]!.asks).toEqual([{ decision: 'defer' }]);
+      expect(api.uploads).toBe(1);
+      expect(api.completions[0]!.body).toMatchObject({ outcome: { kind: 'ended' }, spend: { costUsd: 0.4 } });
+    });
+
+    it('the resume turn re-runs the deferred call with the person’s answers and reports no new question', async () => {
+      const answers = { [COLOUR_QUESTION.question]: 'Blue' };
+      const turn = assignment({
+        turn: { ...assignment().turn, ordinal: 2, inputText: 'A person answered your question.' },
+        answer: { requestId: crypto.randomUUID(), toolUseId: 'toolu_ask_1', answers },
+      });
+      const { done, seen } = runTurn(turn, { ask: [{ toolUseId: 'toolu_ask_1' }], propose: [proposal] });
+
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.asks).toEqual([{ decision: 'allow', answers }]);
+      expect(api.questions).toEqual([]);
+      expect(api.proposals).toHaveLength(1);
+    });
+
+    it('under assume, answers at once with the server’s answer and the session continues', async () => {
+      api.questionState = 'auto_answered';
+      const turn = assignment({ run: { ...assignment().run, questionsPolicy: 'assume' } });
+      const { done, seen } = runTurn(turn, { ask: [{ toolUseId: 'toolu_ask_1' }], propose: [proposal] });
+
+      await expect(done).resolves.toBe('completed');
+      expect(api.questions).toHaveLength(1);
+      expect(seen[0]!.asks).toEqual([
+        { decision: 'allow', answers: { [COLOUR_QUESTION.question]: expect.stringMatching(/No one is available/) } },
+      ]);
+      expect(api.proposals).toHaveLength(1);
+      expect(api.completions[0]!.body.outcome).toEqual({ kind: 'ended' });
+    });
+
+    it('a subagent’s question is returned to the main session and never reported', async () => {
+      const { done, seen } = runTurn(assignment(), {
+        ask: [{ toolUseId: 'toolu_sub', agentId: 'agent-7' }],
+        propose: [proposal],
+      });
+
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.asks).toEqual([
+        { decision: 'deny', reason: expect.stringContaining('return this question to the main session') },
+      ]);
+      expect(api.questions).toEqual([]);
+    });
+
+    it('a question the server refuses is denied, not let through unanswered', async () => {
+      api.questionState = 'refused';
+      const { done, seen } = runTurn(assignment(), { ask: [{ toolUseId: 'toolu_ask_1' }], propose: [proposal] });
+
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.asks).toEqual([{ decision: 'deny', reason: expect.any(String) }]);
+    });
+
+    it('when no hook decided, the permission callback never lets a question through unanswered', async () => {
+      const { done, seen } = runTurn(assignment(), {
+        ask: [{ toolUseId: 'toolu_ask_1', skipHooks: true }],
+        propose: [proposal],
+      });
+
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.asks).toEqual([{ decision: 'deny', reason: expect.any(String) }]);
+    });
+
+    it('reports the agent’s final message with the completion', async () => {
+      const { done } = runTurn(assignment(), { result: { result: 'I could not tell which service owns exports.' } });
+
+      await expect(done).resolves.toBe('completed');
+      expect(api.completions[0]!.body.lastMessage).toBe('I could not tell which service owns exports.');
+    });
+
+    it('a subagent’s question that reaches the permission callback is returned to the main session', async () => {
+      const { done, seen } = runTurn(assignment(), {
+        ask: [{ toolUseId: 'toolu_sub', agentId: 'agent-7', skipHooks: true }],
+        propose: [proposal],
+      });
+
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.asks).toEqual([
+        { decision: 'deny', reason: expect.stringContaining('return this question to the main session') },
+      ]);
+    });
   });
 
   it('an archive over the cap fails the run with archive_too_large instead of uploading', async () => {
