@@ -1,5 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { WORKERS_CONFIG, type WorkersConfig, workersConfigFromEnv } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { parseRetentionFlag } from '../../libs/retention.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE, type CloudAgentRunArchiveStore } from './cloud-agent-run-archive.store.js';
 import { settleTurnQuestions } from './cloud-agent-run-questions.service.js';
 import {
@@ -13,6 +15,7 @@ import {
 } from './run-states.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock } from './run-store.js';
 import { expireActiveTime, expireLeases, type SweepDeps } from './run-limits.sweep.js';
+import { pruneEndedRuns } from './run-retention.sweep.js';
 import { deleteTurnTokens, failRun, lockRun } from './run-transitions.js';
 
 /** Rows handled per job and tick; the next tick takes the rest. */
@@ -34,6 +37,7 @@ export class CloudAgentRunSweep {
     private readonly prisma: PrismaService,
     @Inject(CLOUD_AGENT_RUN_ARCHIVE_STORE) private readonly archives: CloudAgentRunArchiveStore,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
+    @Optional() @Inject(WORKERS_CONFIG) private readonly workers: WorkersConfig = workersConfigFromEnv(),
   ) {}
 
   async tick(): Promise<void> {
@@ -41,6 +45,9 @@ export class CloudAgentRunSweep {
     await expireLeases(this.deps);
     await this.expireWaiting();
     await expireActiveTime(this.deps);
+    if (parseRetentionFlag(this.workers.retention.agentRunsEnabled, { defaultEnabled: true })) {
+      await pruneEndedRuns(this.deps);
+    }
   }
 
   private get deps(): SweepDeps {

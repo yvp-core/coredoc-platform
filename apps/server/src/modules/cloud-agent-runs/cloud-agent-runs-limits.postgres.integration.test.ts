@@ -455,6 +455,87 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
     );
   });
 
+  describe('retention', () => {
+    const proposal = {
+      title: 'Order exports',
+      summary: 'Adds CSV exports to the orders service.',
+      specMarkdown: '# Spec\n\nExport orders as CSV.',
+      repositories: [{ key: 'orders-api', reason: 'Owns the order records', changes: 'New export endpoint' }],
+    };
+    const upload = (turn: { id: string; lease: string }, bytes: string) =>
+      api()
+        .put(`${runnerBase()}/turns/${turn.id}/archive`)
+        .set('Authorization', `Bearer ${runnerToken}`)
+        .set(RUNNER_LEASE_HEADER, turn.lease)
+        .set('Content-Type', 'application/octet-stream')
+        .send(Buffer.from(bytes))
+        .expect(200);
+    const ended = (turn: { id: string; lease: string }) =>
+      turnCall(turn, 'complete', { outcome: { kind: 'ended' }, spend: { costUsd: 0.5 }, versions: VERSIONS }).expect(
+        200,
+      );
+
+    it('prunes events, turns and archives 30 days after the run ends and never touches human records', async () => {
+      const run = await startRun();
+      const asking = await claimTurn();
+      const asked = await turnCall(asking, 'questions', {
+        toolUseId: 'toolu_1',
+        questions: [
+          {
+            question: 'Which format?',
+            header: 'Format',
+            options: [
+              { label: 'CSV', description: 'Spreadsheets' },
+              { label: 'JSON', description: 'Integrations' },
+            ],
+            multiSelect: false,
+          },
+        ],
+      }).expect(200);
+      await upload(asking, 'first archive');
+      await ended(asking);
+      await api()
+        .post(`${runsBase()}/${run.id}/questions/${asked.body.requestId}/answer`)
+        .set('Authorization', human(MEMBER))
+        .send({ answers: [{ labels: ['CSV'] }] })
+        .expect(200);
+      const proposing = await claimTurn();
+      await turnCall(proposing, 'propose-scope', proposal).expect(200);
+      await upload(proposing, 'second archive');
+      await ended(proposing);
+      await api()
+        .post(`${runsBase()}/${run.id}/specs/1/request-changes`)
+        .set('Authorization', human(MEMBER))
+        .send({ text: 'Add JSON too.' })
+        .expect(200);
+      const revising = await claimTurn();
+      await turnCall(revising, 'propose-scope', proposal).expect(200);
+      await ended(revising);
+      await api().post(`${runsBase()}/${run.id}/specs/2/accept`).set('Authorization', human(MEMBER)).expect(200);
+      await cancel(run.id).expect(200);
+      expect(archives.objects.size).toBeGreaterThan(0);
+      const before = await detail(run.id);
+
+      now = new Date(now.getTime() + 29 * DAY);
+      await sweep.tick();
+      expect(await prisma.cloudAgentRunTurn.count({ where: { runId: run.id } })).toBe(4);
+
+      now = new Date(now.getTime() + 2 * DAY);
+      await sweep.tick();
+      expect(await prisma.cloudAgentRunTurn.count({ where: { runId: run.id } })).toBe(0);
+      expect(await prisma.cloudAgentRunEvent.count({ where: { runId: run.id } })).toBe(0);
+      expect([...archives.objects.keys()].filter((key) => key.includes(run.id))).toEqual([]);
+
+      const after = await detail(run.id);
+      expect(after).toMatchObject({ status: 'cancelled', questions: before.questions, latestSpec: before.latestSpec });
+      const specs = await api().get(`${runsBase()}/${run.id}/specs`).set('Authorization', human(MEMBER)).expect(200);
+      expect(specs.body.versions.map((version: { status: string }) => version.status)).toEqual([
+        'changes_requested',
+        'accepted',
+      ]);
+    });
+  });
+
   describe('lost runners', () => {
     it('an expired lease re-queues the turn with a new lease; the stale runner gets LEASE_LOST, archive download included', async () => {
       const run = await startRun();
