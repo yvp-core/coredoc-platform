@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
-import { PrismaService } from '../../database/prisma.service.js';
 import { decrypt } from '../../database/encryption.js';
 import { GithubClient } from '../../libs/github/github-client.js';
+import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
 import { HandoffSha } from './intent-handoff.operations.js';
 
 const pullSchema = z.object({
@@ -19,36 +19,10 @@ export type HandoffPull = z.infer<typeof pullSchema>;
 
 @Injectable()
 export class IntentHandoffGithubService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly resolver: GithubRepositoryResolver) {}
 
   async source(workspaceId: string, repoKey: string) {
-    const repo = await this.prisma.workspaceRepo.findFirst({ where: { workspaceId, intentRepoKey: repoKey } });
-    if (!repo) throw new Error('repository_not_found');
-    // The registered remote fixes both host and owner/repository. Neither comes from MCP arguments.
-    const remote = repo.normalizedGitRemote;
-    if (!remote) throw new Error('repository_remote_missing');
-    const match = /^(?:https:\/\/)?([^/:]+)[/:]([^/]+)\/([^/]+?)(?:\.git)?$/.exec(remote);
-    if (!match) throw new Error('repository_remote_invalid');
-    const host = match[1]!;
-    const owner = match[2]!;
-    const name = match[3]!;
-    const connectors = await this.prisma.deliveryConnector.findMany({
-      where: { workspaceId, provider: 'github', status: 'active' },
-    });
-    const eligible = connectors.filter((c) => {
-      const api = new URL(c.baseUrl ?? 'https://api.github.com');
-      const sameHost =
-        host.toLowerCase() === (api.hostname === 'api.github.com' ? 'github.com' : api.hostname).toLowerCase();
-      const repos = (c.config as { repos?: unknown }).repos;
-      return (
-        sameHost &&
-        (!Array.isArray(repos) ||
-          !repos.length ||
-          repos.some((r) => typeof r === 'string' && r.toLowerCase() === `${owner}/${name}`.toLowerCase()))
-      );
-    });
-    if (eligible.length !== 1 || !eligible[0]!.credentialsEncrypted) throw new Error('github_connector_unavailable');
-    const connector = eligible[0]!;
+    const { repo, owner, name, connector } = await this.resolver.resolve(workspaceId, repoKey);
     const client = new GithubClient({
       token: decrypt(connector.credentialsEncrypted!),
       baseUrl: connector.baseUrl ?? undefined,
