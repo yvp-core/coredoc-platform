@@ -80,6 +80,41 @@ describe('timelineItems', () => {
     ]);
   });
 
+  it('shows run events by their text, and a withheld workflow diff with its paths, diff or note', () => {
+    const withheld = {
+      code: 'workflow_diff_withheld',
+      text: 'Workflow changes withheld',
+      paths: ['.github/workflows/ci.yml'],
+    };
+    expect(
+      timelineItems([
+        event(1, 'run_event', { code: 'branch_pushed', text: 'Pushed coredoc/PROJ-7 in orders-api' }),
+        event(2, 'run_event', { ...withheld, diff: '+ on: push', note: null }),
+        event(3, 'run_event', { ...withheld, diff: null, note: 'The diff is larger than 64 KiB.' }),
+        event(4, 'run_event', {}),
+      ]),
+    ).toEqual([
+      { kind: 'entry', seq: 1, text: 'Pushed coredoc/PROJ-7 in orders-api' },
+      {
+        kind: 'diff',
+        seq: 2,
+        text: 'Workflow changes withheld',
+        paths: ['.github/workflows/ci.yml'],
+        diff: '+ on: push',
+        note: null,
+      },
+      {
+        kind: 'diff',
+        seq: 3,
+        text: 'Workflow changes withheld',
+        paths: ['.github/workflows/ci.yml'],
+        diff: null,
+        note: 'The diff is larger than 64 KiB.',
+      },
+      { kind: 'entry', seq: 4, text: 'Run event' },
+    ]);
+  });
+
   it('never throws on an event type or payload it does not know', () => {
     expect(timelineItems([event(1, 'something_new', { odd: [1, 2] })])).toEqual([
       { kind: 'entry', seq: 1, text: 'something_new' },

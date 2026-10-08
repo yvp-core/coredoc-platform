@@ -120,10 +120,34 @@ export interface AgentRunAssumption {
   text: string;
 }
 
+/** A repository of the run, with what the implement phase did there. */
+export interface RunRepository {
+  key: string;
+  reason: string;
+  mergeOrder: number;
+  origin: string;
+  eligible: boolean;
+  /** True once the run pushed its branch here. */
+  touched?: boolean;
+  lastPushedHead?: string | null;
+  /** The agent's reason when it could not build or test the repository in the runner. */
+  notBuiltOrTested?: string | null;
+  /** Paths the latest implement turn left out of the push. */
+  withheldPaths?: string[];
+}
+
+/** The implement phase's result, as the agent submitted it. */
+export interface AgentRunResult {
+  summary: string;
+  repositories: Array<{ key: string; summary: string }>;
+  notes: string;
+}
+
 /** One run as the run page reads it. */
 export interface AgentRunDetail extends AgentRun {
   latestSpec: AgentRunSpec | null;
-  repositories: Array<{ key: string; reason: string; mergeOrder: number; origin: string; eligible: boolean }>;
+  repositories: RunRepository[];
+  result?: AgentRunResult | null;
   droppedSeeds: Array<{ key: string; reason: string }>;
   assumptions: AgentRunAssumption[];
   /** The question waiting for a person, if any. */

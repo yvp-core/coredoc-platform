@@ -139,12 +139,14 @@ let reviewAnswer: 'ok' | 'stale' = 'ok';
 let agentRunsEnabled = true;
 let posts: { path: string; body: unknown }[] = [];
 let detail: Record<string, unknown>;
+let timelineEvents: typeof EVENTS = EVENTS;
 let availability: { available: boolean; reasons: { code: string; message: string }[] };
 
 beforeEach(() => {
   agentRunsEnabled = true;
   posts = [];
   detail = run();
+  timelineEvents = EVENTS;
   specs = [];
   reviewAnswer = 'ok';
   answerReply = 'ok';
@@ -199,7 +201,7 @@ beforeEach(() => {
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/specs`)
         return new Response(JSON.stringify({ versions: specs }));
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/events`)
-        return new Response(JSON.stringify({ events: EVENTS, lastSeq: 4 }));
+        return new Response(JSON.stringify({ events: timelineEvents, lastSeq: timelineEvents.length }));
       // Unrelated shell reads (repos, members) stay pending.
       return new Promise<Response>(() => undefined);
     }),
@@ -479,6 +481,91 @@ describe('agent runs routes', () => {
       expect(await within(review).findByRole('heading', { name: 'Spec v1' })).toBeInTheDocument();
       expect(within(review).getByText('Cover billing too.')).toBeInTheDocument();
       expect(within(review).queryByRole('button', { name: 'Accept scope' })).toBeNull();
+    });
+  });
+
+  describe('implementation', () => {
+    const HEAD = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+
+    it('lists repositories with pushed heads, withheld paths and those not built or tested, and the withheld workflow diff', async () => {
+      detail = run({
+        status: 'delivering',
+        phase: 'delivery',
+        currentTurn: null,
+        openQuestion: null,
+        questions: [],
+        assumptions: [],
+        result: { summary: 'Added the orders export.', repositories: [], notes: '' },
+        repositories: [
+          {
+            key: 'billing-api',
+            reason: 'Owns invoices',
+            mergeOrder: 0,
+            origin: 'proposal',
+            eligible: true,
+            branchCreated: false,
+            touched: false,
+            lastPushedHead: null,
+            notBuiltOrTested: 'Its tests need Docker compose',
+            withheldPaths: ['.env'],
+          },
+          {
+            key: 'orders-api',
+            reason: 'Owns orders',
+            mergeOrder: 1,
+            origin: 'label',
+            eligible: true,
+            branchCreated: true,
+            touched: true,
+            lastPushedHead: HEAD,
+            notBuiltOrTested: null,
+            withheldPaths: ['.github/workflows/ci.yml'],
+          },
+        ],
+      });
+      timelineEvents = [
+        ...EVENTS,
+        {
+          seq: 5,
+          type: 'run_event',
+          payload: { code: 'branch_pushed', text: 'Pushed coredoc/PROJ-7 in orders-api', head: HEAD },
+          truncated: false,
+          createdAt: '2026-10-10T09:00:00.000Z',
+        },
+        {
+          seq: 6,
+          type: 'run_event',
+          payload: {
+            code: 'workflow_diff_withheld',
+            text: 'Workflow changes in orders-api were withheld from the push for a person to apply',
+            repository: 'orders-api',
+            paths: ['.github/workflows/ci.yml'],
+            diff: '+    runs-on: ubuntu-latest',
+            note: null,
+          },
+          truncated: false,
+          createdAt: '2026-10-10T09:00:00.000Z',
+        },
+      ] as typeof EVENTS;
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+
+      const card = await screen.findByRole('region', { name: 'Repositories' });
+      expect(within(card).getByText('Added the orders export.')).toBeInTheDocument();
+      const rows = within(card)
+        .getAllByRole('row')
+        .map((row) => row.textContent);
+      expect(rows).toEqual([
+        expect.stringContaining('Repository'),
+        expect.stringMatching(/billing-api.*Not pushed.*Its tests need Docker compose.*\.env/),
+        expect.stringMatching(/orders-api.*a1b2c3d.*Built and tested in the runner.*\.github\/workflows\/ci\.yml/),
+      ]);
+
+      const timeline = await screen.findByRole('list', { name: 'Timeline' });
+      expect(within(timeline).getByText('Pushed coredoc/PROJ-7 in orders-api')).toBeInTheDocument();
+      expect(within(timeline).getByText(/Workflow changes in orders-api were withheld/)).toBeInTheDocument();
+      expect(
+        within(timeline).getByText('+    runs-on: ubuntu-latest', { normalizer: (text) => text }),
+      ).toBeInTheDocument();
     });
   });
 });

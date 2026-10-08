@@ -19,6 +19,7 @@ import {
   waitingForRunnerSince,
 } from '@/features/agent-runs/agent-run-presentation';
 import { Assumptions, QuestionCard } from '@/features/agent-runs/QuestionCard';
+import { RunRepositories } from '@/features/agent-runs/RunRepositories';
 import { ScopeReview } from '@/features/agent-runs/ScopeReview';
 import type { AgentRun } from '@/features/agent-runs/types';
 import { formatRelativeTime } from '@/lib/time';
@@ -140,6 +141,20 @@ function Timeline({ wsId, run }: { wsId: string; run: AgentRun }) {
                         </pre>
                       </details>
                     </li>
+                  ) : item.kind === 'diff' ? (
+                    <li key={item.seq} className="text-[13.5px] text-ink-2">
+                      <details>
+                        <summary className="cursor-pointer">{item.text}</summary>
+                        <p className="mt-1 font-mono text-[12px] text-ink-3">{item.paths.join(', ')}</p>
+                        {item.diff ? (
+                          <pre className="mt-1 overflow-x-auto whitespace-pre rounded-lg bg-surface-2 p-2 font-mono text-[12px] text-ink-3">
+                            {item.diff}
+                          </pre>
+                        ) : (
+                          item.note && <p className="mt-1 text-[12.5px] text-ink-4">{item.note}</p>
+                        )}
+                      </details>
+                    </li>
                   ) : (
                     <li key={item.seq} className="text-[13.5px] text-ink-2">
                       {item.text}
@@ -181,6 +196,7 @@ export function WorkspaceAgentRun() {
             <RunHeader wsId={workspace.id} slug={slug} run={data} />
             <QuestionCard wsId={workspace.id} run={data} />
             <ScopeReview wsId={workspace.id} run={data} />
+            <RunRepositories run={data} />
             <Assumptions run={data} />
             <Timeline wsId={workspace.id} run={data} />
           </>

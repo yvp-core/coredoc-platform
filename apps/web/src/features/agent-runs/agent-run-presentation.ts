@@ -52,7 +52,11 @@ export function statusTone(status: RunStatus): StatusTone {
   return 'info';
 }
 
-export type TimelineItem = { kind: 'entry'; seq: number; text: string } | { kind: 'raw'; seq: number; lines: string[] };
+export type TimelineItem =
+  | { kind: 'entry'; seq: number; text: string }
+  | { kind: 'raw'; seq: number; lines: string[] }
+  /** Workflow changes withheld from the push, with their diff for a person to apply when it was shown. */
+  | { kind: 'diff'; seq: number; text: string; paths: string[]; diff: string | null; note: string | null };
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value : null;
@@ -100,6 +104,8 @@ function describeEvent(event: AgentRunEvent): string {
     }
     case 'question_resolved':
       return payload.state === 'cancelled' ? 'Question cancelled: the run ended' : 'Question answered';
+    case 'run_event':
+      return text(payload.text) ?? 'Run event';
     case 'done':
       return payload.ok === false
         ? `Agent session failed${text(payload.error) ? `: ${payload.error}` : ''}`
@@ -118,6 +124,20 @@ export function timelineItems(events: readonly AgentRunEvent[]): TimelineItem[] 
       const last = items[items.length - 1];
       if (last?.kind === 'raw') last.lines.push(line);
       else items.push({ kind: 'raw', seq: event.seq, lines: [line] });
+      continue;
+    }
+    if (event.type === 'run_event' && event.payload?.code === 'workflow_diff_withheld') {
+      const paths = Array.isArray(event.payload.paths)
+        ? event.payload.paths.filter((path): path is string => typeof path === 'string')
+        : [];
+      items.push({
+        kind: 'diff',
+        seq: event.seq,
+        text: describeEvent(event),
+        paths,
+        diff: text(event.payload.diff),
+        note: text(event.payload.note) ?? (event.truncated ? 'The diff was too large to keep.' : null),
+      });
       continue;
     }
     items.push({ kind: 'entry', seq: event.seq, text: describeEvent(event) });
