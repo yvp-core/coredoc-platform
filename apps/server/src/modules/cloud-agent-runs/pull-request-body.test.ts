@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   assemblePullRequest,
   MAX_PULL_REQUEST_BODY_CHARS,
+  PART_CAPS,
   type PullRequestBodyInput,
   sanitiseAgentText,
 } from './pull-request-body.js';
@@ -121,10 +122,46 @@ describe('assemblePullRequest', () => {
     expect(body).toContain('`evil   <img src="https://x.example/w.png">`');
   });
 
-  it('caps the body with a truncation note, keeping the run link', () => {
-    const { body } = assemblePullRequest(input({ summary: 'x'.repeat(100_000) }));
+  it('caps the body between whole parts with a truncation note, keeping the run link', () => {
+    const { body } = assemblePullRequest(input({ assumptions: Array.from({ length: 50 }, () => 'x'.repeat(2_000)) }));
     expect(body.length).toBeLessThanOrEqual(MAX_PULL_REQUEST_BODY_CHARS);
     expect(body).toMatch(/truncated/i);
     expect(body).toContain('https://coredoc.example/w/acme/agent-runs/run-1');
+    // Every assumption that made it is whole.
+    expect(body.match(/^- x+$/gm)!.every((line) => line === `- ${'x'.repeat(2_000)}`)).toBe(true);
+  });
+
+  /** Markup and the run's own key placed exactly across a cap: a cut must never form markup or a foreign key. */
+  const acrossCap = (cap: number) =>
+    ['<img src="https://x.example/p.png">', '![a](https://x.example/p.png)', '&lt;img', 'PROJ-12'].flatMap((tail) =>
+      // The cap falls mid-tail, and one character before its end (`PROJ-12` becomes `PROJ-1`).
+      [Math.ceil(tail.length / 2), tail.length - 1].map((kept) => `${'y'.repeat(cap - kept - 1)} ${tail}`),
+    );
+
+  it.each(
+    acrossCap(PART_CAPS.summary).map((summary) => [summary.slice(-40), summary]),
+  )('a summary cut at its cap (…%s) forms no markup and no foreign key', (_tail, summary) => {
+    const { body } = assemblePullRequest(input({ summary }));
+    expect(body).not.toMatch(/</);
+    expect(formsImage(body)).toBe(false);
+    expect(analyticsKeys(body).filter((key) => key !== 'PROJ-12')).toEqual([]);
+  });
+
+  it('a body cut at its cap, with markup in every part, forms no markup and no foreign key', () => {
+    const assumptions = Array.from({ length: 50 }, (_, index) => acrossCap(PART_CAPS.item)[index % 8]!);
+    const { title, body } = assemblePullRequest(
+      input({
+        specTitle: acrossCap(PART_CAPS.title)[7]!,
+        summary: acrossCap(PART_CAPS.summary)[0]!,
+        assumptions,
+        withheldPaths: acrossCap(PART_CAPS.path),
+      }),
+    );
+    expect(body.length).toBeLessThanOrEqual(MAX_PULL_REQUEST_BODY_CHARS);
+    expect(body).toMatch(/truncated/i);
+    const outsideCode = body.replace(/`[^`\n]*`/g, '');
+    expect(outsideCode).not.toMatch(/</);
+    expect(formsImage(outsideCode)).toBe(false);
+    expect(analyticsKeys(`${title}\n${body}`).filter((key) => key !== 'PROJ-12')).toEqual([]);
   });
 });
