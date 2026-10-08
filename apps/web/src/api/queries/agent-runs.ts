@@ -2,11 +2,13 @@ import { type QueryClient, queryOptions } from '@tanstack/react-query';
 import { mergeTimeline, pollInterval } from '../../features/agent-runs/agent-run-presentation.js';
 import type {
   AgentRun,
+  AgentRunDetail,
   AgentRunEvent,
   AgentRunEventPage,
   AgentRunList,
   AgentRunSettings,
   AgentRunSettingsUpdate,
+  AgentRunSpec,
 } from '../../features/agent-runs/types.js';
 import { request } from '../client.js';
 
@@ -24,7 +26,7 @@ export const agentRunsQueryOptions = (wsId: string) =>
 export const agentRunQueryOptions = (wsId: string, runId: string) =>
   queryOptions({
     queryKey: ['ws', wsId, 'agent-runs', runId] as const,
-    queryFn: () => request<AgentRun>(`${base(wsId)}/${runId}`),
+    queryFn: () => request<AgentRunDetail>(`${base(wsId)}/${runId}`),
     refetchInterval: (query) => pollInterval(query.state.data?.status),
   });
 
@@ -62,6 +64,34 @@ export function startAgentRun(params: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  });
+}
+
+/** Every published spec version of a run, oldest first. */
+export const agentRunSpecsQueryOptions = (wsId: string, runId: string, latestVersion: number | undefined) =>
+  queryOptions({
+    // The latest version is in the key, so a new proposal refetches the list.
+    queryKey: ['ws', wsId, 'agent-runs', runId, 'specs', latestVersion ?? 0] as const,
+    queryFn: async () => (await request<{ versions: AgentRunSpec[] }>(`${base(wsId)}/${runId}/specs`)).versions,
+  });
+
+/** Accept the version the reviewer saw; anything but the latest proposed one is refused as stale. */
+export function acceptAgentRunScope(params: { wsId: string; runId: string; version: number }): Promise<AgentRunDetail> {
+  return request<AgentRunDetail>(`${base(params.wsId)}/${params.runId}/specs/${params.version}/accept`, {
+    method: 'POST',
+  });
+}
+
+export function requestAgentRunScopeChanges(params: {
+  wsId: string;
+  runId: string;
+  version: number;
+  text: string;
+}): Promise<AgentRunDetail> {
+  return request<AgentRunDetail>(`${base(params.wsId)}/${params.runId}/specs/${params.version}/request-changes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: params.text }),
   });
 }
 

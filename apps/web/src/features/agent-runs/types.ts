@@ -55,6 +55,43 @@ export interface AgentRun {
   finishedAt: string | null;
 }
 
+export interface SpecRepository {
+  key: string;
+  reason: string;
+  changes: string;
+  mergeOrder: number;
+  eligible: boolean;
+  ineligibleReason: string | null;
+}
+
+/** A published scope proposal (cloud-agent-run-scope.service.ts `projectSpec`). */
+export interface AgentRunSpec {
+  version: number;
+  status: 'proposed' | 'accepted' | 'changes_requested' | 'superseded';
+  title: string;
+  summary: string;
+  markdown: string;
+  repositories: SpecRepository[];
+  risks: string[];
+  intentReferences: string[];
+  assumptions: string[];
+  droppedSeeds: Array<{ key: string; reason: string }>;
+  /** Product questions the PRD leaves open, each with what it blocks. */
+  candidates: Array<{ question: string; blocks: string }>;
+  proposedAt: string;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewText: string | null;
+  autoAccepted: boolean;
+}
+
+/** One run as the run page reads it. */
+export interface AgentRunDetail extends AgentRun {
+  latestSpec: AgentRunSpec | null;
+  repositories: Array<{ key: string; reason: string; mergeOrder: number; origin: string; eligible: boolean }>;
+  droppedSeeds: Array<{ key: string; reason: string }>;
+}
+
 export interface AgentRunList {
   runs: AgentRun[];
   nextOffset: number | null;

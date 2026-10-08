@@ -55,6 +55,49 @@ const EVENTS = [
 
 const RERUN_ID = '7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f';
 
+function spec(version: number, status: string, overrides: Record<string, unknown> = {}) {
+  return {
+    version,
+    status,
+    title: `Order exports v${version}`,
+    summary: 'CSV exports for orders.',
+    markdown: `# Spec v${version}\n\nExport orders as CSV.\n\n![architecture](https://images.example.com/diagram.png)`,
+    repositories: [
+      {
+        key: 'orders-api',
+        reason: 'Owns the order records',
+        changes: 'New export endpoint',
+        mergeOrder: 0,
+        eligible: true,
+        ineligibleReason: null,
+      },
+      {
+        key: 'billing-api',
+        reason: 'Invoices in exports',
+        changes: 'Read model',
+        mergeOrder: 1,
+        eligible: false,
+        ineligibleReason: 'github_connector_unavailable',
+      },
+    ],
+    risks: ['Large exports may time out'],
+    intentReferences: [],
+    assumptions: ['CSV only'],
+    droppedSeeds: [{ key: 'legacy-tool', reason: 'Retired' }],
+    candidates: [{ question: 'Should exports include refunds?', blocks: 'The export columns' }],
+    proposedAt: '2026-10-10T09:00:00.000Z',
+    reviewedBy: null,
+    reviewedAt: null,
+    reviewText: null,
+    autoAccepted: false,
+    ...overrides,
+  };
+}
+
+let specs: ReturnType<typeof spec>[] = [];
+/** What a scope review POST answers: success, or a stale-version refusal. */
+let reviewAnswer: 'ok' | 'stale' = 'ok';
+
 let agentRunsEnabled = true;
 let posts: { path: string; body: unknown }[] = [];
 let detail: Record<string, unknown>;
@@ -64,6 +107,8 @@ beforeEach(() => {
   agentRunsEnabled = true;
   posts = [];
   detail = run();
+  specs = [];
+  reviewAnswer = 'ok';
   availability = { available: true, reasons: [] };
   vi.stubGlobal(
     'fetch',
@@ -71,6 +116,19 @@ beforeEach(() => {
       const { pathname: path } = new URL(url, 'http://local.test');
       if (init?.method === 'POST') {
         posts.push({ path, body: init.body ? JSON.parse(String(init.body)) : undefined });
+        if (/\/specs\/\d+\/(accept|request-changes)$/.test(path)) {
+          if (reviewAnswer === 'stale') {
+            return new Response(
+              JSON.stringify({
+                statusCode: 409,
+                code: 'SPEC_VERSION_STALE',
+                message: 'Scope version 2 is not the latest proposed version; reload the run to review the current one',
+              }),
+              { status: 409 },
+            );
+          }
+          return new Response(JSON.stringify(detail));
+        }
         if (path.endsWith('/rerun')) {
           return new Response(JSON.stringify(run({ id: RERUN_ID, trigger: 'rerun', previousRunId: RUN_ID })), {
             status: 201,
@@ -86,6 +144,8 @@ beforeEach(() => {
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}`) return new Response(JSON.stringify(detail));
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RERUN_ID}`)
         return new Response(JSON.stringify(run({ id: RERUN_ID, trigger: 'rerun', previousRunId: RUN_ID })));
+      if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/specs`)
+        return new Response(JSON.stringify({ versions: specs }));
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/events`)
         return new Response(JSON.stringify({ events: EVENTS, lastSeq: 4 }));
       // Unrelated shell reads (repos, members) stay pending.
@@ -190,5 +250,88 @@ describe('agent runs routes', () => {
     mount(`/w/acme/agent-runs/${RUN_ID}`);
     expect(await screen.findByRole('heading', { name: 'PROJ-7' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Re-run' })).toBeNull();
+  });
+
+  describe('scope review', () => {
+    beforeEach(() => {
+      specs = [spec(1, 'changes_requested', { reviewText: 'Cover billing too.' }), spec(2, 'proposed')];
+      detail = run({
+        status: 'awaiting_scope_acceptance',
+        currentTurn: null,
+        seeds: ['legacy-tool'],
+        latestSpec: specs[1],
+        repositories: [],
+        droppedSeeds: [],
+      });
+    });
+
+    it('shows the latest proposal: spec, repositories with eligibility, dropped seeds and candidates', async () => {
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      const review = await screen.findByRole('region', { name: 'Scope review' });
+
+      expect(within(review).getByRole('heading', { name: 'Spec v2' })).toBeInTheDocument();
+      const rows = within(within(review).getByRole('table', { name: 'Repositories' }))
+        .getAllByRole('row')
+        .map((row) => row.textContent);
+      expect(rows[1]).toContain('orders-api');
+      expect(rows[1]).toContain('Owns the order records');
+      expect(rows[2]).toMatch(/billing-api.*Not eligible/);
+      expect(within(review).getByText(/legacy-tool/)).toBeInTheDocument();
+      expect(within(review).getByText('Should exports include refunds?')).toBeInTheDocument();
+    });
+
+    it('never renders a remote image from agent-written markdown', async () => {
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      const review = await screen.findByRole('region', { name: 'Scope review' });
+
+      expect(review.querySelector('img')).toBeNull();
+      expect(within(review).getByText(/architecture/)).toHaveTextContent('https://images.example.com/diagram.png');
+    });
+
+    it('accepts the displayed version', async () => {
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      fireEvent.click(await screen.findByRole('button', { name: 'Accept scope' }));
+
+      await waitFor(() =>
+        expect(posts).toEqual([
+          { path: `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/specs/2/accept`, body: undefined },
+        ]),
+      );
+    });
+
+    it('says so when the displayed version is no longer the latest', async () => {
+      reviewAnswer = 'stale';
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      fireEvent.click(await screen.findByRole('button', { name: 'Accept scope' }));
+
+      expect(await screen.findByText(/not the latest proposed version/)).toBeInTheDocument();
+    });
+
+    it('requests changes with the reviewer’s text on the displayed version', async () => {
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      fireEvent.change(await screen.findByLabelText('Changes to request'), {
+        target: { value: 'Leave billing out.' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+
+      await waitFor(() =>
+        expect(posts).toEqual([
+          {
+            path: `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/specs/2/request-changes`,
+            body: { text: 'Leave billing out.' },
+          },
+        ]),
+      );
+    });
+
+    it('shows an earlier version with its review text, without review actions', async () => {
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      fireEvent.change(await screen.findByLabelText('Version'), { target: { value: '1' } });
+
+      const review = screen.getByRole('region', { name: 'Scope review' });
+      expect(await within(review).findByRole('heading', { name: 'Spec v1' })).toBeInTheDocument();
+      expect(within(review).getByText('Cover billing too.')).toBeInTheDocument();
+      expect(within(review).queryByRole('button', { name: 'Accept scope' })).toBeNull();
+    });
   });
 });

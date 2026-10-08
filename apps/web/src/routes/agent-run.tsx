@@ -18,6 +18,7 @@ import {
   timelineItems,
   waitingForRunnerSince,
 } from '@/features/agent-runs/agent-run-presentation';
+import { ScopeReview } from '@/features/agent-runs/ScopeReview';
 import type { AgentRun } from '@/features/agent-runs/types';
 import { formatRelativeTime } from '@/lib/time';
 
@@ -177,6 +178,7 @@ export function WorkspaceAgentRun() {
               }
             />
             <RunHeader wsId={workspace.id} slug={slug} run={data} />
+            <ScopeReview wsId={workspace.id} run={data} />
             <Timeline wsId={workspace.id} run={data} />
           </>
         )}
