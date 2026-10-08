@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { JiraClient, JiraAuthError, JiraNotFoundError, JiraRateLimitError } from './jira-client.js';
+import { JiraApiError, JiraClient, JiraAuthError, JiraNotFoundError, JiraRateLimitError } from './jira-client.js';
 
 /** Build a mock `Response`-like object with a JSON body + header support. */
 function jsonResponse(body: unknown, init?: { status?: number; headers?: Record<string, string> }): Response {
@@ -484,5 +484,69 @@ describe('JiraClient reads for agent runs', () => {
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).not.toHaveProperty('expand');
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string).expand).toBe('changelog');
+  });
+});
+
+describe('JiraClient writes for agent runs', () => {
+  const adf = { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }] };
+
+  it('adds a comment with an ADF body and returns the id from the 201 body', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ id: '10500', body: adf }, { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(makeClient().addComment('10001', adf)).resolves.toEqual({ id: '10500' });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://acme.atlassian.net/rest/api/3/issue/10001/comment');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ body: adf });
+  });
+
+  it('lists every page of an issue’s comments', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ startAt: 0, total: 3, comments: [{ id: '1' }, { id: '2' }] }))
+      .mockResolvedValueOnce(jsonResponse({ startAt: 2, total: 3, comments: [{ id: '3' }] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const comments = await makeClient().listComments('10001');
+    expect(comments.map((comment) => comment.id)).toEqual(['1', '2', '3']);
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      'https://acme.atlassian.net/rest/api/3/issue/10001/comment?startAt=2&maxResults=100&orderBy=created',
+    );
+  });
+
+  it('lists transitions with their target status and screen flag', async () => {
+    const transitions = [{ id: '31', name: 'Done', hasScreen: false, to: { id: '10002', name: 'Done' } }];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse({ transitions })));
+    await expect(makeClient().listTransitions('10001')).resolves.toEqual(transitions);
+  });
+
+  it('transitions an issue, reading the 204 answer without parsing a body', async () => {
+    const noContent = {
+      status: 204,
+      ok: true,
+      headers: { get: () => null },
+      json: async () => {
+        throw new SyntaxError('Unexpected end of JSON input');
+      },
+      text: async () => '',
+    } as unknown as Response;
+    const fetchMock = vi.fn().mockResolvedValueOnce(noContent);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(makeClient().transitionIssue('10001', '31')).resolves.toBeUndefined();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://acme.atlassian.net/rest/api/3/issue/10001/transitions');
+    expect(JSON.parse(init.body as string)).toEqual({ transition: { id: '31' } });
+  });
+
+  it.each([409, 413, 422, 503])('a %s answer carries its status for the caller to classify', async (status) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse({ errorMessages: ['secret'] }, { status })));
+    const error = await makeClient()
+      .transitionIssue('10001', '31')
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(JiraApiError);
+    expect((error as JiraApiError).status).toBe(status);
+    expect((error as Error).message).not.toContain('secret');
   });
 });

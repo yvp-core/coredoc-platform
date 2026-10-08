@@ -27,6 +27,32 @@ export class JiraRateLimitError extends Error {
  * reads; still a plain Error to the importer's classifier.
  */
 export class JiraNotFoundError extends Error {}
+/**
+ * Any other non-2xx answer, with its status: 409, 413 and 422 are rejections,
+ * 5xx are transient. Still a plain Error to the importer's classifier.
+ */
+export class JiraApiError extends Error {
+  constructor(
+    readonly status: number,
+    path: string,
+  ) {
+    super(`Jira API ${status} for ${path}`);
+  }
+}
+
+/** One comment as listed; the body is Atlassian Document Format. */
+export interface JiraComment {
+  id: string;
+  body: unknown;
+}
+
+/** One available transition: its id, the status it leads to and whether it shows a screen. */
+export interface JiraTransition {
+  id: string;
+  name?: string;
+  hasScreen?: boolean;
+  to?: { id?: string; name?: string };
+}
 
 export interface JiraIssue {
   [k: string]: unknown;
@@ -141,8 +167,10 @@ export class JiraClient {
     if (!res.ok) {
       // Provider bodies may contain tenant/project details. Status + the fixed
       // request path are sufficient for retry classification and safe logging.
-      throw new Error(`Jira API ${res.status} for ${path}`);
+      throw new JiraApiError(res.status, path);
     }
+    // A successful transition answers 204 with no body.
+    if (res.status === 204) return undefined;
     return res.json();
   }
 
@@ -174,6 +202,50 @@ export class JiraClient {
   async getIssue(issueIdOrKey: string, fields: string[]): Promise<JiraIssue> {
     const query = new URLSearchParams({ fields: fields.join(',') });
     return asRecord(await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}?${query}`));
+  }
+
+  /** Adds a comment whose body is Atlassian Document Format; returns its id. */
+  async addComment(issueIdOrKey: string, body: unknown): Promise<{ id: string }> {
+    const res = asRecord(
+      await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/comment`, {
+        method: 'POST',
+        body: { body },
+      }),
+    );
+    if (typeof res.id !== 'string') throw new Error('Jira comment response is missing its id');
+    return { id: res.id };
+  }
+
+  /** Every comment on an issue, oldest first, bounded by `maxPages`. */
+  async listComments(issueIdOrKey: string, maxPages = 20): Promise<JiraComment[]> {
+    const out: JiraComment[] = [];
+    let startAt = 0;
+    for (let page = 0; page < maxPages; page++) {
+      const query = new URLSearchParams({ startAt: String(startAt), maxResults: String(PAGE_SIZE), orderBy: 'created' });
+      const res = asRecord(
+        await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/comment?${query}`),
+      );
+      const comments = (Array.isArray(res.comments) ? res.comments : []).map(asRecord);
+      for (const comment of comments) {
+        if (typeof comment.id === 'string') out.push({ id: comment.id, body: comment.body });
+      }
+      startAt += comments.length;
+      const total = nonNegativeInteger(res.total);
+      if (comments.length === 0 || total === null || startAt >= total) break;
+    }
+    return out;
+  }
+
+  async listTransitions(issueIdOrKey: string): Promise<JiraTransition[]> {
+    const res = asRecord(await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/transitions`));
+    return (Array.isArray(res.transitions) ? res.transitions : []) as JiraTransition[];
+  }
+
+  async transitionIssue(issueIdOrKey: string, transitionId: string): Promise<void> {
+    await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/transitions`, {
+      method: 'POST',
+      body: { transition: { id: transitionId } },
+    });
   }
 
   async listChangelog(issueIdOrKey: string, options: JiraChangelogOptions = {}): Promise<JiraChangelogResult> {
