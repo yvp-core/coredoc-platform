@@ -21,6 +21,8 @@ export interface JiraIssue {
 export interface JiraSearchOptions {
   maxPages?: number;
   nextPageToken?: string | null;
+  /** Default true (the importer reads changelogs); false leaves `expand` out of the request. */
+  expandChangelog?: boolean;
 }
 
 export interface JiraIssueSearchResult {
@@ -135,7 +137,7 @@ export class JiraClient {
         fields,
         // `expand` is a comma-separated STRING on /search/jql (the removed
         // /search endpoint took an array; live Jira Cloud 400s on the array).
-        expand: 'changelog',
+        ...(options.expandChangelog === false ? {} : { expand: 'changelog' }),
       };
       if (nextPageToken) body.nextPageToken = nextPageToken;
       const res = asRecord(await this.request('/rest/api/3/search/jql', { method: 'POST', body }));
