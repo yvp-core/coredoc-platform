@@ -66,6 +66,8 @@ export const RUNNER_FAILURE_CODES = [
   'secret_scan_blocked',
   /** GitHub kept failing after the in-process retries, or refused a write. */
   'github_error',
+  /** Delivery turns: a pull request could not be opened or reused. */
+  'delivery_failed',
 ] as const;
 export type RunnerFailureCode = (typeof RUNNER_FAILURE_CODES)[number];
 
@@ -154,6 +156,17 @@ export const TurnAssignmentSchema = z.object({
     })
     .nullable(),
   repositories: z.array(AssignedRepositorySchema),
+  /**
+   * Delivery turns: the draft pull request to open or reuse in each touched
+   * repository, in merge order, with the title and body the server
+   * assembled. Null for other kinds.
+   */
+  delivery: z
+    .object({
+      pullRequests: z.array(z.object({ key: z.string(), title: z.string().min(1), body: z.string() })),
+    })
+    .nullable()
+    .default(null),
   /**
    * The per-turn MCP-only token for the Coredoc MCP, minted at claim and
    * deleted when the turn ends; `path` is resolved against the runner's API
@@ -278,12 +291,22 @@ export const RepositoryReportSchema = z.object({
 });
 export type RepositoryReport = z.infer<typeof RepositoryReportSchema>;
 
+/** What a delivery turn did in one repository. The server verifies every reported pull request itself. */
+export const DeliveryReportSchema = z.object({
+  key: z.string().trim().min(1).max(255),
+  /** The pull request opened or reused for the run branch; null when GitHub refused one for having no commits. */
+  pullRequest: z.object({ number: z.number().int().positive(), created: z.boolean() }).nullable(),
+});
+export type DeliveryReport = z.infer<typeof DeliveryReportSchema>;
+
 export const CompleteTurnRequestSchema = z.object({
   outcome: TurnOutcomeSchema,
   spend: TurnSpendSchema,
   versions: RunnerVersionsSchema,
   /** Implement turns: one report per run repository the turn cloned. */
   repositories: z.array(RepositoryReportSchema).max(50).default([]),
+  /** Delivery turns: one report per repository it opened, reused or found unchanged, including after a stop. */
+  deliveries: z.array(DeliveryReportSchema).max(50).default([]),
   /** The agent's final message, the reason a second outcome-less turn in a row fails the run with. */
   lastMessage: z.string().max(2_000).nullable().optional(),
 });

@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE, type CloudAgentRunArchiveStore } from './cloud-agent-run-archive.store.js';
+import { CloudAgentRunJiraOutcomes } from './cloud-agent-run-jira-outcomes.service.js';
 import { settleTurnQuestions } from './cloud-agent-run-questions.service.js';
 import {
   QuestionState,
@@ -32,12 +33,16 @@ export class CloudAgentRunSweep {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(CLOUD_AGENT_RUN_ARCHIVE_STORE) private readonly archives: CloudAgentRunArchiveStore,
+    private readonly jiraOutcomes: CloudAgentRunJiraOutcomes,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
   ) {}
 
   async tick(): Promise<void> {
     await this.completeParkedTurns();
     await this.expireWaiting();
+    // After the jobs that fail runs, so a run failed in this tick gets its comment in it.
+    await this.jiraOutcomes.postDoneComments();
+    await this.jiraOutcomes.postFailureComments();
   }
 
   /**

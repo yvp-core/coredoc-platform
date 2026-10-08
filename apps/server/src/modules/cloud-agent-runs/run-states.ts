@@ -50,6 +50,8 @@ export const TurnOutcome = {
   Checkpoint: 'checkpoint',
   /** Ended after a valid `submit_result`. */
   ResultSubmitted: 'result_submitted',
+  /** A delivery turn whose pull requests were all verified; the done comment follows. */
+  Delivered: 'delivered',
 } as const;
 
 export const QuestionKind = { Clarification: 'clarification', RepositoryRequest: 'repository_request' } as const;
@@ -110,6 +112,10 @@ export const RunEventCode = {
   ChangesRequested: 'changes_requested',
   BranchPushed: 'branch_pushed',
   WorkflowDiffWithheld: 'workflow_diff_withheld',
+  PullRequestOpened: 'pull_request_opened',
+  JiraCommented: 'jira_commented',
+  TransitionSkipped: 'transition_skipped',
+  Warning: 'warning',
 } as const;
 
 /** Server-owned timeline events; agent events (`phase`, `todos`, `raw`, `done`) come from the runner contract. */

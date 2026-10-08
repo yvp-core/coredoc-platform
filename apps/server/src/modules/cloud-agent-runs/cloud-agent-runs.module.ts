@@ -3,7 +3,9 @@ import { AuthModule } from '../../auth/auth.module.js';
 import { DatabaseModule } from '../../database/database.module.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE, ObjectStorageArchiveStore } from './cloud-agent-run-archive.store.js';
+import { CloudAgentRunDeliveryService } from './cloud-agent-run-delivery.service.js';
 import { CloudAgentRunImplementService } from './cloud-agent-run-implement.service.js';
+import { CloudAgentRunJiraOutcomes } from './cloud-agent-run-jira-outcomes.service.js';
 import { CloudAgentRunIssueReader } from './cloud-agent-run-issue-reader.js';
 import { CloudAgentRunScopeService } from './cloud-agent-run-scope.service.js';
 import { LicenseCoreModule } from '../license/license.module.js';
@@ -21,6 +23,7 @@ import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CloudAgentTurnService } from './cloud-agent-turn.service.js';
 
+export { CLOUD_AGENT_RUNS_RETRY_DELAY } from './retry.js';
 export { CLOUD_AGENT_RUNS_CLOCK } from './run-store.js';
 
 /**
@@ -41,6 +44,8 @@ export const cloudAgentRunsCoreProviders = [
   CloudAgentRunTrigger,
   CloudAgentRunQuestionService,
   CloudAgentRunSweep,
+  CloudAgentRunDeliveryService,
+  CloudAgentRunJiraOutcomes,
   GithubRepositoryResolver,
 ];
 

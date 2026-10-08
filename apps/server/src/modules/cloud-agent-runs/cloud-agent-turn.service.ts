@@ -29,6 +29,7 @@ import {
 } from './cloud-agent-run-archive.store.js';
 import { CloudAgentRunIssueReader, JiraReadFailure } from './cloud-agent-run-issue-reader.js';
 import { answerForTurn, recordQuestion, settleTurnQuestions } from './cloud-agent-run-questions.service.js';
+import { CloudAgentRunDeliveryService } from './cloud-agent-run-delivery.service.js';
 import { CloudAgentRunImplementService, RunCheckFailure } from './cloud-agent-run-implement.service.js';
 import { CloudAgentRunScopeService } from './cloud-agent-run-scope.service.js';
 import {
@@ -105,6 +106,7 @@ export class CloudAgentTurnService {
     private readonly jira: CloudAgentRunIssueReader,
     private readonly scope: CloudAgentRunScopeService,
     private readonly implement: CloudAgentRunImplementService,
+    private readonly delivery: CloudAgentRunDeliveryService,
     @Inject(CLOUD_AGENT_RUN_ARCHIVE_STORE) private readonly archives: CloudAgentRunArchiveStore,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
   ) {}
@@ -141,6 +143,7 @@ export class CloudAgentTurnService {
   private async withRunChecks(claimed: ClaimedTurn): Promise<TurnAssignment | null> {
     const { assignment, run } = claimed;
     try {
+      if (assignment.turn.kind === RunPhase.Delivery) return { ...assignment, ...(await this.delivery.assignment(run)) };
       const repositories = await this.implement.repositoriesFor(run, assignment.turn.kind);
       if (assignment.turn.kind === RunPhase.Implement) {
         return { ...assignment, repositories, acceptedSpec: await this.implement.acceptedSpec(run) };
@@ -252,6 +255,7 @@ export class CloudAgentTurnService {
         // Repositories and the accepted spec are resolved after the claim commits (withRunChecks).
         acceptedSpec: null,
         repositories: [],
+        delivery: null,
         mcp: mcpToken ? { token: mcpToken, path: `/api/v1/workspaces/${run.workspaceId}/mcp` } : null,
         hasStateArchive: run.stateArchiveKey !== null,
         answer: await answerForTurn(tx, run.workspaceId, claimed.id),
@@ -520,6 +524,8 @@ export class CloudAgentTurnService {
     request: CompleteTurn,
   ): Promise<CompleteTurnResponse> {
     const eligibility = await this.scope.eligibility(runner.workspaceId);
+    // Delivery turns: reported pull requests are read back from GitHub before the transaction.
+    const delivered = await this.delivery.verify(runner.workspaceId, turnId, request.deliveries);
     const replacedArchive = await this.prisma.$transaction(async (tx) => {
       const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
       if (standing === 'completed') return null;
@@ -559,15 +565,20 @@ export class CloudAgentTurnService {
         },
       });
       // Pushes are facts of the turn: recorded even when it failed or was stopped.
+      // So are verified pull requests, including those a cancelled delivery already opened.
       const updated =
         row.kind === RunPhase.Implement
           ? await this.implement.recordReports(tx, charged, turn.id, request.repositories, at)
-          : charged;
+          : row.kind === RunPhase.Delivery
+            ? await this.delivery.record(tx, charged, turn.id, delivered, at)
+            : charged;
 
       if (live && request.outcome.kind === 'failed') {
         await failRun(tx, updated, request.outcome.code, request.outcome.reason || null, at);
       } else if (live && (row.kind === RunPhase.Scope || row.kind === RunPhase.Implement)) {
         outcome = await this.advanceAfterAgentTurn(tx, updated, row.kind, turn.id, request, eligibility, at);
+      } else if (live && row.kind === RunPhase.Delivery) {
+        outcome = await this.delivery.settle(tx, updated, delivered, at);
       }
 
       await tx.cloudAgentRunTurn.update({ where: { id: turn.id }, data: { outcome } });

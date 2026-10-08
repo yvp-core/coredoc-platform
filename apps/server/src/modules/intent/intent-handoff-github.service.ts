@@ -5,17 +5,26 @@ import { GithubClient } from '../../libs/github/github-client.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
 import { HandoffSha } from './intent-handoff.operations.js';
 
-const pullSchema = z.object({
+/**
+ * The strict pull read's schema. Agent-run delivery verifies pull requests
+ * with it too, so it carries the head's repository (null when a fork was
+ * deleted) and branch; the handoff reads neither.
+ */
+export const strictPullSchema = z.object({
   number: z.number().int().positive(),
   state: z.enum(['open', 'closed']),
   merged: z.boolean(),
   draft: z.boolean(),
-  head: z.object({ sha: HandoffSha }),
+  head: z.object({
+    sha: HandoffSha,
+    ref: z.string().min(1),
+    repo: z.object({ full_name: z.string() }).nullable(),
+  }),
   base: z.object({ ref: z.string().min(1), repo: z.object({ full_name: z.string(), default_branch: z.string() }) }),
   merge_commit_sha: HandoffSha.nullable(),
   merged_at: z.iso.datetime({ offset: true }).nullable(),
 });
-export type HandoffPull = z.infer<typeof pullSchema>;
+export type HandoffPull = z.infer<typeof strictPullSchema>;
 
 @Injectable()
 export class IntentHandoffGithubService {
@@ -32,7 +41,7 @@ export class IntentHandoffGithubService {
 
   async pull(workspaceId: string, repoKey: string, number: number) {
     const source = await this.source(workspaceId, repoKey);
-    const pull = pullSchema.parse(await source.client.getPullMetadata(source.owner, source.name, number));
+    const pull = strictPullSchema.parse(await source.client.getPullMetadata(source.owner, source.name, number));
     if (
       pull.number !== number ||
       pull.base.repo.full_name.toLowerCase() !== `${source.owner}/${source.name}`.toLowerCase()

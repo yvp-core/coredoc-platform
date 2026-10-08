@@ -203,6 +203,8 @@ export class CloudAgentRunService {
       droppedSeeds: run.droppedSeeds,
       assumptions: run.assumptions,
       result: run.result,
+      pullRequests: run.pullRequests,
+      jiraOutcome: run.jiraOutcome,
       latestSpec: await this.scope.latest(workspaceId, run.id),
       openQuestion: questions.find((question) => question.state === QuestionState.Open) ?? null,
       questions,

@@ -1,10 +1,11 @@
 /**
  * Fakes at the cloud agent runs module's ports, shared by its Postgres
- * suites: an in-memory Jira (behind the importer's client-factory seam) and an
- * in-memory state-archive store.
+ * suites: an in-memory Jira and GitHub (behind the importers' client-factory
+ * seams) and an in-memory state-archive store.
  */
-import type { JiraClient } from '../delivery/jira-client.js';
+import type { JiraClient, JiraComment, JiraTransition } from '../delivery/jira-client.js';
 import { JiraNotFoundError, JiraRateLimitError } from '../delivery/jira-client.js';
+import { GithubApiError, type GithubClient } from '../../libs/github/github-client.js';
 import type { CloudAgentRunArchiveStore } from './cloud-agent-run-archive.store.js';
 
 export interface FakeJiraIssue {
@@ -17,7 +18,12 @@ export interface FakeJiraIssue {
   parent?: string;
   labels?: string[];
   description?: unknown;
+  /** Jira status id; transitions change it. */
+  statusId?: string;
 }
+
+/** The fake's one transition, to the done status, and that status' id. */
+export const DONE_STATUS = { id: '10002', name: 'Done' };
 
 export const paragraphDoc = (text: string) => ({
   type: 'doc',
@@ -31,6 +37,25 @@ export class FakeJira {
   /** The next N reads fail with a rate limit, to exercise in-process retries. */
   rateLimitedReads = 0;
   reads = 0;
+  /** Comments by issue id, oldest first. */
+  readonly comments = new Map<string, JiraComment[]>();
+  transitions: JiraTransition[] = [
+    { id: '21', name: 'Done (with screen)', hasScreen: true, to: DONE_STATUS },
+    { id: '31', name: 'Done', hasScreen: false, to: DONE_STATUS },
+  ];
+  /** Transitions applied, as `<issue id>:<transition id>`. */
+  readonly applied: string[] = [];
+  /** The next transition fails with this, once. */
+  transitionError: Error | null = null;
+  /** Every comment fails with this, without being stored, until it is cleared. */
+  commentError: Error | null = null;
+  /** The next comment is stored, then the call throws: Jira accepted it and the caller crashed. */
+  crashAfterNextComment = false;
+  private commentSeq = 0;
+
+  commentsOn(issueKey: string): JiraComment[] {
+    return this.comments.get(this.issues.get(issueKey)!.id) ?? [];
+  }
 
   add(issue: Omit<FakeJiraIssue, 'id'> & { id?: string }): FakeJiraIssue {
     const stored = { id: issue.id ?? String(10_000 + this.issues.size + 1), ...issue };
@@ -51,7 +76,8 @@ export class FakeJira {
         summary: issue.summary,
         description: issue.description ?? null,
         labels: issue.labels ?? [],
-        status: { name: 'To Do' },
+        status:
+          issue.statusId === DONE_STATUS.id ? { ...DONE_STATUS } : { id: issue.statusId ?? '10000', name: 'To Do' },
         issuetype: { name: issue.issueType ?? 'Story', hierarchyLevel: issue.issueType === 'Epic' ? 1 : 0 },
         project: { key: issue.project },
         parent: parent
@@ -84,8 +110,93 @@ export class FakeJira {
         const items = [...this.issues.values()].filter((issue) => issue.parent === parentKey).map((i) => this.wire(i));
         return { items, nextPageToken: null };
       },
+      addComment: async (idOrKey: string, body: unknown) => {
+        const issue = this.find(idOrKey);
+        if (!issue) throw new JiraNotFoundError(`Jira API 404 for /issue/${idOrKey}/comment`);
+        if (this.commentError) throw this.commentError;
+        this.commentSeq += 1;
+        const comment = { id: String(20_000 + this.commentSeq), body: structuredClone(body) };
+        this.comments.set(issue.id, [...(this.comments.get(issue.id) ?? []), comment]);
+        if (this.crashAfterNextComment) {
+          this.crashAfterNextComment = false;
+          throw new Error('the process died after Jira accepted the comment');
+        }
+        return { id: comment.id };
+      },
+      listComments: async (idOrKey: string) => {
+        const issue = this.find(idOrKey);
+        if (!issue) throw new JiraNotFoundError(`Jira API 404 for /issue/${idOrKey}/comment`);
+        return [...(this.comments.get(issue.id) ?? [])];
+      },
+      listTransitions: async () => [...this.transitions],
+      transitionIssue: async (idOrKey: string, transitionId: string) => {
+        const issue = this.find(idOrKey);
+        if (!issue) throw new JiraNotFoundError(`Jira API 404 for /issue/${idOrKey}/transitions`);
+        if (this.transitionError) {
+          const error = this.transitionError;
+          this.transitionError = null;
+          throw error;
+        }
+        const transition = this.transitions.find((candidate) => candidate.id === transitionId);
+        if (!transition) throw new JiraNotFoundError(`Jira API 400 for /issue/${idOrKey}/transitions`);
+        this.applied.push(`${issue.id}:${transitionId}`);
+        issue.statusId = transition.to?.id;
+      },
     };
     return fake as unknown as JiraClient;
+  }
+}
+
+export interface FakePull {
+  number: number;
+  state?: 'open' | 'closed';
+  merged?: boolean;
+  draft?: boolean;
+  /** The head's repository, `owner/name`; a fork names another owner, a deleted fork is null. */
+  headRepo: string | null;
+  headRef: string;
+}
+
+/** A stateful GitHub for the server's strict pull reads, with scripted transient failures. */
+export class FakeGithubPulls {
+  readonly pulls = new Map<string, FakePull>();
+  /** The next N reads answer 502. */
+  transientFailures = 0;
+  reads = 0;
+
+  add(fullName: string, pull: FakePull): void {
+    this.pulls.set(`${fullName}#${pull.number}`, pull);
+  }
+
+  client(): GithubClient {
+    const fake = {
+      getPullMetadata: async (owner: string, name: string, number: number) => {
+        this.reads += 1;
+        const path = `/repos/${owner}/${name}/pulls/${number}`;
+        if (this.transientFailures > 0) {
+          this.transientFailures -= 1;
+          throw new GithubApiError(502, path);
+        }
+        const fullName = `${owner}/${name}`;
+        const pull = this.pulls.get(`${fullName}#${number}`);
+        if (!pull) throw new GithubApiError(404, path);
+        return {
+          number: pull.number,
+          state: pull.state ?? 'open',
+          merged: pull.merged ?? false,
+          draft: pull.draft ?? true,
+          head: {
+            sha: 'c'.repeat(40),
+            ref: pull.headRef,
+            repo: pull.headRepo === null ? null : { full_name: pull.headRepo },
+          },
+          base: { ref: 'main', repo: { full_name: fullName, default_branch: 'main' } },
+          merge_commit_sha: null,
+          merged_at: null,
+        };
+      },
+    };
+    return fake as unknown as GithubClient;
   }
 }
 
