@@ -156,6 +156,7 @@ export class FakeGithub {
         authorization: req.headers.authorization,
         apiVersion: req.headers['x-github-api-version'] as string | undefined,
       });
+      const url = new URL(req.url ?? '/', 'http://github.test');
       const match = /^\/repos\/([^/]+)\/([^/]+)$/.exec(req.url ?? '');
       const repo = match ? this.repositories.get(`${match[1]}/${match[2]}`) : undefined;
       const reply = (status: number, body: unknown, headers: Record<string, string> = {}) => {
@@ -163,6 +164,15 @@ export class FakeGithub {
         res.end(JSON.stringify(body));
       };
       if (req.headers.authorization !== `Bearer ${BOT_TOKEN}`) return reply(401, { message: 'Bad credentials' });
+      if (url.pathname === '/user/repos') {
+        const perPage = Number(url.searchParams.get('per_page') ?? 30);
+        const page = Number(url.searchParams.get('page') ?? 1);
+        const all = [...this.repositories].map(([fullName, repo]) => ({
+          full_name: fullName,
+          permissions: repo.permissions,
+        }));
+        return reply(200, all.slice((page - 1) * perPage, page * perPage));
+      }
       if (!repo) return reply(404, { message: 'Not Found' });
       if (repo.failures > 0) {
         repo.failures -= 1;

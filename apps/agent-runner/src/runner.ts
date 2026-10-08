@@ -59,7 +59,7 @@ export interface StartupReport {
   problem: string | null;
 }
 
-export type TurnEnd = 'idle' | 'completed' | 'stopped' | 'lease_lost';
+export type TurnEnd = 'idle' | 'completed' | 'stopped' | 'lease_lost' | 'shutdown';
 
 export interface RunnerOptions {
   api: RunnerApiClient;
@@ -96,8 +96,12 @@ export class Runner {
     this.log = options.log ?? (() => undefined);
   }
 
-  /** Claim and run at most one turn. */
-  async runOnce(): Promise<TurnEnd> {
+  /**
+   * Claim and run at most one turn. When `shutdown` aborts, the session stops,
+   * pushes are skipped and the turn is not completed: its lease expires and
+   * the turn is redone.
+   */
+  async runOnce(shutdown?: AbortSignal): Promise<TurnEnd> {
     const turn = await this.options.api.claim({
       protocolVersion: RUNNER_PROTOCOL_VERSION,
       versions: this.versions,
@@ -106,7 +110,7 @@ export class Runner {
     this.log(
       `claimed ${turn.turn.kind} turn ${turn.turn.ordinal} of ${turn.run.issueKey} (attempt ${turn.turn.attempt})`,
     );
-    return this.execute(turn);
+    return this.execute(turn, shutdown);
   }
 
   /**
@@ -138,7 +142,7 @@ export class Runner {
     while (!signal.aborted) {
       let end: TurnEnd;
       try {
-        end = await this.runOnce();
+        end = await this.runOnce(signal);
       } catch (error) {
         this.log(`runner API error: ${error instanceof Error ? error.message : String(error)}`);
         await sleep(ERROR_BACKOFF_MS, signal);
@@ -149,7 +153,7 @@ export class Runner {
     }
   }
 
-  private async execute(assignment: TurnAssignment): Promise<TurnEnd> {
+  private async execute(assignment: TurnAssignment, shutdown?: AbortSignal): Promise<TurnEnd> {
     const ref: TurnRef = { turnId: assignment.turn.id, leaseToken: assignment.lease.token };
     const session = new AbortController();
     let end: TurnEnd | null = null;
@@ -157,6 +161,9 @@ export class Runner {
       end ??= reason;
       session.abort();
     };
+    const onShutdown = () => stop('shutdown');
+    if (shutdown?.aborted) onShutdown();
+    shutdown?.addEventListener('abort', onShutdown, { once: true });
 
     const heartbeat = setInterval(() => {
       this.options.api.heartbeat(ref, this.versions).then(
@@ -214,6 +221,7 @@ export class Runner {
       throw error;
     } finally {
       clearInterval(heartbeat);
+      shutdown?.removeEventListener('abort', onShutdown);
       session.abort();
     }
   }

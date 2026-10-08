@@ -79,6 +79,21 @@ describe('runner loop', () => {
     expect(api.completions).toEqual([]);
   });
 
+  it('a shutdown ends the session, does not complete the turn and claims nothing more', async () => {
+    api.queue.push(assignment());
+    api.queue.push(assignment());
+    const executor = blockingExecutor();
+    const shutdown = new AbortController();
+    const stopped = runner(executor).start(shutdown.signal);
+    await waitFor(() => api.heartbeats >= 1);
+
+    shutdown.abort();
+    await stopped;
+    expect(executor.aborted).toBe(true);
+    expect(api.completions).toEqual([]);
+    expect(api.claims).toHaveLength(1);
+  });
+
   it('a lost lease stops the turn without completing it', async () => {
     api.queue.push(assignment());
     api.heartbeatAnswer = 'lease_lost';

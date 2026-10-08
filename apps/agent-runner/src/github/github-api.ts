@@ -8,6 +8,10 @@ import { defaultRetryDelay, GITHUB_ATTEMPTS, type RetryDelay, sleep, TurnFailure
 
 export const GITHUB_API_VERSION = '2022-11-28';
 
+/** The start-up check reads at most this many repositories the bot can see. */
+const BOT_CHECK_PAGE_SIZE = 100;
+const BOT_CHECK_MAX_PAGES = 10;
+
 export interface GithubApiOptions {
   token: string;
   fetchImpl?: typeof fetch;
@@ -59,8 +63,43 @@ export class GithubApi {
     }
   }
 
-  private async get(path: string, repository: AssignedRepository): Promise<Response> {
-    const url = `${repository.github.apiBaseUrl.replace(/\/+$/, '')}${path}`;
+  /**
+   * The start-up check: why the bot account must not run, or null. An admin or
+   * maintainer of any repository it can see could change branch protection
+   * or merge, so the runner claims nothing until it has the Write role only.
+   */
+  async botAccountProblem(apiBaseUrl: string): Promise<string | null> {
+    const base = apiBaseUrl.replace(/\/+$/, '');
+    try {
+      for (let page = 1; page <= BOT_CHECK_MAX_PAGES; page += 1) {
+        const response = await this.fetchWithRetries(
+          `${base}/user/repos?per_page=${BOT_CHECK_PAGE_SIZE}&page=${page}`,
+          'the bot account',
+        );
+        if (!response.ok) return `GitHub refused to list the bot's repositories (HTTP ${response.status}).`;
+        const repositories = (await response.json().catch(() => [])) as Array<{
+          full_name?: string;
+          permissions?: Record<string, unknown>;
+        }>;
+        const elevated = repositories.find(
+          (repo) => repo.permissions?.admin === true || repo.permissions?.maintain === true,
+        );
+        if (elevated) {
+          return `The bot account has admin or maintain permission on ${elevated.full_name ?? 'a repository'}; agent runs need an account with the Write role only.`;
+        }
+        if (repositories.length < BOT_CHECK_PAGE_SIZE) return null;
+      }
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  private get(path: string, repository: AssignedRepository): Promise<Response> {
+    return this.fetchWithRetries(`${repository.github.apiBaseUrl.replace(/\/+$/, '')}${path}`, repository.key);
+  }
+
+  private async fetchWithRetries(url: string, label: string): Promise<Response> {
     let last = '';
     for (let attempt = 1; attempt <= GITHUB_ATTEMPTS; attempt += 1) {
       const result = await this.attempt(url);
@@ -68,7 +107,7 @@ export class GithubApi {
       last = result.reason;
       if (attempt < GITHUB_ATTEMPTS) await sleep(this.retryDelay(attempt, result.retryAfterMs));
     }
-    throw new TurnFailure('github_error', `GitHub kept failing for ${repository.key}: ${last}`);
+    throw new TurnFailure('github_error', `GitHub kept failing for ${label}: ${last}`);
   }
 
   private async attempt(url: string): Promise<Attempt> {
