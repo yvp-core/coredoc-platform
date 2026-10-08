@@ -36,6 +36,8 @@ const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 const ADMIN = { id: `${RUN}-admin`, email: 'admin@example.com' };
 const MEMBER = { id: `${RUN}-member`, email: 'member@example.com' };
+/** A member of another workspace only. */
+const OUTSIDER = { id: `${RUN}-outsider`, email: 'outsider@example.com' };
 const VERSIONS = { runner: '0.0.1-test', sdk: '0.3.285' };
 
 const proposal = (overrides: Partial<ProposeScopeRequest> = {}): ProposeScopeRequest => ({
@@ -55,8 +57,10 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
   let previousEncryptionKey: string | undefined;
   let app: INestApplication;
   let workspaceId: string;
+  let otherWorkspaceId: string;
   let githubConnectorId: string;
   let runnerToken: string;
+  let otherRunnerToken: string;
   let issueSeed = 0;
   const jira = new FakeJira();
   const archives = new InMemoryArchiveStore();
@@ -77,6 +81,14 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
       data: [
         { workspaceId, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
         { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
+      ],
+    });
+    const other = await prisma.workspace.create({ data: { name: `cars-other-${RUN}`, slug: `cars-other-${RUN}` } });
+    otherWorkspaceId = other.id;
+    await prisma.workspaceMember.createMany({
+      data: [
+        { workspaceId: otherWorkspaceId, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
+        { workspaceId: otherWorkspaceId, userId: OUTSIDER.id, email: OUTSIDER.email, role: 'admin' },
       ],
     });
     await prisma.deliveryConnector.create({
@@ -113,7 +125,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
       })),
     });
 
-    const users = new Map([ADMIN, MEMBER].map((user) => [user.id, user]));
+    const users = new Map([ADMIN, MEMBER, OUTSIDER].map((user) => [user.id, user]));
     const moduleRef = await Test.createTestingModule({
       controllers: [CloudAgentRunsController, CloudAgentRunnerController, TokensController],
       providers: [
@@ -153,11 +165,19 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
       .send({ name: 'scope-runner', scope: 'agent-runner' })
       .expect(201);
     runnerToken = minted.body.token as string;
+    const otherMinted = await api()
+      .post(`/api/v1/workspaces/${otherWorkspaceId}/tokens`)
+      .set('Authorization', human(OUTSIDER))
+      .send({ name: 'other-runner', scope: 'agent-runner' })
+      .expect(201);
+    otherRunnerToken = otherMinted.body.token as string;
   });
 
   afterAll(async () => {
     await app?.close();
-    if (workspaceId) await prisma.workspace.delete({ where: { id: workspaceId } }).catch(() => undefined);
+    for (const id of [workspaceId, otherWorkspaceId]) {
+      if (id) await prisma.workspace.delete({ where: { id } }).catch(() => undefined);
+    }
     await prisma.$disconnect();
     if (pool?.pool) await pool.pool.end();
     if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
@@ -453,6 +473,94 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
         status: 'awaiting_scope_acceptance',
         latestSpec: { repositories: [{ key: 'orders-api', eligible: false }] },
       });
+    });
+  });
+
+  describe('workspace isolation', () => {
+    async function proposedRun() {
+      const run = await startRun();
+      const turn = await claimTurn();
+      await turnCall(turn, 'propose-scope', proposal()).expect(200);
+      await complete(turn).expect(200);
+      return run;
+    }
+
+    it('a member of another workspace cannot read, accept or send back a run through that workspace', async () => {
+      const run = await proposedRun();
+      const foreign = `/api/v1/workspaces/${otherWorkspaceId}/cloud-agent-runs/${run.id}`;
+
+      for (const user of [ADMIN, OUTSIDER]) {
+        await api().get(foreign).set('Authorization', human(user)).expect(404);
+        await api().get(`${foreign}/specs`).set('Authorization', human(user)).expect(404);
+        const accept = await api().post(`${foreign}/specs/1/accept`).set('Authorization', human(user)).expect(404);
+        expect(accept.body.code).toBe('RUN_NOT_FOUND');
+        await api()
+          .post(`${foreign}/specs/1/request-changes`)
+          .set('Authorization', human(user))
+          .send({ text: 'Widen it.' })
+          .expect(404);
+      }
+      // Not a member of the run's workspace: refused before any lookup.
+      await api().post(`${runsBase()}/${run.id}/specs/1/accept`).set('Authorization', human(OUTSIDER)).expect(403);
+
+      expect(await detail(run.id)).toMatchObject({
+        status: 'awaiting_scope_acceptance',
+        latestSpec: { version: 1, status: 'proposed', reviewedBy: null },
+      });
+    });
+
+    it('requesting changes on a version other than the latest proposed one is refused', async () => {
+      const run = await proposedRun();
+      for (const version of [0, 2]) {
+        const res = await api()
+          .post(`${runsBase()}/${run.id}/specs/${version}/request-changes`)
+          .set('Authorization', human(MEMBER))
+          .send({ text: 'Widen it.' })
+          .expect(409);
+        expect(res.body.code).toBe('SPEC_VERSION_STALE');
+      }
+      expect((await detail(run.id)).status).toBe('awaiting_scope_acceptance');
+    });
+
+    it('a runner of another workspace cannot propose, upload or complete on this workspace’s turn', async () => {
+      const run = await startRun();
+      const turn = await claimTurn();
+      const foreignTurn = (path: string) =>
+        `/api/v1/workspaces/${otherWorkspaceId}/agent-runner/turns/${turn.id}/${path}`;
+
+      const proposed = await api()
+        .post(foreignTurn('propose-scope'))
+        .set('Authorization', `Bearer ${otherRunnerToken}`)
+        .set(RUNNER_LEASE_HEADER, turn.lease)
+        .send(proposal())
+        .expect(409);
+      expect(proposed.body.code).toBe('LEASE_LOST');
+      await api()
+        .put(foreignTurn('archive'))
+        .set('Authorization', `Bearer ${otherRunnerToken}`)
+        .set(RUNNER_LEASE_HEADER, turn.lease)
+        .set('Content-Type', 'application/octet-stream')
+        .send(Buffer.from('foreign'))
+        .expect(409);
+      await api()
+        .post(foreignTurn('complete'))
+        .set('Authorization', `Bearer ${otherRunnerToken}`)
+        .set(RUNNER_LEASE_HEADER, turn.lease)
+        .send({ outcome: { kind: 'failed', code: 'agent_error', reason: 'forged' }, spend: null, versions: VERSIONS })
+        .expect(409);
+      // Its own workspace's path with this workspace's turn is refused by the token's workspace binding.
+      await api()
+        .post(`${runnerBase()}/turns/${turn.id}/propose-scope`)
+        .set('Authorization', `Bearer ${otherRunnerToken}`)
+        .set(RUNNER_LEASE_HEADER, turn.lease)
+        .send(proposal())
+        .expect(403);
+
+      expect(await prisma.cloudAgentRunSpecVersion.count({ where: { runId: run.id } })).toBe(0);
+      expect(await detail(run.id)).toMatchObject({ status: 'scoping', failureCode: null });
+      await turnCall(turn, 'propose-scope', proposal()).expect(200);
+      await complete(turn).expect(200);
+      expect((await detail(run.id)).latestSpec).toMatchObject({ version: 1, status: 'proposed' });
     });
   });
 

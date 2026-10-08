@@ -15,13 +15,16 @@ import { appendRunEvents, type NewRunEvent, type Tx } from './run-store.js';
 
 const WAITING_STATUSES: readonly string[] = [RunStatus.AwaitingAnswer, RunStatus.AwaitingScopeAcceptance];
 
-/** Locks the run row for the rest of the transaction; every state-advancing write starts here. */
-export async function lockRun(tx: Tx, runId: string): Promise<CloudAgentRun | null> {
-  const rows = await tx.$queryRaw<
-    Array<{ id: string }>
-  >`SELECT id FROM cloud_agent_runs WHERE id = ${runId}::uuid FOR UPDATE`;
+/**
+ * Locks the run row for the rest of the transaction; every state-advancing
+ * write starts here. Scoped by workspace: a run of another workspace is
+ * neither locked nor returned.
+ */
+export async function lockRun(tx: Tx, workspaceId: string, runId: string): Promise<CloudAgentRun | null> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM cloud_agent_runs WHERE id = ${runId}::uuid AND workspace_id = ${workspaceId}::uuid FOR UPDATE`;
   if (!rows[0]) return null;
-  return tx.cloudAgentRun.findUniqueOrThrow({ where: { id: runId } });
+  return tx.cloudAgentRun.findFirstOrThrow({ where: { id: runId, workspaceId } });
 }
 
 /**

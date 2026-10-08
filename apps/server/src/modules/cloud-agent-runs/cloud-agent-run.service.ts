@@ -162,7 +162,7 @@ export class CloudAgentRunService {
       seeds: run.seeds,
       repositories: run.repositories,
       droppedSeeds: run.droppedSeeds,
-      latestSpec: await this.scope.latest(run.id),
+      latestSpec: await this.scope.latest(workspaceId, run.id),
     };
   }
 

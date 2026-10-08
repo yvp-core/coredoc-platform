@@ -131,13 +131,16 @@ export class CloudAgentTurnService {
       const prd = await this.jira.readPrd(claimed.workspaceId, claimed.jiraIssueId);
       if (prd.issueKey !== assignment.run.issueKey) {
         // The key changes when an issue moves between projects; the id is the identity.
-        await this.prisma.cloudAgentRun.update({ where: { id: assignment.run.id }, data: { issueKey: prd.issueKey } });
+        await this.prisma.cloudAgentRun.updateMany({
+          where: { id: assignment.run.id, workspaceId: claimed.workspaceId },
+          data: { issueKey: prd.issueKey },
+        });
       }
       return { ...assignment, run: { ...assignment.run, issueKey: prd.issueKey }, prd: { markdown: prd.markdown } };
     } catch (error) {
       if (!(error instanceof JiraReadFailure)) throw error;
       await this.prisma.$transaction(async (tx) => {
-        const run = await lockRun(tx, assignment.run.id);
+        const run = await lockRun(tx, claimed.workspaceId, assignment.run.id);
         if (run) await failRun(tx, run, error.code, null, this.now());
       });
       return null;
@@ -176,7 +179,9 @@ export class CloudAgentTurnService {
       const claimed = rows[0];
       if (!claimed) return null;
 
-      const run = await tx.cloudAgentRun.findUniqueOrThrow({ where: { id: claimed.run_id } });
+      const run = await tx.cloudAgentRun.findFirstOrThrow({
+        where: { id: claimed.run_id, workspaceId: runner.workspaceId },
+      });
       const mcpToken =
         claimed.kind === RunPhase.Delivery ? null : await this.mintMcpToken(tx, run, claimed.id, claimed.kind, at);
       // The pinned SDK reports a resumed session's cost cumulatively; the
@@ -313,7 +318,10 @@ export class CloudAgentTurnService {
       if (row.kind !== RunPhase.Scope) {
         return { accepted: false, errors: ['propose_scope is available only while scoping.'], stop: false };
       }
-      const run = await tx.cloudAgentRun.findUniqueOrThrow({ where: { id: turn.run_id } });
+      // The fenced turn's own run, in the runner's workspace: a draft is never written for another run.
+      const run = await tx.cloudAgentRun.findFirstOrThrow({
+        where: { id: turn.run_id, workspaceId: runner.workspaceId },
+      });
       const errors = this.scope.validate(proposal, {
         eligibility,
         seeds: run.seeds,
@@ -338,7 +346,7 @@ export class CloudAgentTurnService {
     if (body.length > MAX_STATE_ARCHIVE_BYTES) {
       await this.prisma.$transaction(async (tx) => {
         const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
-        const run = standing === 'live' ? await lockRun(tx, turn.run_id) : null;
+        const run = standing === 'live' ? await lockRun(tx, runner.workspaceId, turn.run_id) : null;
         if (run) await failRun(tx, run, RunFailureCode.ArchiveTooLarge, null, this.now());
       });
       throw cloudAgentRunError(
@@ -374,8 +382,8 @@ export class CloudAgentTurnService {
   /** The run's latest state archive, for the live lease only. */
   async downloadArchive(runner: RunnerPrincipal, turnId: string, leaseToken: string): Promise<Buffer> {
     const turn = await this.liveTurn(runner, turnId, leaseToken);
-    const run = await this.prisma.cloudAgentRun.findUniqueOrThrow({
-      where: { id: turn.run_id },
+    const run = await this.prisma.cloudAgentRun.findFirstOrThrow({
+      where: { id: turn.run_id, workspaceId: runner.workspaceId },
       select: { stateArchiveKey: true },
     });
     const archive = run.stateArchiveKey ? await this.archives.get(run.stateArchiveKey) : null;
@@ -409,7 +417,7 @@ export class CloudAgentTurnService {
       const at = this.now();
       const spend = request.spend;
       const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id } });
-      const run = (await lockRun(tx, turn.run_id))!;
+      const run = (await lockRun(tx, runner.workspaceId, turn.run_id))!;
       const live = standing === 'live';
 
       let outcome: string = TurnOutcome.NoOutcome;

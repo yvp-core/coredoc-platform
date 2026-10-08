@@ -142,13 +142,16 @@ export class CloudAgentRunScopeService {
       proposedAt: at,
     };
     const draft = await tx.cloudAgentRunSpecVersion.findFirst({
-      where: { runId: run.id, turnId, status: SpecStatus.Draft },
+      where: { workspaceId: run.workspaceId, runId: run.id, turnId, status: SpecStatus.Draft },
     });
     if (draft) {
       await tx.cloudAgentRunSpecVersion.update({ where: { id: draft.id }, data });
       return draft.version;
     }
-    const last = await tx.cloudAgentRunSpecVersion.aggregate({ where: { runId: run.id }, _max: { version: true } });
+    const last = await tx.cloudAgentRunSpecVersion.aggregate({
+      where: { workspaceId: run.workspaceId, runId: run.id },
+      _max: { version: true },
+    });
     const version = (last._max.version ?? 0) + 1;
     await tx.cloudAgentRunSpecVersion.create({
       data: { workspaceId: run.workspaceId, runId: run.id, turnId, version, status: SpecStatus.Draft, ...data },
@@ -169,7 +172,7 @@ export class CloudAgentRunScopeService {
     at: Date,
   ): Promise<boolean> {
     const draft = await tx.cloudAgentRunSpecVersion.findFirst({
-      where: { runId: run.id, turnId, status: SpecStatus.Draft },
+      where: { workspaceId: run.workspaceId, runId: run.id, turnId, status: SpecStatus.Draft },
     });
     if (!draft) return false;
     const content = draft.content as unknown as SpecContent;
@@ -178,7 +181,7 @@ export class CloudAgentRunScopeService {
       return { ...repository, eligible: reason === null, ineligibleReason: reason };
     });
     await tx.cloudAgentRunSpecVersion.updateMany({
-      where: { runId: run.id, status: SpecStatus.Proposed },
+      where: { workspaceId: run.workspaceId, runId: run.id, status: SpecStatus.Proposed },
       data: { status: SpecStatus.Superseded },
     });
     const published = await tx.cloudAgentRunSpecVersion.update({
@@ -249,24 +252,24 @@ export class CloudAgentRunScopeService {
     return rows.map(projectSpec);
   }
 
-  async latest(runId: string) {
+  async latest(workspaceId: string, runId: string) {
     const row = await this.prisma.cloudAgentRunSpecVersion.findFirst({
-      where: { runId, status: { not: SpecStatus.Draft } },
+      where: { workspaceId, runId, status: { not: SpecStatus.Draft } },
       orderBy: { version: 'desc' },
     });
     return row ? projectSpec(row) : null;
   }
 
   private async reviewable(tx: Tx, workspaceId: string, runId: string, version: number) {
-    const run = await lockRun(tx, runId);
-    if (!run || run.workspaceId !== workspaceId) {
+    const run = await lockRun(tx, workspaceId, runId);
+    if (!run) {
       throw cloudAgentRunError(CloudAgentRunErrorCode.RunNotFound, 'Agent run not found', HttpStatus.NOT_FOUND);
     }
     if (isTerminalRunStatus(run.status)) {
       throw cloudAgentRunError(CloudAgentRunErrorCode.RunTerminal, 'The run has already ended');
     }
     const latest = await tx.cloudAgentRunSpecVersion.findFirst({
-      where: { runId, status: SpecStatus.Proposed },
+      where: { workspaceId, runId, status: SpecStatus.Proposed },
       orderBy: { version: 'desc' },
     });
     if (!latest || latest.version !== version) {
