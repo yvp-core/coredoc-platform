@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { redactPayload, redactSecrets } from './redact-secrets.js';
+import { MAX_REDACTED_CHARS, redactPayload, redactSecrets } from './redact-secrets.js';
 
 describe('redactSecrets', () => {
   it.each([
@@ -48,6 +48,45 @@ describe('redactSecrets', () => {
     ['a plain URL', 'see https://github.com/acme/app/pull/12'],
   ])('leaves %s alone', (_name, input) => {
     expect(redactSecrets(input)).toBe(input);
+  });
+});
+
+describe('redactSecrets on hostile input', () => {
+  /** The most the redactor scans of one string (the largest event payload, a withheld workflow diff). */
+  const CAP = MAX_REDACTED_CHARS;
+  const fill = (unit: string) => unit.repeat(Math.ceil(CAP / unit.length)).slice(0, CAP);
+
+  it.each([
+    ['a long alphanumeric run', fill('a')],
+    ['dotted runs', fill('a.')],
+    ['dashed runs', fill('a-')],
+    ['repeated private-key markers', fill('-----BEGIN ')],
+    ['repeated private-key headers without an end', fill('-----BEGIN RSA PRIVATE KEY-----\n')],
+    ['repeated end markers', fill('-----END ')],
+    ['repeated URL prefixes', fill('a://x:')],
+    ['a URL prefix before a long run', `a://x:${fill('y')}`],
+    ['repeated secret names', fill('password')],
+    ['dotted secret names', fill('password.')],
+    ['secret names with separators', fill('api_key: ')],
+    ['repeated JWT prefixes', fill('eyJ-')],
+    ['a JWT prefix before a long run', `eyJ${fill('a')}`],
+    ['repeated bearer words', fill('Bearer ')],
+    ['repeated model-key prefixes', fill('sk-')],
+    ['repeated GitHub prefixes', fill('ghp_')],
+    ['repeated user-info parts', fill('x:y@')],
+    ['repeated JWT segments', fill('eyJa.')],
+  ])('masks %s in linear time', (_name, input) => {
+    const started = performance.now();
+    redactSecrets(input);
+    expect(performance.now() - started).toBeLessThan(100);
+  });
+
+  it('scans a bounded length of each string', () => {
+    const huge = `${'x'.repeat(1024 * 1024)} ghp_0123456789abcdefghijABCDEFGHIJ012345`;
+    const started = performance.now();
+    const redacted = redactSecrets(huge);
+    expect(performance.now() - started).toBeLessThan(100);
+    expect(redacted).not.toContain('ghp_0123456789');
   });
 });
 
