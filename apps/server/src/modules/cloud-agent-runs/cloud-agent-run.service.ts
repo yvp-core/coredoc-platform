@@ -4,6 +4,7 @@ import type { AgentRunSettings, CloudAgentRun, CloudAgentRunTurn } from '../../g
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
 import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
 import { CloudAgentRunIssueResolver } from './cloud-agent-run-issue.resolver.js';
+import { CloudAgentRunQuestionService } from './cloud-agent-run-questions.service.js';
 import { CloudAgentRunScopeService } from './cloud-agent-run-scope.service.js';
 import { REPOSITORY_LABEL_PREFIX, resolveSeeds, seedKeysFromLabels } from './cloud-agent-run-seeds.js';
 import { CloudAgentRunSettingsService } from './cloud-agent-run-settings.service.js';
@@ -13,6 +14,7 @@ import {
   CloudAgentRunErrorCode,
   cloudAgentRunError,
   isTerminalRunStatus,
+  QuestionState,
   RunTrigger,
   TERMINAL_RUN_STATUSES,
   TurnState,
@@ -49,6 +51,7 @@ export class CloudAgentRunService {
     private readonly scope: CloudAgentRunScopeService,
     private readonly availability: CloudAgentRunAvailability,
     private readonly repositories: GithubRepositoryResolver,
+    private readonly questions: CloudAgentRunQuestionService,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
   ) {}
 
@@ -192,12 +195,16 @@ export class CloudAgentRunService {
       include: { turns: { where: { state: { in: PENDING_TURN_STATES } }, take: 1 } },
     });
     if (!run) throw runNotFound();
+    const questions = await this.questions.forRun(workspaceId, run.id);
     return {
       ...this.project(run, await this.memberEmails(workspaceId, [run.runOwnerId])),
       seeds: run.seeds,
       repositories: run.repositories,
       droppedSeeds: run.droppedSeeds,
+      assumptions: run.assumptions,
       latestSpec: await this.scope.latest(workspaceId, run.id),
+      openQuestion: questions.find((question) => question.state === QuestionState.Open) ?? null,
+      questions,
     };
   }
 

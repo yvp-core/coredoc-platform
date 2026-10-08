@@ -13,6 +13,8 @@ const HAND_WRITTEN_PARTIAL_INDEXES = [
   { name: 'cloud_agent_runs_one_open_run_per_issue', migration: '20261010120000_cloud_agent_runs' },
   // One queued or claimed turn per run.
   { name: 'cloud_agent_run_turns_one_pending_turn_per_run', migration: '20261010120000_cloud_agent_runs' },
+  // One open question per run: a run parks on one question at a time.
+  { name: 'cloud_agent_run_questions_one_open_per_run', migration: '20261013120000_cloud_agent_run_questions' },
 ];
 
 describe('database migration invariants', () => {

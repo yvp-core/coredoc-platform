@@ -82,6 +82,7 @@ model Workspace {
   cloudAgentRunTurns  CloudAgentRunTurn[]
   cloudAgentRunEvents CloudAgentRunEvent[]
   cloudAgentRunSpecs  CloudAgentRunSpecVersion[]
+  cloudAgentRunQuestions CloudAgentRunQuestion[]
   agentRunSettings    AgentRunSettings?
   agentRunnersSeen    AgentRunnerSeen[]
 
@@ -1649,7 +1650,10 @@ model IntentHandoff {
 //   jira_issue_id) WHERE status NOT IN ('done','failed','cancelled')), and
 //   `cloud_agent_run_turns_one_pending_turn_per_run` (UNIQUE ON (run_id)
 //   WHERE state IN ('queued','claimed')).
-// Run creation (ACTIVE_RUN_EXISTS) and turn queueing depend on them. `prisma
+// Migration 20261013120000 creates
+//   `cloud_agent_run_questions_one_open_per_run` (UNIQUE ON (run_id)
+//   WHERE state = 'open').
+// Run creation (ACTIVE_RUN_EXISTS), turn queueing and parking a question depend on them. `prisma
 // migrate dev` will propose DROP INDEX for both — NEVER accept that drop;
 // migration-invariants.test.ts fails if a migration drops them.
 // ---------------------------------------------------------------------------
@@ -1713,6 +1717,7 @@ model CloudAgentRun {
   turns       CloudAgentRunTurn[]
   events      CloudAgentRunEvent[]
   specs       CloudAgentRunSpecVersion[]
+  questions   CloudAgentRunQuestion[]
 
   @@unique([workspaceId, id])
   @@index([workspaceId, createdAt])
@@ -1802,6 +1807,41 @@ model CloudAgentRunSpecVersion {
 
   @@unique([runId, version])
   @@map("cloud_agent_run_spec_versions")
+}
+
+/// A question the agent asked: a clarification in AskUserQuestion's shape
+/// (or, later, a repository request). A human record: retention never deletes it.
+model CloudAgentRunQuestion {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId   String    @map("workspace_id") @db.Uuid
+  runId         String    @map("run_id") @db.Uuid
+  /// Globally unique; the human API addresses a question by it.
+  requestId     String    @unique @default(dbgenerated("gen_random_uuid()")) @map("request_id") @db.Uuid
+  /// `clarification` or `repository_request`.
+  kind          String    @db.VarChar(32)
+  phase         String    @db.VarChar(16)
+  /// `open`, `answered`, `auto_answered` or `cancelled`.
+  state         String    @db.VarChar(16)
+  /// The AskUserQuestion call; the resume turn re-runs it with the answers.
+  toolUseId     String?   @map("tool_use_id") @db.VarChar(255)
+  questions     Json      @db.JsonB
+  /// Per question: the chosen labels and any free text.
+  answers       Json?     @db.JsonB
+  /// The turn that asked; plain column, turns are pruned.
+  askedInTurnId String?   @map("asked_in_turn_id") @db.Uuid
+  /// The turn queued to deliver the answer; plain column, turns are pruned.
+  resumeTurnId  String?   @map("resume_turn_id") @db.Uuid
+  askedAt       DateTime  @map("asked_at") @db.Timestamptz
+  answeredAt    DateTime? @map("answered_at") @db.Timestamptz
+  /// Null when answered automatically.
+  answeredBy    String?   @map("answered_by") @db.VarChar(256)
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  run       CloudAgentRun @relation(fields: [workspaceId, runId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([runId, askedAt])
+  @@index([askedInTurnId])
+  @@map("cloud_agent_run_questions")
 }
 
 /// One per workspace: no workspace settings store exists and the feature has more than ten fields.
