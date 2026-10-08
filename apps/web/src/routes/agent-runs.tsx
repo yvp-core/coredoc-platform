@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
 
 import { ApiError } from '@/api/client';
-import { agentRunsQueryOptions, startAgentRun } from '@/api/queries/agent-runs';
+import { agentRunSettingsQueryOptions, agentRunsQueryOptions, startAgentRun } from '@/api/queries/agent-runs';
 import { meQueryOptions } from '@/api/queries/me';
 import { EmptyNote } from '@/components/empty-note';
 import { PageHead } from '@/components/page-head';
@@ -27,6 +27,7 @@ function StartRunCard({ wsId, slug }: { wsId: string; slug: string }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [issueKey, setIssueKey] = useState('');
+  const [repositories, setRepositories] = useState('');
   const mutation = useMutation({
     mutationFn: startAgentRun,
     onSuccess: (run) => {
@@ -44,7 +45,11 @@ function StartRunCard({ wsId, slug }: { wsId: string; slug: string }) {
           onSubmit={(event) => {
             event.preventDefault();
             const key = issueKey.trim().toUpperCase();
-            if (key) mutation.mutate({ wsId, issueKey: key });
+            const repositoryKeys = repositories
+              .split(',')
+              .map((value) => value.trim())
+              .filter(Boolean);
+            if (key) mutation.mutate({ wsId, issueKey: key, ...(repositoryKeys.length ? { repositoryKeys } : {}) });
           }}
         >
           <div className="flex min-w-[200px] flex-col gap-1.5">
@@ -54,6 +59,15 @@ function StartRunCard({ wsId, slug }: { wsId: string; slug: string }) {
               value={issueKey}
               placeholder="PROJ-123"
               onChange={(event) => setIssueKey(event.target.value)}
+            />
+          </div>
+          <div className="flex min-w-[240px] flex-col gap-1.5">
+            <Label htmlFor="agent-run-repositories">Repository keys (optional)</Label>
+            <Input
+              id="agent-run-repositories"
+              value={repositories}
+              placeholder="orders-api, billing-api"
+              onChange={(event) => setRepositories(event.target.value)}
             />
           </div>
           <Button type="submit" disabled={mutation.isPending || issueKey.trim() === ''}>
@@ -70,6 +84,23 @@ function StartRunCard({ wsId, slug }: { wsId: string; slug: string }) {
   );
 }
 
+/** Live availability: why runs cannot start, and why queued runs are waiting. */
+function AvailabilityBanner({ wsId }: { wsId: string }) {
+  const settings = useQuery(agentRunSettingsQueryOptions(wsId));
+  const availability = settings.data?.availability;
+  if (!availability || availability.available) return null;
+  return (
+    <div className="rounded-lg bg-warn-wash px-3 py-2 text-[13px] text-warn-text">
+      <p>Runs cannot start right now; queued runs wait until this is fixed:</p>
+      <ul className="mt-1 list-disc pl-5">
+        {availability.reasons.map((reason) => (
+          <li key={reason.code}>{reason.message}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function WorkspaceAgentRuns() {
   const { slug } = useParams({ strict: false });
   const { data: me } = useSuspenseQuery(meQueryOptions);
@@ -81,6 +112,7 @@ export function WorkspaceAgentRuns() {
   return (
     <div className="flex flex-col gap-4">
       <PageHead title="Agent runs" sub="Jira issues taken to draft pull requests by your agent runner" />
+      <AvailabilityBanner wsId={workspace.id} />
       <StartRunCard wsId={workspace.id} slug={slug} />
       <Card>
         <CardHead title="Runs" sub="Newest first" />
