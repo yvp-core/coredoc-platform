@@ -291,11 +291,15 @@ export const RepositoryReportSchema = z.object({
 });
 export type RepositoryReport = z.infer<typeof RepositoryReportSchema>;
 
-/** What a delivery turn did in one repository. The server verifies every reported pull request itself. */
+/**
+ * What a delivery turn did in one repository. Untrusted: the server reads
+ * every reported pull request back from GitHub, and confirms an unchanged
+ * repository by comparing the run branch with the default branch.
+ */
 export const DeliveryReportSchema = z.object({
   key: z.string().trim().min(1).max(255),
   /** The pull request opened or reused for the run branch; null when GitHub refused one for having no commits. */
-  pullRequest: z.object({ number: z.number().int().positive(), created: z.boolean() }).nullable(),
+  pullRequest: z.object({ number: z.number().int().positive() }).nullable(),
 });
 export type DeliveryReport = z.infer<typeof DeliveryReportSchema>;
 

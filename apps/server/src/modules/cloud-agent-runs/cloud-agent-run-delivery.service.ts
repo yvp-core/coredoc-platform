@@ -23,7 +23,7 @@ export interface RecordedPullRequest {
   url: string;
   state: 'open' | 'closed' | 'merged';
   draft: boolean;
-  /** Opened by this run's delivery, rather than an existing one reused. */
+  /** Derived by the server: no pull request was recorded for the repository before this one. */
   created: boolean;
   verifiedAt: string;
 }
@@ -160,6 +160,7 @@ export class CloudAgentRunDeliveryService {
         .filter((repository) => repository.touched)
         .map((repository) => repository.key),
     );
+    const recorded = new Set(recordedPullRequests(run).map((pull) => pull.repository));
     const seen = new Set<string>();
     const verified: RecordedPullRequest[] = [];
     const failures: string[] = [];
@@ -169,14 +170,19 @@ export class CloudAgentRunDeliveryService {
         continue;
       }
       seen.add(report.key);
-      if (!report.pullRequest) continue;
       try {
-        verified.push(await this.verifyOne(run, report.key, report.pullRequest));
+        if (report.pullRequest) {
+          verified.push(await this.verifyOne(run, report.key, report.pullRequest.number, !recorded.has(report.key)));
+        } else {
+          await this.confirmUnchanged(run, report.key);
+        }
       } catch (error) {
         failures.push(
           error instanceof Unconfirmed
             ? error.message
-            : `GitHub could not confirm pull request #${report.pullRequest.number} in ${report.key}.`,
+            : report.pullRequest
+              ? `GitHub could not confirm pull request #${report.pullRequest.number} in ${report.key}.`
+              : `GitHub could not confirm that ${report.key} has no changes to deliver.`,
         );
       }
     }
@@ -187,11 +193,7 @@ export class CloudAgentRunDeliveryService {
     };
   }
 
-  private async verifyOne(
-    run: CloudAgentRun,
-    key: string,
-    reported: NonNullable<DeliveryReport['pullRequest']>,
-  ): Promise<RecordedPullRequest> {
+  private async repository(run: CloudAgentRun, key: string) {
     let resolved: Awaited<ReturnType<GithubRepositoryResolver['resolve']>>;
     try {
       resolved = await this.resolver.resolve(run.workspaceId, key);
@@ -200,34 +202,73 @@ export class CloudAgentRunDeliveryService {
     }
     const { owner, name, connector, gitOrigin } = resolved;
     const client = this.githubFactory(decrypt(connector.credentialsEncrypted!), connector.baseUrl ?? undefined);
-    const raw = await withRetries(
-      () => client.getPullMetadata(owner, name, reported.number),
-      transientGithub,
-      this.retryDelay,
-    );
+    return { owner, name, gitOrigin, client };
+  }
+
+  /**
+   * Everything recorded comes from GitHub's answer, never from the report:
+   * the pull request must target the repository's default branch from the
+   * run branch in the same repository, and one this run opened (no pull
+   * request recorded for the repository before) must still be a draft.
+   */
+  private async verifyOne(
+    run: CloudAgentRun,
+    key: string,
+    number: number,
+    openedByThisRun: boolean,
+  ): Promise<RecordedPullRequest> {
+    const { owner, name, gitOrigin, client } = await this.repository(run, key);
+    const raw = await withRetries(() => client.getPullMetadata(owner, name, number), transientGithub, this.retryDelay);
     const parsed = strictPullSchema.safeParse(raw);
     const fullName = `${owner}/${name}`.toLowerCase();
     const pull = parsed.success ? parsed.data : null;
     if (
       !pull ||
-      pull.number !== reported.number ||
+      pull.number !== number ||
       pull.base.repo.full_name.toLowerCase() !== fullName ||
+      pull.base.ref !== pull.base.repo.default_branch ||
       pull.head.repo?.full_name.toLowerCase() !== fullName ||
       pull.head.ref !== run.branch
     ) {
       throw new Unconfirmed(
-        `Pull request #${reported.number} reported for ${key} is not this run's branch ${run.branch} in ${owner}/${name}.`,
+        `Pull request #${number} reported for ${key} is not from this run's branch ${run.branch} to the default branch of ${owner}/${name}.`,
       );
+    }
+    const state = pull.merged ? 'merged' : pull.state;
+    if (openedByThisRun && state === 'open' && !pull.draft) {
+      throw new Unconfirmed(`Pull request #${number} in ${key} is not a draft, as one this run opens must be.`);
     }
     return {
       repository: key,
       number: pull.number,
       url: `${gitOrigin}/${owner}/${name}/pull/${pull.number}`,
-      state: pull.merged ? 'merged' : pull.state,
+      state,
       draft: pull.draft,
-      created: reported.created,
+      created: openedByThisRun,
       verifiedAt: this.now().toISOString(),
     };
+  }
+
+  /** A repository reported unchanged must show no commits on the run branch ahead of its default branch. */
+  private async confirmUnchanged(run: CloudAgentRun, key: string): Promise<void> {
+    const { owner, name, client } = await this.repository(run, key);
+    const repository = (await withRetries(
+      () => client.getRepositoryMetadata(owner, name),
+      transientGithub,
+      this.retryDelay,
+    )) as { default_branch?: unknown } | null;
+    const defaultBranch = repository?.default_branch;
+    if (typeof defaultBranch !== 'string' || !defaultBranch) {
+      throw new Unconfirmed(`GitHub did not report the default branch of ${owner}/${name}.`);
+    }
+    const { status } = await withRetries(
+      () => client.compareCommits(owner, name, defaultBranch, run.branch),
+      transientGithub,
+      this.retryDelay,
+    );
+    if (status !== 'identical' && status !== 'behind') {
+      throw new Unconfirmed(`${key} was reported unchanged, but ${run.branch} has commits ahead of ${defaultBranch}.`);
+    }
   }
 
   /**

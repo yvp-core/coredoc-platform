@@ -155,11 +155,15 @@ export interface FakePull {
   /** The head's repository, `owner/name`; a fork names another owner, a deleted fork is null. */
   headRepo: string | null;
   headRef: string;
+  /** The branch it targets; the default branch unless set. */
+  baseRef?: string;
 }
 
-/** A stateful GitHub for the server's strict pull reads, with scripted transient failures. */
+/** A stateful GitHub for the server's strict reads, with scripted transient failures. */
 export class FakeGithubPulls {
   readonly pulls = new Map<string, FakePull>();
+  /** How a run branch compares with the default branch, by `owner/name`; `ahead` unless set. */
+  readonly compare = new Map<string, string>();
   /** The next N reads answer 502. */
   transientFailures = 0;
   reads = 0;
@@ -170,6 +174,14 @@ export class FakeGithubPulls {
 
   client(): GithubClient {
     const fake = {
+      getRepositoryMetadata: async (owner: string, name: string) => ({
+        full_name: `${owner}/${name}`,
+        default_branch: 'main',
+      }),
+      compareCommits: async (owner: string, name: string, base: string) => {
+        if (base !== 'main') throw new GithubApiError(404, `/repos/${owner}/${name}/compare`);
+        return { status: this.compare.get(`${owner}/${name}`) ?? 'ahead' };
+      },
       getPullMetadata: async (owner: string, name: string, number: number) => {
         this.reads += 1;
         const path = `/repos/${owner}/${name}/pulls/${number}`;
@@ -190,7 +202,7 @@ export class FakeGithubPulls {
             ref: pull.headRef,
             repo: pull.headRepo === null ? null : { full_name: pull.headRepo },
           },
-          base: { ref: 'main', repo: { full_name: fullName, default_branch: 'main' } },
+          base: { ref: pull.baseRef ?? 'main', repo: { full_name: fullName, default_branch: 'main' } },
           merge_commit_sha: null,
           merged_at: null,
         };

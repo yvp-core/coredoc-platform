@@ -256,10 +256,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
     (await api().get(`${runsBase()}/${runId}/events?after=0&limit=200`).set('Authorization', human(MEMBER)).expect(200))
       .body.events as Array<{ type: string; payload: Response['body'] }>;
 
-  const opened = (key: string, number: number, created = true): DeliveryReport => ({
-    key,
-    pullRequest: { number, created },
-  });
+  const opened = (key: string, number: number): DeliveryReport => ({ key, pullRequest: { number } });
 
   /** Both repositories pushed and `submit_result` accepted; the delivery turn is claimed. */
   async function delivering() {
@@ -450,16 +447,87 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
     expect(await detail(runId)).toMatchObject({ status: 'failed', failureCode: 'delivery_failed', pullRequests: [] });
   });
 
-  it('a touched repository with no reported pull request fails the run; one GitHub found unchanged does not', async () => {
-    const missing = await delivering();
-    const [billing] = openPulls(missing.branch);
-    await complete(missing.turn, { deliveries: [billing!] }).expect(200);
-    expect(await detail(missing.runId)).toMatchObject({ status: 'failed', failureCode: 'delivery_failed' });
+  it('a touched repository with no report at all fails the run', async () => {
+    const { runId, branch, turn } = await delivering();
+    const [billing] = openPulls(branch);
+    await complete(turn, { deliveries: [billing!] }).expect(200);
+    expect(await detail(runId)).toMatchObject({
+      status: 'failed',
+      failureCode: 'delivery_failed',
+      failureReason: expect.stringContaining('orders-api'),
+    });
+  });
 
-    const unchanged = await delivering();
-    const [billing2] = openPulls(unchanged.branch);
-    await complete(unchanged.turn, { deliveries: [billing2!, { key: 'orders-api', pullRequest: null }] }).expect(200);
-    expect(await detail(unchanged.runId)).toMatchObject({ status: 'delivering' });
+  it('a repository reported unchanged is accepted only when GitHub shows no commits ahead of the default branch', async () => {
+    github.compare.set('example-org/orders-api', 'identical');
+    try {
+      const unchanged = await delivering();
+      const [billing] = openPulls(unchanged.branch);
+      await complete(unchanged.turn, { deliveries: [billing!, { key: 'orders-api', pullRequest: null }] }).expect(200);
+      expect(await detail(unchanged.runId)).toMatchObject({ status: 'delivering' });
+    } finally {
+      github.compare.delete('example-org/orders-api');
+    }
+
+    // The branch has commits, so "no commits" is not GitHub's answer: the runner skipped the repository.
+    const skipped = await delivering();
+    const [billing] = openPulls(skipped.branch);
+    await complete(skipped.turn, { deliveries: [billing!, { key: 'orders-api', pullRequest: null }] }).expect(200);
+    expect(await detail(skipped.runId)).toMatchObject({
+      status: 'failed',
+      failureCode: 'delivery_failed',
+      failureReason: expect.stringContaining('commits ahead'),
+    });
+  });
+
+  it.each([
+    ['targets another branch', { baseRef: 'release' }, /default branch/],
+    ['was opened by this run but is not a draft', { draft: false }, /not a draft/],
+  ])('a pull request that %s fails the run with delivery_failed', async (_name, overrides, reason) => {
+    const { runId, branch, turn } = await delivering();
+    const number = issueSeed * 10;
+    github.add('example-org/billing-api', { number: number + 1, headRepo: 'example-org/billing-api', headRef: branch });
+    github.add('example-org/orders-api', {
+      number: number + 2,
+      headRepo: 'example-org/orders-api',
+      headRef: branch,
+      ...overrides,
+    });
+    await complete(turn, { deliveries: [opened('billing-api', number + 1), opened('orders-api', number + 2)] }).expect(
+      200,
+    );
+    const run = await detail(runId);
+    expect(run).toMatchObject({ status: 'failed', failureCode: 'delivery_failed' });
+    expect(run.failureReason).toMatch(reason);
+    expect(run.pullRequests.map((pull: { repository: string }) => pull.repository)).toEqual(['billing-api']);
+  });
+
+  it('what is recorded comes from GitHub’s answer, not from the report', async () => {
+    const { runId, branch, turn } = await delivering();
+    const number = issueSeed * 10;
+    github.add('example-org/billing-api', {
+      number: number + 1,
+      headRepo: 'example-org/billing-api',
+      headRef: branch,
+      state: 'closed',
+      merged: true,
+      draft: false,
+    });
+    github.add('example-org/orders-api', { number: number + 2, headRepo: 'example-org/orders-api', headRef: branch });
+    await complete(turn, { deliveries: [opened('billing-api', number + 1), opened('orders-api', number + 2)] }).expect(
+      200,
+    );
+    const run = await detail(runId);
+    expect(run.status).toBe('delivering');
+    expect(run.pullRequests[0]).toEqual({
+      repository: 'billing-api',
+      number: number + 1,
+      url: `https://github.com/example-org/billing-api/pull/${number + 1}`,
+      state: 'merged',
+      draft: false,
+      created: true,
+      verifiedAt: now.toISOString(),
+    });
   });
 
   it('two concurrent sweep ticks post one failure comment, and a crash after posting is recovered by the marker', async () => {
