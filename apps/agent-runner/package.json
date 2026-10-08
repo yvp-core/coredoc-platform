@@ -1,0 +1,31 @@
+{
+  "name": "@coredoc/agent-runner",
+  "version": "1.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Customer-run agent runner for Coredoc cloud agent runs: claims turns over the runner API",
+  "type": "module",
+  "main": "dist/main.js",
+  "bin": {
+    "coredoc-agent-runner": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@coredoc/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": ">=5.0.0",
+    "vitest": "^1.2.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

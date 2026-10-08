@@ -94,6 +94,22 @@ importers:
         specifier: ^1.3.0
         version: 1.6.1(@types/node@22.20.1)(happy-dom@16.8.1)(jsdom@24.1.3)(lightningcss@1.32.0)(terser@5.46.0)
 
+  apps/agent-runner:
+    dependencies:
+      '@coredoc/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.1
+      typescript:
+        specifier: '>=5.0.0'
+        version: 5.9.3
+      vitest:
+        specifier: ^1.2.0
+        version: 1.6.1(@types/node@22.20.1)(happy-dom@16.8.1)(jsdom@24.1.3)(lightningcss@1.32.0)(terser@5.46.0)
+
   apps/desktop:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':
