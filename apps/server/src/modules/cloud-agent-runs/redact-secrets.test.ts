@@ -51,6 +51,36 @@ describe('redactSecrets', () => {
   });
 });
 
+describe('redactSecrets on long secrets', () => {
+  const tail = (alphabet: string) => alphabet.repeat(Math.ceil(2_000 / alphabet.length)).slice(0, 2_000);
+  const jwtPart = tail('AbC9_-');
+
+  it.each([
+    ['a model key', `sk-${tail('AbC9_-')}`, '[REDACTED]'],
+    ['a GitHub token', `ghp_${tail('AbC9')}`, '[REDACTED]'],
+    ['a fine-grained GitHub token', `github_pat_${tail('AbC9_')}`, '[REDACTED]'],
+    ['a Coredoc token', `cdt_${tail('ab09')}`, '[REDACTED]'],
+    ['a Slack token', `xoxb-${tail('AbC9-')}`, '[REDACTED]'],
+    ['a bearer token', `Bearer ${tail('AbC9._~+/-')}==`, 'Bearer [REDACTED]'],
+    ['a password value', `password=${tail('AbC9!#')}`, 'password=[REDACTED]'],
+    ['a secret under a long name', `${'X'.repeat(200)}_SECRET=${tail('ab')}`, `${'X'.repeat(200)}_SECRET=[REDACTED]`],
+    ['URL credentials', `https://${tail('u')}:${tail('p')}@example.com`, 'https://[REDACTED]@example.com'],
+    ['a JSON web token', `t eyJ${jwtPart}.${jwtPart}.${jwtPart} end`, 't [REDACTED] end'],
+  ])('masks all of %s', (_name, input, expected) => {
+    expect(redactSecrets(input)).toBe(expected);
+  });
+
+  it('drops text beyond the scan cap, and a secret cut by it, instead of storing it unredacted', () => {
+    const secret = 'ghp_0123456789abcdefghijABCDEFGHIJ012345';
+    const straddling = `${'word '.repeat(MAX_REDACTED_CHARS / 5 - 2)}${secret} after the cap`;
+    const redacted = redactSecrets(straddling);
+    expect(redacted.length).toBeLessThanOrEqual(MAX_REDACTED_CHARS);
+    expect(redacted).not.toContain('ghp_');
+    expect(redacted).not.toContain('after the cap');
+    expect(redacted.endsWith('word')).toBe(true);
+  });
+});
+
 describe('redactSecrets on hostile input', () => {
   /** The most the redactor scans of one string (the largest event payload, a withheld workflow diff). */
   const CAP = MAX_REDACTED_CHARS;
@@ -75,6 +105,12 @@ describe('redactSecrets on hostile input', () => {
     ['repeated GitHub prefixes', fill('ghp_')],
     ['repeated user-info parts', fill('x:y@')],
     ['repeated JWT segments', fill('eyJa.')],
+    ['JWT-shaped segments', fill('eyJabcdefgh.abcdefgh.')],
+    ['repeated assignments', fill('password=')],
+    ['a URL user without a password', `a://${fill('u')}`],
+    ['URL user-info runs', fill('a://u:p')],
+    ['repeated bearer tokens', fill('Bearer x ')],
+    ['one unbroken token run', `sk-${fill('a')}`],
   ])('masks %s in linear time', (_name, input) => {
     const started = performance.now();
     redactSecrets(input);
