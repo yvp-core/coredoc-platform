@@ -332,7 +332,11 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
       expect(turn.body.run.remainingSpendUsd).toBe(10);
 
       await complete(turn, { spend: { costUsd: 10.25, sdkTurns: 40 } }).expect(200);
-      expect(await detail(run.id)).toMatchObject({ status: 'failed', failureCode: 'budget_exhausted', currentTurn: null });
+      expect(await detail(run.id)).toMatchObject({
+        status: 'failed',
+        failureCode: 'budget_exhausted',
+        currentTurn: null,
+      });
       await claim().expect(204);
     });
 
@@ -359,7 +363,9 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
   });
 
   describe('per-turn report caps', () => {
-    const raw = (count: number, text = 'working') => ({ events: Array.from({ length: count }, () => ({ type: 'raw', text })) });
+    const raw = (count: number, text = 'working') => ({
+      events: Array.from({ length: count }, () => ({ type: 'raw', text })),
+    });
     const formatQuestion = (toolUseId: string) => ({
       toolUseId,
       questions: [
@@ -445,9 +451,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
     expect(stored).not.toContain('ghp_0123456789');
     expect(stored).not.toContain('hunter2');
     expect(timeline.body.events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: 'raw', payload: { text: 'cloned with [REDACTED]' } }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ type: 'raw', payload: { text: 'cloned with [REDACTED]' } })]),
     );
   });
 

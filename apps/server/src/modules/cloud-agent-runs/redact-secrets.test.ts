@@ -3,8 +3,16 @@ import { redactPayload, redactSecrets } from './redact-secrets.js';
 
 describe('redactSecrets', () => {
   it.each([
-    ['a GitHub classic token', 'pushing with ghp_0123456789abcdefghijABCDEFGHIJ012345 now', 'pushing with [REDACTED] now'],
-    ['a fine-grained GitHub token', 'token github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz', 'token [REDACTED]'],
+    [
+      'a GitHub classic token',
+      'pushing with ghp_0123456789abcdefghijABCDEFGHIJ012345 now',
+      'pushing with [REDACTED] now',
+    ],
+    [
+      'a fine-grained GitHub token',
+      'token github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz',
+      'token [REDACTED]',
+    ],
     ['a model key', 'ANTHROPIC key sk-ant-api03-AbCdEf0123456789_xyz-QRS', 'ANTHROPIC key [REDACTED]'],
     ['a Coredoc token', 'cdt_' + 'ab'.repeat(32), '[REDACTED]'],
     ['an AWS access key id', 'aws AKIAIOSFODNN7EXAMPLE configured', 'aws [REDACTED] configured'],
@@ -18,7 +26,11 @@ describe('redactSecrets', () => {
     ['a password assignment', 'DB_PASSWORD=hunter2 and more', 'DB_PASSWORD=[REDACTED] and more'],
     ['a quoted secret in JSON', '{"client_secret": "s3cr3t-value"}', '{"client_secret": "[REDACTED]"}'],
     ['an api key in YAML', 'api_key: abc123def456', 'api_key: [REDACTED]'],
-    ['credentials in a URL', 'cloning https://bot:ghs_secret@github.com/acme/app.git', 'cloning https://[REDACTED]@github.com/acme/app.git'],
+    [
+      'credentials in a URL',
+      'cloning https://bot:ghs_secret@github.com/acme/app.git',
+      'cloning https://[REDACTED]@github.com/acme/app.git',
+    ],
     [
       'a private key block',
       'key:\n-----BEGIN RSA PRIVATE KEY-----\nMIIEow\nabc\n-----END RSA PRIVATE KEY-----\ndone',

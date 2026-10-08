@@ -41,6 +41,7 @@ import { PermissionsGuard, TokenPermission } from '../../auth/permissions.guard.
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { CloudAgentTurnService, type RunnerPrincipal } from './cloud-agent-turn.service.js';
+import { RunnerRateLimitGuard } from './runner-rate-limit.guard.js';
 
 type RunnerRequest = Request & { serviceTokenId?: string; serviceTokenWorkspaceId?: string };
 
@@ -53,11 +54,12 @@ function principal(request: RunnerRequest): RunnerPrincipal {
  * The runner API: exact agent-runner tokens of the path's workspace only.
  * `@RequirePermission(AgentRunnerRun)` is what the AuthGuard fence keys on;
  * `@WorkspaceRole('admin')` refuses a token whose creator left or was demoted;
- * AgentRunnerTokenGuard refuses human sessions, which PermissionsGuard passes.
+ * AgentRunnerTokenGuard refuses human sessions, which PermissionsGuard passes;
+ * RunnerRateLimitGuard limits requests per runner token.
  * Every `/turns/:turnId` route is fenced on the live lease token.
  */
 @Controller('workspaces/:workspaceId/agent-runner')
-@UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, AgentRunnerTokenGuard)
+@UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, AgentRunnerTokenGuard, RunnerRateLimitGuard)
 export class CloudAgentRunnerController {
   constructor(private readonly turns: CloudAgentTurnService) {}
 

@@ -148,6 +148,8 @@ export const CloudAgentRunErrorCode = {
   ArchiveNotFound: 'ARCHIVE_NOT_FOUND',
   /** A runner report that contradicts the run (a repository outside it, a push to an unreserved branch). */
   InvalidReport: 'INVALID_REPORT',
+  /** The runner token sent more requests than its rate limit allows. */
+  RateLimited: 'RATE_LIMITED',
 } as const;
 export type CloudAgentRunErrorCode = (typeof CloudAgentRunErrorCode)[keyof typeof CloudAgentRunErrorCode];
 
@@ -156,6 +158,7 @@ const ERROR_NAMES: Partial<Record<number, string>> = {
   404: 'Not Found',
   409: 'Conflict',
   413: 'Payload Too Large',
+  429: 'Too Many Requests',
 };
 
 /** A typed refusal: `{ statusCode, error, code, message }`, the shape the web client parses. */
