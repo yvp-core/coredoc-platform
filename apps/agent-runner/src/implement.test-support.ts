@@ -12,7 +12,12 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HookCallback, Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { AssignedRepository, SubmitResultRequest, TurnAssignment } from '@coredoc/core/agent-runner';
+import type {
+  AssignedRepository,
+  RequestRepoRequest,
+  SubmitResultRequest,
+  TurnAssignment,
+} from '@coredoc/core/agent-runner';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { assignment } from './fake-coredoc-api.test-support.js';
@@ -217,6 +222,8 @@ export function implementAssignment(repositories: AssignedRepository[], override
 
 /** What one fake session invocation does, in order. */
 export interface SessionStep {
+  /** `request_repo` calls, and work between them, before `act`; tool results land in `toolResults`. */
+  calls?: Array<RequestRepoRequest | ((cwd: string) => Promise<void>)>;
   /** Edits the agent makes; `cwd` is the work directory holding the clones. */
   act?: (cwd: string) => Promise<void>;
   submit?: SubmitResultRequest;
@@ -276,20 +283,31 @@ export function fakeImplementQuery(steps: SessionStep[], seen: SeenSession[]): Q
         flag: 'a',
       });
 
+      // The run-control tools over a real MCP client, connected on first use.
+      let client: Client | null = null;
+      const callTool = async (name: string, args: unknown) => {
+        if (!client) {
+          const server = options.mcpServers!.agent_run as { instance: { connect(transport: unknown): Promise<void> } };
+          const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+          await server.instance.connect(serverTransport);
+          client = new Client({ name: 'fake-claude-code', version: '0' });
+          await client.connect(clientTransport);
+        }
+        return client.callTool({ name, arguments: args as Record<string, unknown> });
+      };
+      for (const call of step.calls ?? []) {
+        if (typeof call === 'function') await call(options.cwd!);
+        else {
+          const answer = await callTool('request_repo', call);
+          record.toolResults.push(JSON.stringify({ isError: answer.isError ?? false, content: answer.content }));
+        }
+      }
       await step.act?.(options.cwd!);
       if (step.submit) {
-        const server = options.mcpServers!.agent_run as { instance: { connect(transport: unknown): Promise<void> } };
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await server.instance.connect(serverTransport);
-        const client = new Client({ name: 'fake-claude-code', version: '0' });
-        await client.connect(clientTransport);
-        const answer = await client.callTool({
-          name: 'submit_result',
-          arguments: step.submit as unknown as Record<string, unknown>,
-        });
+        const answer = await callTool('submit_result', step.submit);
         record.toolResults.push(JSON.stringify(answer.content));
-        await client.close();
       }
+      await (client as Client | null)?.close();
       if (step.untilStopped) {
         while (!options.abortController?.signal.aborted) {
           const denial = await preToolUse(options, 'Bash');

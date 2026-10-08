@@ -18,6 +18,9 @@ import {
   type ReportQuestionRequest,
   type ReportQuestionResponse,
   ReportQuestionResponseSchema,
+  type RequestRepoRequest,
+  type RequestRepoResponse,
+  RequestRepoResponseSchema,
   RUNNER_LEASE_HEADER,
   RunnerErrorBodySchema,
   RunnerErrorCode,
@@ -111,6 +114,12 @@ export class RunnerApiClient {
   async submitResult(turn: TurnRef, result: SubmitResultRequest): Promise<SubmitResultResponse> {
     const response = await this.post(`/turns/${turn.turnId}/submit-result`, result, turn.leaseToken);
     return SubmitResultResponseSchema.parse(await this.json(response));
+  }
+
+  /** `request_repo`: added (clone it), requested (a person decides), or rejected with errors for the agent. */
+  async requestRepo(turn: TurnRef, request: RequestRepoRequest): Promise<RequestRepoResponse> {
+    const response = await this.post(`/turns/${turn.turnId}/request-repo`, request, turn.leaseToken);
+    return RequestRepoResponseSchema.parse(await this.json(response));
   }
 
   /** Before the first push of the run branch to a repository: records that this run created it. */

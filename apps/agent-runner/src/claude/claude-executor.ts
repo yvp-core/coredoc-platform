@@ -8,7 +8,12 @@
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { HookCallback, Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { MAX_STATE_ARCHIVE_BYTES, type TurnAssignment, type TurnOutcome } from '@coredoc/core/agent-runner';
+import {
+  type AssignedRepository,
+  MAX_STATE_ARCHIVE_BYTES,
+  type TurnAssignment,
+  type TurnOutcome,
+} from '@coredoc/core/agent-runner';
 import { Git, gitEnvironment } from '../git/git.js';
 import { SecretScanner } from '../git/secret-scan.js';
 import { type Clone, TurnGit } from '../git/turn-git.js';
@@ -105,7 +110,7 @@ export class ClaudeExecutor implements TurnExecutor {
     const paths = turnPaths(this.options.scratchRoot, turn.run.id, turn.turn.id);
     try {
       // Before any session, in every turn: the bot must be neither admin nor maintainer where the run may work.
-      await this.checkBotPermissions(turn);
+      await this.checkBotPermissions(turn.repositories);
       await createTurnDirectories(paths);
       if (turn.hasStateArchive) await extractStateArchive(await io.downloadArchive(), paths.state);
       if (turn.turn.kind === 'implement') return await this.implementTurn(turn, io, paths);
@@ -123,14 +128,14 @@ export class ClaudeExecutor implements TurnExecutor {
     return this.options.bot;
   }
 
-  private async checkBotPermissions(turn: TurnAssignment): Promise<void> {
-    if (turn.repositories.length === 0) return;
+  private async checkBotPermissions(repositories: AssignedRepository[]): Promise<void> {
+    if (repositories.length === 0) return;
     const github = new GithubApi({
       token: this.requireBot().token,
       fetchImpl: this.options.githubFetch,
       retryDelay: this.options.retryDelay,
     });
-    for (const repository of turn.repositories) await github.checkBotPermissions(repository);
+    for (const repository of repositories) await github.checkBotPermissions(repository);
   }
 
   /**
@@ -159,12 +164,30 @@ export class ClaudeExecutor implements TurnExecutor {
     const resume = sessionExists(paths, turn.run.sessionId);
     const firstPrompt = implementPrompt(turn, specPath, clones.map(promptClone));
     const prompt = resume
-      ? (turn.turn.inputText ?? 'Continue where you stopped.')
+      ? resumeInput(turn, clones)
       : turn.turn.inputText
         ? `${firstPrompt}\n\n${turn.turn.inputText}`
         : firstPrompt;
 
     const control: RunControlState = { proposedVersion: null, submitted: false };
+    // request_repo under automatic acceptance: the server added the repository, so clone it mid-turn.
+    let cloneFailure: TurnFailure | null = null;
+    control.cloneRepository = async (repository) => {
+      const cloned = clones.find((clone) => clone.repository.key === repository.key);
+      if (cloned) return cloned.dir;
+      try {
+        await this.checkBotPermissions([repository]);
+        const [clone] = await turnGit.prepare([repository], paths.work);
+        clones.push(clone!);
+        return clone!.dir;
+      } catch (error) {
+        if (error instanceof TurnFailure) {
+          cloneFailure ??= error;
+          control.endTurn?.(`${error.message} The run cannot continue; end your turn now.`);
+        }
+        throw error;
+      }
+    };
     const limits: SessionLimits = {
       deadlineAt: Date.now() + turn.run.maxTurnDurationSeconds * 1000,
       budgetUsd: turn.run.remainingSpendUsd,
@@ -176,6 +199,7 @@ export class ClaudeExecutor implements TurnExecutor {
       const spend = spendOf(result, turn);
       const lastMessage = lastMessageOf(result);
       if (io.signal.aborted) return { spend };
+      if (cloneFailure) return { spend, outcome: failed(cloneFailure), repositories: turnGit.untouchedReports(clones) };
       // Classified from the runner's own state: a recorded result outlives a late SDK error.
       if (session.failure && (session.failure.code !== 'agent_error' || !control.submitted)) {
         return {
@@ -188,7 +212,11 @@ export class ClaudeExecutor implements TurnExecutor {
       if (published.kind === 'failed') return { spend, outcome: published.outcome, repositories: published.reports };
       if (published.kind === 'published') {
         // A parked question pauses the run with the work pushed; a checkpoint continues it.
-        const checkpoint = !control.submitted && questions.state.parkedQuestion === null && session.checkpoint;
+        const checkpoint =
+          !control.submitted &&
+          !control.repositoryRequested &&
+          questions.state.parkedQuestion === null &&
+          session.checkpoint;
         const outcome: TurnOutcome = checkpoint ? { kind: 'checkpoint' } : { kind: 'ended' };
         const archived = await this.uploadState(paths, io);
         return { spend, outcome: archived ?? outcome, repositories: published.reports, lastMessage };
@@ -555,6 +583,15 @@ function promptClone(clone: Clone) {
     mergeOrder: clone.repository.mergeOrder,
     withheldPaths: clone.repository.withheldPaths,
   };
+}
+
+/** A resumed implement turn's message: after a person added a repository, where its clone is. */
+function resumeInput(turn: TurnAssignment, clones: Clone[]): string {
+  const decision = turn.repositoryDecision;
+  const clone = decision?.added ? clones.find((candidate) => candidate.repository.key === decision.key) : undefined;
+  if (clone)
+    return `Repository \`${clone.repository.key}\` is now cloned at \`${clone.dir}\`. Continue where you stopped.`;
+  return turn.turn.inputText ?? 'Continue where you stopped.';
 }
 
 /** The re-invocation after a blocked scan: paths and rule ids only, never the matched text. */

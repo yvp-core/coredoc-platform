@@ -2,10 +2,17 @@
  * The in-process run-control MCP server. Its name has no "coredoc" segment:
  * the plugin counts calls to any "coredoc" server as Coredoc MCP writes.
  * Each tool forwards to the runner API and returns the server's verdict.
- * `propose_scope` exists in scope turns, `submit_result` in implement turns.
+ * `propose_scope` exists in scope turns, `request_repo` and `submit_result`
+ * in implement turns.
  */
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
-import { ProposeScopeRequestSchema, SubmitResultRequestSchema, type TurnKind } from '@coredoc/core/agent-runner';
+import {
+  type AssignedRepository,
+  ProposeScopeRequestSchema,
+  RequestRepoRequestSchema,
+  SubmitResultRequestSchema,
+  type TurnKind,
+} from '@coredoc/core/agent-runner';
 import type { TurnIO } from '../runner.js';
 
 export const RUN_CONTROL_SERVER = 'agent_run';
@@ -15,6 +22,14 @@ export interface RunControlState {
   proposedVersion: number | null;
   /** True once the server recorded this turn's `submit_result`. */
   submitted: boolean;
+  /** True once the server parked this turn's `request_repo` for a person's decision. */
+  repositoryRequested?: boolean;
+  /**
+   * Clones a repository the server added to the run (or returns the clone
+   * this turn already has) and gives its path. Set by implement turns; it
+   * throws when the repository cannot be used, which fails the turn.
+   */
+  cloneRepository?: (repository: AssignedRepository) => Promise<string>;
   /**
    * Set by the session to end the turn: further tool calls are refused with
    * the reason, and the session is stopped if it does not end by itself.
@@ -24,6 +39,9 @@ export interface RunControlState {
 
 export const TURN_OVER_AFTER_RESULT =
   'Your result is recorded and your turn is over: the runner now commits and pushes your changes. Do not call any more tools; end your turn now.';
+
+export const TURN_OVER_AFTER_REQUEST =
+  'Your repository request is recorded and a person decides whether to add it; your turn is over. The runner now commits and pushes your changes, and the decision arrives when your session resumes. Do not call any more tools; end your turn now.';
 
 function rejected(name: string, errors: string[]) {
   return {
@@ -68,10 +86,39 @@ export function runControlServer(io: TurnIO, state: RunControlState, kind: TurnK
       return { content: [{ type: 'text', text: TURN_OVER_AFTER_RESULT }] };
     },
   );
+  const requestRepo = tool(
+    'request_repo',
+    'Ask for a repository the accepted scope left out, by its durable repository key, with the reason. It answers with the path of its clone, or says a person decides (which ends your turn), or lists the rules the request broke.',
+    RequestRepoRequestSchema.shape,
+    async (args) => {
+      const answer = await io.requestRepo(args);
+      if (answer.state === 'rejected') return rejected('request_repo', answer.errors);
+      if (answer.state === 'requested') {
+        state.repositoryRequested = true;
+        state.endTurn?.(TURN_OVER_AFTER_REQUEST);
+        return { content: [{ type: 'text', text: TURN_OVER_AFTER_REQUEST }] };
+      }
+      let path: string;
+      try {
+        path = await state.cloneRepository!(answer.repository);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return { isError: true, content: [{ type: 'text', text: `${reason} Your turn is over; end it now.` }] };
+      }
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Repository ${answer.repository.key} is in this run and cloned at ${path}, on the run branch. Set it up and work in it like the other repositories.`,
+          },
+        ],
+      };
+    },
+  );
   return createSdkMcpServer({
     name: RUN_CONTROL_SERVER,
     version: '1.0.0',
     alwaysLoad: true,
-    tools: kind === 'implement' ? [submitResult] : [proposeScope],
+    tools: kind === 'implement' ? [requestRepo, submitResult] : [proposeScope],
   });
 }

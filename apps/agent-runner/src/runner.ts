@@ -9,6 +9,8 @@ import {
   type RepositoryReport,
   type ReportQuestionRequest,
   type ReportQuestionResponse,
+  type RequestRepoRequest,
+  type RequestRepoResponse,
   RUNNER_PROTOCOL_VERSION,
   type RunnerEvent,
   type RunnerVersions,
@@ -28,6 +30,8 @@ export interface TurnIO {
   proposeScope(proposal: ProposeScopeRequest): Promise<ProposeScopeResponse>;
   /** Implement turns' result; validation errors come back for the agent to fix. */
   submitResult(result: SubmitResultRequest): Promise<SubmitResultResponse>;
+  /** `request_repo`; the server appends the repository, parks the request for a person, or rejects it. */
+  requestRepo(request: RequestRepoRequest): Promise<RequestRepoResponse>;
   /** Records that this run creates the run branch in a repository; called before its first push there. */
   reserveBranch(repository: string): Promise<void>;
   /** Report an AskUserQuestion call; the server answers by the run's questions policy. */
@@ -186,6 +190,11 @@ export class Runner {
         },
         proposeScope: (proposal) => this.options.api.proposeScope(ref, proposal),
         submitResult: (submitted) => this.options.api.submitResult(ref, submitted),
+        requestRepo: async (requested) => {
+          const answer = await this.options.api.requestRepo(ref, requested);
+          if (answer.stop) stop('stopped');
+          return answer;
+        },
         reserveBranch: async (repository) => {
           await this.options.api.reserveBranch(ref, { repository });
         },
