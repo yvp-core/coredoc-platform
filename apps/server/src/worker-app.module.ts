@@ -3,6 +3,10 @@ import { ConfigModule } from '@nestjs/config';
 import { AppConfigModule } from './config/app-config.module.js';
 import { DatabaseModule } from './database/database.module.js';
 import { CaptureWorkerScheduleModule } from './modules/capture/capture.module.js';
+import {
+  CloudAgentRunsCoreModule,
+  CloudAgentRunsWorkerScheduleModule,
+} from './modules/cloud-agent-runs/cloud-agent-runs.module.js';
 import { DeliveryCoreModule, DeliveryWorkerScheduleModule } from './modules/delivery/delivery.module.js';
 import { IntentWorkerScheduleModule } from './modules/intent/intent.module.js';
 import { JobsWorkerModule } from './modules/jobs/jobs.module.js';
@@ -30,6 +34,8 @@ import { TelemetryModule } from './modules/telemetry/telemetry.module.js';
     MetricsWorkerScheduleModule,
     DeliveryCoreModule,
     DeliveryWorkerScheduleModule,
+    CloudAgentRunsCoreModule,
+    CloudAgentRunsWorkerScheduleModule,
     PushCoreModule,
     JobsWorkerModule,
     IntentWorkerScheduleModule,

@@ -54,6 +54,11 @@ export const ServerEventType = {
 export const CloudAgentRunErrorCode = {
   ActiveRunExists: 'ACTIVE_RUN_EXISTS',
   AgentRunsDisabled: 'AGENT_RUNS_DISABLED',
+  AgentRunsUnavailable: 'AGENT_RUNS_UNAVAILABLE',
+  IssueNotReadable: 'ISSUE_NOT_READABLE',
+  UnknownRepository: 'UNKNOWN_REPOSITORY',
+  TooManyRepositories: 'TOO_MANY_REPOSITORIES',
+  RunNotTerminal: 'RUN_NOT_TERMINAL',
   RunNotFound: 'RUN_NOT_FOUND',
   LeaseLost: 'LEASE_LOST',
   RunnerIncompatible: 'RUNNER_INCOMPATIBLE',

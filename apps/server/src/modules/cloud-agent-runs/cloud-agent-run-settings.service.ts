@@ -1,9 +1,11 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { AgentRunSettings } from '../../generated/prisma/client.js';
 import { AGENT_RUNNER_TOKEN_PERMISSIONS } from '../../auth/token-permissions.js';
+import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
+import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
 import type { UpdateSettingsInput } from './cloud-agent-runs.contract.js';
-import { RunnerRefusal } from './run-states.js';
+import { CloudAgentRunErrorCode, cloudAgentRunError, RunnerRefusal } from './run-states.js';
 import { CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock } from './run-store.js';
 
 const ADMIN_ROLES = new Set(['admin', 'owner']);
@@ -35,6 +37,8 @@ function defaultSettings(workspaceId: string): AgentRunSettings {
 export class CloudAgentRunSettingsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly availability: CloudAgentRunAvailability,
+    private readonly repositories: GithubRepositoryResolver,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
   ) {}
 
@@ -43,16 +47,33 @@ export class CloudAgentRunSettingsService {
   }
 
   /**
-   * Switching on records the caller as run owner; so does an explicit takeover.
-   * Saving anything else never changes the owner.
+   * Switching on needs agent runs to be available, and records the caller as
+   * run owner; so does an explicit takeover. Saving anything else never
+   * changes the owner.
    */
   async update(workspaceId: string, actorId: string, input: UpdateSettingsInput) {
+    const { enabled, takeOverOwnership, doneStatus, ...values } = input;
+    const before = await this.get(workspaceId);
+    if (enabled === true && !before.enabled) {
+      const availability = await this.availability.check(workspaceId, before);
+      if (!availability.available) {
+        throw cloudAgentRunError(
+          CloudAgentRunErrorCode.AgentRunsUnavailable,
+          `Agent runs cannot be switched on: ${availability.reasons.map((reason) => reason.message).join(' ')}`,
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
     await this.prisma.$transaction(async (tx) => {
       const current = await tx.agentRunSettings.findUnique({ where: { workspaceId } });
-      const switchingOn = input.enabled === true && !current?.enabled;
-      const runOwnerId = switchingOn || input.takeOverOwnership ? actorId : (current?.runOwnerId ?? null);
+      const switchingOn = enabled === true && !current?.enabled;
+      const runOwnerId = switchingOn || takeOverOwnership ? actorId : (current?.runOwnerId ?? null);
       const data = {
-        ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+        ...values,
+        ...(enabled === undefined ? {} : { enabled }),
+        ...(doneStatus === undefined
+          ? {}
+          : { doneStatusId: doneStatus?.id ?? null, doneStatusName: doneStatus?.name ?? null }),
         runOwnerId,
         updatedBy: actorId,
         updatedAt: this.now(),
@@ -62,9 +83,17 @@ export class CloudAgentRunSettingsService {
     return this.view(workspaceId);
   }
 
-  /** The settings page: values, the run owner with its validity, and every runner token with its last report. */
+  /**
+   * The settings page: values, availability and trigger readiness with
+   * reasons, the run owner with its validity, every runner token with its last
+   * report, and the repositories with their keys and eligibility.
+   */
   async view(workspaceId: string) {
     const settings = await this.get(workspaceId);
+    const [availability, repositories] = await Promise.all([
+      this.availability.check(workspaceId, settings),
+      this.repositories.eligibility(workspaceId),
+    ]);
     const tokens = await this.prisma.serviceToken.findMany({
       where: { workspaceId, owningTurnId: null, permissions: { equals: [...AGENT_RUNNER_TOKEN_PERMISSIONS] } },
       orderBy: { createdAt: 'asc' },
@@ -104,6 +133,16 @@ export class CloudAgentRunSettingsService {
       maxStartedRuns: settings.maxStartedRuns,
       maxRepositories: settings.maxRepositories,
       model: settings.model,
+      availability: { available: availability.available, reasons: availability.reasons },
+      trigger: availability.trigger,
+      repositories: repositories
+        .map(({ repo, resolution }) => ({
+          key: repo.intentRepoKey,
+          name: repo.repoName,
+          eligible: resolution.status === 'resolved',
+          reason: resolution.status === 'resolved' ? null : resolution.reason,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
       runnerTokens: tokens.map((token) => {
         const creator = members.get(token.createdBy);
         const seen = token.runnerSeen;
