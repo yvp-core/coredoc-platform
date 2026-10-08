@@ -1,8 +1,14 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 
 import { ApiError } from '@/api/client';
-import { agentRunQueryOptions, agentRunTimelineQueryOptions, rerunAgentRun } from '@/api/queries/agent-runs';
+import {
+  agentRunQueryOptions,
+  agentRunTimelineQueryOptions,
+  cancelAgentRun,
+  rerunAgentRun,
+} from '@/api/queries/agent-runs';
 import { meQueryOptions } from '@/api/queries/me';
 import { EmptyNote } from '@/components/empty-note';
 import { PageHead } from '@/components/page-head';
@@ -68,12 +74,60 @@ function RerunAction({ wsId, slug, run }: { wsId: string; slug: string; run: Age
   );
 }
 
+/**
+ * Any member can cancel a run that has not ended, after confirming: its turn
+ * is abandoned and a runner working on it stops at its next heartbeat.
+ */
+function CancelAction({ wsId, run }: { wsId: string; run: AgentRun }) {
+  const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const mutation = useMutation({
+    mutationFn: cancelAgentRun,
+    onSuccess: () => {
+      setConfirming(false);
+      void queryClient.invalidateQueries({ queryKey: ['ws', wsId, 'agent-runs', run.id] });
+      void queryClient.invalidateQueries({ queryKey: ['ws', wsId, 'agent-runs', 'list'] });
+    },
+  });
+  if (isTerminalStatus(run.status)) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {confirming ? (
+        <>
+          <span className="text-[13px] text-ink-2">Cancel this run? Work already pushed stays on its branches.</span>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={mutation.isPending}
+            onClick={() => mutation.mutate({ wsId, runId: run.id })}
+          >
+            {mutation.isPending ? 'Cancelling…' : 'Confirm cancel'}
+          </Button>
+          <Button size="sm" variant="ghost" disabled={mutation.isPending} onClick={() => setConfirming(false)}>
+            Keep running
+          </Button>
+        </>
+      ) : (
+        <Button size="sm" variant="outline" onClick={() => setConfirming(true)}>
+          Cancel run
+        </Button>
+      )}
+      {mutation.error && (
+        <span className="text-[13px] text-danger-text">
+          {mutation.error instanceof ApiError ? mutation.error.message : 'Failed to cancel'}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function RunHeader({ wsId, slug, run }: { wsId: string; slug: string; run: AgentRun }) {
   const waiting = waitingForRunnerSince(run);
   return (
     <Card>
       <CardBody className="flex flex-col gap-3">
         <RerunAction wsId={wsId} slug={slug} run={run} />
+        <CancelAction wsId={wsId} run={run} />
         {waiting && (
           <p className="rounded-lg bg-warn-wash px-3 py-2 text-[13px] text-warn-text">
             Waiting for an agent runner since {formatRelativeTime(waiting)}.

@@ -183,6 +183,10 @@ beforeEach(() => {
           }
           return new Response(JSON.stringify(detail));
         }
+        if (path.endsWith('/cancel')) {
+          detail = { ...detail, status: 'cancelled', currentTurn: null };
+          return new Response(JSON.stringify(detail));
+        }
         if (path.endsWith('/rerun')) {
           return new Response(JSON.stringify(run({ id: RERUN_ID, trigger: 'rerun', previousRunId: RUN_ID })), {
             status: 201,
@@ -304,6 +308,30 @@ describe('agent runs routes', () => {
     mount(`/w/acme/agent-runs/${RUN_ID}`);
     expect(await screen.findByRole('heading', { name: 'PROJ-7' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Re-run' })).toBeNull();
+  });
+
+  it('cancels an active run once the member confirms, and then offers a re-run', async () => {
+    mount(`/w/acme/agent-runs/${RUN_ID}`);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel run' }));
+    expect(posts).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Keep running' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel run' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm cancel' }));
+
+    await waitFor(() =>
+      expect(posts).toEqual([{ path: `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/cancel`, body: undefined }]),
+    );
+    expect(await screen.findByRole('button', { name: 'Re-run' })).toBeInTheDocument();
+    expect(screen.getAllByText('Cancelled').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Cancel run' })).toBeNull();
+  });
+
+  it('offers no cancel once the run has ended', async () => {
+    detail = run({ status: 'done', currentTurn: null });
+    mount(`/w/acme/agent-runs/${RUN_ID}`);
+    expect(await screen.findByRole('button', { name: 'Re-run' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel run' })).toBeNull();
   });
 
   describe('questions', () => {

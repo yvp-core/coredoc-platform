@@ -110,6 +110,11 @@ export function answerAgentRunQuestion(params: {
   });
 }
 
+/** Cancel a run that has not ended; a run that already ended is refused with RUN_TERMINAL. */
+export function cancelAgentRun(params: { wsId: string; runId: string }): Promise<AgentRunDetail> {
+  return request<AgentRunDetail>(`${base(params.wsId)}/${params.runId}/cancel`, { method: 'POST' });
+}
+
 /** A new run for the same issue from a terminal run. */
 export function rerunAgentRun(params: { wsId: string; runId: string }): Promise<AgentRun> {
   return request<AgentRun>(`${base(params.wsId)}/${params.runId}/rerun`, { method: 'POST' });

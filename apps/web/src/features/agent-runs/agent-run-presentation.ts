@@ -70,6 +70,7 @@ const TURN_OUTCOME_WORDS: Record<string, string> = {
   no_outcome: 'without an outcome',
   question_asked: 'with a question for a person',
   scope_proposed: 'with a scope proposal',
+  runner_lost: 'after its runner stopped responding',
 };
 
 function describeEvent(event: AgentRunEvent): string {
