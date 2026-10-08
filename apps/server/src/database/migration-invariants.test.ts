@@ -2,7 +2,18 @@ import { readdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const ACTIVE_PUSH_INDEX = 'push_jobs_one_active_push_per_repo';
+/**
+ * Hand-written partial indexes Prisma cannot represent: `prisma migrate dev`
+ * proposes dropping them, and code depends on each one for correctness.
+ */
+const HAND_WRITTEN_PARTIAL_INDEXES = [
+  // Enqueue's P2002 race handling in push-queue.service.ts.
+  { name: 'push_jobs_one_active_push_per_repo', migration: '20260804000000_cloud_push_reliability' },
+  // ACTIVE_RUN_EXISTS: one non-terminal cloud agent run per workspace and Jira issue.
+  { name: 'cloud_agent_runs_one_open_run_per_issue', migration: '20261010120000_cloud_agent_runs' },
+  // One queued or claimed turn per run.
+  { name: 'cloud_agent_run_turns_one_pending_turn_per_run', migration: '20261010120000_cloud_agent_runs' },
+];
 
 describe('database migration invariants', () => {
   it('keeps the legacy agent-session key valid for application rollback', async () => {
@@ -43,23 +54,26 @@ describe('database migration invariants', () => {
     expect(sql).not.toMatch(/"active"\s+BOOLEAN/i);
   });
 
-  it('keeps the hand-written active-push partial index in the migration history', async () => {
-    const migrationsDir = resolve(process.cwd(), 'prisma/migrations');
-    const migrationNames = (await readdir(migrationsDir)).sort();
-    let createMigration: string | null = null;
+  it.each(HAND_WRITTEN_PARTIAL_INDEXES)(
+    'keeps the hand-written partial index $name in the migration history',
+    async ({ name, migration }) => {
+      const migrationsDir = resolve(process.cwd(), 'prisma/migrations');
+      const migrationNames = (await readdir(migrationsDir)).sort();
+      let createMigration: string | null = null;
 
-    for (const migrationName of migrationNames) {
-      const sql = await readFile(resolve(migrationsDir, migrationName, 'migration.sql'), 'utf8').catch(() => '');
-      if (sql.includes(`CREATE UNIQUE INDEX "${ACTIVE_PUSH_INDEX}"`)) createMigration = migrationName;
-      if (createMigration && sql.includes(`DROP INDEX "${ACTIVE_PUSH_INDEX}"`)) {
-        throw new Error(
-          `${migrationName} drops ${ACTIVE_PUSH_INDEX}; Prisma cannot represent this partial index, so recreate it in the same migration`,
-        );
+      for (const migrationName of migrationNames) {
+        const sql = await readFile(resolve(migrationsDir, migrationName, 'migration.sql'), 'utf8').catch(() => '');
+        if (sql.includes(`CREATE UNIQUE INDEX "${name}"`)) createMigration = migrationName;
+        if (createMigration && sql.includes(`DROP INDEX "${name}"`)) {
+          throw new Error(
+            `${migrationName} drops ${name}; Prisma cannot represent this partial index, so recreate it in the same migration`,
+          );
+        }
       }
-    }
 
-    expect(createMigration).toBe('20260804000000_cloud_push_reliability');
-  });
+      expect(createMigration).toBe(migration);
+    },
+  );
 
   it('adds canonical delivery tasks and stage occurrences without replacing legacy delivery rows', async () => {
     const migration = await readFile(
@@ -93,7 +107,7 @@ describe('database migration invariants', () => {
     );
     const sql = await readFile(migrationPath, 'utf8');
     const dedupe = sql.indexOf('row_number() OVER');
-    const createIndex = sql.indexOf(`CREATE UNIQUE INDEX "${ACTIVE_PUSH_INDEX}"`);
+    const createIndex = sql.indexOf(`CREATE UNIQUE INDEX "push_jobs_one_active_push_per_repo"`);
 
     expect(dedupe).toBeGreaterThanOrEqual(0);
     expect(createIndex).toBeGreaterThan(dedupe);
