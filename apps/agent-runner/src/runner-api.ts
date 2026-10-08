@@ -10,6 +10,9 @@ import {
   EventBatchResponseSchema,
   type HeartbeatResponse,
   HeartbeatResponseSchema,
+  type ProposeScopeRequest,
+  type ProposeScopeResponse,
+  ProposeScopeResponseSchema,
   RUNNER_LEASE_HEADER,
   RunnerErrorBodySchema,
   RunnerErrorCode,
@@ -90,16 +93,48 @@ export class RunnerApiClient {
     CompleteTurnResponseSchema.parse(await this.json(response));
   }
 
-  private async post(path: string, body: unknown, leaseToken?: string): Promise<Response> {
+  /** `propose_scope`; broken rules come back as `accepted: false` for the agent to fix. */
+  async proposeScope(turn: TurnRef, proposal: ProposeScopeRequest): Promise<ProposeScopeResponse> {
+    const response = await this.post(`/turns/${turn.turnId}/propose-scope`, proposal, turn.leaseToken);
+    return ProposeScopeResponseSchema.parse(await this.json(response));
+  }
+
+  /** The run's previous state archive (gzip tar), fetched with the live lease. */
+  async downloadArchive(turn: TurnRef): Promise<Buffer> {
+    const response = await this.send('GET', `/turns/${turn.turnId}/archive`, undefined, turn.leaseToken, 600_000);
+    return Buffer.from(await response.arrayBuffer());
+  }
+
+  async uploadArchive(turn: TurnRef, archive: Buffer): Promise<void> {
+    await this.send('PUT', `/turns/${turn.turnId}/archive`, archive, turn.leaseToken, 600_000);
+  }
+
+  /** The base URL the runner reaches Coredoc on; the MCP path in an assignment resolves against it. */
+  resolve(path: string): string {
+    return new URL(path, `${this.options.baseUrl.replace(/\/+$/, '')}/`).toString();
+  }
+
+  private post(path: string, body: unknown, leaseToken?: string): Promise<Response> {
+    return this.send('POST', path, body, leaseToken);
+  }
+
+  private async send(
+    method: 'GET' | 'POST' | 'PUT',
+    path: string,
+    body: unknown,
+    leaseToken?: string,
+    timeoutMs = 30_000,
+  ): Promise<Response> {
+    const binary = Buffer.isBuffer(body);
     const response = await this.fetchImpl(`${this.base}${path}`, {
-      method: 'POST',
+      method,
       headers: {
         authorization: `Bearer ${this.options.token}`,
-        'content-type': 'application/json',
+        ...(body === undefined ? {} : { 'content-type': binary ? 'application/octet-stream' : 'application/json' }),
         ...(leaseToken ? { [RUNNER_LEASE_HEADER]: leaseToken } : {}),
       },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30_000),
+      body: body === undefined ? undefined : binary ? new Uint8Array(body) : JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (response.ok) return response;
 

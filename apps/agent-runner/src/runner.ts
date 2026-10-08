@@ -4,10 +4,13 @@
  * run is over or the lease is gone. One turn at a time per process.
  */
 import {
+  type ProposeScopeRequest,
+  type ProposeScopeResponse,
   RUNNER_PROTOCOL_VERSION,
   type RunnerEvent,
   type RunnerVersions,
   type TurnAssignment,
+  type TurnOutcome,
 } from '@coredoc/core/agent-runner';
 import { LeaseLostError, type RunnerApiClient, type TurnRef } from './runner-api.js';
 
@@ -16,16 +19,29 @@ export interface TurnIO {
   emit(events: RunnerEvent[]): Promise<void>;
   /** Aborted when the server answers `stop` or the lease is lost: end the session at once. */
   signal: AbortSignal;
+  /** The run-control call; validation errors come back for the agent to fix. */
+  proposeScope(proposal: ProposeScopeRequest): Promise<ProposeScopeResponse>;
+  /** The run's previous state archive; call only when the assignment says one exists. */
+  downloadArchive(): Promise<Buffer>;
+  uploadArchive(archive: Buffer): Promise<void>;
 }
 
 export interface TurnResult {
   /** Spend the SDK reported for this turn; null when unknown. */
   spend: { costUsd: number; sdkTurns?: number } | null;
+  /** Defaults to `ended`: the server judges the turn from what it reported. */
+  outcome?: TurnOutcome;
 }
 
-/** What does the work of a turn. Ticket 04 adds the Claude Code executor. */
+/** What does the work of a turn: the Claude Code executor in production. */
 export interface TurnExecutor {
   run(turn: TurnAssignment, io: TurnIO): Promise<TurnResult>;
+}
+
+/** The start-up check: versions to log and report, and why the runner cannot work, if it cannot. */
+export interface StartupReport {
+  versions: RunnerVersions;
+  problem: string | null;
 }
 
 export type TurnEnd = 'idle' | 'completed' | 'stopped' | 'lease_lost';
@@ -38,19 +54,28 @@ export interface RunnerOptions {
   heartbeatIntervalMs?: number;
   /** Spec: claim every 5 s while idle. */
   idlePollMs?: number;
+  /**
+   * Run before claiming: while it reports a problem the runner claims
+   * nothing and checks again after `startupRetryMs`.
+   */
+  startupCheck?: () => Promise<StartupReport>;
+  startupRetryMs?: number;
   log?: (message: string) => void;
 }
 
 const HEARTBEAT_INTERVAL_MS = 20_000;
 const IDLE_POLL_MS = 5_000;
 const ERROR_BACKOFF_MS = 30_000;
+const STARTUP_RETRY_MS = 60_000;
 
 export class Runner {
   private readonly heartbeatIntervalMs: number;
   private readonly idlePollMs: number;
   private readonly log: (message: string) => void;
+  private versions: RunnerVersions;
 
   constructor(private readonly options: RunnerOptions) {
+    this.versions = options.versions;
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS;
     this.idlePollMs = options.idlePollMs ?? IDLE_POLL_MS;
     this.log = options.log ?? (() => undefined);
@@ -60,7 +85,7 @@ export class Runner {
   async runOnce(): Promise<TurnEnd> {
     const turn = await this.options.api.claim({
       protocolVersion: RUNNER_PROTOCOL_VERSION,
-      versions: this.options.versions,
+      versions: this.versions,
     });
     if (!turn) return 'idle';
     this.log(
@@ -69,8 +94,32 @@ export class Runner {
     return this.execute(turn);
   }
 
+  /**
+   * The start-up check: log the versions and whether the SDK and the plugin
+   * are usable. Returns false (claim nothing) while they are not.
+   */
+  async checkStartup(): Promise<boolean> {
+    if (!this.options.startupCheck) return true;
+    let report: StartupReport;
+    try {
+      report = await this.options.startupCheck();
+    } catch (error) {
+      report = { versions: this.versions, problem: error instanceof Error ? error.message : String(error) };
+    }
+    this.versions = { ...this.versions, ...report.versions };
+    const { runner, sdk, claudeCode, plugin } = this.versions;
+    this.log(
+      `versions: runner ${runner}, sdk ${sdk ?? '?'}, claude code ${claudeCode ?? '?'}, plugin ${plugin ?? '?'}`,
+    );
+    if (report.problem) this.log(`start-up check failed; claiming nothing: ${report.problem}`);
+    return report.problem === null;
+  }
+
   /** Poll and run turns until `signal` aborts (shutdown). */
   async start(signal: AbortSignal): Promise<void> {
+    while (!signal.aborted && !(await this.checkStartup())) {
+      await sleep(this.options.startupRetryMs ?? STARTUP_RETRY_MS, signal);
+    }
     while (!signal.aborted) {
       let end: TurnEnd;
       try {
@@ -95,7 +144,7 @@ export class Runner {
     };
 
     const heartbeat = setInterval(() => {
-      this.options.api.heartbeat(ref, this.options.versions).then(
+      this.options.api.heartbeat(ref, this.versions).then(
         (answer) => {
           if (answer.stop) stop('stopped');
         },
@@ -120,14 +169,17 @@ export class Runner {
             else throw error;
           }
         },
+        proposeScope: (proposal) => this.options.api.proposeScope(ref, proposal),
+        downloadArchive: () => this.options.api.downloadArchive(ref),
+        uploadArchive: (archive) => this.options.api.uploadArchive(ref, archive),
       };
       const result = await this.options.executor.run(assignment, io);
       if (end) return end;
 
       await this.options.api.complete(ref, {
-        outcome: { kind: 'ended' },
+        outcome: result.outcome ?? { kind: 'ended' },
         spend: result.spend,
-        versions: this.options.versions,
+        versions: this.versions,
       });
       return 'completed';
     } catch (error) {
