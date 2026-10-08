@@ -78,13 +78,13 @@ model Workspace {
   intentAuditEvents      IntentAuditEvent[]
   intentMutationRequests IntentMutationRequest[]
 
-  cloudAgentRuns      CloudAgentRun[]
-  cloudAgentRunTurns  CloudAgentRunTurn[]
-  cloudAgentRunEvents CloudAgentRunEvent[]
-  cloudAgentRunSpecs  CloudAgentRunSpecVersion[]
+  cloudAgentRuns         CloudAgentRun[]
+  cloudAgentRunTurns     CloudAgentRunTurn[]
+  cloudAgentRunEvents    CloudAgentRunEvent[]
+  cloudAgentRunSpecs     CloudAgentRunSpecVersion[]
   cloudAgentRunQuestions CloudAgentRunQuestion[]
-  agentRunSettings    AgentRunSettings?
-  agentRunnersSeen    AgentRunnerSeen[]
+  agentRunSettings       AgentRunSettings?
+  agentRunnersSeen       AgentRunnerSeen[]
 
   @@map("workspaces")
 }
@@ -1703,6 +1703,8 @@ model CloudAgentRun {
   jiraOutcome            Json      @default("{}") @map("jira_outcome") @db.JsonB
   assumptions            Json      @default("[]") @db.JsonB
   outcomeLessCount       Int       @default(0) @map("outcome_less_count")
+  /// The implement phase's adopted `submit_result`: summary, per-repository summaries, notes.
+  result                 Json?     @db.JsonB
   /// Last timeline sequence number handed out; the run row serialises numbering.
   lastEventSeq           Int       @default(0) @map("last_event_seq")
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
@@ -1745,6 +1747,8 @@ model CloudAgentRunTurn {
   runnerVersions   Json?     @map("runner_versions") @db.JsonB
   /// The state archive this turn uploaded; becomes the run's archive when the turn completes.
   stateArchiveKey  String?   @map("state_archive_key") @db.VarChar(1024)
+  /// This turn's `submit_result`; the completion transaction adopts it.
+  result           Json?     @db.JsonB
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
   completedAt      DateTime? @map("completed_at") @db.Timestamptz
 

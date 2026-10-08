@@ -46,6 +46,10 @@ export const TurnOutcome = {
   ScopeProposed: 'scope_proposed',
   /** Ended with a question parked for a person (pause policy). */
   QuestionAsked: 'question_asked',
+  /** Reached the duration limit or the SDK turn cap: continued, neither counted nor resetting the nudge rule. */
+  Checkpoint: 'checkpoint',
+  /** Ended after a valid `submit_result`. */
+  ResultSubmitted: 'result_submitted',
 } as const;
 
 export const QuestionKind = { Clarification: 'clarification', RepositoryRequest: 'repository_request' } as const;
@@ -104,6 +108,8 @@ export const RunEventCode = {
   ScopeProposed: 'scope_proposed',
   ScopeAccepted: 'scope_accepted',
   ChangesRequested: 'changes_requested',
+  BranchPushed: 'branch_pushed',
+  WorkflowDiffWithheld: 'workflow_diff_withheld',
 } as const;
 
 /** Server-owned timeline events; agent events (`phase`, `todos`, `raw`, `done`) come from the runner contract. */
@@ -138,6 +144,8 @@ export const CloudAgentRunErrorCode = {
   QuestionNotFound: 'QUESTION_NOT_FOUND',
   ArchiveTooLarge: 'ARCHIVE_TOO_LARGE',
   ArchiveNotFound: 'ARCHIVE_NOT_FOUND',
+  /** A runner report that contradicts the run (a repository outside it, a push to an unreserved branch). */
+  InvalidReport: 'INVALID_REPORT',
 } as const;
 export type CloudAgentRunErrorCode = (typeof CloudAgentRunErrorCode)[keyof typeof CloudAgentRunErrorCode];
 

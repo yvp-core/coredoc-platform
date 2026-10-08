@@ -56,6 +56,10 @@ export interface RunRepository {
   touched: boolean;
   lastPushedHead: string | null;
   notBuiltOrTested: string | null;
+  /** Paths the latest implement turn withheld from the push. */
+  withheldPaths?: string[];
+  /** Binary files the secret scan could not review, for a person to check. */
+  binaryPaths?: string[];
 }
 
 /**

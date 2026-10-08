@@ -23,9 +23,13 @@ import {
   ProposeScopeRequestSchema,
   type ReportQuestion,
   ReportQuestionRequestSchema,
+  type ReserveBranchRequest,
+  ReserveBranchRequestSchema,
   RUNNER_LEASE_HEADER,
+  type SubmitResult,
+  SubmitResultRequestSchema,
   type ClaimRequest,
-  type CompleteTurnRequest,
+  type CompleteTurn,
   type EventBatch,
   type HeartbeatRequest,
 } from '@coredoc/core/agent-runner';
@@ -125,6 +129,34 @@ export class CloudAgentRunnerController {
     return this.turns.reportQuestion(principal(request), turnId, lease ?? '', body);
   }
 
+  /** Validation errors come back in the body (`accepted: false`) for the agent to fix. */
+  @Post('turns/:turnId/submit-result')
+  @HttpCode(200)
+  @WorkspaceRole('admin')
+  @RequirePermission(TokenPermission.AgentRunnerRun)
+  submitResult(
+    @Req() request: RunnerRequest,
+    @Param('turnId', ParseUUIDPipe) turnId: string,
+    @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
+    @Body(new ZodValidationPipe(SubmitResultRequestSchema)) body: SubmitResult,
+  ) {
+    return this.turns.submitResult(principal(request), turnId, lease ?? '', body);
+  }
+
+  /** Before the runner's first push of the run branch to a repository. */
+  @Post('turns/:turnId/branches')
+  @HttpCode(200)
+  @WorkspaceRole('admin')
+  @RequirePermission(TokenPermission.AgentRunnerRun)
+  reserveBranch(
+    @Req() request: RunnerRequest,
+    @Param('turnId', ParseUUIDPipe) turnId: string,
+    @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
+    @Body(new ZodValidationPipe(ReserveBranchRequestSchema)) body: ReserveBranchRequest,
+  ) {
+    return this.turns.reserveBranch(principal(request), turnId, lease ?? '', body.repository);
+  }
+
   /** The previous state archive, streamed only to the turn's live lease. */
   @Get('turns/:turnId/archive')
   @WorkspaceRole('admin')
@@ -163,7 +195,7 @@ export class CloudAgentRunnerController {
     @Req() request: RunnerRequest,
     @Param('turnId', ParseUUIDPipe) turnId: string,
     @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
-    @Body(new ZodValidationPipe(CompleteTurnRequestSchema)) body: CompleteTurnRequest,
+    @Body(new ZodValidationPipe(CompleteTurnRequestSchema)) body: CompleteTurn,
   ) {
     return this.turns.complete(principal(request), turnId, lease ?? '', body);
   }

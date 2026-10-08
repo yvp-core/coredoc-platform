@@ -1,9 +1,8 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
-  type AssignedRepository,
   type ClaimRequest,
-  type CompleteTurnRequest,
+  type CompleteTurn,
   type CompleteTurnResponse,
   type EventBatch,
   type EventBatchResponse,
@@ -13,7 +12,10 @@ import {
   type ProposeScopeResponse,
   type ReportQuestion,
   type ReportQuestionResponse,
+  type ReserveBranchResponse,
   type RunnerVersions,
+  type SubmitResult,
+  type SubmitResultResponse,
   SUPPORTED_RUNNER_PROTOCOL_VERSIONS,
   type TurnAssignment,
 } from '@coredoc/core/agent-runner';
@@ -27,7 +29,8 @@ import {
 } from './cloud-agent-run-archive.store.js';
 import { CloudAgentRunIssueReader, JiraReadFailure } from './cloud-agent-run-issue-reader.js';
 import { answerForTurn, recordQuestion, settleTurnQuestions } from './cloud-agent-run-questions.service.js';
-import { CloudAgentRunScopeService, type RunRepository } from './cloud-agent-run-scope.service.js';
+import { CloudAgentRunImplementService, RunCheckFailure } from './cloud-agent-run-implement.service.js';
+import { CloudAgentRunScopeService } from './cloud-agent-run-scope.service.js';
 import {
   CloudAgentRunErrorCode,
   cloudAgentRunError,
@@ -87,9 +90,11 @@ type FenceResult = { turn: FencedTurn; standing: 'live' | 'stopped' | 'completed
 
 interface ClaimedTurn {
   assignment: TurnAssignment;
-  jiraIssueId: string;
-  workspaceId: string;
+  run: CloudAgentRun;
 }
+
+/** The continuation after a checkpoint (duration limit or SDK turn cap). */
+const CONTINUE_WHERE_YOU_STOPPED = 'Continue where you stopped.';
 
 @Injectable()
 export class CloudAgentTurnService {
@@ -99,6 +104,7 @@ export class CloudAgentTurnService {
     private readonly prisma: PrismaService,
     private readonly jira: CloudAgentRunIssueReader,
     private readonly scope: CloudAgentRunScopeService,
+    private readonly implement: CloudAgentRunImplementService,
     @Inject(CLOUD_AGENT_RUN_ARCHIVE_STORE) private readonly archives: CloudAgentRunArchiveStore,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
   ) {}
@@ -126,25 +132,41 @@ export class CloudAgentTurnService {
     return assignment;
   }
 
-  /** Scope turns get their PRD, read fresh from Jira; a run whose issue is unreadable fails here. */
+  /**
+   * Scope turns get their PRD, read fresh from Jira, and their seeds for the
+   * runner's bot check; implement turns get clone URLs and the accepted spec.
+   * A run whose issue is unreadable or whose repository stopped resolving
+   * fails here.
+   */
   private async withRunChecks(claimed: ClaimedTurn): Promise<TurnAssignment | null> {
-    const { assignment } = claimed;
-    if (assignment.turn.kind !== RunPhase.Scope) return assignment;
+    const { assignment, run } = claimed;
     try {
-      const prd = await this.jira.readPrd(claimed.workspaceId, claimed.jiraIssueId);
+      const repositories = await this.implement.repositoriesFor(run, assignment.turn.kind);
+      if (assignment.turn.kind === RunPhase.Implement) {
+        return { ...assignment, repositories, acceptedSpec: await this.implement.acceptedSpec(run) };
+      }
+      if (assignment.turn.kind !== RunPhase.Scope) return assignment;
+      const prd = await this.jira.readPrd(run.workspaceId, run.jiraIssueId);
       if (prd.issueKey !== assignment.run.issueKey) {
         // The key changes when an issue moves between projects; the id is the identity.
         await this.prisma.cloudAgentRun.updateMany({
-          where: { id: assignment.run.id, workspaceId: claimed.workspaceId },
+          where: { id: assignment.run.id, workspaceId: run.workspaceId },
           data: { issueKey: prd.issueKey },
         });
       }
-      return { ...assignment, run: { ...assignment.run, issueKey: prd.issueKey }, prd: { markdown: prd.markdown } };
+      return {
+        ...assignment,
+        run: { ...assignment.run, issueKey: prd.issueKey },
+        prd: { markdown: prd.markdown },
+        repositories,
+      };
     } catch (error) {
-      if (!(error instanceof JiraReadFailure)) throw error;
+      if (!(error instanceof JiraReadFailure) && !(error instanceof RunCheckFailure)) throw error;
       await this.prisma.$transaction(async (tx) => {
-        const run = await lockRun(tx, claimed.workspaceId, assignment.run.id);
-        if (run) await failRun(tx, run, error.code, null, this.now());
+        const locked = await lockRun(tx, run.workspaceId, assignment.run.id);
+        if (locked) {
+          await failRun(tx, locked, error.code, error instanceof RunCheckFailure ? error.message : null, this.now());
+        }
       });
       return null;
     }
@@ -224,14 +246,17 @@ export class CloudAgentTurnService {
           priorSessionSpendUsd: prior._sum.spendUsd ?? 0,
           maxTurnDurationSeconds: run.maxTurnDurationSeconds,
           seeds: run.seeds,
+          branch: run.branch,
         },
         prd: null,
-        repositories: claimed.kind === RunPhase.Implement ? assignedRepositories(run) : [],
+        // Repositories and the accepted spec are resolved after the claim commits (withRunChecks).
+        acceptedSpec: null,
+        repositories: [],
         mcp: mcpToken ? { token: mcpToken, path: `/api/v1/workspaces/${run.workspaceId}/mcp` } : null,
         hasStateArchive: run.stateArchiveKey !== null,
         answer: await answerForTurn(tx, run.workspaceId, claimed.id),
       };
-      return { assignment, jiraIssueId: run.jiraIssueId, workspaceId: run.workspaceId };
+      return { assignment, run };
     });
   }
 
@@ -338,6 +363,63 @@ export class CloudAgentTurnService {
   }
 
   /**
+   * `submit_result`: validated against the run; a valid result is stored on
+   * the turn and adopted when the turn completes. Broken rules go back to
+   * the agent as a tool error.
+   */
+  async submitResult(
+    runner: RunnerPrincipal,
+    turnId: string,
+    leaseToken: string,
+    result: SubmitResult,
+  ): Promise<SubmitResultResponse> {
+    return this.prisma.$transaction(async (tx) => {
+      const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
+      if (standing === 'completed') throw leaseLost();
+      if (standing === 'stopped') return { accepted: false, errors: ['The run has ended; stop.'], stop: true };
+      const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { kind: true } });
+      if (row.kind !== RunPhase.Implement) {
+        return { accepted: false, errors: ['submit_result is available only while implementing.'], stop: false };
+      }
+      const run = await tx.cloudAgentRun.findFirstOrThrow({
+        where: { id: turn.run_id, workspaceId: runner.workspaceId },
+      });
+      const errors = this.implement.validateResult(run, result);
+      if (errors.length) return { accepted: false, errors, stop: false };
+      await this.implement.saveResult(tx, turn.id, result);
+      return { accepted: true, stop: false };
+    });
+  }
+
+  /**
+   * Before the runner's first push of the run branch to a repository: records
+   * that this run created it there, so a retried attempt that finds the
+   * branch on the remote continues on it.
+   */
+  async reserveBranch(
+    runner: RunnerPrincipal,
+    turnId: string,
+    leaseToken: string,
+    repository: string,
+  ): Promise<ReserveBranchResponse> {
+    return this.prisma.$transaction(async (tx) => {
+      const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
+      if (standing !== 'live') throw leaseLost();
+      const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { kind: true } });
+      if (row.kind !== RunPhase.Implement) {
+        throw cloudAgentRunError(
+          CloudAgentRunErrorCode.RunStateConflict,
+          'Run branches are reserved only in implement turns',
+          HttpStatus.CONFLICT,
+        );
+      }
+      const run = (await lockRun(tx, runner.workspaceId, turn.run_id))!;
+      await this.implement.reserveBranch(tx, run, repository);
+      return { reserved: true, branch: run.branch };
+    });
+  }
+
+  /**
    * An AskUserQuestion call from the live turn: answered at once under the
    * assume policy, parked for a person under pause (the run moves to
    * `awaiting_answer` and the runner ends the session).
@@ -435,7 +517,7 @@ export class CloudAgentTurnService {
     runner: RunnerPrincipal,
     turnId: string,
     leaseToken: string,
-    request: CompleteTurnRequest,
+    request: CompleteTurn,
   ): Promise<CompleteTurnResponse> {
     const eligibility = await this.scope.eligibility(runner.workspaceId);
     const replacedArchive = await this.prisma.$transaction(async (tx) => {
@@ -447,6 +529,8 @@ export class CloudAgentTurnService {
       const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id } });
       const run = (await lockRun(tx, runner.workspaceId, turn.run_id))!;
       const live = standing === 'live';
+      // Untrusted: refused before anything is written, so the runner can correct and complete again.
+      if (row.kind === RunPhase.Implement) this.implement.validateReports(run, request.repositories);
 
       let outcome: string = TurnOutcome.NoOutcome;
       if (request.outcome.kind === 'failed') outcome = request.outcome.code;
@@ -464,7 +548,7 @@ export class CloudAgentTurnService {
       });
       await deleteTurnTokens(tx, [turn.id]);
       const adoptArchive = live && row.stateArchiveKey !== null;
-      const updated = await tx.cloudAgentRun.update({
+      const charged = await tx.cloudAgentRun.update({
         where: { id: run.id },
         data: {
           ...(spend
@@ -474,6 +558,11 @@ export class CloudAgentTurnService {
           lastTurnEndedAt: at,
         },
       });
+      // Pushes are facts of the turn: recorded even when it failed or was stopped.
+      const updated =
+        row.kind === RunPhase.Implement
+          ? await this.implement.recordReports(tx, charged, turn.id, request.repositories, at)
+          : charged;
 
       if (live && request.outcome.kind === 'failed') {
         await failRun(tx, updated, request.outcome.code, request.outcome.reason || null, at);
@@ -513,13 +602,22 @@ export class CloudAgentTurnService {
     run: CloudAgentRun,
     kind: string,
     turnId: string,
-    request: CompleteTurnRequest,
+    request: CompleteTurn,
     eligibility: Map<string, string | null>,
     at: Date,
   ): Promise<string> {
     if (await settleTurnQuestions(tx, run, turnId, at)) return TurnOutcome.QuestionAsked;
     if (kind === RunPhase.Scope && (await this.scope.publishDraft(tx, run, turnId, eligibility, at))) {
       return TurnOutcome.ScopeProposed;
+    }
+    if (kind === RunPhase.Implement) {
+      const settled = await this.implement.settleResult(tx, run, turnId, at);
+      if (settled) return settled;
+    }
+    // A checkpoint continues the same session; it neither counts toward nor resets the nudge rule.
+    if (request.outcome.kind === 'checkpoint') {
+      await queueTurn(tx, run, kind, CONTINUE_WHERE_YOU_STOPPED, at);
+      return TurnOutcome.Checkpoint;
     }
     const count = run.outcomeLessCount + 1;
     if (count >= MAX_OUTCOME_LESS_TURNS) {
@@ -605,13 +703,6 @@ function nudge(questionsPolicy: string, kind: string): string {
   return questionsPolicy === 'assume'
     ? `Your last turn ended without an outcome. Finish on stated assumptions: call ${tool} and list every assumption you made in it.`
     : `Your last turn ended without an outcome. Finish with ${tool}, or ask a person through AskUserQuestion.`;
-}
-
-function assignedRepositories(run: CloudAgentRun): AssignedRepository[] {
-  const repositories = (Array.isArray(run.repositories) ? run.repositories : []) as unknown as RunRepository[];
-  return repositories
-    .map((repository) => ({ key: repository.key, reason: repository.reason, mergeOrder: repository.mergeOrder }))
-    .sort((a, b) => a.mergeOrder - b.mergeOrder);
 }
 
 function leaseLost() {

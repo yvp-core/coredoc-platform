@@ -3,6 +3,7 @@ import { AuthModule } from '../../auth/auth.module.js';
 import { DatabaseModule } from '../../database/database.module.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE, ObjectStorageArchiveStore } from './cloud-agent-run-archive.store.js';
+import { CloudAgentRunImplementService } from './cloud-agent-run-implement.service.js';
 import { CloudAgentRunIssueReader } from './cloud-agent-run-issue-reader.js';
 import { CloudAgentRunScopeService } from './cloud-agent-run-scope.service.js';
 import { LicenseCoreModule } from '../license/license.module.js';
@@ -34,6 +35,7 @@ export const cloudAgentRunsCoreProviders = [
   CloudAgentRunIssueResolver,
   CloudAgentRunIssueReader,
   CloudAgentRunScopeService,
+  CloudAgentRunImplementService,
   CloudAgentRunAvailability,
   CloudAgentRunJiraConnector,
   CloudAgentRunTrigger,

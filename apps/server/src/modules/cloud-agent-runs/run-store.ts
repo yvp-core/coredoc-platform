@@ -26,16 +26,21 @@ export const MAX_EVENT_PAYLOAD_BYTES = 16 * 1024;
 export interface NewRunEvent {
   type: string;
   payload: Record<string, unknown>;
+  /** A larger cap for this event; withheld workflow diffs get 64 KiB. */
+  maxPayloadBytes?: number;
 }
 
-function boundedPayload(payload: Record<string, unknown>): { payload: Prisma.InputJsonObject; truncated: boolean } {
+function boundedPayload(
+  payload: Record<string, unknown>,
+  cap = MAX_EVENT_PAYLOAD_BYTES,
+): { payload: Prisma.InputJsonObject; truncated: boolean } {
   const json = JSON.stringify(payload);
-  if (Buffer.byteLength(json, 'utf8') <= MAX_EVENT_PAYLOAD_BYTES) {
+  if (Buffer.byteLength(json, 'utf8') <= cap) {
     return { payload: payload as Prisma.InputJsonObject, truncated: false };
   }
   // Keep a readable prefix; the cut is by characters, then trimmed until it fits.
-  let preview = json.slice(0, MAX_EVENT_PAYLOAD_BYTES - 256);
-  while (Buffer.byteLength(preview, 'utf8') > MAX_EVENT_PAYLOAD_BYTES - 256) preview = preview.slice(0, -256);
+  let preview = json.slice(0, cap - 256);
+  while (Buffer.byteLength(preview, 'utf8') > cap - 256) preview = preview.slice(0, -256);
   return { payload: { preview }, truncated: true };
 }
 
@@ -65,7 +70,7 @@ export async function appendRunEvents(
       turnId: run.turnId ?? null,
       seq: seqs[index]!,
       type: event.type,
-      ...boundedPayload(event.payload),
+      ...boundedPayload(event.payload, event.maxPayloadBytes),
       createdAt: at,
     })),
   });

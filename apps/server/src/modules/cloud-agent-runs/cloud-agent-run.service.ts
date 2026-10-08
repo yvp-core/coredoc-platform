@@ -202,6 +202,7 @@ export class CloudAgentRunService {
       repositories: run.repositories,
       droppedSeeds: run.droppedSeeds,
       assumptions: run.assumptions,
+      result: run.result,
       latestSpec: await this.scope.latest(workspaceId, run.id),
       openQuestion: questions.find((question) => question.state === QuestionState.Open) ?? null,
       questions,
