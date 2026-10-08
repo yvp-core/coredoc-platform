@@ -43,6 +43,12 @@ import {
   TurnState,
 } from './run-states.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
+import {
+  CLOUD_AGENT_RUN_REPORT_CAPS,
+  chargeReport,
+  DEFAULT_REPORT_CAPS,
+  type ReportCaps,
+} from './report-limits.js';
 import { failIfBudgetSpent, spendBudgetFailure } from './run-budget.js';
 import { deleteTurnTokens, failRun, lockRun, queueTurn } from './run-transitions.js';
 
@@ -108,6 +114,7 @@ export class CloudAgentTurnService {
     private readonly implement: CloudAgentRunImplementService,
     @Inject(CLOUD_AGENT_RUN_ARCHIVE_STORE) private readonly archives: CloudAgentRunArchiveStore,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
+    @Optional() @Inject(CLOUD_AGENT_RUN_REPORT_CAPS) private readonly caps: ReportCaps = DEFAULT_REPORT_CAPS,
   ) {}
 
   /**
@@ -323,6 +330,9 @@ export class CloudAgentTurnService {
     return this.prisma.$transaction(async (tx) => {
       const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
       if (standing === 'completed') throw leaseLost();
+      const eventBytes = batch.events.reduce((sum, event) => sum + Buffer.byteLength(JSON.stringify(event)), 0);
+      const report = { events: batch.events.length, eventBytes };
+      if (await chargeReport(tx, turn, report, this.caps, this.now())) return { seqs: [], stop: true };
       // Events are the turn's own facts, so a stopped turn still records them.
       const seqs = await appendRunEvents(
         tx,
@@ -353,6 +363,9 @@ export class CloudAgentTurnService {
       const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { kind: true } });
       if (row.kind !== RunPhase.Scope) {
         return { accepted: false, errors: ['propose_scope is available only while scoping.'], stop: false };
+      }
+      if (await chargeReport(tx, turn, { proposals: 1 }, this.caps, this.now())) {
+        return { accepted: false, errors: ['This turn sent too many proposals; the run has ended.'], stop: true };
       }
       // The fenced turn's own run, in the runner's workspace: a draft is never written for another run.
       const run = await tx.cloudAgentRun.findFirstOrThrow({
@@ -444,6 +457,9 @@ export class CloudAgentTurnService {
       const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { kind: true } });
       if (row.kind !== RunPhase.Scope && row.kind !== RunPhase.Implement) {
         return { state: 'refused', reason: 'Questions are asked only while scoping or implementing.', stop: false };
+      }
+      if (await chargeReport(tx, turn, { questions: 1 }, this.caps, this.now())) {
+        return { state: 'refused', reason: 'This turn asked too many questions; the run has ended.', stop: true };
       }
       const run = (await lockRun(tx, runner.workspaceId, turn.run_id))!;
       return recordQuestion(tx, run, turn.id, report, this.now());

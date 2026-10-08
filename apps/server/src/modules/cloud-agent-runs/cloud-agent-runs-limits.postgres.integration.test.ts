@@ -22,6 +22,7 @@ import { CloudAgentRunSweep } from './cloud-agent-run-sweep.service.js';
 import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CLOUD_AGENT_RUNS_CLOCK, cloudAgentRunsCoreProviders } from './cloud-agent-runs.module.js';
+import { CLOUD_AGENT_RUN_REPORT_CAPS } from './report-limits.js';
 import { FakeJira, InMemoryArchiveStore, paragraphDoc } from './cloud-agent-runs.test-support.js';
 
 /**
@@ -38,6 +39,8 @@ const VERSIONS = { runner: '0.0.1-test', sdk: '0.3.285' };
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
+/** Small per-turn caps, so exceeding one takes a few requests. */
+const CAPS = { events: 10, eventBytes: 4_096, proposals: 2, questions: 2 };
 
 describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failures (PostgreSQL integration)', () => {
   let prisma: PrismaClient;
@@ -111,6 +114,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
         TokensService,
         ...cloudAgentRunsCoreProviders,
         { provide: CLOUD_AGENT_RUNS_CLOCK, useValue: () => now },
+        { provide: CLOUD_AGENT_RUN_REPORT_CAPS, useValue: CAPS },
         { provide: JIRA_CLIENT_FACTORY, useValue: () => jira.client() },
         { provide: CLOUD_AGENT_RUN_ARCHIVE_STORE, useValue: archives },
         { provide: STORAGE_CONFIG, useValue: { ...storage, r2: { ...storage.r2, endpoint: 'https://r2.example' } } },
@@ -176,7 +180,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
   const runsBase = () => `/api/v1/workspaces/${workspaceId}/cloud-agent-runs`;
   const runnerBase = () => `/api/v1/workspaces/${workspaceId}/agent-runner`;
 
-  async function startRun() {
+  async function startRun(body: Record<string, unknown> = {}) {
     issueSeed += 1;
     const issue = jira.add({
       key: `PROJ-${issueSeed}`,
@@ -187,7 +191,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
     const res = await api()
       .post(runsBase())
       .set('Authorization', human(MEMBER))
-      .send({ issueKey: issue.key })
+      .send({ issueKey: issue.key, ...body })
       .expect(201);
     return res.body as { id: string };
   }
@@ -352,6 +356,99 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
       expect(failed).toMatchObject({ status: 'failed', failureCode: 'budget_exhausted', spend: { unknownTurns: 3 } });
       expect(failed.failureReason).toMatch(/unknown spend/i);
     });
+  });
+
+  describe('per-turn report caps', () => {
+    const raw = (count: number, text = 'working') => ({ events: Array.from({ length: count }, () => ({ type: 'raw', text })) });
+    const formatQuestion = (toolUseId: string) => ({
+      toolUseId,
+      questions: [
+        {
+          question: `Which format for ${toolUseId}?`,
+          header: 'Format',
+          options: [
+            { label: 'CSV', description: 'Spreadsheets' },
+            { label: 'JSON', description: 'Integrations' },
+          ],
+          multiSelect: false,
+        },
+      ],
+    });
+
+    it('more events than a turn allows fail the run with report_limit_exceeded and are not recorded', async () => {
+      const run = await startRun();
+      const turn = await claimTurn();
+      expect((await turnCall(turn, 'events', raw(6)).expect(200)).body.stop).toBe(false);
+
+      const over = await turnCall(turn, 'events', raw(5)).expect(200);
+      expect(over.body).toEqual({ seqs: [], stop: true });
+      expect(await detail(run.id)).toMatchObject({ status: 'failed', failureCode: 'report_limit_exceeded' });
+      expect(await prisma.cloudAgentRunEvent.count({ where: { turnId: turn.id, type: 'raw' } })).toBe(6);
+    });
+
+    it('more event payload than a turn allows fails the run', async () => {
+      const run = await startRun();
+      const turn = await claimTurn();
+      await turnCall(turn, 'events', raw(1, 'a'.repeat(2_500))).expect(200);
+      expect((await turnCall(turn, 'events', raw(1, 'b'.repeat(2_500))).expect(200)).body.stop).toBe(true);
+      expect(await detail(run.id)).toMatchObject({ status: 'failed', failureCode: 'report_limit_exceeded' });
+    });
+
+    it('more proposals than a turn allows fail the run, refused ones included', async () => {
+      const run = await startRun();
+      const turn = await claimTurn();
+      const proposal = {
+        title: 'Order exports',
+        summary: 'Adds CSV exports.',
+        specMarkdown: '# Spec',
+        repositories: [{ key: 'unknown-repo', reason: 'Owns orders', changes: 'Export endpoint' }],
+      };
+      for (let call = 1; call <= 2; call += 1) {
+        expect((await turnCall(turn, 'propose-scope', proposal).expect(200)).body).toMatchObject({
+          accepted: false,
+          stop: false,
+        });
+      }
+      expect((await turnCall(turn, 'propose-scope', proposal).expect(200)).body).toMatchObject({
+        accepted: false,
+        stop: true,
+      });
+      expect(await detail(run.id)).toMatchObject({ status: 'failed', failureCode: 'report_limit_exceeded' });
+    });
+
+    it('more questions than a turn allows fail the run', async () => {
+      const run = await startRun({ questionsPolicy: 'assume' });
+      const turn = await claimTurn();
+      for (const id of ['toolu_1', 'toolu_2']) {
+        expect((await turnCall(turn, 'questions', formatQuestion(id)).expect(200)).body.state).toBe('auto_answered');
+      }
+      expect((await turnCall(turn, 'questions', formatQuestion('toolu_3')).expect(200)).body).toMatchObject({
+        state: 'refused',
+        stop: true,
+      });
+      expect(await detail(run.id)).toMatchObject({ status: 'failed', failureCode: 'report_limit_exceeded' });
+    });
+  });
+
+  it('event payloads are redacted before they are stored', async () => {
+    const run = await startRun();
+    const turn = await claimTurn();
+    await turnCall(turn, 'events', {
+      events: [
+        { type: 'raw', text: 'cloned with ghp_0123456789abcdefghijABCDEFGHIJ012345' },
+        { type: 'todos', items: [{ text: 'export DB_PASSWORD=hunter2', status: 'pending' }] },
+      ],
+    }).expect(200);
+
+    const timeline = await api().get(`${runsBase()}/${run.id}/events`).set('Authorization', human(MEMBER)).expect(200);
+    const stored = JSON.stringify(timeline.body.events);
+    expect(stored).not.toContain('ghp_0123456789');
+    expect(stored).not.toContain('hunter2');
+    expect(timeline.body.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'raw', payload: { text: 'cloned with [REDACTED]' } }),
+      ]),
+    );
   });
 
   describe('lost runners', () => {
