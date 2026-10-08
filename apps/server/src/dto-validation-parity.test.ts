@@ -229,7 +229,8 @@ const TABLE: Case[] = [
     { name: '', scope: 'root' },
     {
       statusCode: 400,
-      message: 'name should not be empty; scope must be one of the following values: ci, intent-agent, telemetry, agent-runner',
+      message:
+        'name should not be empty; scope must be one of the following values: ci, intent-agent, telemetry, agent-runner',
     },
   ],
   [
