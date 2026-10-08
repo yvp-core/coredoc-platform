@@ -61,7 +61,7 @@ const PER_ISSUE_CANONICAL_CONFLICT_CODES: ReadonlySet<string> = new Set([
   'REWORK_SIGNAL_CONFLICT',
 ]);
 
-type JiraClientFactory = (opts: { baseUrl: string; email: string; apiToken: string }) => JiraClient;
+export type JiraClientFactory = (opts: { baseUrl: string; email: string; apiToken: string }) => JiraClient;
 
 interface IssuesContinuation {
   queryCursor: string | null;

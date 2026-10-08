@@ -3,6 +3,7 @@ import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { CloudAgentRun, CloudAgentRunTurn } from '../../generated/prisma/client.js';
 import { CloudAgentRunIssueResolver } from './cloud-agent-run-issue.resolver.js';
+import { CloudAgentRunScopeService } from './cloud-agent-run-scope.service.js';
 import { CloudAgentRunSettingsService } from './cloud-agent-run-settings.service.js';
 import type { StartRunInput } from './cloud-agent-runs.contract.js';
 import {
@@ -42,6 +43,7 @@ export class CloudAgentRunService {
     private readonly prisma: PrismaService,
     private readonly settings: CloudAgentRunSettingsService,
     private readonly issues: CloudAgentRunIssueResolver,
+    private readonly scope: CloudAgentRunScopeService,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
   ) {}
 
@@ -155,7 +157,30 @@ export class CloudAgentRunService {
       include: { turns: { where: { state: { in: PENDING_TURN_STATES } }, take: 1 } },
     });
     if (!run) throw runNotFound();
-    return this.project(run, await this.memberEmails(workspaceId, [run.runOwnerId]));
+    return {
+      ...this.project(run, await this.memberEmails(workspaceId, [run.runOwnerId])),
+      seeds: run.seeds,
+      repositories: run.repositories,
+      droppedSeeds: run.droppedSeeds,
+      latestSpec: await this.scope.latest(run.id),
+    };
+  }
+
+  /** Every published spec version of a run, oldest first. */
+  async specs(workspaceId: string, runId: string) {
+    const run = await this.prisma.cloudAgentRun.findFirst({ where: { id: runId, workspaceId }, select: { id: true } });
+    if (!run) throw runNotFound();
+    return { versions: await this.scope.versions(workspaceId, runId) };
+  }
+
+  async acceptScope(workspaceId: string, runId: string, version: number, actorId: string) {
+    await this.scope.acceptLatest(workspaceId, runId, version, actorId);
+    return this.detail(workspaceId, runId);
+  }
+
+  async requestScopeChanges(workspaceId: string, runId: string, version: number, actorId: string, text: string) {
+    await this.scope.requestChanges(workspaceId, runId, version, actorId, text);
+    return this.detail(workspaceId, runId);
   }
 
   /** Timeline page: events after a sequence number, oldest first. */

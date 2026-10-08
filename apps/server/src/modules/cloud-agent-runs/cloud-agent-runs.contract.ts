@@ -41,6 +41,15 @@ export const ListRunsQuerySchema = z.object({
   offset: nonNegativeInt('offset', 0, 1_000_000),
 });
 
+export const RequestScopeChangesSchema = z.object({
+  text: z
+    .string({ error: 'text must be a string' })
+    .trim()
+    .min(1, { error: 'Describe the changes you want' })
+    .max(20_000, { error: 'text must be at most 20000 characters' }),
+});
+export type RequestScopeChangesInput = z.infer<typeof RequestScopeChangesSchema>;
+
 export const EventsQuerySchema = z.object({
   after: nonNegativeInt('after', 0, 2_147_483_647),
   limit: nonNegativeInt('limit', 200, 500),

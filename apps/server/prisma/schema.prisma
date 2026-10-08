@@ -81,6 +81,7 @@ model Workspace {
   cloudAgentRuns      CloudAgentRun[]
   cloudAgentRunTurns  CloudAgentRunTurn[]
   cloudAgentRunEvents CloudAgentRunEvent[]
+  cloudAgentRunSpecs  CloudAgentRunSpecVersion[]
   agentRunSettings    AgentRunSettings?
   agentRunnersSeen    AgentRunnerSeen[]
 
@@ -1706,11 +1707,12 @@ model CloudAgentRun {
   lastTurnEndedAt        DateTime? @map("last_turn_ended_at") @db.Timestamptz
   updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
-  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  previousRun CloudAgentRun?       @relation("CloudAgentRunPrevious", fields: [workspaceId, previousRunId], references: [workspaceId, id], onDelete: NoAction, onUpdate: Cascade)
-  reruns      CloudAgentRun[]      @relation("CloudAgentRunPrevious")
+  workspace   Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  previousRun CloudAgentRun?             @relation("CloudAgentRunPrevious", fields: [workspaceId, previousRunId], references: [workspaceId, id], onDelete: NoAction, onUpdate: Cascade)
+  reruns      CloudAgentRun[]            @relation("CloudAgentRunPrevious")
   turns       CloudAgentRunTurn[]
   events      CloudAgentRunEvent[]
+  specs       CloudAgentRunSpecVersion[]
 
   @@unique([workspaceId, id])
   @@index([workspaceId, createdAt])
@@ -1736,6 +1738,8 @@ model CloudAgentRunTurn {
   outcome          String?   @db.VarChar(32)
   spendUsd         Float?    @map("spend_usd") @db.DoublePrecision
   runnerVersions   Json?     @map("runner_versions") @db.JsonB
+  /// The state archive this turn uploaded; becomes the run's archive when the turn completes.
+  stateArchiveKey  String?   @map("state_archive_key") @db.VarChar(1024)
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
   completedAt      DateTime? @map("completed_at") @db.Timestamptz
 
@@ -1767,6 +1771,37 @@ model CloudAgentRunEvent {
 
   @@unique([runId, seq])
   @@map("cloud_agent_run_events")
+}
+
+/// A scope proposal. `draft` while its turn runs (hidden from people), then
+/// `proposed`, and finally `accepted`, `changes_requested` or `superseded`.
+/// A human record: never deleted by retention.
+model CloudAgentRunSpecVersion {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId  String    @map("workspace_id") @db.Uuid
+  runId        String    @map("run_id") @db.Uuid
+  version      Int
+  status       String    @db.VarChar(32)
+  /// The turn whose `propose_scope` call wrote it; plain column, turns are pruned.
+  turnId       String?   @map("turn_id") @db.Uuid
+  title        String    @db.VarChar(200)
+  summary      String    @db.Text
+  /// Size-capped at 256 KiB.
+  markdown     String    @db.Text
+  /// Repositories (reasons, changes, merge order, eligibility), risks, intent
+  /// references, assumptions, dropped seeds and candidates for the PRD.
+  content      Json      @db.JsonB
+  proposedAt   DateTime  @map("proposed_at") @db.Timestamptz
+  reviewedBy   String?   @map("reviewed_by") @db.VarChar(256)
+  reviewedAt   DateTime? @map("reviewed_at") @db.Timestamptz
+  reviewText   String?   @map("review_text") @db.Text
+  autoAccepted Boolean   @default(false) @map("auto_accepted")
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  run       CloudAgentRun @relation(fields: [workspaceId, runId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([runId, version])
+  @@map("cloud_agent_run_spec_versions")
 }
 
 /// One per workspace: no workspace settings store exists and the feature has more than ten fields.

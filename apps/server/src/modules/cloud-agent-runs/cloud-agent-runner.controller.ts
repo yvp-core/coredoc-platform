@@ -1,10 +1,26 @@
-import { Body, Controller, Headers, HttpCode, Param, ParseUUIDPipe, Post, Req, Res, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Put,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
 import {
   ClaimRequestSchema,
   CompleteTurnRequestSchema,
   EventBatchSchema,
   HeartbeatRequestSchema,
+  type ProposeScope,
+  ProposeScopeRequestSchema,
   RUNNER_LEASE_HEADER,
   type ClaimRequest,
   type CompleteTurnRequest,
@@ -77,6 +93,50 @@ export class CloudAgentRunnerController {
     @Body(new ZodValidationPipe(EventBatchSchema)) body: EventBatch,
   ) {
     return this.turns.recordEvents(principal(request), turnId, lease ?? '', body);
+  }
+
+  /** Validation errors come back in the body (`accepted: false`) for the agent to fix. */
+  @Post('turns/:turnId/propose-scope')
+  @HttpCode(200)
+  @WorkspaceRole('admin')
+  @RequirePermission(TokenPermission.AgentRunnerRun)
+  proposeScope(
+    @Req() request: RunnerRequest,
+    @Param('turnId', ParseUUIDPipe) turnId: string,
+    @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
+    @Body(new ZodValidationPipe(ProposeScopeRequestSchema)) body: ProposeScope,
+  ) {
+    return this.turns.proposeScope(principal(request), turnId, lease ?? '', body);
+  }
+
+  /** The previous state archive, streamed only to the turn's live lease. */
+  @Get('turns/:turnId/archive')
+  @WorkspaceRole('admin')
+  @RequirePermission(TokenPermission.AgentRunnerRun)
+  async downloadArchive(
+    @Req() request: RunnerRequest,
+    @Param('turnId', ParseUUIDPipe) turnId: string,
+    @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
+    @Res() response: Response,
+  ) {
+    const archive = await this.turns.downloadArchive(principal(request), turnId, lease ?? '');
+    response.set('Content-Type', 'application/gzip');
+    response.send(archive);
+  }
+
+  /** Raw `application/octet-stream` body on its own body-size tier (see body-limits.ts). */
+  @Put('turns/:turnId/archive')
+  @HttpCode(200)
+  @WorkspaceRole('admin')
+  @RequirePermission(TokenPermission.AgentRunnerRun)
+  uploadArchive(
+    @Req() request: RunnerRequest & { rawBody?: Buffer },
+    @Param('turnId', ParseUUIDPipe) turnId: string,
+    @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
+  ) {
+    const body = Buffer.isBuffer(request.body) ? request.body : (request.rawBody ?? Buffer.alloc(0));
+    if (body.length === 0) throw new BadRequestException('Send the state archive as an application/octet-stream body');
+    return this.turns.uploadArchive(principal(request), turnId, lease ?? '', body);
   }
 
   @Post('turns/:turnId/complete')

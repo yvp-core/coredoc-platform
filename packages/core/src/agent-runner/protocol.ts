@@ -20,6 +20,8 @@ export const RunnerErrorCode = {
   LeaseLost: 'LEASE_LOST',
   /** The server does not support the runner's protocol version. */
   RunnerIncompatible: 'RUNNER_INCOMPATIBLE',
+  /** The uploaded state archive is over `MAX_STATE_ARCHIVE_BYTES`; the run failed with `archive_too_large`. */
+  ArchiveTooLarge: 'ARCHIVE_TOO_LARGE',
 } as const;
 export type RunnerErrorCode = (typeof RunnerErrorCode)[keyof typeof RunnerErrorCode];
 
@@ -33,6 +35,30 @@ export const SCOPE_ACCEPTANCE_POLICIES = ['required', 'automatic'] as const;
 export type ScopeAcceptancePolicy = (typeof SCOPE_ACCEPTANCE_POLICIES)[number];
 
 const versionString = z.string().trim().min(1).max(64);
+
+/**
+ * Cap on the state archive (Claude Code's config and session directory plus
+ * the plugin's state home). Provisional until Phase 0 sizes a long run's
+ * archive (SF-001 ticket 13); the runner checks it before uploading and the
+ * server's body-size tier for the archive route is derived from it.
+ */
+export const MAX_STATE_ARCHIVE_BYTES = 128 * 1024 * 1024;
+
+/**
+ * Failures the runner detects and reports through `complete`. The server
+ * fails the run with the code and keeps the reason (agent-written text stays
+ * on the run page, never in Jira).
+ */
+export const RUNNER_FAILURE_CODES = ['plugin_missing', 'session_mismatch', 'agent_error', 'archive_too_large'] as const;
+export type RunnerFailureCode = (typeof RUNNER_FAILURE_CODES)[number];
+
+/** A repository the run works in (implement turns); the scope phase has none yet. */
+export const AssignedRepositorySchema = z.object({
+  key: z.string(),
+  reason: z.string(),
+  mergeOrder: z.number().int().nonnegative(),
+});
+export type AssignedRepository = z.infer<typeof AssignedRepositorySchema>;
 
 /** Component versions a runner reports on claim, heartbeat and completion; shown in settings. */
 export const RunnerVersionsSchema = z.object({
@@ -73,8 +99,27 @@ export const TurnAssignmentSchema = z.object({
     /** The phase's predetermined session id. */
     sessionId: z.uuid(),
     remainingSpendUsd: z.number(),
+    /**
+     * Spend already reported for this phase's session. The pinned SDK reports
+     * a resumed session's cost cumulatively, so a turn's spend is the result's
+     * total minus this.
+     */
+    priorSessionSpendUsd: z.number().nonnegative(),
     maxTurnDurationSeconds: z.number().int().positive(),
+    /** Repository keys named up front (labels or the manual start): the scope's starting points. */
+    seeds: z.array(z.string()),
   }),
+  /** The PRD, read from Jira when a scope turn is claimed; null for other kinds. */
+  prd: z.object({ markdown: z.string() }).nullable(),
+  repositories: z.array(AssignedRepositorySchema),
+  /**
+   * The per-turn MCP-only token for the Coredoc MCP, minted at claim and
+   * deleted when the turn ends; `path` is resolved against the runner's API
+   * base. Null for delivery turns.
+   */
+  mcp: z.object({ token: z.string().min(1), path: z.string().startsWith('/') }).nullable(),
+  /** Whether a previous state archive exists to download before the session starts. */
+  hasStateArchive: z.boolean(),
 });
 export type TurnAssignment = z.infer<typeof TurnAssignmentSchema>;
 
@@ -139,9 +184,16 @@ export const TurnSpendSchema = z
   })
   .nullable();
 
-export const CompleteTurnRequestSchema = z.object({
+export const TurnOutcomeSchema = z.discriminatedUnion('kind', [
   /** The session ended normally; what it achieved is known from the turn's recorded reports. */
-  outcome: z.object({ kind: z.literal('ended') }),
+  z.object({ kind: z.literal('ended') }),
+  /** The runner detected a failure that fails the run. */
+  z.object({ kind: z.literal('failed'), code: z.enum(RUNNER_FAILURE_CODES), reason: z.string().max(2_000) }),
+]);
+export type TurnOutcome = z.infer<typeof TurnOutcomeSchema>;
+
+export const CompleteTurnRequestSchema = z.object({
+  outcome: TurnOutcomeSchema,
   spend: TurnSpendSchema,
   versions: RunnerVersionsSchema,
 });
@@ -151,6 +203,49 @@ export const CompleteTurnResponseSchema = z.object({
   completed: z.literal(true),
 });
 export type CompleteTurnResponse = z.infer<typeof CompleteTurnResponseSchema>;
+
+const shortText = z.string().trim().min(1).max(2_000);
+
+/** Size cap on a proposal's spec markdown; the server also checks it in bytes. */
+export const MAX_SPEC_MARKDOWN_CHARS = 256 * 1024;
+
+/**
+ * `propose_scope`: the agent's scope proposal. The schema bounds shapes; the
+ * rules (eligible repositories, seeds accounted for, the repository cap) are
+ * checked by the server, and broken rules go back to the agent as a tool error.
+ */
+export const ProposeScopeRequestSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  summary: z.string().trim().min(1).max(4_000),
+  specMarkdown: z.string().min(1).max(MAX_SPEC_MARKDOWN_CHARS),
+  repositories: z
+    .array(z.object({ key: z.string().trim().min(1).max(255), reason: shortText, changes: shortText }))
+    .max(50),
+  /** Repository keys in the order their pull requests should merge; defaults to the listed order. */
+  mergeOrder: z.array(z.string().trim().min(1).max(255)).max(50).default([]),
+  risks: z.array(shortText).max(50).default([]),
+  intentReferences: z.array(z.string().trim().min(1).max(500)).max(100).default([]),
+  assumptions: z.array(shortText).max(50).default([]),
+  droppedSeeds: z
+    .array(z.object({ key: z.string().trim().min(1).max(255), reason: shortText }))
+    .max(50)
+    .default([]),
+  /** Product questions the PRD leaves open, each with what it blocks; never decided by the agent. */
+  candidates: z
+    .array(z.object({ question: shortText, blocks: shortText }))
+    .max(50)
+    .default([]),
+});
+export type ProposeScopeRequest = z.input<typeof ProposeScopeRequestSchema>;
+export type ProposeScope = z.output<typeof ProposeScopeRequestSchema>;
+
+export const ProposeScopeResponseSchema = z.discriminatedUnion('accepted', [
+  /** Stored as this turn's draft version; published when the turn completes. */
+  z.object({ accepted: z.literal(true), version: z.number().int().positive(), stop: z.boolean() }),
+  /** Rules the proposal broke, for the agent to fix and propose again. */
+  z.object({ accepted: z.literal(false), errors: z.array(z.string()).min(1), stop: z.boolean() }),
+]);
+export type ProposeScopeResponse = z.infer<typeof ProposeScopeResponseSchema>;
 
 /** The error body every runner-facing refusal carries. */
 export const RunnerErrorBodySchema = z.object({

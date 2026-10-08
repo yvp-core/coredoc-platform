@@ -13,9 +13,13 @@ import { PrismaService } from '../../database/prisma.service.js';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { TokensController } from '../tokens/tokens.controller.js';
 import { TokensService } from '../tokens/tokens.service.js';
+import { encrypt } from '../../database/encryption.js';
+import { JIRA_CLIENT_FACTORY } from '../delivery/jira-importer.service.js';
+import { CLOUD_AGENT_RUN_ARCHIVE_STORE } from './cloud-agent-run-archive.store.js';
 import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { cloudAgentRunsCoreProviders, CLOUD_AGENT_RUNS_CLOCK } from './cloud-agent-runs.module.js';
+import { FakeJira, InMemoryArchiveStore, paragraphDoc } from './cloud-agent-runs.test-support.js';
 
 /**
  * The cloud agent runs module driven through its two HTTP surfaces on real
@@ -33,16 +37,21 @@ const MEMBER = { id: `${RUN}-member`, email: 'member@example.com' };
 const DEMOTED = { id: `${RUN}-demoted`, email: 'demoted@example.com' };
 const VERSIONS = { runner: '0.0.1-test', sdk: '0.3.285', claudeCode: '2.1.285', plugin: 'abc123' };
 
+const jira = new FakeJira();
 let issueSeed = 0;
+/** A fresh issue the fake Jira can read, in the connector's configured project. */
 function nextIssueKey(): string {
   issueSeed += 1;
-  return `PROJ-${issueSeed}`;
+  const key = `PROJ-${issueSeed}`;
+  jira.add({ key, summary: `Issue ${issueSeed}`, project: 'PROJ', description: paragraphDoc('A PRD.') });
+  return key;
 }
 
 describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)', () => {
   let prisma: PrismaClient;
   let pool: ReturnType<typeof buildPrismaAdapter>;
   let previousDatabaseUrl: string | undefined;
+  let previousEncryptionKey: string | undefined;
   let app: INestApplication;
   let workspaceId: string;
   let otherWorkspaceId: string;
@@ -50,7 +59,9 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
 
   beforeAll(async () => {
     previousDatabaseUrl = process.env.DATABASE_URL;
+    previousEncryptionKey = process.env.SERVER_ENCRYPTION_KEY;
     process.env.DATABASE_URL = TEST_DATABASE_URL;
+    process.env.SERVER_ENCRYPTION_KEY = randomBytes(32).toString('hex');
     pool = buildPrismaAdapter();
     prisma = new PrismaClient({ adapter: pool?.adapter } as never);
     await prisma.$connect();
@@ -67,6 +78,16 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
         { workspaceId: otherWorkspaceId, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
       ],
     });
+    await prisma.deliveryConnector.create({
+      data: {
+        workspaceId,
+        provider: 'jira',
+        displayName: 'Jira',
+        baseUrl: 'https://example.atlassian.net',
+        credentialsEncrypted: encrypt(JSON.stringify({ email: 'bot@example.com', apiToken: 'jira-token' })),
+        config: { projects: ['PROJ'] },
+      },
+    });
 
     const users = new Map([ADMIN, MEMBER, DEMOTED].map((user) => [user.id, user]));
     const moduleRef = await Test.createTestingModule({
@@ -77,6 +98,8 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
         TokensService,
         ...cloudAgentRunsCoreProviders,
         { provide: CLOUD_AGENT_RUNS_CLOCK, useValue: () => now },
+        { provide: JIRA_CLIENT_FACTORY, useValue: () => jira.client() },
+        { provide: CLOUD_AGENT_RUN_ARCHIVE_STORE, useValue: new InMemoryArchiveStore() },
         {
           provide: AuthService,
           useValue: {
@@ -105,6 +128,8 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     if (pool?.pool) await pool.pool.end();
     if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
     else process.env.DATABASE_URL = previousDatabaseUrl;
+    if (previousEncryptionKey === undefined) delete process.env.SERVER_ENCRYPTION_KEY;
+    else process.env.SERVER_ENCRYPTION_KEY = previousEncryptionKey;
   });
 
   const api = () => request(app.getHttpServer());

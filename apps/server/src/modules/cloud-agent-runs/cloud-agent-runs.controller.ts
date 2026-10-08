@@ -1,4 +1,16 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseIntPipe,
+  ParseUUIDPipe,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '../../auth/auth.guard.js';
 import { CurrentUser, type AuthUser } from '../../auth/decorators/current-user.decorator.js';
 import { RequirePermission } from '../../auth/decorators/require-permission.decorator.js';
@@ -12,7 +24,9 @@ import { CloudAgentRunService } from './cloud-agent-run.service.js';
 import {
   EventsQuerySchema,
   ListRunsQuerySchema,
+  RequestScopeChangesSchema,
   StartRunSchema,
+  type RequestScopeChangesInput,
   UpdateSettingsSchema,
   type StartRunInput,
   type UpdateSettingsInput,
@@ -74,6 +88,38 @@ export class CloudAgentRunsController {
   @WorkspaceRole('member')
   detail(@Param('workspaceId') workspaceId: string, @Param('runId', ParseUUIDPipe) runId: string) {
     return this.runs.detail(workspaceId, runId);
+  }
+
+  @Get(':runId/specs')
+  @WorkspaceRole('member')
+  specs(@Param('workspaceId') workspaceId: string, @Param('runId', ParseUUIDPipe) runId: string) {
+    return this.runs.specs(workspaceId, runId);
+  }
+
+  /** Only the latest proposed version; the web app sends the version it displayed. */
+  @Post(':runId/specs/:version/accept')
+  @HttpCode(200)
+  @WorkspaceRole('member')
+  acceptScope(
+    @Param('workspaceId') workspaceId: string,
+    @Param('runId', ParseUUIDPipe) runId: string,
+    @Param('version', ParseIntPipe) version: number,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.runs.acceptScope(workspaceId, runId, version, user.id);
+  }
+
+  @Post(':runId/specs/:version/request-changes')
+  @HttpCode(200)
+  @WorkspaceRole('member')
+  requestScopeChanges(
+    @Param('workspaceId') workspaceId: string,
+    @Param('runId', ParseUUIDPipe) runId: string,
+    @Param('version', ParseIntPipe) version: number,
+    @Body(new ZodValidationPipe(RequestScopeChangesSchema)) body: RequestScopeChangesInput,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.runs.requestScopeChanges(workspaceId, runId, version, user.id, body.text);
   }
 
   @Get(':runId/events')
