@@ -56,14 +56,35 @@ export const RUNNER_FAILURE_CODES = [
   'archive_too_large',
   /** No spend left to bound a session with: the runner starts none. */
   'budget_exhausted',
+  /** GitHub reports admin or maintain permission for the bot, or the repository is not readable with its token. */
+  'repository_not_eligible',
+  /** The run branch exists on the remote and this run did not create it. */
+  'branch_exists',
+  /** Someone else pushed to the run branch during the turn. */
+  'push_rejected',
+  /** The secret scan blocked the push twice in one turn. */
+  'secret_scan_blocked',
+  /** GitHub kept failing after the in-process retries, or refused a write. */
+  'github_error',
 ] as const;
 export type RunnerFailureCode = (typeof RUNNER_FAILURE_CODES)[number];
 
-/** A repository the run works in (implement turns); the scope phase has none yet. */
+/**
+ * A repository the run may touch: in implement turns the run's repositories,
+ * in scope turns its eligible seeds (read only, for the bot permission check).
+ */
 export const AssignedRepositorySchema = z.object({
   key: z.string(),
   reason: z.string(),
   mergeOrder: z.number().int().nonnegative(),
+  /** HTTPS clone URL from the shared resolver; it never carries a credential. */
+  cloneUrl: z.string().min(1),
+  /** The repository on GitHub's REST API, read with the bot's token before any session starts. */
+  github: z.object({ apiBaseUrl: z.string().min(1), owner: z.string().min(1), name: z.string().min(1) }),
+  /** True once this run reserved the run branch here: a run branch found on the remote is then its own. */
+  branchCreated: z.boolean(),
+  /** Paths an earlier turn withheld from the push; the implement prompt names them. */
+  withheldPaths: z.array(z.string()),
 });
 export type AssignedRepository = z.infer<typeof AssignedRepositorySchema>;
 
@@ -115,9 +136,23 @@ export const TurnAssignmentSchema = z.object({
     maxTurnDurationSeconds: z.number().int().positive(),
     /** Repository keys named up front (labels or the manual start): the scope's starting points. */
     seeds: z.array(z.string()),
+    /** The run branch, `coredoc/<ISSUE-KEY>[-<n>]`, the same in every repository. */
+    branch: z.string().min(1),
   }),
   /** The PRD, read from Jira when a scope turn is claimed; null for other kinds. */
   prd: z.object({ markdown: z.string() }).nullable(),
+  /** The accepted spec and its acceptance record, for implement turns; null otherwise. */
+  acceptedSpec: z
+    .object({
+      version: z.number().int().positive(),
+      markdown: z.string(),
+      /** Null when the system accepted it under automatic acceptance. */
+      acceptedBy: z.string().nullable(),
+      acceptedAt: z.iso.datetime(),
+      /** sha256 of the markdown, hex. */
+      digest: z.string().regex(/^[0-9a-f]{64}$/),
+    })
+    .nullable(),
   repositories: z.array(AssignedRepositorySchema),
   /**
    * The per-turn MCP-only token for the Coredoc MCP, minted at claim and
@@ -196,15 +231,49 @@ export const TurnOutcomeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('ended') }),
   /** The runner detected a failure that fails the run. */
   z.object({ kind: z.literal('failed'), code: z.enum(RUNNER_FAILURE_CODES), reason: z.string().max(2_000) }),
+  /**
+   * The session reached the turn's duration limit or the SDK turn cap without
+   * a run-control outcome: the work is pushed and the run continues.
+   */
+  z.object({ kind: z.literal('checkpoint') }),
 ]);
 export type TurnOutcome = z.infer<typeof TurnOutcomeSchema>;
+
+/** Above this a withheld workflow diff is reported by its paths only. */
+export const MAX_WORKFLOW_DIFF_BYTES = 64 * 1024;
+
+const repositoryPath = z.string().min(1).max(1_024);
+const commitSha = z.string().regex(/^[0-9a-f]{40,64}$/);
+
+/** What the end of an implement turn left in one repository. */
+export const RepositoryReportSchema = z.object({
+  key: z.string().trim().min(1).max(255),
+  /** The run branch's head on the remote after this turn; null when the run branch is not there. */
+  pushedHead: commitSha.nullable(),
+  /** Paths left out of the push by the staging rule; reported by path only. */
+  withheldPaths: z.array(repositoryPath).max(500),
+  /** Withheld workflow files, with their diff when it passed the secret scan and fits the cap. */
+  workflowDiff: z
+    .object({
+      paths: z.array(repositoryPath).min(1).max(100),
+      diff: z.string().max(MAX_WORKFLOW_DIFF_BYTES).nullable(),
+      note: z.string().max(500).nullable(),
+    })
+    .nullable(),
+  /** Binary files the secret scan could not review; listed for a person instead of blocking. */
+  binaryPaths: z.array(repositoryPath).max(500),
+});
+export type RepositoryReport = z.infer<typeof RepositoryReportSchema>;
 
 export const CompleteTurnRequestSchema = z.object({
   outcome: TurnOutcomeSchema,
   spend: TurnSpendSchema,
   versions: RunnerVersionsSchema,
+  /** Implement turns: one report per run repository the turn cloned. */
+  repositories: z.array(RepositoryReportSchema).max(50).default([]),
 });
-export type CompleteTurnRequest = z.infer<typeof CompleteTurnRequestSchema>;
+export type CompleteTurnRequest = z.input<typeof CompleteTurnRequestSchema>;
+export type CompleteTurn = z.output<typeof CompleteTurnRequestSchema>;
 
 export const CompleteTurnResponseSchema = z.object({
   completed: z.literal(true),
@@ -259,3 +328,44 @@ export const RunnerErrorBodySchema = z.object({
   code: z.string().optional(),
   message: z.union([z.string(), z.array(z.string())]).optional(),
 });
+
+/**
+ * `submit_result`: the implement phase's result. It ends the turn; the run
+ * moves to delivery only when the end-of-turn push touched a repository.
+ */
+export const SubmitResultRequestSchema = z.object({
+  summary: z.string().trim().min(1).max(4_000),
+  /** What changed in each repository, by repository key. */
+  repositories: z
+    .array(z.object({ key: z.string().trim().min(1).max(255), summary: shortText }))
+    .max(50)
+    .default([]),
+  assumptions: z.array(shortText).max(50).default([]),
+  /** Repositories that could not be built or tested in the runner, with the reason. */
+  notBuiltOrTested: z
+    .array(z.object({ key: z.string().trim().min(1).max(255), reason: shortText }))
+    .max(50)
+    .default([]),
+  notes: z.string().trim().max(4_000).default(''),
+});
+export type SubmitResultRequest = z.input<typeof SubmitResultRequestSchema>;
+export type SubmitResult = z.output<typeof SubmitResultRequestSchema>;
+
+export const SubmitResultResponseSchema = z.discriminatedUnion('accepted', [
+  /** Stored as this turn's result; the completion transaction applies it. */
+  z.object({ accepted: z.literal(true), stop: z.boolean() }),
+  z.object({ accepted: z.literal(false), errors: z.array(z.string()).min(1), stop: z.boolean() }),
+]);
+export type SubmitResultResponse = z.infer<typeof SubmitResultResponseSchema>;
+
+/** Sent before the runner's first push of the run branch to a repository. */
+export const ReserveBranchRequestSchema = z.object({
+  repository: z.string().trim().min(1).max(255),
+});
+export type ReserveBranchRequest = z.infer<typeof ReserveBranchRequestSchema>;
+
+export const ReserveBranchResponseSchema = z.object({
+  reserved: z.literal(true),
+  branch: z.string(),
+});
+export type ReserveBranchResponse = z.infer<typeof ReserveBranchResponseSchema>;

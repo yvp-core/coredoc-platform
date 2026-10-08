@@ -14,8 +14,11 @@ import {
   HeartbeatRequestSchema,
   type ProposeScope,
   ProposeScopeRequestSchema,
+  ReserveBranchRequestSchema,
   RUNNER_LEASE_HEADER,
   type RunnerEvent,
+  type SubmitResult,
+  SubmitResultRequestSchema,
   type TurnAssignment,
 } from '@coredoc/core/agent-runner';
 
@@ -37,7 +40,9 @@ export function assignment(overrides: Partial<TurnAssignment> = {}): TurnAssignm
       priorSessionSpendUsd: 0,
       maxTurnDurationSeconds: 10_800,
       seeds: [],
+      branch: 'coredoc/PROJ-1',
     },
+    acceptedSpec: null,
     prd: { markdown: '# PROJ-1: Export orders\n\nCustomers need order exports.\n' },
     repositories: [],
     mcp: { token: 'cdt_turn_token', path: `/api/v1/workspaces/${WORKSPACE}/mcp` },
@@ -51,6 +56,11 @@ export class FakeCoredocApi {
   readonly events: RunnerEvent[] = [];
   readonly completions: Array<{ turnId: string; body: CompleteTurnRequest }> = [];
   readonly proposals: ProposeScope[] = [];
+  readonly results: SubmitResult[] = [];
+  /** Branch reservations, as `<turn id>:<repository key>`. */
+  readonly reservations: string[] = [];
+  /** Errors the next submit_result gets back, once. */
+  resultErrors: string[] = [];
   /** The archive the server holds for the run; uploads replace it. */
   archive: Buffer | null = null;
   uploads = 0;
@@ -99,7 +109,9 @@ export class FakeCoredocApi {
       return reply(200, next);
     }
 
-    const match = path.match(new RegExp(`^${prefix}/turns/([^/]+)/(heartbeat|events|complete|propose-scope|archive)$`));
+    const match = path.match(
+      new RegExp(`^${prefix}/turns/([^/]+)/(heartbeat|events|complete|propose-scope|submit-result|branches|archive)$`),
+    );
     if (!match) return reply(404, { message: 'not found' });
     const [, turnId, action] = match;
     if (this.leases.get(turnId!) !== req.headers[RUNNER_LEASE_HEADER]) {
@@ -133,6 +145,21 @@ export class FakeCoredocApi {
         this.proposals.push(proposal);
         return reply(200, { accepted: true, version: this.proposals.length, stop: false });
       }
+      case 'submit-result': {
+        const result = SubmitResultRequestSchema.parse(body);
+        if (this.resultErrors.length) {
+          const errors = this.resultErrors;
+          this.resultErrors = [];
+          return reply(200, { accepted: false, errors, stop: false });
+        }
+        this.results.push(result);
+        return reply(200, { accepted: true, stop: false });
+      }
+      case 'branches': {
+        const { repository } = ReserveBranchRequestSchema.parse(body);
+        this.reservations.push(`${turnId}:${repository}`);
+        return reply(200, { reserved: true, branch: 'coredoc/PROJ-1' });
+      }
       case 'archive':
         if (req.method === 'PUT') {
           this.archive = raw;
@@ -144,7 +171,9 @@ export class FakeCoredocApi {
         res.end(this.archive);
         return;
       default:
-        this.completions.push({ turnId: turnId!, body: CompleteTurnRequestSchema.parse(body) });
+        // Validated with the server's schema; kept as sent, so tests see what the runner reported.
+        CompleteTurnRequestSchema.parse(body);
+        this.completions.push({ turnId: turnId!, body: body as CompleteTurnRequest });
         return reply(200, { completed: true });
     }
   }

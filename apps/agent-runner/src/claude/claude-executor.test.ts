@@ -237,6 +237,12 @@ describe('Claude executor in the runner loop', () => {
       uploadArchive: async () => {
         throw new Error('nothing may be uploaded');
       },
+      submitResult: async () => {
+        throw new Error('no session may run');
+      },
+      reserveBranch: async () => {
+        throw new Error('nothing may be pushed');
+      },
     };
 
     const result = await executor.run(hostile, io);

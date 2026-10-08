@@ -2,15 +2,21 @@
  * The Claude Code executor: runs one turn's agent session through the pinned
  * Agent SDK with the plugin loaded by path, the run preamble, the tool policy,
  * the Coredoc MCP and the run-control server, then reports what happened.
- * Scope turns only for now; implement turns land with SF-001 ticket 06.
+ * Implement turns also clone the run's repositories before the session and
+ * commit and push after it.
  */
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { HookCallback, Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { MAX_STATE_ARCHIVE_BYTES, type TurnAssignment, type TurnOutcome } from '@coredoc/core/agent-runner';
+import { Git, gitEnvironment } from '../git/git.js';
+import { SecretScanner } from '../git/secret-scan.js';
+import { type Clone, TurnGit } from '../git/turn-git.js';
+import { GithubApi } from '../github/github-api.js';
 import type { RunnerApiClient } from '../runner-api.js';
 import type { TurnExecutor, TurnIO, TurnResult } from '../runner.js';
-import { runPreamble, scopePrompt } from './prompts.js';
+import { type RetryDelay, TurnFailure } from '../turn-failure.js';
+import { implementPrompt, runPreamble, scopePrompt } from './prompts.js';
 import { RUN_CONTROL_SERVER, type RunControlState, runControlServer } from './run-control.js';
 import { sessionEnvironment } from './session-environment.js';
 import { eventsFor } from './session-events.js';
@@ -29,6 +35,18 @@ const MCP_TOOL_TIMEOUT_MS = 120_000;
 const MAX_TIMER_MS = 2_147_483_647;
 /** Long enough for the plugin to suspend its run at session end; Phase 0 measures it with five clones. */
 const SESSION_END_HOOK_TIMEOUT_MS = 120_000;
+/** How long a session told to end its turn may take to do so before it is stopped. */
+const WIND_DOWN_GRACE_MS = 60_000;
+
+const DURATION_REACHED =
+  'This turn reached its duration limit. Stop now and end your turn without calling more tools: the runner pushes your work and the run continues in a new turn.';
+
+/** The bot account the runner works as on GitHub: its token and the commit identity. */
+export interface BotAccount {
+  token: string;
+  name: string;
+  email: string;
+}
 
 export interface ClaudeExecutorOptions {
   query: QueryFn;
@@ -42,13 +60,28 @@ export interface ClaudeExecutorOptions {
   modelBaseUrl?: string;
   hostEnv: NodeJS.ProcessEnv;
   maxArchiveBytes?: number;
+  /** The bot's GitHub token and commit identity; needed by turns that touch repositories. */
+  bot?: BotAccount;
+  githubFetch?: typeof fetch;
+  retryDelay?: RetryDelay;
+  windDownGraceMs?: number;
   log?: (message: string) => void;
 }
 
 interface SessionOutcome {
   failure: { code: 'plugin_missing' | 'session_mismatch' | 'agent_error'; reason: string } | null;
   result: Extract<SDKMessage, { type: 'result' }> | null;
+  /** The session reached the turn's duration limit or the SDK turn cap. */
+  checkpoint: boolean;
 }
+
+/** Limits one session invocation runs under; a re-invocation in the same turn shares them. */
+interface SessionLimits {
+  deadlineAt: number;
+  budgetUsd: number;
+}
+
+type RepositoryReports = NonNullable<TurnResult['repositories']>;
 
 export class ClaudeExecutor implements TurnExecutor {
   private readonly log: (message: string) => void;
@@ -58,7 +91,7 @@ export class ClaudeExecutor implements TurnExecutor {
   }
 
   async run(turn: TurnAssignment, io: TurnIO): Promise<TurnResult> {
-    if (turn.turn.kind !== 'scope') {
+    if (turn.turn.kind !== 'scope' && turn.turn.kind !== 'implement') {
       await io.emit([{ type: 'raw', text: `[runner] ${turn.turn.kind} turns are not supported by this runner yet` }]);
       return { spend: null };
     }
@@ -67,12 +100,140 @@ export class ClaudeExecutor implements TurnExecutor {
     if (unbounded) return { spend: null, outcome: unbounded };
     const paths = turnPaths(this.options.scratchRoot, turn.run.id, turn.turn.id);
     try {
+      // Before any session, in every turn: the bot must be neither admin nor maintainer where the run may work.
+      await this.checkBotPermissions(turn);
       await createTurnDirectories(paths);
       if (turn.hasStateArchive) await extractStateArchive(await io.downloadArchive(), paths.state);
+      if (turn.turn.kind === 'implement') return await this.implementTurn(turn, io, paths);
       return await this.scopeTurn(turn, io, paths);
+    } catch (error) {
+      if (error instanceof TurnFailure) return { spend: null, outcome: failed(error) };
+      throw error;
     } finally {
       await wipeScratch(this.options.scratchRoot);
     }
+  }
+
+  private requireBot(): BotAccount {
+    if (!this.options.bot) throw new TurnFailure('github_error', 'The runner has no GitHub bot token configured.');
+    return this.options.bot;
+  }
+
+  private async checkBotPermissions(turn: TurnAssignment): Promise<void> {
+    if (turn.repositories.length === 0) return;
+    const github = new GithubApi({
+      token: this.requireBot().token,
+      fetchImpl: this.options.githubFetch,
+      retryDelay: this.options.retryDelay,
+    });
+    for (const repository of turn.repositories) await github.checkBotPermissions(repository);
+  }
+
+  /**
+   * Clone and branch, run the session in the clones, then stage, scan,
+   * commit and push. A blocked scan resumes the session once in the same
+   * turn with the findings; a second block fails the run and pushes nothing.
+   */
+  private async implementTurn(turn: TurnAssignment, io: TurnIO, paths: TurnPaths): Promise<TurnResult> {
+    const bot = this.requireBot();
+    const git = new Git(gitEnvironment({ hostEnv: this.options.hostEnv, home: paths.home, author: bot }), bot.token);
+    const turnGit = new TurnGit({
+      git,
+      scanner: new SecretScanner(this.options.pluginPath),
+      issueKey: turn.run.issueKey,
+      branch: turn.run.branch,
+      turnNumber: turn.turn.ordinal,
+      tmp: paths.tmp,
+      reserveBranch: (repository) => io.reserveBranch(repository),
+      stopped: () => io.signal.aborted,
+      retryDelay: this.options.retryDelay,
+    });
+    const clones = await turnGit.prepare(turn.repositories, paths.work);
+    const specPath = join(paths.work, 'SPEC.md');
+    await writeFile(specPath, turn.acceptedSpec?.markdown ?? '(The server sent no accepted specification.)\n', 'utf8');
+
+    const resume = sessionExists(paths, turn.run.sessionId);
+    const firstPrompt = implementPrompt(turn, specPath, clones.map(promptClone));
+    const prompt = resume
+      ? (turn.turn.inputText ?? 'Continue where you stopped.')
+      : turn.turn.inputText
+        ? `${firstPrompt}\n\n${turn.turn.inputText}`
+        : firstPrompt;
+
+    const control: RunControlState = { proposedVersion: null, submitted: false };
+    const limits: SessionLimits = {
+      deadlineAt: Date.now() + turn.run.maxTurnDurationSeconds * 1000,
+      budgetUsd: turn.run.remainingSpendUsd,
+    };
+    let session = await this.runSession(turn, io, paths, prompt, resume, control, limits);
+    let result = session.result;
+    for (let invocation = 1; ; invocation += 1) {
+      const spend = spendOf(result, turn);
+      if (io.signal.aborted) return { spend };
+      // Classified from the runner's own state: a recorded result outlives a late SDK error.
+      if (session.failure && (session.failure.code !== 'agent_error' || !control.submitted)) {
+        return {
+          spend,
+          outcome: failed(new TurnFailure(session.failure.code, session.failure.reason)),
+          repositories: turnGit.untouchedReports(clones),
+        };
+      }
+      const published = await this.publish(turnGit, clones);
+      if (published.kind === 'failed') return { spend, outcome: published.outcome, repositories: published.reports };
+      if (published.kind === 'published') {
+        const outcome: TurnOutcome =
+          !control.submitted && session.checkpoint ? { kind: 'checkpoint' } : { kind: 'ended' };
+        const archived = await this.uploadState(paths, io);
+        return { spend, outcome: archived ?? outcome, repositories: published.reports };
+      }
+      if (invocation === 2) {
+        const reason = `The secret scan blocked the push twice, so nothing was pushed. Blocked: ${published.findings.join('; ')}`;
+        return {
+          spend,
+          outcome: failed(new TurnFailure('secret_scan_blocked', reason)),
+          repositories: turnGit.untouchedReports(clones),
+        };
+      }
+      // Both invocations count toward the turn's spend and limits.
+      const budgetUsd = Math.max(0.01, limits.budgetUsd - (spend?.costUsd ?? 0));
+      session = await this.runSession(turn, io, paths, scanBlockedPrompt(published.findings), true, control, {
+        ...limits,
+        budgetUsd,
+      });
+      result = session.result ?? result;
+    }
+  }
+
+  private async publish(
+    turnGit: TurnGit,
+    clones: Clone[],
+  ): Promise<
+    | { kind: 'published'; reports: RepositoryReports }
+    | { kind: 'blocked'; findings: string[] }
+    | { kind: 'failed'; outcome: TurnOutcome; reports: RepositoryReports }
+  > {
+    try {
+      const outcome = await turnGit.publish(clones);
+      return outcome.kind === 'published' ? outcome : { kind: 'blocked', findings: outcome.findings };
+    } catch (error) {
+      if (!(error instanceof TurnFailure)) throw error;
+      return { kind: 'failed', outcome: failed(error), reports: turnGit.untouchedReports(clones) };
+    }
+  }
+
+  /** Uploads the state archive; returns the failure instead when it is over the cap. */
+  private async uploadState(paths: TurnPaths, io: TurnIO): Promise<TurnOutcome | null> {
+    const archive = await packStateArchive(paths.state);
+    const cap = this.options.maxArchiveBytes ?? MAX_STATE_ARCHIVE_BYTES;
+    if (archive.length > cap) {
+      return {
+        kind: 'failed',
+        code: 'archive_too_large',
+        reason: `The session state archive is ${archive.length} bytes; the limit is ${cap}.`,
+      };
+    }
+    await io.uploadArchive(archive);
+    return null;
   }
 
   private async scopeTurn(turn: TurnAssignment, io: TurnIO, paths: TurnPaths): Promise<TurnResult> {
@@ -87,7 +248,7 @@ export class ClaudeExecutor implements TurnExecutor {
         ? `${firstPrompt}\n\n${turn.turn.inputText}`
         : firstPrompt;
 
-    const control: RunControlState = { proposedVersion: null };
+    const control: RunControlState = { proposedVersion: null, submitted: false };
     const session = await this.runSession(turn, io, paths, prompt, resume, control);
     if (io.signal.aborted) return { spend: spendOf(session.result, turn) };
 
@@ -119,14 +280,36 @@ export class ClaudeExecutor implements TurnExecutor {
     prompt: string,
     resume: boolean,
     control: RunControlState,
+    limits: SessionLimits = {
+      deadlineAt: Date.now() + turn.run.maxTurnDurationSeconds * 1000,
+      budgetUsd: turn.run.remainingSpendUsd,
+    },
   ): Promise<SessionOutcome> {
     const abort = new AbortController();
     const stop = () => abort.abort();
     io.signal.addEventListener('abort', stop, { once: true });
-    // Reaching the turn's duration limit stops the session; the server's checkpoint rule continues it.
-    const deadline = setTimeout(stop, Math.min(turn.run.maxTurnDurationSeconds * 1000, MAX_TIMER_MS));
+    // A stop that arrived before the session (while cloning, say) never fires the listener.
+    if (io.signal.aborted) stop();
+    const outcome: SessionOutcome = { failure: null, result: null, checkpoint: false };
 
-    const outcome: SessionOutcome = { failure: null, result: null };
+    // Ending a turn refuses further tools, so the session ends by itself and
+    // reports its spend; one that does not is stopped after a grace period.
+    let windDown: string | null = null;
+    let grace: NodeJS.Timeout | undefined;
+    control.endTurn = (reason) => {
+      if (windDown) return;
+      windDown = reason;
+      grace = setTimeout(stop, this.options.windDownGraceMs ?? WIND_DOWN_GRACE_MS);
+    };
+    // Reaching the turn's duration limit is a checkpoint: the work is pushed and the run continues.
+    const deadline = setTimeout(
+      () => {
+        outcome.checkpoint = true;
+        control.endTurn?.(DURATION_REACHED);
+      },
+      Math.min(Math.max(0, limits.deadlineAt - Date.now()), MAX_TIMER_MS),
+    );
+
     const fail = (failure: NonNullable<SessionOutcome['failure']>) => {
       outcome.failure ??= failure;
       stop();
@@ -134,7 +317,7 @@ export class ClaudeExecutor implements TurnExecutor {
     try {
       for await (const message of this.options.query({
         prompt,
-        options: this.sessionOptions(turn, io, paths, resume, control, abort),
+        options: this.sessionOptions(turn, io, paths, resume, control, abort, () => windDown, limits.budgetUsd),
       })) {
         if (message.type === 'system' && message.subtype === 'init') {
           const problem = this.initProblem(message, turn.run.sessionId);
@@ -145,7 +328,9 @@ export class ClaudeExecutor implements TurnExecutor {
         }
         if (message.type === 'result') {
           outcome.result = message;
-          if (message.subtype !== 'success' || message.is_error) {
+          // The SDK turn cap is a runaway guard, not a failure: a checkpoint like the duration limit.
+          if (message.subtype === 'error_max_turns') outcome.checkpoint = true;
+          else if (message.subtype !== 'success' || message.is_error) {
             const errors = 'errors' in message ? message.errors : [];
             fail({ code: 'agent_error', reason: errors?.join('; ') || `The session ended with ${message.subtype}` });
           }
@@ -168,6 +353,8 @@ export class ClaudeExecutor implements TurnExecutor {
       }
     } finally {
       clearTimeout(deadline);
+      clearTimeout(grace);
+      control.endTurn = undefined;
       io.signal.removeEventListener('abort', stop);
     }
     return outcome;
@@ -195,10 +382,15 @@ export class ClaudeExecutor implements TurnExecutor {
     resume: boolean,
     control: RunControlState,
     abortController: AbortController,
+    windDown: () => string | null,
+    budgetUsd: number,
   ): Options {
     const preToolUse: HookCallback = async (input) => {
       if (input.hook_event_name !== 'PreToolUse') return {};
-      const verdict = evaluateToolUse(input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
+      const ending = windDown();
+      const verdict = ending
+        ? ({ decision: 'deny', reason: ending } as const)
+        : evaluateToolUse(input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
       if (verdict.decision === 'allow') return {};
       return {
         hookSpecificOutput: {
@@ -208,7 +400,9 @@ export class ClaudeExecutor implements TurnExecutor {
         },
       };
     };
-    const mcpServers: Options['mcpServers'] = { [RUN_CONTROL_SERVER]: runControlServer(io, control) };
+    const mcpServers: Options['mcpServers'] = {
+      [RUN_CONTROL_SERVER]: runControlServer(io, control, turn.turn.kind),
+    };
     if (turn.mcp) {
       // Under the key `coredoc`: the plugin recognises Coredoc tools by that name segment.
       mcpServers.coredoc = {
@@ -243,7 +437,7 @@ export class ClaudeExecutor implements TurnExecutor {
       disallowedTools: [...DENIED_TOOLS],
       maxTurns: SDK_MAX_TURNS,
       // Positive and finite: checked before the session starts (missingLimit).
-      maxBudgetUsd: turn.run.remainingSpendUsd,
+      maxBudgetUsd: budgetUsd,
       abortController,
       stderr: (line) => this.log(`[claude] ${line.trimEnd()}`),
     };
@@ -300,4 +494,27 @@ function spendOf(result: SessionOutcome['result'], turn: TurnAssignment): TurnRe
     costUsd: Math.max(0, Math.round((result.total_cost_usd - turn.run.priorSessionSpendUsd) * 1e6) / 1e6),
     sdkTurns: result.num_turns,
   };
+}
+
+function failed(error: TurnFailure): TurnOutcome {
+  return { kind: 'failed', code: error.code, reason: error.message };
+}
+
+function promptClone(clone: Clone) {
+  return {
+    key: clone.repository.key,
+    path: clone.dir,
+    mergeOrder: clone.repository.mergeOrder,
+    withheldPaths: clone.repository.withheldPaths,
+  };
+}
+
+/** The re-invocation after a blocked scan: paths and rule ids only, never the matched text. */
+function scanBlockedPrompt(findings: string[]): string {
+  return [
+    'The secret scan blocked the push of your changes, so nothing was pushed. It flagged:',
+    ...findings.map((finding) => `- ${finding}`),
+    '',
+    'Remove the secrets from these files (use configuration or placeholders, or delete files that must not be committed), then end your turn. You need not call submit_result again unless your result changed. A second block fails the run.',
+  ].join('\n');
 }

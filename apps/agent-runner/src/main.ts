@@ -2,7 +2,7 @@
 /**
  * Agent runner entry point. Configuration comes from the environment only;
  * the runner holds the customer's model key, the workspace's runner token and
- * (from ticket 06) the bot's GitHub token, and nothing of the server's.
+ * the bot's GitHub token, and nothing of the server's.
  */
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -51,6 +51,12 @@ const runner = new Runner({
     pluginPath,
     modelApiKey: required('ANTHROPIC_API_KEY'),
     modelBaseUrl: process.env.ANTHROPIC_BASE_URL?.trim() || undefined,
+    // The bot account: its fine-grained token (Write role only) and the commit identity, its no-reply address.
+    bot: {
+      token: required('COREDOC_GITHUB_TOKEN'),
+      name: process.env.COREDOC_GIT_AUTHOR_NAME?.trim() || 'Coredoc agent',
+      email: required('COREDOC_GIT_AUTHOR_EMAIL'),
+    },
     hostEnv: process.env,
     log,
   }),

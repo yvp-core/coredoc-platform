@@ -13,11 +13,16 @@ import {
   type ProposeScopeRequest,
   type ProposeScopeResponse,
   ProposeScopeResponseSchema,
+  type ReserveBranchRequest,
+  ReserveBranchResponseSchema,
   RUNNER_LEASE_HEADER,
   RunnerErrorBodySchema,
   RunnerErrorCode,
   type RunnerEvent,
   type RunnerVersions,
+  type SubmitResultRequest,
+  type SubmitResultResponse,
+  SubmitResultResponseSchema,
   type TurnAssignment,
   TurnAssignmentSchema,
 } from '@coredoc/core/agent-runner';
@@ -97,6 +102,18 @@ export class RunnerApiClient {
   async proposeScope(turn: TurnRef, proposal: ProposeScopeRequest): Promise<ProposeScopeResponse> {
     const response = await this.post(`/turns/${turn.turnId}/propose-scope`, proposal, turn.leaseToken);
     return ProposeScopeResponseSchema.parse(await this.json(response));
+  }
+
+  /** `submit_result`; broken rules come back as `accepted: false` for the agent to fix. */
+  async submitResult(turn: TurnRef, result: SubmitResultRequest): Promise<SubmitResultResponse> {
+    const response = await this.post(`/turns/${turn.turnId}/submit-result`, result, turn.leaseToken);
+    return SubmitResultResponseSchema.parse(await this.json(response));
+  }
+
+  /** Before the first push of the run branch to a repository: records that this run created it. */
+  async reserveBranch(turn: TurnRef, request: ReserveBranchRequest): Promise<void> {
+    const response = await this.post(`/turns/${turn.turnId}/branches`, request, turn.leaseToken);
+    ReserveBranchResponseSchema.parse(await this.json(response));
   }
 
   /** The run's previous state archive (gzip tar), fetched with the live lease. */

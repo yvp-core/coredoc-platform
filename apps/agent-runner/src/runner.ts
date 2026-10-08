@@ -6,9 +6,12 @@
 import {
   type ProposeScopeRequest,
   type ProposeScopeResponse,
+  type RepositoryReport,
   RUNNER_PROTOCOL_VERSION,
   type RunnerEvent,
   type RunnerVersions,
+  type SubmitResultRequest,
+  type SubmitResultResponse,
   type TurnAssignment,
   type TurnOutcome,
 } from '@coredoc/core/agent-runner';
@@ -21,6 +24,10 @@ export interface TurnIO {
   signal: AbortSignal;
   /** The run-control call; validation errors come back for the agent to fix. */
   proposeScope(proposal: ProposeScopeRequest): Promise<ProposeScopeResponse>;
+  /** Implement turns' result; validation errors come back for the agent to fix. */
+  submitResult(result: SubmitResultRequest): Promise<SubmitResultResponse>;
+  /** Records that this run creates the run branch in a repository; called before its first push there. */
+  reserveBranch(repository: string): Promise<void>;
   /** The run's previous state archive; call only when the assignment says one exists. */
   downloadArchive(): Promise<Buffer>;
   uploadArchive(archive: Buffer): Promise<void>;
@@ -31,6 +38,8 @@ export interface TurnResult {
   spend: { costUsd: number; sdkTurns?: number } | null;
   /** Defaults to `ended`: the server judges the turn from what it reported. */
   outcome?: TurnOutcome;
+  /** Implement turns: what the end of the turn left in each repository. */
+  repositories?: RepositoryReport[];
 }
 
 /** What does the work of a turn: the Claude Code executor in production. */
@@ -170,6 +179,10 @@ export class Runner {
           }
         },
         proposeScope: (proposal) => this.options.api.proposeScope(ref, proposal),
+        submitResult: (submitted) => this.options.api.submitResult(ref, submitted),
+        reserveBranch: async (repository) => {
+          await this.options.api.reserveBranch(ref, { repository });
+        },
         downloadArchive: () => this.options.api.downloadArchive(ref),
         uploadArchive: (archive) => this.options.api.uploadArchive(ref, archive),
       };
@@ -180,6 +193,7 @@ export class Runner {
         outcome: result.outcome ?? { kind: 'ended' },
         spend: result.spend,
         versions: this.versions,
+        ...(result.repositories?.length ? { repositories: result.repositories } : {}),
       });
       return 'completed';
     } catch (error) {
