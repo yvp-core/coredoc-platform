@@ -50,6 +50,8 @@ export const TurnOutcome = {
   Checkpoint: 'checkpoint',
   /** Ended after a valid `submit_result`. */
   ResultSubmitted: 'result_submitted',
+  /** Ended after `request_repo` under required acceptance: a person decides. */
+  RepositoryRequested: 'repository_requested',
 } as const;
 
 export const QuestionKind = { Clarification: 'clarification', RepositoryRequest: 'repository_request' } as const;
@@ -110,6 +112,8 @@ export const RunEventCode = {
   ChangesRequested: 'changes_requested',
   BranchPushed: 'branch_pushed',
   WorkflowDiffWithheld: 'workflow_diff_withheld',
+  RepositoryAdded: 'repository_added',
+  RepositoryDeclined: 'repository_declined',
 } as const;
 
 /** Server-owned timeline events; agent events (`phase`, `todos`, `raw`, `done`) come from the runner contract. */

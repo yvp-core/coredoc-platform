@@ -11,6 +11,7 @@ import { CloudAgentRunAvailability } from './cloud-agent-run-availability.servic
 import { CloudAgentRunIssueResolver } from './cloud-agent-run-issue.resolver.js';
 import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira.service.js';
 import { CloudAgentRunQuestionService } from './cloud-agent-run-questions.service.js';
+import { CloudAgentRunRepositoryRequestService } from './cloud-agent-run-repository-requests.service.js';
 import { CloudAgentRunSettingsService } from './cloud-agent-run-settings.service.js';
 import { CloudAgentRunSweep } from './cloud-agent-run-sweep.service.js';
 import { CloudAgentRunSweepCron } from './cloud-agent-run-sweep.cron.js';
@@ -40,6 +41,7 @@ export const cloudAgentRunsCoreProviders = [
   CloudAgentRunJiraConnector,
   CloudAgentRunTrigger,
   CloudAgentRunQuestionService,
+  CloudAgentRunRepositoryRequestService,
   CloudAgentRunSweep,
   GithubRepositoryResolver,
 ];

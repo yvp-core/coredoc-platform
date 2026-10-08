@@ -1749,6 +1749,8 @@ model CloudAgentRunTurn {
   stateArchiveKey  String?   @map("state_archive_key") @db.VarChar(1024)
   /// This turn's `submit_result`; the completion transaction adopts it.
   result           Json?     @db.JsonB
+  /// This turn's `request_repo` under required acceptance (key, reason); completion opens its question.
+  repoRequest      Json?     @map("repository_request") @db.JsonB
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
   completedAt      DateTime? @map("completed_at") @db.Timestamptz
 
@@ -1828,6 +1830,8 @@ model CloudAgentRunQuestion {
   state         String    @db.VarChar(16)
   /// The AskUserQuestion call; the resume turn re-runs it with the answers.
   toolUseId     String?   @map("tool_use_id") @db.VarChar(255)
+  /// The repository a `repository_request` question decides; null for clarifications.
+  repositoryKey String?   @map("repository_key") @db.VarChar(255)
   questions     Json      @db.JsonB
   /// Per question: the chosen labels and any free text.
   answers       Json?     @db.JsonB

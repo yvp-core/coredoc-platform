@@ -12,6 +12,8 @@ import {
   type ProposeScopeResponse,
   type ReportQuestion,
   type ReportQuestionResponse,
+  type RequestRepo,
+  type RequestRepoResponse,
   type ReserveBranchResponse,
   type RunnerVersions,
   type SubmitResult,
@@ -30,6 +32,11 @@ import {
 import { CloudAgentRunIssueReader, JiraReadFailure } from './cloud-agent-run-issue-reader.js';
 import { answerForTurn, recordQuestion, settleTurnQuestions } from './cloud-agent-run-questions.service.js';
 import { CloudAgentRunImplementService, RunCheckFailure } from './cloud-agent-run-implement.service.js';
+import {
+  CloudAgentRunRepositoryRequestService,
+  openRepositoryRequest,
+  repositoryDecisionForTurn,
+} from './cloud-agent-run-repository-requests.service.js';
 import { CloudAgentRunScopeService } from './cloud-agent-run-scope.service.js';
 import {
   CloudAgentRunErrorCode,
@@ -105,6 +112,7 @@ export class CloudAgentTurnService {
     private readonly jira: CloudAgentRunIssueReader,
     private readonly scope: CloudAgentRunScopeService,
     private readonly implement: CloudAgentRunImplementService,
+    private readonly repositoryRequests: CloudAgentRunRepositoryRequestService,
     @Inject(CLOUD_AGENT_RUN_ARCHIVE_STORE) private readonly archives: CloudAgentRunArchiveStore,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
   ) {}
@@ -255,6 +263,7 @@ export class CloudAgentTurnService {
         mcp: mcpToken ? { token: mcpToken, path: `/api/v1/workspaces/${run.workspaceId}/mcp` } : null,
         hasStateArchive: run.stateArchiveKey !== null,
         answer: await answerForTurn(tx, run.workspaceId, claimed.id),
+        repositoryDecision: await repositoryDecisionForTurn(tx, run.workspaceId, claimed.id),
       };
       return { assignment, run };
     });
@@ -388,6 +397,32 @@ export class CloudAgentTurnService {
       if (errors.length) return { accepted: false, errors, stop: false };
       await this.implement.saveResult(tx, turn.id, result);
       return { accepted: true, stop: false };
+    });
+  }
+
+  /**
+   * `request_repo`: a repository the accepted scope left out. Appended at
+   * once under automatic acceptance (the turn continues); stored for a
+   * person's decision under required acceptance (the turn ends). Broken
+   * rules go back to the agent as a tool error.
+   */
+  async requestRepo(
+    runner: RunnerPrincipal,
+    turnId: string,
+    leaseToken: string,
+    request: RequestRepo,
+  ): Promise<RequestRepoResponse> {
+    const eligibility = await this.scope.eligibility(runner.workspaceId);
+    return this.prisma.$transaction(async (tx) => {
+      const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
+      if (standing === 'completed') throw leaseLost();
+      if (standing === 'stopped') return { state: 'rejected', errors: ['The run has ended; stop.'], stop: true };
+      const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { kind: true } });
+      if (row.kind !== RunPhase.Implement) {
+        return { state: 'rejected', errors: ['request_repo is available only while implementing.'], stop: false };
+      }
+      const run = (await lockRun(tx, runner.workspaceId, turn.run_id))!;
+      return this.repositoryRequests.request(tx, run, turn.id, request, eligibility, this.now());
     });
   }
 
@@ -609,6 +644,9 @@ export class CloudAgentTurnService {
     if (await settleTurnQuestions(tx, run, turnId, at)) return TurnOutcome.QuestionAsked;
     if (kind === RunPhase.Scope && (await this.scope.publishDraft(tx, run, turnId, eligibility, at))) {
       return TurnOutcome.ScopeProposed;
+    }
+    if (kind === RunPhase.Implement && (await openRepositoryRequest(tx, run, turnId, at))) {
+      return TurnOutcome.RepositoryRequested;
     }
     if (kind === RunPhase.Implement) {
       const settled = await this.implement.settleResult(tx, run, turnId, at);

@@ -281,10 +281,8 @@ export class CloudAgentRunImplementService {
     return TurnOutcome.ResultSubmitted;
   }
 
-  private async resolve(
-    workspaceId: string,
-    key: string,
-  ): Promise<Pick<AssignedRepository, 'cloneUrl' | 'github'> | string> {
+  /** A repository key through the shared resolver: its clone URL and API coordinates, or why it does not resolve. */
+  async resolve(workspaceId: string, key: string): Promise<Pick<AssignedRepository, 'cloneUrl' | 'github'> | string> {
     try {
       const resolved = await this.resolver.resolve(workspaceId, key);
       return {

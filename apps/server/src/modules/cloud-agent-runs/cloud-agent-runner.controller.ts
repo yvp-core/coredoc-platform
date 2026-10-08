@@ -23,6 +23,8 @@ import {
   ProposeScopeRequestSchema,
   type ReportQuestion,
   ReportQuestionRequestSchema,
+  type RequestRepo,
+  RequestRepoRequestSchema,
   type ReserveBranchRequest,
   ReserveBranchRequestSchema,
   RUNNER_LEASE_HEADER,
@@ -141,6 +143,20 @@ export class CloudAgentRunnerController {
     @Body(new ZodValidationPipe(SubmitResultRequestSchema)) body: SubmitResult,
   ) {
     return this.turns.submitResult(principal(request), turnId, lease ?? '', body);
+  }
+
+  /** Validation errors come back in the body (`state: rejected`) for the agent to fix. */
+  @Post('turns/:turnId/request-repo')
+  @HttpCode(200)
+  @WorkspaceRole('admin')
+  @RequirePermission(TokenPermission.AgentRunnerRun)
+  requestRepo(
+    @Req() request: RunnerRequest,
+    @Param('turnId', ParseUUIDPipe) turnId: string,
+    @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
+    @Body(new ZodValidationPipe(RequestRepoRequestSchema)) body: RequestRepo,
+  ) {
+    return this.turns.requestRepo(principal(request), turnId, lease ?? '', body);
   }
 
   /** Before the runner's first push of the run branch to a repository. */
