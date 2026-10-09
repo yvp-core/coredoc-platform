@@ -70,7 +70,14 @@ RUN mkdir -p /app/fts-smoke /app/fts-smoke/work && \
 # @prisma/client (WASM query compiler), the generated client in dist, and the `prisma`
 # migrate CLI (used by the ArgoCD PreSync hook) all remain. @swc+core* is matched
 # narrowly so @swc/helpers (a possible runtime dep) is preserved.
-RUN cd /app/node_modules/.pnpm && rm -rf @biomejs+* turbo@* turbo-* @vitest+* vitest@* @swc+core*
+#
+# The Agent SDK arrives only through the workspace root's own dependencies (the
+# evals harness), never through the server's closure. The server never runs an
+# agent and its image must not contain the SDK or the Claude Code it bundles
+# (scripts/images/check-images.sh enforces it); the agent runner has its own image.
+RUN cd /app/node_modules/.pnpm && rm -rf @biomejs+* turbo@* turbo-* @vitest+* vitest@* @swc+core* \
+      @anthropic-ai+claude-agent-sdk* && \
+    rm -f /app/node_modules/@anthropic-ai/claude-agent-sdk
 
 # =============================================================================
 # Web build — isolated stage. Own install + own node_modules; only
