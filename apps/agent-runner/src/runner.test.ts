@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { RUNNER_PROTOCOL_VERSION, type TurnAssignment } from '@coredoc/core/agent-runner';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assignment, FakeCoredocApi, TOKEN, WORKSPACE } from './fake-coredoc-api.test-support.js';
-import { RunnerApiClient } from './runner-api.js';
+import { RunnerApiClient, RunnerApiError } from './runner-api.js';
 import { Runner, type TurnExecutor } from './runner.js';
 
 const VERSIONS = { runner: '1.1.0-test' };
@@ -216,3 +217,120 @@ async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<voi
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
+
+describe('runner retries against Coredoc', () => {
+  let api: FakeCoredocApi;
+  /** Waits the client asked for; time moves only through them. */
+  let waits: number[];
+  let clock: number;
+
+  beforeEach(async () => {
+    api = new FakeCoredocApi();
+    await api.listen();
+    waits = [];
+    clock = Date.now();
+  });
+
+  afterEach(async () => {
+    await api.close();
+  });
+
+  function runner(executor: TurnExecutor) {
+    return new Runner({
+      api: new RunnerApiClient({
+        baseUrl: api.baseUrl,
+        workspaceId: WORKSPACE,
+        token: TOKEN,
+        now: () => clock,
+        sleep: async (ms) => {
+          waits.push(ms);
+          clock += ms;
+        },
+      }),
+      executor,
+      versions: VERSIONS,
+      heartbeatIntervalMs: 60_000,
+    });
+  }
+
+  /** Emits one event, then returns. */
+  const emitting: TurnExecutor = {
+    async run(_turn, io) {
+      await io.emit([{ type: 'phase', phase: 'scoping' }]);
+      return { spend: null };
+    },
+  };
+
+  it('retries a 429 after its Retry-After and completes the turn', async () => {
+    api.queue.push(assignment());
+    api.faults.push({ action: 'complete', status: 429, retryAfter: '7' });
+
+    await expect(runner(emitting).runOnce()).resolves.toBe('completed');
+    expect(waits).toEqual([7_000]);
+    expect(api.completions).toHaveLength(1);
+  });
+
+  it('retries transient 5xx answers and dropped connections with growing waits', async () => {
+    api.queue.push(assignment());
+    api.faults.push(
+      { action: 'events', status: 503 },
+      { action: 'events', drop: true },
+      { action: 'events', status: 500 },
+      { action: 'complete', status: 502 },
+    );
+
+    await expect(runner(emitting).runOnce()).resolves.toBe('completed');
+    expect(api.events).toEqual([{ type: 'phase', phase: 'scoping' }]);
+    expect(api.turnRequests).toEqual(['events', 'events', 'events', 'events', 'complete', 'complete']);
+    expect(waits).toEqual([1_000, 2_000, 4_000, 1_000]);
+  });
+
+  it('does not repeat a question after an answer that may have recorded it', async () => {
+    api.queue.push(assignment());
+    api.faults.push({ action: 'questions', status: 500 });
+    let refusal: unknown;
+    const asking: TurnExecutor = {
+      async run(_turn, io) {
+        refusal = await io
+          .reportQuestion({
+            toolUseId: 'toolu_1',
+            questions: [
+              {
+                question: 'Which format?',
+                header: 'Format',
+                options: [
+                  { label: 'CSV', description: 'Spreadsheets' },
+                  { label: 'JSON', description: 'Integrations' },
+                ],
+                multiSelect: false,
+              },
+            ],
+          })
+          .catch((error: unknown) => error);
+        return { spend: null };
+      },
+    };
+
+    await expect(runner(asking).runOnce()).resolves.toBe('completed');
+    expect(refusal).toBeInstanceOf(RunnerApiError);
+    expect(api.turnRequests.filter((action) => action === 'questions')).toHaveLength(1);
+  });
+
+  it('stops the turn on LEASE_LOST without retrying', async () => {
+    api.queue.push(assignment());
+    api.faults.push({ action: 'events', status: 409, code: 'LEASE_LOST' });
+
+    await expect(runner(emitting).runOnce()).resolves.toBe('lease_lost');
+    expect(api.turnRequests).toEqual(['events']);
+    expect(waits).toEqual([]);
+  });
+
+  it('gives up once the next attempt would fall after the lease expires', async () => {
+    api.queue.push(assignment({ lease: { token: randomUUID(), expiresAt: new Date(clock + 10_000).toISOString() } }));
+    for (let fault = 0; fault < 10; fault += 1) api.faults.push({ action: 'complete', status: 503 });
+
+    await expect(runner(emitting).runOnce()).rejects.toThrow(RunnerApiError);
+    expect(waits).toEqual([1_000, 2_000, 4_000]);
+    expect(api.completions).toEqual([]);
+  });
+});

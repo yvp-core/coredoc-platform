@@ -179,7 +179,11 @@ export class Runner {
   }
 
   private async execute(assignment: TurnAssignment, shutdown?: AbortSignal): Promise<TurnEnd> {
-    const ref: TurnRef = { turnId: assignment.turn.id, leaseToken: assignment.lease.token };
+    const ref: TurnRef = {
+      turnId: assignment.turn.id,
+      leaseToken: assignment.lease.token,
+      leaseExpiresAt: Date.parse(assignment.lease.expiresAt),
+    };
     const session = new AbortController();
     let end: TurnEnd | null = null;
     const stop = (reason: TurnEnd) => {
@@ -193,6 +197,7 @@ export class Runner {
     const heartbeat = setInterval(() => {
       this.options.api.heartbeat(ref, this.versions).then(
         (answer) => {
+          ref.leaseExpiresAt = Date.parse(answer.leaseExpiresAt);
           if (answer.stop) stop('stopped');
         },
         (error: unknown) => {

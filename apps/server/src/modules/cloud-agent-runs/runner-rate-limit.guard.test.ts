@@ -2,9 +2,12 @@ import { type ExecutionContext, HttpException, HttpStatus } from '@nestjs/common
 import { describe, expect, it } from 'vitest';
 import { RunnerRateLimitGuard } from './runner-rate-limit.guard.js';
 
-function context(serviceTokenId: string | undefined): ExecutionContext {
+function context(serviceTokenId: string | undefined, headers: Record<string, string> = {}): ExecutionContext {
   return {
-    switchToHttp: () => ({ getRequest: () => ({ serviceTokenId }) }),
+    switchToHttp: () => ({
+      getRequest: () => ({ serviceTokenId }),
+      getResponse: () => ({ setHeader: (name: string, value: string) => (headers[name.toLowerCase()] = value) }),
+    }),
   } as unknown as ExecutionContext;
 }
 
@@ -33,5 +36,13 @@ describe('RunnerRateLimitGuard', () => {
     expect(refused(guard, 'token-a')).toBeNull();
     expect(refused(guard, 'token-a')).toBe(HttpStatus.TOO_MANY_REQUESTS);
     expect(refused(guard, 'token-b')).toBeNull();
+  });
+
+  it('tells a refused runner when to try again', () => {
+    const guard = new RunnerRateLimitGuard({ burst: 1, refillPerSec: 0.5, now: () => 0 });
+    guard.canActivate(context('token-a'));
+    const headers: Record<string, string> = {};
+    expect(() => guard.canActivate(context('token-a', headers))).toThrow(HttpException);
+    expect(headers['retry-after']).toBe('2');
   });
 });

@@ -27,6 +27,8 @@ const SWEEP_EVERY = 1_000;
 @Injectable()
 export class RunnerRateLimitGuard implements CanActivate {
   private readonly limiter: TokenBucketRateLimiter;
+  /** Whole seconds until a refused token earns its next request; the runner waits that long. */
+  private readonly retryAfterSeconds: string;
   private calls = 0;
 
   constructor(@Optional() @Inject(RUNNER_RATE_LIMIT) limit: RunnerRateLimit = DEFAULT_RUNNER_RATE_LIMIT) {
@@ -35,12 +37,17 @@ export class RunnerRateLimitGuard implements CanActivate {
       refillPerSec: limit.refillPerSec,
       now: limit.now,
     });
+    this.retryAfterSeconds = String(Math.max(1, Math.ceil(1 / limit.refillPerSec)));
   }
 
   canActivate(context: ExecutionContext): boolean {
-    const { serviceTokenId } = context.switchToHttp().getRequest<{ serviceTokenId?: string }>();
+    const http = context.switchToHttp();
+    const { serviceTokenId } = http.getRequest<{ serviceTokenId?: string }>();
     if (++this.calls % SWEEP_EVERY === 0) this.limiter.evictFull(IDLE_EVICT_MS);
     if (!this.limiter.tryRemove(serviceTokenId ?? 'none')) {
+      http
+        .getResponse<{ setHeader(name: string, value: string): void }>()
+        .setHeader('Retry-After', this.retryAfterSeconds);
       throw cloudAgentRunError(
         CloudAgentRunErrorCode.RateLimited,
         'Too many runner requests for this token; slow down',

@@ -93,6 +93,20 @@ export class FakeCoredocApi {
     state: 'rejected',
     errors: ['No repository answer scripted.'],
   });
+  /**
+   * Failures the next matching turn requests get instead of being handled,
+   * in order: an HTTP status (with an optional Retry-After and error code),
+   * or `drop` to close the connection without an answer.
+   */
+  readonly faults: Array<{
+    action: string;
+    status?: number;
+    retryAfter?: string;
+    code?: string;
+    drop?: boolean;
+  }> = [];
+  /** Every turn request that reached the fake, as its action (`events`, `complete`, …). */
+  readonly turnRequests: string[] = [];
   private readonly leases = new Map<string, string>();
   private server!: Server;
   baseUrl = '';
@@ -145,6 +159,21 @@ export class FakeCoredocApi {
     );
     if (!match) return reply(404, { message: 'not found' });
     const [, turnId, action] = match;
+    this.turnRequests.push(action!);
+    const fault = this.faults.findIndex((candidate) => candidate.action === action);
+    if (fault >= 0) {
+      const [{ status = 500, retryAfter, code, drop }] = this.faults.splice(fault, 1) as [(typeof this.faults)[number]];
+      if (drop) {
+        req.socket.destroy();
+        return;
+      }
+      res.writeHead(status, {
+        'content-type': 'application/json',
+        ...(retryAfter ? { 'retry-after': retryAfter } : {}),
+      });
+      res.end(JSON.stringify({ code, message: `scripted ${status}` }));
+      return;
+    }
     if (this.leases.get(turnId!) !== req.headers[RUNNER_LEASE_HEADER]) {
       return reply(409, { code: 'LEASE_LOST', message: 'lease lost' });
     }
