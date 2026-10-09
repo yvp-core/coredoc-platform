@@ -19,6 +19,9 @@
 #
 #   scripts/images/check-images.sh <server-image> <runner-image>
 #
+# Pass `-` for an image to skip its checks (the release checks each image in
+# its own job).
+#
 # Size budgets are uncompressed image sizes in MB; raise one deliberately, in
 # the same change that explains the growth.
 set -euo pipefail
@@ -64,59 +67,68 @@ in_image() {
 }
 
 # --- server ------------------------------------------------------------------
-echo "==> server: $SERVER_IMAGE"
-SDK_IN_SERVER="$(in_image "$SERVER_IMAGE" \
-  "find / -xdev \\( -name 'claude-agent-sdk*' -o -path '*/@anthropic-ai/claude-code' \\) -print 2>/dev/null | head -n 5")"
-if [ -z "$SDK_IN_SERVER" ]; then
-  ok "server image contains no Agent SDK or Claude Code"
-else
-  fail "server image contains the Agent SDK or Claude Code:"
-  echo "$SDK_IN_SERVER" >&2
-fi
-check_size server "$SERVER_IMAGE" "$SERVER_MAX_MB"
+check_server() {
+  echo "==> server: $SERVER_IMAGE"
+  local found
+  found="$(in_image "$SERVER_IMAGE" \
+    "find / -xdev \\( -name 'claude-agent-sdk*' -o -path '*/@anthropic-ai/claude-code' \\) -print 2>/dev/null | head -n 5")"
+  if [ -z "$found" ]; then
+    ok "server image contains no Agent SDK or Claude Code"
+  else
+    fail "server image contains the Agent SDK or Claude Code:"
+    echo "$found" >&2
+  fi
+  check_size server "$SERVER_IMAGE" "$SERVER_MAX_MB"
+}
+
 
 # --- runner ------------------------------------------------------------------
-echo "==> runner: $RUNNER_IMAGE"
-PLATFORM="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$RUNNER_IMAGE")"
-if [ "$PLATFORM" = "linux/amd64" ]; then ok "runner platform is $PLATFORM"; else fail "runner platform is $PLATFORM, not linux/amd64"; fi
+check_runner() {
+  echo "==> runner: $RUNNER_IMAGE"
+  local platform user_spec entrypoint content
+  platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$RUNNER_IMAGE")"
+  if [ "$platform" = "linux/amd64" ]; then ok "runner platform is $platform"; else fail "runner platform is $platform, not linux/amd64"; fi
 
-USER_SPEC="$(docker image inspect --format '{{.Config.User}}' "$RUNNER_IMAGE")"
-case "$USER_SPEC" in
-  0 | 0:* | root | root:* | "") fail "runner image runs as '${USER_SPEC:-root}'" ;;
-  [0-9]*) ok "runner runs as numeric user $USER_SPEC" ;;
-  *) fail "runner user '$USER_SPEC' is not numeric (runAsNonRoot cannot verify a name)" ;;
-esac
+  user_spec="$(docker image inspect --format '{{.Config.User}}' "$RUNNER_IMAGE")"
+  case "$user_spec" in
+    0 | 0:* | root | root:* | "") fail "runner image runs as '${user_spec:-root}'" ;;
+    [0-9]*) ok "runner runs as numeric user $user_spec" ;;
+    *) fail "runner user '$user_spec' is not numeric (runAsNonRoot cannot verify a name)" ;;
+  esac
 
-ENTRYPOINT="$(docker image inspect --format '{{json .Config.Entrypoint}}' "$RUNNER_IMAGE")"
-if [ "$ENTRYPOINT" = '["/usr/bin/tini","--"]' ]; then ok "tini is PID 1"; else fail "entrypoint is $ENTRYPOINT, not tini"; fi
+  entrypoint="$(docker image inspect --format '{{json .Config.Entrypoint}}' "$RUNNER_IMAGE")"
+  if [ "$entrypoint" = '["/usr/bin/tini","--"]' ]; then ok "tini is PID 1"; else fail "entrypoint is $entrypoint, not tini"; fi
 
-CONTENT="$(in_image "$RUNNER_IMAGE" "
-  set -e
-  cd $RUNNER_ROOT/apps/agent-runner
-  sdk=\$(realpath node_modules/@anthropic-ai/claude-agent-sdk)
-  echo sdk=\$(node -p \"require('\$sdk/package.json').version\")
-  test -x \"\$sdk/../claude-agent-sdk-linux-x64/claude\" && echo glibc-binary=yes || echo glibc-binary=no
-  ls -d $RUNNER_ROOT/node_modules/.pnpm/@anthropic-ai+claude-agent-sdk-linux-x64-musl@* >/dev/null 2>&1 && echo musl-binary=yes || echo musl-binary=no
-  test -f $PLUGIN_ROOT/.claude-plugin/plugin.json && echo plugin=yes || echo plugin=no
-  echo writable=\$(find $RUNNER_ROOT $PLUGIN_ROOT \\( -perm -g+w -o -perm -o+w \\) ! -type l | wc -l)
-  echo foreign-owner=\$(find $RUNNER_ROOT $PLUGIN_ROOT ! -user root | wc -l)
-  command -v git >/dev/null && echo git=yes || echo git=no
-")"
-expect() {
-  if printf '%s\n' "$CONTENT" | grep -qx "$1"; then ok "$2"; else fail "$2 (expected $1; got: $(printf '%s' "$CONTENT" | tr '\n' ' '))"; fi
-}
-expect "sdk=$SDK_VERSION" "runner pins Agent SDK $SDK_VERSION"
-expect "glibc-binary=yes" "the SDK's linux-x64 glibc Claude Code binary is installed"
-expect "musl-binary=no" "no musl Claude Code binary is shipped"
-expect "plugin=yes" "coredoc-workflows plugin is installed at $PLUGIN_ROOT"
-expect "writable=0" "runner and plugin are writable by root only"
-expect "foreign-owner=0" "runner and plugin are owned by root"
-expect "git=yes" "git is installed"
-case "$PLUGIN_ROOT" in *" "*) fail "plugin path contains a space" ;; *) ok "plugin path has no spaces" ;; esac
-check_size runner "$RUNNER_IMAGE" "$RUNNER_MAX_MB"
+  content="$(in_image "$RUNNER_IMAGE" "
+    set -e
+    cd $RUNNER_ROOT/apps/agent-runner
+    sdk=\$(realpath node_modules/@anthropic-ai/claude-agent-sdk)
+    echo sdk=\$(node -p \"require('\$sdk/package.json').version\")
+    test -x \"\$sdk/../claude-agent-sdk-linux-x64/claude\" && echo glibc-binary=yes || echo glibc-binary=no
+    ls -d $RUNNER_ROOT/node_modules/.pnpm/@anthropic-ai+claude-agent-sdk-linux-x64-musl@* >/dev/null 2>&1 && echo musl-binary=yes || echo musl-binary=no
+    test -f $PLUGIN_ROOT/.claude-plugin/plugin.json && echo plugin=yes || echo plugin=no
+    echo writable=\$(find $RUNNER_ROOT $PLUGIN_ROOT \\( -perm -g+w -o -perm -o+w \\) ! -type l | wc -l)
+    echo foreign-owner=\$(find $RUNNER_ROOT $PLUGIN_ROOT ! -user root | wc -l)
+    command -v git >/dev/null && echo git=yes || echo git=no
+  ")"
+  expect() {
+    if printf '%s\n' "$content" | grep -qx "$1"; then ok "$2"; else fail "$2 (expected $1; got: $(printf '%s' "$content" | tr '\n' ' '))"; fi
+  }
+  expect "sdk=$SDK_VERSION" "runner pins Agent SDK $SDK_VERSION"
+  expect "glibc-binary=yes" "the SDK's linux-x64 glibc Claude Code binary is installed"
+  expect "musl-binary=no" "no musl Claude Code binary is shipped"
+  expect "plugin=yes" "coredoc-workflows plugin is installed at $PLUGIN_ROOT"
+  expect "writable=0" "runner and plugin are writable by root only"
+  expect "foreign-owner=0" "runner and plugin are owned by root"
+  expect "git=yes" "git is installed"
+  case "$PLUGIN_ROOT" in *" "*) fail "plugin path contains a space" ;; *) ok "plugin path has no spaces" ;; esac
+  check_size runner "$RUNNER_IMAGE" "$RUNNER_MAX_MB"
 
-# --- runner binaries and start-up check (native amd64 only) ------------------
-if [ "$(uname -m)" = "x86_64" ]; then
+  # The bundled binaries and the start-up check run on native amd64 only.
+  if [ "$(uname -m)" != "x86_64" ]; then
+    echo "notice: not on x86_64; skipped running the bundled binaries and the start-up check"
+    return
+  fi
   echo "==> runner start-up check (read-only root filesystem)"
   if docker run --rm --read-only --tmpfs /scratch:uid=10001,gid=10001 \
     -w "$RUNNER_ROOT/apps/agent-runner" "$RUNNER_IMAGE" \
@@ -133,9 +145,10 @@ if [ "$(uname -m)" = "x86_64" ]; then
   else
     fail "the runner's start-up check failed inside the image"
   fi
-else
-  echo "notice: not on x86_64; skipped running the bundled binaries and the start-up check"
-fi
+}
+
+[ "$SERVER_IMAGE" = "-" ] || check_server
+[ "$RUNNER_IMAGE" = "-" ] || check_runner
 
 if [ "$FAILED" -ne 0 ]; then
   echo "Image checks failed." >&2
