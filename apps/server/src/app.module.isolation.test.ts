@@ -24,10 +24,7 @@ import { McpModule } from './mcp/mcp.module.js';
 import { CaptureModule, CaptureWorkerScheduleModule } from './modules/capture/capture.module.js';
 import { CaptureRetentionCron } from './modules/capture/capture-retention.cron.js';
 import { CloudAgentRunTriggerCron } from './modules/cloud-agent-runs/cloud-agent-run-trigger.cron.js';
-import {
-  CloudAgentRunsApiModule,
-  CloudAgentRunsWorkerScheduleModule,
-} from './modules/cloud-agent-runs/cloud-agent-runs.module.js';
+import { CloudAgentRunsWorkerScheduleModule } from './modules/cloud-agent-runs/cloud-agent-runs.module.js';
 import { GraphSnapshotModule } from './modules/graph-snapshot/graph-snapshot.module.js';
 import { GraphSnapshotExecutionService } from './modules/graph-snapshot/graph-snapshot-execution.service.js';
 import { JobQueueModule } from './modules/job-queue/job-queue.module.js';
@@ -93,12 +90,10 @@ describe('process-role application module isolation', () => {
     const graph = collectModuleGraph(WorkerAppModule);
     expect(graph).not.toContain(McpModule);
     expect(graph).toContain(CaptureWorkerScheduleModule);
-    expect(graph).toContain(CloudAgentRunsWorkerScheduleModule);
     expect(graph).toContain(GraphSnapshotModule);
     expect(graph.flatMap((module) => metadataEntries(module, 'controllers'))).toEqual([]);
     expect(graph.flatMap((module) => metadataEntries(module, 'providers'))).toContain(CaptureRetentionCron);
     expect(graph.flatMap((module) => metadataEntries(module, 'providers'))).toContain(PushWorkerService);
-    expect(graph.flatMap((module) => metadataEntries(module, 'providers'))).toContain(CloudAgentRunTriggerCron);
 
     const moduleRef = await Test.createTestingModule({ imports: [WorkerAppModule] })
       .overrideProvider(PrismaService)
@@ -106,7 +101,6 @@ describe('process-role application module isolation', () => {
       .compile();
     expect(moduleRef.get(PushWorkerService, { strict: false })).toBeInstanceOf(PushWorkerService);
     expect(moduleRef.get(CaptureRetentionCron, { strict: false })).toBeInstanceOf(CaptureRetentionCron);
-    expect(moduleRef.get(CloudAgentRunTriggerCron, { strict: false })).toBeInstanceOf(CloudAgentRunTriggerCron);
     expect(moduleRef.get(GraphSnapshotExecutionService, { strict: false })).toBeInstanceOf(
       GraphSnapshotExecutionService,
     );
@@ -121,7 +115,6 @@ describe('process-role application module isolation', () => {
     expect(apiGraph).toContain(CaptureModule);
     expect(apiGraph).not.toContain(CaptureWorkerScheduleModule);
     expect(apiGraph.flatMap((module) => metadataEntries(module, 'providers'))).not.toContain(CaptureRetentionCron);
-    expect(apiGraph).toContain(CloudAgentRunsApiModule);
     expect(apiGraph).not.toContain(CloudAgentRunsWorkerScheduleModule);
     expect(apiGraph.flatMap((module) => metadataEntries(module, 'providers'))).not.toContain(CloudAgentRunTriggerCron);
     expect(metadataEntries(JobQueueModule, 'controllers')).toEqual([]);

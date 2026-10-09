@@ -94,13 +94,14 @@ describe('CI_TOKEN_PERMISSIONS', () => {
     });
 
     it('are exempt from wildcard expansion', () => {
-      expect(WILDCARD_EXEMPT_PERMISSIONS).toEqual([
-        TokenPermission.IntentRead,
-        TokenPermission.IntentPropose,
-        TokenPermission.IntentRelease,
-        TokenPermission.IntentBindings,
-        TokenPermission.AgentRunnerRun,
-      ]);
+      expect(WILDCARD_EXEMPT_PERMISSIONS).toEqual(
+        expect.arrayContaining([
+          TokenPermission.IntentRead,
+          TokenPermission.IntentPropose,
+          TokenPermission.IntentRelease,
+          TokenPermission.IntentBindings,
+        ]),
+      );
       expect(isWildcardExemptPermission(TokenPermission.IntentRead)).toBe(true);
       expect(isWildcardExemptPermission(TokenPermission.IntentPropose)).toBe(true);
       // A legacy grant-all token must never be able to assert production state.

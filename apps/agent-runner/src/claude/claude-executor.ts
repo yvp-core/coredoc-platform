@@ -102,10 +102,6 @@ export class ClaudeExecutor implements TurnExecutor {
 
   async run(turn: TurnAssignment, io: TurnIO): Promise<TurnResult> {
     if (turn.turn.kind === 'delivery') return this.deliveryTurn(turn, io);
-    if (turn.turn.kind !== 'scope' && turn.turn.kind !== 'implement') {
-      await io.emit([{ type: 'raw', text: `[runner] ${turn.turn.kind} turns are not supported by this runner yet` }]);
-      return { spend: null };
-    }
     // Fail closed: a session never starts without a spend budget and a duration limit to bound it.
     const unbounded = missingLimit(turn);
     if (unbounded) return { spend: null, outcome: unbounded };
