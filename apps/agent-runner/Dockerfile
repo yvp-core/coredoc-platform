@@ -65,8 +65,25 @@ COPY apps/agent-runner/package.json ./apps/agent-runner/
 # dependency, and nothing in the runner's production closure needs one.
 RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @coredoc/agent-runner...
 
-COPY --from=build /app/packages/core/dist ./packages/core/dist
-COPY --from=build /app/apps/agent-runner/dist ./apps/agent-runner/dist
+# pnpm installs the workspace root's own dependencies with any filtered install
+# (langchain, openai, an older Agent SDK, ...), and the frozen lockfile forbids
+# trimming the root manifest. Keep only the store entries pnpm lists for the
+# runner's production closure, then drop the root links and any hoisted link
+# left dangling.
+WORKDIR /app/apps/agent-runner
+RUN set -eu; \
+    pnpm list --prod --depth Infinity --parseable | \
+      sed -n 's|^\(/app/node_modules/\.pnpm/[^/]*\)/.*|\1|p' | sort -u > /tmp/closure; \
+    for entry in /app/node_modules/.pnpm/*; do \
+      [ "${entry##*/}" = node_modules ] && continue; \
+      grep -qxF "$entry" /tmp/closure || rm -rf "$entry"; \
+    done; \
+    find /app/node_modules -mindepth 1 -maxdepth 1 ! -name .pnpm -exec rm -rf {} +; \
+    find /app/node_modules/.pnpm/node_modules -xtype l -delete; \
+    rm /tmp/closure
+
+COPY --from=build /app/packages/core/dist /app/packages/core/dist
+COPY --from=build /app/apps/agent-runner/dist /app/apps/agent-runner/dist
 
 # The SDK finds its Claude Code binary in an optional platform package, so a
 # skipped optional dependency would only fail at the first turn. Require the
@@ -74,7 +91,6 @@ COPY --from=build /app/apps/agent-runner/dist ./apps/agent-runner/dist
 # resolves for linux/x64 (the SDK prefers the glibc build on this base).
 # Running the binary is left to scripts/images/check-images.sh: it is a Bun
 # executable that aborts under QEMU, so an emulated build could not run it.
-WORKDIR /app/apps/agent-runner
 RUN set -eu; \
     sdk_dir="$(realpath node_modules/@anthropic-ai/claude-agent-sdk)"; \
     test "$(node -p "require('$sdk_dir/package.json').version")" = "0.3.285"; \

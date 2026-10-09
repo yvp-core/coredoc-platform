@@ -27,7 +27,7 @@
 set -euo pipefail
 
 SERVER_MAX_MB="${SERVER_MAX_MB:-1100}"
-RUNNER_MAX_MB="${RUNNER_MAX_MB:-1000}"
+RUNNER_MAX_MB="${RUNNER_MAX_MB:-800}"
 SDK_VERSION="0.3.285"
 RUNNER_ROOT=/opt/coredoc-agent-runner
 PLUGIN_ROOT=/opt/coredoc-workflows
@@ -106,6 +106,7 @@ check_runner() {
     echo sdk=\$(node -p \"require('\$sdk/package.json').version\")
     test -x \"\$sdk/../claude-agent-sdk-linux-x64/claude\" && echo glibc-binary=yes || echo glibc-binary=no
     ls -d $RUNNER_ROOT/node_modules/.pnpm/@anthropic-ai+claude-agent-sdk-linux-x64-musl@* >/dev/null 2>&1 && echo musl-binary=yes || echo musl-binary=no
+    echo sdk-copies=\$(ls -d $RUNNER_ROOT/node_modules/.pnpm/@anthropic-ai+claude-agent-sdk@* | wc -l)
     test -f $PLUGIN_ROOT/.claude-plugin/plugin.json && echo plugin=yes || echo plugin=no
     echo writable=\$(find $RUNNER_ROOT $PLUGIN_ROOT \\( -perm -g+w -o -perm -o+w \\) ! -type l | wc -l)
     echo foreign-owner=\$(find $RUNNER_ROOT $PLUGIN_ROOT ! -user root | wc -l)
@@ -117,6 +118,7 @@ check_runner() {
   expect "sdk=$SDK_VERSION" "runner pins Agent SDK $SDK_VERSION"
   expect "glibc-binary=yes" "the SDK's linux-x64 glibc Claude Code binary is installed"
   expect "musl-binary=no" "no musl Claude Code binary is shipped"
+  expect "sdk-copies=1" "exactly one Agent SDK version is shipped (none from the workspace root)"
   expect "plugin=yes" "coredoc-workflows plugin is installed at $PLUGIN_ROOT"
   expect "writable=0" "runner and plugin are writable by root only"
   expect "foreign-owner=0" "runner and plugin are owned by root"
