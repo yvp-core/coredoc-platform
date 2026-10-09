@@ -645,11 +645,15 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
           call('intent_propose', [`br-car-json-${RUN}`]),
         ],
       }).expect(200);
+      const activityOf = async () =>
+        (await api().get(`${runsBase()}/${run.id}/activity`).set('Authorization', human(MEMBER)).expect(200)).body;
 
-      const activity = await api()
-        .get(`${runsBase()}/${run.id}/activity`)
-        .set('Authorization', human(MEMBER))
-        .expect(200);
+      // Intent is off for the workspace: the run page names no intent item.
+      expect((await activityOf()).intent).toEqual({ read: [], proposed: [] });
+
+      await prisma.workspace.update({ where: { id: workspaceId }, data: { intentEnabled: true } });
+      const activity = { body: await activityOf() };
+      await prisma.workspace.update({ where: { id: workspaceId }, data: { intentEnabled: false } });
       expect(activity.body.intent).toEqual({
         // First seen first; the proposed item is not repeated as read; a deleted item keeps its id.
         read: [

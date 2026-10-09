@@ -4,10 +4,12 @@
  * items the agent read and proposed, all from the stored `tool` and `skill`
  * events; and the session transcript, streamed from the run's latest state archive.
  */
-import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { INTENT_CONFIG, type IntentConfig, intentConfigFromEnv } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { isIntentEnabled } from '../intent/intent-enabled.guard.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE, type CloudAgentRunArchiveStore } from './cloud-agent-run-archive.store.js';
 import { CloudAgentRunErrorCode, cloudAgentRunError, RunPhase } from './run-states.js';
 import { findTranscript, MAX_TRANSCRIPT_BYTES, redactTranscript } from './run-transcript.js';
@@ -54,9 +56,11 @@ export class CloudAgentRunActivityService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(CLOUD_AGENT_RUN_ARCHIVE_STORE) private readonly archives: CloudAgentRunArchiveStore,
+    @Optional() @Inject(INTENT_CONFIG) private readonly intent: IntentConfig = intentConfigFromEnv(),
   ) {}
 
-  async activity(workspaceId: string, runId: string) {
+  /** `actorRole` is the reader's workspace role: intent items show only to those intent is on for. */
+  async activity(workspaceId: string, runId: string, actorRole: string | undefined) {
     const run = await this.prisma.cloudAgentRun.findFirst({ where: { id: runId, workspaceId }, select: { id: true } });
     if (!run) throw runNotFound();
     const turns = await this.prisma.cloudAgentRunTurn.findMany({
@@ -101,7 +105,9 @@ export class CloudAgentRunActivityService {
       if (row.is_error) turn.failedToolCalls += row.count;
       perTurn.set(row.turn_id, turn);
     }
-    const intent = await this.intentRefs(workspaceId, runId);
+    const intent = (await isIntentEnabled(this.prisma, workspaceId, actorRole, this.intent))
+      ? await this.intentRefs(workspaceId, runId)
+      : { read: [], proposed: [] };
     const byCount = <T extends { name: string; count: number }>(a: T, b: T) =>
       b.count - a.count || a.name.localeCompare(b.name);
 

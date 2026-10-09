@@ -18,6 +18,7 @@ import { AuthGuard } from '../../auth/auth.guard.js';
 import { CurrentUser, type AuthUser } from '../../auth/decorators/current-user.decorator.js';
 import { RequirePermission } from '../../auth/decorators/require-permission.decorator.js';
 import { WorkspaceRole } from '../../auth/decorators/workspace-role.decorator.js';
+import { WorkspaceRoleValue } from '../../auth/decorators/workspace-role-value.decorator.js';
 import { PermissionsGuard, TokenPermission } from '../../auth/permissions.guard.js';
 import { UserSessionGuard } from '../../auth/user-session.guard.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
@@ -175,8 +176,12 @@ export class CloudAgentRunsController {
   /** Per-turn timing, spend and tool calls, and the run's skill and tool counts. */
   @Get(':runId/activity')
   @WorkspaceRole('member')
-  runActivity(@Param('workspaceId') workspaceId: string, @Param('runId', ParseUUIDPipe) runId: string) {
-    return this.activity.activity(workspaceId, runId);
+  runActivity(
+    @Param('workspaceId') workspaceId: string,
+    @Param('runId', ParseUUIDPipe) runId: string,
+    @WorkspaceRoleValue() role: string | undefined,
+  ) {
+    return this.activity.activity(workspaceId, runId, role);
   }
 
   /** Claude Code's session transcript (JSONL) from the latest state archive, masked and streamed as a download. */

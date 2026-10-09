@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_REDACTED_CHARS, redactPayload, redactSecrets, redactTranscriptLine } from './redact-secrets.js';
+import {
+  MAX_REDACTED_CHARS,
+  redactLongText,
+  redactPayload,
+  redactSecrets,
+  redactTranscriptLine,
+} from './redact-secrets.js';
 
 describe('redactSecrets', () => {
   it.each([
@@ -160,6 +166,23 @@ describe('redactTranscriptLine', () => {
     const key = `-----BEGIN RSA PRIVATE KEY-----\n${'MIIEpAIBAAKCAQEA0Z3VS5JJcds3xfn\n'.repeat(4_000)}-----END RSA PRIVATE KEY-----`;
     const line = JSON.stringify({ content: `before\n${key}\nafter` });
     expect(JSON.parse(redactTranscriptLine(line))).toEqual({ content: 'before\n[REDACTED]\nafter' });
+  });
+
+  it('masks the value of a key that names a credential, which decoding separates from its name', () => {
+    const line = JSON.stringify({
+      type: 'tool_use',
+      input: { password: 'hunter2', DB_API_KEY: 'k-123', retries: 3, note: 'password is set' },
+    });
+    expect(JSON.parse(redactTranscriptLine(line))).toEqual({
+      type: 'tool_use',
+      input: { password: '[REDACTED]', DB_API_KEY: '[REDACTED]', retries: 3, note: 'password is set' },
+    });
+  });
+
+  it('never cuts a secret in two inside a token run longer than the scan cap', () => {
+    const run = 'A'.repeat(MAX_REDACTED_CHARS - 10);
+    expect(redactLongText(`${run}/sk-${'a'.repeat(40)}`)).toBe(`${run}/[REDACTED]`);
+    expect(redactLongText(`${run}+api_key=${'b'.repeat(40)}`)).toBe(`${run}+api_key=[REDACTED]`);
   });
 
   it('masks a line that is not JSON as text', () => {

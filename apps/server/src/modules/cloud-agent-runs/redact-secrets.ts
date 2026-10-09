@@ -117,11 +117,26 @@ export function redactSecrets(text: string): string {
   return redacted;
 }
 
+/** A key that names a credential (`password`, `DB_PASSWORD`, `apiKey`): its value is masked whole. */
+const SECRET_KEY = new RegExp(`${SECRET_NAME}$`, 'i');
+
+/**
+ * Masks each string, and the value of each key that names a credential: once
+ * JSON is decoded, `{"password": "…"}` is two strings, which the
+ * `name: value` pattern no longer sees together.
+ */
 function redactStrings<T>(value: T, redact: (text: string) => string): T {
   if (typeof value === 'string') return redact(value) as T;
   if (Array.isArray(value)) return value.map((item) => redactStrings(item, redact)) as T;
   if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactStrings(item, redact)])) as T;
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        SECRET_KEY.test(key) && ((typeof item === 'string' && item !== '') || typeof item === 'number')
+          ? MASK
+          : redactStrings(item, redact),
+      ]),
+    ) as T;
   }
   return value;
 }
@@ -134,6 +149,12 @@ export function redactPayload<T>(value: T): T {
 /** How far back from a window's end a cut is looked for. */
 const CUT_LOOKBACK = 8 * 1024;
 const TOKEN_CHAR = /[A-Za-z0-9_.~+/=-]/;
+/**
+ * Where a masked secret can begin inside an unbroken token run: a token
+ * pattern's leading literal, or a credential name before its `=`. (URL
+ * user-info and `Bearer` contain a character no token run does.)
+ */
+const SECRET_START = new RegExp(`(?:gh[pousr]_|github_pat_|sk-|cdt_|AKIA|ASIA|xox[abprs]-|${SECRET_NAME})`, 'gi');
 
 /**
  * Where the window starting at `start` ends: after the last newline in its
@@ -149,7 +170,10 @@ function windowEnd(text: string, start: number): number {
   if (newline >= from) return newline + 1;
   for (let at = end - 1; at >= from; at -= 1) if (/\s/.test(text[at]!)) return at + 1;
   for (let at = end - 1; at >= from; at -= 1) if (!TOKEN_CHAR.test(text[at]!)) return at + 1;
-  return end;
+  // One unbroken run: cut before the last place a secret could begin, so the secret stays in one window.
+  let last = -1;
+  for (const match of text.slice(from, end).matchAll(SECRET_START)) last = from + match.index;
+  return last > start ? last : end;
 }
 
 /**
