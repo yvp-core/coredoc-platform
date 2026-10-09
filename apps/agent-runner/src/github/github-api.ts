@@ -5,6 +5,7 @@
  */
 import type { AssignedRepository, RunnerFailureCode } from '@coredoc/core/agent-runner';
 import { defaultRetryDelay, GITHUB_ATTEMPTS, type RetryDelay, sleep, TurnFailure } from '../turn-failure.js';
+import type { StartupProblem } from '../runner.js';
 
 export interface ExistingPull {
   number: number;
@@ -174,7 +175,7 @@ export class GithubApi {
    * maintainer of any repository it can see could change branch protection
    * or merge, so the runner claims nothing until it has the Write role only.
    */
-  async botAccountProblem(apiBaseUrl: string): Promise<string | null> {
+  async botAccountProblem(apiBaseUrl: string): Promise<StartupProblem | null> {
     const base = apiBaseUrl.replace(/\/+$/, '');
     try {
       for (let page = 1; page <= BOT_CHECK_MAX_PAGES; page += 1) {
@@ -182,7 +183,7 @@ export class GithubApi {
           `${base}/user/repos?per_page=${BOT_CHECK_PAGE_SIZE}&page=${page}`,
           'the bot account',
         );
-        if (!response.ok) return `GitHub refused to list the bot's repositories (HTTP ${response.status}).`;
+        if (!response.ok) return { code: 'bot_unreadable', detail: `HTTP ${response.status}` };
         const repositories = (await response.json().catch(() => [])) as Array<{
           full_name?: string;
           permissions?: Record<string, unknown>;
@@ -191,13 +192,13 @@ export class GithubApi {
           (repo) => repo.permissions?.admin === true || repo.permissions?.maintain === true,
         );
         if (elevated) {
-          return `The bot account has admin or maintain permission on ${elevated.full_name ?? 'a repository'}; agent runs need an account with the Write role only.`;
+          return { code: 'bot_admin', ...(elevated.full_name ? { detail: elevated.full_name } : {}) };
         }
         if (repositories.length < BOT_CHECK_PAGE_SIZE) return null;
       }
       return null;
     } catch (error) {
-      return error instanceof Error ? error.message : String(error);
+      return { code: 'bot_unreadable', detail: error instanceof Error ? error.message : String(error) };
     }
   }
 

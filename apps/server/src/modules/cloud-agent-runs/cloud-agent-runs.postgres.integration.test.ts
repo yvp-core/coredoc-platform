@@ -388,36 +388,43 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     );
   });
 
-  it('a runner whose start-up check fails says why, settings show it, and its next claim clears it', async () => {
+  it('a runner whose start-up check fails reports a code, settings word it, and its next claim clears it', async () => {
     await enable();
     const token = await mintRunnerToken('runner-startup');
     const tokenRow = () => settingsTokens().then((tokens) => tokens.find((row) => row.name === 'runner-startup'));
-    const problem = 'The bot account can administer acme/orders; give it the Write role only';
+    const report = (body: Record<string, unknown>, auth = `Bearer ${token}`) =>
+      api()
+        .post(`${runnerBase()}/startup-check`)
+        .set('Authorization', auth)
+        .send({ protocolVersion: RUNNER_PROTOCOL_VERSION, versions: VERSIONS, ...body });
 
-    await api()
-      .post(`${runnerBase()}/startup-check`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ protocolVersion: RUNNER_PROTOCOL_VERSION, versions: VERSIONS, problem })
-      .expect(200, { recorded: true });
+    await report({ code: 'bot_admin', detail: 'acme/orders' }).expect(200, { recorded: true });
     expect(await tokenRow()).toMatchObject({
       lastSeenAt: now.toISOString(),
       lastAction: 'startup_check',
       versions: VERSIONS,
       refusal: 'startup_check_failed',
-      refusalDetail: problem,
+      refusalDetail:
+        'The bot account has admin or maintain permission on a repository it can see; give it the Write role only. (acme/orders)',
     });
 
-    // It claims nothing; humans and unsupported protocol versions are refused like on claim.
-    await api()
-      .post(`${runnerBase()}/startup-check`)
-      .set('Authorization', human(ADMIN))
-      .send({ protocolVersion: RUNNER_PROTOCOL_VERSION, versions: VERSIONS, problem })
-      .expect(403);
-    const old = await api()
-      .post(`${runnerBase()}/startup-check`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ protocolVersion: 999, versions: VERSIONS, problem })
-      .expect(409);
+    // Credentials a detail carries are masked before they are stored.
+    const githubToken = `ghp_${'a1B2'.repeat(9)}`;
+    const modelKey = `sk-ant-api03-${'Zy9x'.repeat(6)}`;
+    await report({
+      code: 'sdk_unusable',
+      detail: `spawn failed with ${githubToken} and ${modelKey} via https://bot:hunter2@proxy.example.com/`,
+    }).expect(200);
+    const masked = (await tokenRow())!.refusalDetail as string;
+    expect(masked).toBe(
+      'The Agent SDK could not start Claude Code in the runner image. (spawn failed with [REDACTED] and [REDACTED] via https://[REDACTED]@proxy.example.com/)',
+    );
+
+    // A code outside the contract is refused; so are humans and unsupported protocol versions.
+    await report({ code: 'something_else' }).expect(400);
+    await report({ problem: 'free text' }).expect(400);
+    await report({ code: 'plugin_errors' }, human(ADMIN)).expect(403);
+    const old = await report({ code: 'plugin_errors', protocolVersion: 999 }).expect(409);
     expect(old.body.code).toBe('RUNNER_INCOMPATIBLE');
 
     await drainQueue(token);

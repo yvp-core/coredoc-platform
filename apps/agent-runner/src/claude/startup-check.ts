@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { RunnerVersions } from '@coredoc/core/agent-runner';
 import type { GithubApi } from '../github/github-api.js';
-import type { StartupReport } from '../runner.js';
+import type { StartupProblem, StartupReport } from '../runner.js';
 import { pluginProblem } from './claude-executor.js';
 
 /** The SDK's `query`, as the check calls it: a streaming prompt that sends nothing. */
@@ -40,7 +40,7 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
   };
   const timeout = setTimeout(() => abort.abort(), options.timeoutMs ?? 60_000);
   let versions: RunnerVersions = options.versions;
-  let problem: string | null = 'Claude Code did not start';
+  let problem: StartupProblem | null = { code: 'sdk_unusable', detail: 'Claude Code sent no init message' };
   try {
     for await (const message of options.query({
       prompt: silent,
@@ -71,7 +71,7 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
       }
     }
   } catch (error) {
-    problem = `The Agent SDK failed to start Claude Code: ${error instanceof Error ? error.message : String(error)}`;
+    problem = { code: 'sdk_unusable', detail: error instanceof Error ? error.message : String(error) };
   } finally {
     clearTimeout(timeout);
     abort.abort();

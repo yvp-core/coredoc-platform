@@ -44,12 +44,13 @@ const botToken = required('COREDOC_GITHUB_TOKEN');
 const githubApiUrl = process.env.COREDOC_GITHUB_API_URL?.trim() || 'https://api.github.com';
 const runnerToken = required('COREDOC_RUNNER_TOKEN');
 const modelApiKey = required('ANTHROPIC_API_KEY');
-let registries: PackageRegistry[];
+let registries: PackageRegistry[] = [];
+// Reported through the start-up check, so settings show it; the runner claims nothing until it is fixed.
+let registryProblem: string | null = null;
 try {
   registries = packageRegistries(process.env, botToken);
 } catch (error) {
-  console.error(`[agent-runner] ${error instanceof Error ? error.message : String(error)}`);
-  process.exit(2);
+  registryProblem = error instanceof Error ? error.message : String(error);
 }
 const api = new RunnerApiClient({
   baseUrl: required('COREDOC_API_URL'),
@@ -77,15 +78,17 @@ const runner = new Runner({
   }),
   versions,
   secrets: [modelApiKey, botToken, runnerToken, ...registries.map((registry) => registry.token ?? '')],
-  startupCheck: () =>
-    checkRunnerStartup({
-      query,
-      pluginPath,
-      scratchRoot,
-      versions,
-      github: new GithubApi({ token: botToken }),
-      githubApiUrl,
-    }),
+  startupCheck: async () =>
+    registryProblem
+      ? { versions, problem: { code: 'registry_config_invalid', detail: registryProblem } }
+      : checkRunnerStartup({
+          query,
+          pluginPath,
+          scratchRoot,
+          versions,
+          github: new GithubApi({ token: botToken }),
+          githubApiUrl,
+        }),
   log,
 });
 

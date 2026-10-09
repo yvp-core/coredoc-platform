@@ -14,6 +14,7 @@ import {
   type RequestRepoResponse,
   RUNNER_PROTOCOL_VERSION,
   type RunnerEvent,
+  type RunnerStartupProblemCode,
   type RunnerVersions,
   type SubmitResultRequest,
   type SubmitResultResponse,
@@ -61,10 +62,16 @@ export interface TurnExecutor {
   run(turn: TurnAssignment, io: TurnIO): Promise<TurnResult>;
 }
 
+/** Why the runner cannot work: a code the server words, and a specific for the log and settings. */
+export interface StartupProblem {
+  code: RunnerStartupProblemCode;
+  detail?: string;
+}
+
 /** The start-up check: versions to log and report, and why the runner cannot work, if it cannot. */
 export interface StartupReport {
   versions: RunnerVersions;
-  problem: string | null;
+  problem: StartupProblem | null;
 }
 
 export type TurnEnd = 'idle' | 'completed' | 'stopped' | 'lease_lost' | 'shutdown';
@@ -136,7 +143,10 @@ export class Runner {
     try {
       report = await this.options.startupCheck();
     } catch (error) {
-      report = { versions: this.versions, problem: error instanceof Error ? error.message : String(error) };
+      report = {
+        versions: this.versions,
+        problem: { code: 'sdk_unusable', detail: error instanceof Error ? error.message : String(error) },
+      };
     }
     this.versions = { ...this.versions, ...report.versions };
     const { runner, sdk, claudeCode, plugin } = this.versions;
@@ -144,13 +154,15 @@ export class Runner {
       `versions: runner ${runner}, sdk ${sdk ?? '?'}, claude code ${claudeCode ?? '?'}, plugin ${plugin ?? '?'}`,
     );
     if (report.problem === null) return true;
-    this.log(`start-up check failed; claiming nothing: ${report.problem}`);
-    const problem = secretMasker(this.options.secrets ?? [])(report.problem);
+    const { code } = report.problem;
+    const detail = secretMasker(this.options.secrets ?? [])(report.problem.detail?.trim() ?? '');
+    this.log(`start-up check failed (${code}); claiming nothing${detail ? `: ${detail}` : ''}`);
     try {
       await this.options.api.reportStartupProblem({
         protocolVersion: RUNNER_PROTOCOL_VERSION,
         versions: this.versions,
-        problem: problem.slice(0, 2_000),
+        code,
+        ...(detail ? { detail: detail.slice(0, 500) } : {}),
       });
     } catch (error) {
       // Informational only: an older server without the route, or one that is down, must not stop the checks.

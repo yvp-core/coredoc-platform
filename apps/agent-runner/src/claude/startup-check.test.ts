@@ -87,6 +87,11 @@ describe('runner start-up check', () => {
     expect(api.claims).toEqual([]);
     expect(logs.join('\n')).toContain('hooks.json is invalid');
     expect(logs.join('\n')).toContain('claude code 2.1.285');
+    expect(api.startupProblems[0]).toMatchObject({
+      code: 'plugin_errors',
+      detail: 'coredoc-workflows: hooks.json is invalid',
+      versions: { claudeCode: '2.1.285', plugin: '0.14.0' },
+    });
   });
 
   it('claims nothing while the SDK cannot start Claude Code', async () => {
@@ -95,6 +100,7 @@ describe('runner start-up check', () => {
     });
     expect(api.claims).toEqual([]);
     expect(logs.join('\n')).toContain('spawn claude ENOENT');
+    expect(api.startupProblems[0]).toMatchObject({ code: 'sdk_unusable', detail: 'spawn claude ENOENT' });
   });
 
   describe('the bot account', () => {
@@ -122,6 +128,7 @@ describe('runner start-up check', () => {
       const logs = await startFor(loaded, github);
       expect(api.claims).toEqual([]);
       expect(logs.join('\n')).toContain('acme/billing-api');
+      expect(api.startupProblems[0]).toMatchObject({ code: 'bot_admin', detail: 'acme/billing-api' });
     });
 
     it('claims while the bot has the Write role only', async () => {
@@ -129,6 +136,19 @@ describe('runner start-up check', () => {
       await startFor(loaded, github);
       expect(api.claims.length).toBeGreaterThan(0);
     });
+  });
+
+  it.each([
+    ['is not listed', { plugins: [], skills: [] }, 'plugin_missing'],
+    [
+      'loads without its skills',
+      { plugins: [{ name: 'coredoc-workflows', path: PLUGIN, version: '0.14.0' }], skills: [] },
+      'plugin_skills_missing',
+    ],
+  ])('reports a plugin that %s', async (_case, init, code) => {
+    await startFor(initOnly(init));
+    expect(api.claims).toEqual([]);
+    expect(api.startupProblems[0]).toMatchObject({ code });
   });
 
   it('claims once the plugin and its skills load, reporting the versions it found', async () => {

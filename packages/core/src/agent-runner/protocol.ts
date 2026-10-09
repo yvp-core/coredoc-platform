@@ -135,16 +135,43 @@ export const ClaimRequestSchema = z.object({
 export type ClaimRequest = z.infer<typeof ClaimRequestSchema>;
 
 /**
- * Sent instead of claiming while the runner's start-up check fails (the
- * plugin does not load, the bot account is an admin, …), so settings can say
- * why the runner claims nothing. It claims nothing itself; the next claim
- * clears the reported problem. Added within protocol version 1: a server
- * without the route answers 404, which the runner ignores.
+ * Why a runner's start-up check failed. A closed list: the server words each
+ * code itself, so settings never show runner-chosen text beyond the optional,
+ * masked detail.
  */
-export const RunnerStartupProblemSchema = z.object({
+export const RUNNER_STARTUP_PROBLEM_CODES = [
+  /** The Agent SDK could not start Claude Code. */
+  'sdk_unusable',
+  /** Claude Code did not list the plugin at its configured path. */
+  'plugin_missing',
+  /** The plugin loaded with errors. */
+  'plugin_errors',
+  /** The plugin loaded without its skills. */
+  'plugin_skills_missing',
+  /** The bot account has admin or maintain permission on a repository it can see. */
+  'bot_admin',
+  /** GitHub refused or failed to list the bot account's repositories. */
+  'bot_unreadable',
+  /** `COREDOC_PACKAGE_REGISTRIES` could not be read. */
+  'registry_config_invalid',
+] as const;
+export type RunnerStartupProblemCode = (typeof RUNNER_STARTUP_PROBLEM_CODES)[number];
+
+/**
+ * Sent instead of claiming while the runner's start-up check fails, so
+ * settings can say why the runner claims nothing. It claims nothing itself;
+ * the next claim clears the reported problem. Added within protocol version
+ * 1: a server without the route answers 404, which the runner ignores.
+ */
+export const RunnerStartupProblemSchema = z.strictObject({
   protocolVersion: z.number().int().positive(),
   versions: RunnerVersionsSchema,
-  problem: z.string().trim().min(1).max(2_000),
+  code: z.enum(RUNNER_STARTUP_PROBLEM_CODES),
+  /**
+   * A short specific (a repository name, a plugin error), masked by the
+   * runner for the credentials it holds; the server redacts and caps it too.
+   */
+  detail: z.string().trim().min(1).max(500).optional(),
 });
 export type RunnerStartupProblem = z.infer<typeof RunnerStartupProblemSchema>;
 

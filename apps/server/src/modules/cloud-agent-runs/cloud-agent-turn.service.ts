@@ -47,11 +47,13 @@ import {
   MAX_TURN_ATTEMPTS,
   RunFailureCode,
   RunPhase,
+  RUNNER_STARTUP_PROBLEM_TEXT,
   ServerEventType,
   TERMINAL_RUN_STATUSES,
   TurnOutcome,
   TurnState,
 } from './run-states.js';
+import { redactSecrets } from './redact-secrets.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
 import { CLOUD_AGENT_RUN_REPORT_CAPS, chargeReport, DEFAULT_REPORT_CAPS, type ReportCaps } from './report-limits.js';
 import { checkRunOwnerAndConnectors } from './run-checks.js';
@@ -165,11 +167,7 @@ export class CloudAgentTurnService {
    */
   async recordStartupProblem(runner: RunnerPrincipal, report: RunnerStartupProblem): Promise<void> {
     await this.refuseIncompatible(runner, report);
-    const reason =
-      report.problem.length > MAX_REFUSED_REASON
-        ? `${report.problem.slice(0, MAX_REFUSED_REASON - 1)}…`
-        : report.problem;
-    await this.recordSeen(runner, 'startup_check', report.protocolVersion, report.versions, reason);
+    await this.recordSeen(runner, 'startup_check', report.protocolVersion, report.versions, startupProblemText(report));
   }
 
   private async refuseIncompatible(
@@ -781,6 +779,19 @@ export class CloudAgentTurnService {
       update: data,
     });
   }
+}
+
+/**
+ * The server's wording for the code, then the runner's detail with common
+ * credential shapes masked, cut to fit `refused_reason`.
+ */
+function startupProblemText(report: RunnerStartupProblem): string {
+  const text = RUNNER_STARTUP_PROBLEM_TEXT[report.code];
+  if (!report.detail) return text;
+  const room = MAX_REFUSED_REASON - text.length - 3;
+  if (room < 8) return text;
+  const detail = redactSecrets(report.detail);
+  return `${text} (${detail.length > room ? `${detail.slice(0, room - 1)}…` : detail})`;
 }
 
 /** The second outcome-less turn in a row fails the run. */

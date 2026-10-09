@@ -162,7 +162,7 @@ describe('runner loop', () => {
       secrets: [botToken],
       startupCheck: async () => ({
         versions: { ...VERSIONS, sdk: '0.3.285' },
-        problem: `The bot account is an admin of acme/orders (token ${botToken})`,
+        problem: { code: 'bot_admin', detail: `acme/orders (token ${botToken})` },
       }),
       startupRetryMs: 5,
     });
@@ -174,7 +174,8 @@ describe('runner loop', () => {
     expect(api.startupProblems[0]).toEqual({
       protocolVersion: RUNNER_PROTOCOL_VERSION,
       versions: { ...VERSIONS, sdk: '0.3.285' },
-      problem: 'The bot account is an admin of acme/orders (token [REDACTED])',
+      code: 'bot_admin',
+      detail: 'acme/orders (token [REDACTED])',
     });
     expect(api.claims).toEqual([]);
   });
@@ -188,7 +189,7 @@ describe('runner loop', () => {
       executor: blockingExecutor(),
       versions: VERSIONS,
       idlePollMs: 5,
-      startupCheck: async () => ({ versions: VERSIONS, problem: ++checks < 3 ? 'The plugin did not load' : null }),
+      startupCheck: async () => ({ versions: VERSIONS, problem: ++checks < 3 ? { code: 'plugin_missing' } : null }),
       startupRetryMs: 5,
     });
     const started = checking.start(shutdown.signal);

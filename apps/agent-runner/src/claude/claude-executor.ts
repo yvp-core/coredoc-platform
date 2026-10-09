@@ -415,7 +415,7 @@ export class ClaudeExecutor implements TurnExecutor {
       };
     }
     const problem = pluginProblem(init, this.options.pluginPath);
-    return problem ? { code: 'plugin_missing', reason: problem } : null;
+    return problem ? { code: 'plugin_missing', reason: problem.detail } : null;
   }
 
   private sessionOptions(
@@ -506,14 +506,17 @@ export function pluginProblem(
     skills?: string[];
   },
   pluginPath: string,
-): string | null {
+): { code: 'plugin_errors' | 'plugin_missing' | 'plugin_skills_missing'; detail: string } | null {
   if (init.plugin_errors?.length) {
-    return `Plugin errors: ${init.plugin_errors.map((error) => `${error.plugin}: ${error.message}`).join('; ')}`;
+    return {
+      code: 'plugin_errors',
+      detail: init.plugin_errors.map((error) => `${error.plugin}: ${error.message}`).join('; '),
+    };
   }
   const plugin = init.plugins?.find((candidate) => resolve(candidate.path) === resolve(pluginPath));
-  if (!plugin) return `The plugin at ${pluginPath} is not listed by Claude Code.`;
+  if (!plugin) return { code: 'plugin_missing', detail: `The plugin at ${pluginPath} is not listed by Claude Code.` };
   if (!init.skills?.some((skill) => skill.startsWith(`${plugin.name}:`))) {
-    return `The plugin ${plugin.name} loaded without its skills.`;
+    return { code: 'plugin_skills_missing', detail: `The plugin ${plugin.name} loaded without its skills.` };
   }
   return null;
 }
