@@ -14,6 +14,7 @@ import { CLOUD_AGENT_RUNS_RETRY_DELAY, defaultRetryDelay, type RetryDelay, withR
 import { runPageUrl } from './run-links.js';
 import { RunEventCode, RunFailureCode, RunPhase, ServerEventType, SpecStatus, TurnOutcome } from './run-states.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
+import { type JiraCommentOutcome, jiraOutcomeOf } from './jira-outcome.js';
 import { failRun } from './run-transitions.js';
 
 /** A pull request the server read back and confirmed is the run branch's, as stored on the run. */
@@ -37,28 +38,8 @@ export interface DeliveryVerification {
   missing: string[];
 }
 
-/** One Jira comment's progress on the run (done or failure). */
-export interface JiraCommentOutcome {
-  state: 'pending' | 'posted' | 'not_posted' | 'skipped';
-  attempts: number;
-  nextAttemptAt: string | null;
-  commentId?: string | null;
-  reason?: string | null;
-}
-
-export interface RunJiraOutcome {
-  done?: JiraCommentOutcome;
-  failure?: JiraCommentOutcome;
-  transition?: { outcome: string; reason?: string | null };
-}
-
 export function recordedPullRequests(run: Pick<CloudAgentRun, 'pullRequests'>): RecordedPullRequest[] {
   return (Array.isArray(run.pullRequests) ? run.pullRequests : []) as unknown as RecordedPullRequest[];
-}
-
-export function jiraOutcomeOf(run: Pick<CloudAgentRun, 'jiraOutcome'>): RunJiraOutcome {
-  const value = run.jiraOutcome;
-  return (value && typeof value === 'object' && !Array.isArray(value) ? value : {}) as RunJiraOutcome;
 }
 
 /** A report the server could not confirm; the reason is server-written. */

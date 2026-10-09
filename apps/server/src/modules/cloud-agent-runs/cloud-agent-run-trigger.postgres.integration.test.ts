@@ -524,7 +524,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
       .set('Authorization', human(ADMIN))
       .send({
         triggerLabel: 'ai-build',
-        doneStatus: { id: '31', name: 'In Review' },
+        doneStatus: 'In Review',
         questionsPolicy: 'assume',
         scopeAcceptancePolicy: 'automatic',
         maxSpendUsd: 10,
@@ -539,7 +539,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     expect(saved.body).toMatchObject({
       runOwner: { userId: OWNER.id, valid: true },
       triggerLabel: 'ai-build',
-      doneStatus: { id: '31', name: 'In Review' },
+      doneStatus: 'In Review',
       questionsPolicy: 'assume',
       maxStartedRuns: 3,
       model: 'test-model',

@@ -22,8 +22,15 @@ export interface FakeJiraIssue {
   statusId?: string;
 }
 
-/** The fake's one transition, to the done status, and that status' id. */
-export const DONE_STATUS = { id: '10002', name: 'Done' };
+/** The statuses the fake's workflow knows; a new issue is in To Do. */
+export const STATUSES = {
+  toDo: { id: '10000', name: 'To Do' },
+  inProgress: { id: '10001', name: 'In Progress' },
+  done: { id: '10002', name: 'Done' },
+  blocked: { id: '10003', name: 'Blocked' },
+  wontDo: { id: '10004', name: 'Won’t Do' },
+};
+export const DONE_STATUS = STATUSES.done;
 
 export const paragraphDoc = (text: string) => ({
   type: 'doc',
@@ -44,11 +51,19 @@ export class FakeJira {
   transitions: JiraTransition[] = [
     { id: '21', name: 'Done (with screen)', hasScreen: true, to: DONE_STATUS },
     { id: '31', name: 'Done', hasScreen: false, to: DONE_STATUS },
+    { id: '41', name: 'Start work', hasScreen: false, to: STATUSES.inProgress },
+    { id: '51', name: 'Block (with screen)', hasScreen: true, to: STATUSES.blocked },
+    { id: '52', name: 'Block', hasScreen: false, to: STATUSES.blocked },
+    { id: '61', name: 'Close', hasScreen: false, to: STATUSES.wontDo },
   ];
   /** Transitions applied, as `<issue id>:<transition id>`. */
   readonly applied: string[] = [];
+  /** Every call that names an issue, as `<method>:<issue id>`. */
+  readonly calls: string[] = [];
   /** The next transition fails with this, once. */
   transitionError: Error | null = null;
+  /** The next transition is applied, then the call throws: Jira moved the issue and the caller crashed. */
+  crashAfterNextTransition = false;
   /** Every comment fails with this, without being stored, until it is cleared. */
   commentError: Error | null = null;
   /** How many comments a listing reaches before its page cap; null lists them all. */
@@ -61,6 +76,18 @@ export class FakeJira {
     return this.comments.get(this.issues.get(issueKey)!.id) ?? [];
   }
 
+  /** Jira calls that named this issue. */
+  callsOn(issueKey: string): string[] {
+    const id = this.issues.get(issueKey)!.id;
+    return this.calls.filter((call) => call.endsWith(`:${id}`));
+  }
+
+  /** Transitions applied to this issue, by transition id. */
+  appliedOn(issueKey: string): string[] {
+    const id = this.issues.get(issueKey)!.id;
+    return this.applied.filter((entry) => entry.startsWith(`${id}:`)).map((entry) => entry.slice(id.length + 1));
+  }
+
   add(issue: Omit<FakeJiraIssue, 'id'> & { id?: string }): FakeJiraIssue {
     const stored = { id: issue.id ?? String(10_000 + this.issues.size + 1), ...issue };
     this.issues.set(stored.key, stored);
@@ -69,6 +96,11 @@ export class FakeJira {
 
   private find(idOrKey: string): FakeJiraIssue | undefined {
     return this.issues.get(idOrKey) ?? [...this.issues.values()].find((issue) => issue.id === idOrKey);
+  }
+
+  private record(method: string, idOrKey: string): void {
+    const issue = this.find(idOrKey);
+    if (issue) this.calls.push(`${method}:${issue.id}`);
   }
 
   private wire(issue: FakeJiraIssue) {
@@ -80,8 +112,7 @@ export class FakeJira {
         summary: issue.summary,
         description: issue.description ?? null,
         labels: issue.labels ?? [],
-        status:
-          issue.statusId === DONE_STATUS.id ? { ...DONE_STATUS } : { id: issue.statusId ?? '10000', name: 'To Do' },
+        status: { ...(Object.values(STATUSES).find((status) => status.id === issue.statusId) ?? STATUSES.toDo) },
         issuetype: { name: issue.issueType ?? 'Story', hierarchyLevel: issue.issueType === 'Epic' ? 1 : 0 },
         project: { key: issue.project },
         parent: parent
@@ -101,6 +132,7 @@ export class FakeJira {
     const fake = {
       getIssue: async (idOrKey: string) => {
         this.reads += 1;
+        this.record('getIssue', idOrKey);
         if (this.rateLimitedReads > 0) {
           this.rateLimitedReads -= 1;
           throw new JiraRateLimitError('Jira rate limit (429)', 0);
@@ -116,6 +148,7 @@ export class FakeJira {
         return { items, nextPageToken: null };
       },
       addComment: async (idOrKey: string, body: unknown) => {
+        this.record('addComment', idOrKey);
         const issue = this.find(idOrKey);
         if (!issue) throw new JiraNotFoundError(`Jira API 404 for /issue/${idOrKey}/comment`);
         if (this.commentError) throw this.commentError;
@@ -129,14 +162,19 @@ export class FakeJira {
         return { id: comment.id };
       },
       listComments: async (idOrKey: string) => {
+        this.record('listComments', idOrKey);
         const issue = this.find(idOrKey);
         if (!issue) throw new JiraNotFoundError(`Jira API 404 for /issue/${idOrKey}/comment`);
         const all = this.comments.get(issue.id) ?? [];
         const cap = this.listedComments ?? all.length;
         return { comments: all.slice(0, cap), complete: all.length <= cap };
       },
-      listTransitions: async () => [...this.transitions],
+      listTransitions: async (idOrKey: string) => {
+        this.record('listTransitions', idOrKey);
+        return [...this.transitions];
+      },
       transitionIssue: async (idOrKey: string, transitionId: string) => {
+        this.record('transitionIssue', idOrKey);
         const issue = this.find(idOrKey);
         if (!issue) throw new JiraNotFoundError(`Jira API 404 for /issue/${idOrKey}/transitions`);
         if (this.transitionError) {
@@ -148,6 +186,10 @@ export class FakeJira {
         if (!transition) throw new JiraNotFoundError(`Jira API 400 for /issue/${idOrKey}/transitions`);
         this.applied.push(`${issue.id}:${transitionId}`);
         issue.statusId = transition.to?.id;
+        if (this.crashAfterNextTransition) {
+          this.crashAfterNextTransition = false;
+          throw new Error('the process died after Jira moved the issue');
+        }
       },
     };
     return fake as unknown as JiraClient;

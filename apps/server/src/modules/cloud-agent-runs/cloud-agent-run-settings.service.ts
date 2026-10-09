@@ -4,6 +4,7 @@ import type { AgentRunSettings } from '../../generated/prisma/client.js';
 import { AGENT_RUNNER_TOKEN_PERMISSIONS } from '../../auth/token-permissions.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
 import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
+import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js';
 import type { UpdateSettingsInput } from './cloud-agent-runs.contract.js';
 import { CloudAgentRunErrorCode, cloudAgentRunError, RunnerRefusal } from './run-states.js';
 import { CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock } from './run-store.js';
@@ -17,8 +18,10 @@ function defaultSettings(workspaceId: string): AgentRunSettings {
     enabled: false,
     runOwnerId: null,
     triggerLabel: 'coredoc-agent',
-    doneStatusId: null,
-    doneStatusName: null,
+    startedStatus: null,
+    doneStatus: null,
+    failedStatus: null,
+    cancelledStatus: null,
     questionsPolicy: 'pause',
     scopeAcceptancePolicy: 'required',
     maxSpendUsd: 25,
@@ -39,6 +42,7 @@ export class CloudAgentRunSettingsService {
     private readonly prisma: PrismaService,
     private readonly availability: CloudAgentRunAvailability,
     private readonly repositories: GithubRepositoryResolver,
+    private readonly jira: CloudAgentRunJiraConnector,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
   ) {}
 
@@ -52,7 +56,7 @@ export class CloudAgentRunSettingsService {
    * changes the owner.
    */
   async update(workspaceId: string, actorId: string, input: UpdateSettingsInput) {
-    const { enabled, takeOverOwnership, doneStatus, ...values } = input;
+    const { enabled, takeOverOwnership, ...values } = input;
     const before = await this.get(workspaceId);
     if (enabled === true && !before.enabled) {
       const availability = await this.availability.check(workspaceId, before);
@@ -71,9 +75,6 @@ export class CloudAgentRunSettingsService {
       const data = {
         ...values,
         ...(enabled === undefined ? {} : { enabled }),
-        ...(doneStatus === undefined
-          ? {}
-          : { doneStatusId: doneStatus?.id ?? null, doneStatusName: doneStatus?.name ?? null }),
         runOwnerId,
         updatedBy: actorId,
         updatedAt: this.now(),
@@ -81,6 +82,21 @@ export class CloudAgentRunSettingsService {
       await tx.agentRunSettings.upsert({ where: { workspaceId }, create: { workspaceId, ...data }, update: data });
     });
     return this.view(workspaceId);
+  }
+
+  /**
+   * The statuses the workspace's Jira connector already knows, from its
+   * Delivery analytics status map: the choices for the status settings.
+   */
+  async jiraStatuses(workspaceId: string): Promise<{ statuses: string[] }> {
+    const state = await this.jira.state(workspaceId);
+    if (state.status === 'missing') return { statuses: [] };
+    const rows = await this.prisma.deliveryStatusMap.findMany({
+      where: { workspaceId, connectorId: state.connector.id },
+      select: { statusRaw: true },
+    });
+    const statuses = [...new Set(rows.map((row) => row.statusRaw))];
+    return { statuses: statuses.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })) };
   }
 
   /**
@@ -123,7 +139,10 @@ export class CloudAgentRunSettingsService {
           }
         : null,
       triggerLabel: settings.triggerLabel,
-      doneStatus: settings.doneStatusId ? { id: settings.doneStatusId, name: settings.doneStatusName } : null,
+      startedStatus: settings.startedStatus,
+      doneStatus: settings.doneStatus,
+      failedStatus: settings.failedStatus,
+      cancelledStatus: settings.cancelledStatus,
       questionsPolicy: settings.questionsPolicy,
       scopeAcceptancePolicy: settings.scopeAcceptancePolicy,
       maxSpendUsd: settings.maxSpendUsd,

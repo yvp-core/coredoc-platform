@@ -40,6 +40,7 @@ import {
   FakeJira,
   InMemoryArchiveStore,
   paragraphDoc,
+  STATUSES,
 } from './cloud-agent-runs.test-support.js';
 import { commentHasMarker, runMarker } from './jira-comments.js';
 
@@ -113,7 +114,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
         { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
       ],
     });
-    await prisma.deliveryConnector.create({
+    const jiraConnector = await prisma.deliveryConnector.create({
       data: {
         workspaceId,
         provider: 'jira',
@@ -123,7 +124,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
         config: { projects: ['PROJ'] },
       },
     });
-    await prisma.deliveryConnector.create({
+    const githubConnector = await prisma.deliveryConnector.create({
       data: {
         workspaceId,
         provider: 'github',
@@ -131,6 +132,15 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
         credentialsEncrypted: encrypt('ghp_read_only'),
         config: { repos: [] },
       },
+    });
+    // The statuses Delivery analytics has seen on each connector.
+    await prisma.deliveryStatusMap.createMany({
+      data: [
+        { workspaceId, connectorId: jiraConnector.id, statusRaw: 'To Do', lifecycle: null },
+        { workspaceId, connectorId: jiraConnector.id, statusRaw: 'In Progress', lifecycle: 'active' },
+        { workspaceId, connectorId: jiraConnector.id, statusRaw: 'Done', lifecycle: 'completed' },
+        { workspaceId, connectorId: githubConnector.id, statusRaw: 'merged', lifecycle: 'completed' },
+      ],
     });
     await prisma.workspaceRepo.createMany({
       data: ['orders-api', 'billing-api'].map((key) => ({
@@ -179,7 +189,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
     await api()
       .put(`${runsBase()}/settings`)
       .set('Authorization', human(ADMIN))
-      .send({ enabled: true, maxStartedRuns: 50, doneStatus: DONE_STATUS })
+      .send({ enabled: true, maxStartedRuns: 50, doneStatus: DONE_STATUS.name })
       .expect(200);
     const minted = await api()
       .post(`/api/v1/workspaces/${workspaceId}/tokens`)
@@ -659,5 +669,221 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
     expect(run.pullRequests).toEqual([expect.objectContaining({ repository: 'billing-api' })]);
     await sweep.tick();
     expect(jira.commentsOn(issue.key)).toEqual([]);
+  });
+
+  describe('configurable Jira status transitions', () => {
+    const NONE = { startedStatus: null, doneStatus: DONE_STATUS.name, failedStatus: null, cancelledStatus: null };
+
+    const configure = (statuses: Record<string, string | null>) =>
+      api().put(`${runsBase()}/settings`).set('Authorization', human(ADMIN)).send(statuses).expect(200);
+
+    afterEach(async () => {
+      jira.crashAfterNextComment = false;
+      jira.crashAfterNextTransition = false;
+      jira.transitionError = null;
+      jira.commentError = null;
+      await configure(NONE);
+    });
+
+    /** A started run: it left `queued` and its scope turn is queued. */
+    async function started() {
+      issueSeed += 1;
+      const issue = jira.add({ key: `PROJ-${issueSeed}`, summary: `Export orders ${issueSeed}`, project: 'PROJ' });
+      const res = await api()
+        .post(runsBase())
+        .set('Authorization', human(MEMBER))
+        .send({ issueKey: issue.key, repositoryKeys: ['orders-api'] })
+        .expect(201);
+      return { runId: res.body.id as string, issue };
+    }
+
+    /** A started run whose scope turn reports a failure. */
+    async function failed() {
+      const run = await started();
+      await complete(await claimTurn(), {
+        outcome: { kind: 'failed', code: 'agent_error', reason: 'The model was unavailable.' },
+      }).expect(200);
+      return run;
+    }
+
+    const warnings = async (runId: string) =>
+      (await events(runId))
+        .filter((event) => event.payload.code === 'warning')
+        .map((event) => event.payload.text as string);
+
+    it('settings keep four optional statuses, and list the Jira connector’s known statuses for them', async () => {
+      const saved = await configure({
+        startedStatus: 'In Progress',
+        doneStatus: 'Done',
+        failedStatus: 'Blocked',
+        cancelledStatus: 'To Do',
+      });
+      expect(saved.body).toMatchObject({
+        startedStatus: 'In Progress',
+        doneStatus: 'Done',
+        failedStatus: 'Blocked',
+        cancelledStatus: 'To Do',
+      });
+      const cleared = await configure({ failedStatus: null });
+      expect(cleared.body).toMatchObject({ startedStatus: 'In Progress', failedStatus: null });
+
+      const known = await api()
+        .get(`${runsBase()}/settings/jira-statuses`)
+        .set('Authorization', human(ADMIN))
+        .expect(200);
+      expect(known.body).toEqual({ statuses: ['Done', 'In Progress', 'To Do'] });
+    });
+
+    it('started: the issue moves once when the run leaves queued, matched by name in any case', async () => {
+      await configure({ startedStatus: 'in progress' });
+      const { runId, issue } = await started();
+      await sweep.tick();
+      expect(jira.issues.get(issue.key)!.statusId).toBe(STATUSES.inProgress.id);
+      expect(jira.appliedOn(issue.key)).toEqual(['41']);
+      expect(await detail(runId)).toMatchObject({
+        status: 'scoping',
+        jiraOutcome: { transitions: { started: { status: 'in progress', state: 'transitioned' } } },
+      });
+
+      later(10);
+      await sweep.tick();
+      expect(jira.appliedOn(issue.key)).toEqual(['41']);
+    });
+
+    it('cancelled: the issue moves when a member cancels, and no comment is posted', async () => {
+      await configure({ cancelledStatus: 'Won’t Do' });
+      const { runId, issue } = await started();
+      await api().post(`${runsBase()}/${runId}/cancel`).set('Authorization', human(MEMBER)).expect(200);
+      await sweep.tick();
+      expect(jira.appliedOn(issue.key)).toEqual(['61']);
+      expect(jira.commentsOn(issue.key)).toEqual([]);
+      expect(await detail(runId)).toMatchObject({
+        status: 'cancelled',
+        jiraOutcome: { transitions: { cancelled: { state: 'transitioned' } } },
+      });
+    });
+
+    it('failed: the issue moves after the failure comment, preferring the transition without a screen', async () => {
+      await configure({ failedStatus: 'Blocked' });
+      const { runId, issue } = await failed();
+      await sweep.tick();
+      expect(jira.commentsOn(issue.key)).toHaveLength(1);
+      expect(jira.appliedOn(issue.key)).toEqual(['52']);
+      const calls = jira.callsOn(issue.key);
+      expect(calls.indexOf('addComment:' + issue.id)).toBeLessThan(calls.indexOf('transitionIssue:' + issue.id));
+      expect(await detail(runId)).toMatchObject({
+        status: 'failed',
+        failureCode: 'agent_error',
+        jiraOutcome: { failure: { state: 'posted' }, transitions: { failed: { state: 'transitioned' } } },
+      });
+    });
+
+    it('failed: the issue still moves when the failure comment is given up on', async () => {
+      await configure({ failedStatus: 'Blocked' });
+      const { runId, issue } = await failed();
+      jira.commentError = new JiraNotFoundError('Jira API 404 for /comment');
+      await sweep.tick();
+      expect(jira.commentsOn(issue.key)).toEqual([]);
+      expect(jira.appliedOn(issue.key)).toEqual(['52']);
+      expect(await detail(runId)).toMatchObject({
+        jiraOutcome: { failure: { state: 'not_posted' }, transitions: { failed: { state: 'transitioned' } } },
+      });
+    });
+
+    it('with no status set, no event makes a Jira call', async () => {
+      const cancelledRun = await started();
+      // Starting reads the issue; nothing after that may call Jira.
+      const before = jira.callsOn(cancelledRun.issue.key).length;
+      await sweep.tick();
+      await api().post(`${runsBase()}/${cancelledRun.runId}/cancel`).set('Authorization', human(MEMBER)).expect(200);
+      await sweep.tick();
+      expect(jira.callsOn(cancelledRun.issue.key).slice(before)).toEqual([]);
+      expect((await detail(cancelledRun.runId)).jiraOutcome).toEqual({});
+
+      const failedRun = await failed();
+      await sweep.tick();
+      // The failure comment still goes out; nothing moves the issue.
+      expect(jira.callsOn(failedRun.issue.key).filter((call) => call.includes('ransition'))).toEqual([]);
+      expect((await detail(failedRun.runId)).jiraOutcome.transitions).toBeUndefined();
+    });
+
+    it('a status the issue has no transition to is a warning on the run, which goes on', async () => {
+      await configure({ startedStatus: 'Archived' });
+      const { runId, issue } = await started();
+      await sweep.tick();
+      expect(jira.appliedOn(issue.key)).toEqual([]);
+      expect(await detail(runId)).toMatchObject({
+        status: 'scoping',
+        jiraOutcome: { transitions: { started: { state: 'warning' } } },
+      });
+      expect(await warnings(runId)).toEqual([expect.stringMatching(/No transition to Archived/)]);
+    });
+
+    it('an issue already in the status is skipped', async () => {
+      await configure({ startedStatus: 'In Progress' });
+      const { runId, issue } = await started();
+      jira.issues.get(issue.key)!.statusId = STATUSES.inProgress.id;
+      await sweep.tick();
+      expect(jira.appliedOn(issue.key)).toEqual([]);
+      expect(await detail(runId)).toMatchObject({
+        jiraOutcome: { transitions: { started: { state: 'already_in_status' } } },
+      });
+    });
+
+    it('an issue moved out of the configured projects is left unchanged, with a warning', async () => {
+      await configure({ cancelledStatus: 'Won’t Do' });
+      const { runId, issue } = await started();
+      jira.issues.get(issue.key)!.project = 'OTHER';
+      await api().post(`${runsBase()}/${runId}/cancel`).set('Authorization', human(MEMBER)).expect(200);
+      await sweep.tick();
+      expect(jira.appliedOn(issue.key)).toEqual([]);
+      expect(await detail(runId)).toMatchObject({
+        jiraOutcome: { transitions: { cancelled: { state: 'skipped' } } },
+      });
+      expect(await warnings(runId)).toEqual([expect.stringMatching(/moved out of the configured projects/)]);
+    });
+
+    it('a started transition still retrying when the run is cancelled never goes out after the cancelled one', async () => {
+      await configure({ startedStatus: 'In Progress', cancelledStatus: 'Won’t Do' });
+      const { runId, issue } = await started();
+      // Every in-process try of the issue read is rate limited: the attempt fails and waits for the next claim.
+      jira.rateLimitedReads = 4;
+      await sweep.tick();
+      expect((await detail(runId)).jiraOutcome.transitions.started).toMatchObject({ state: 'pending', attempts: 1 });
+
+      await api().post(`${runsBase()}/${runId}/cancel`).set('Authorization', human(MEMBER)).expect(200);
+      later(5);
+      await sweep.tick();
+      expect(jira.appliedOn(issue.key)).toEqual(['61']);
+      expect(await detail(runId)).toMatchObject({
+        jiraOutcome: { transitions: { started: { state: 'superseded' }, cancelled: { state: 'transitioned' } } },
+      });
+    });
+
+    it('crashes after the failure comment and after the transition leave one comment and one transition', async () => {
+      await configure({ failedStatus: 'Blocked' });
+      const { runId, issue } = await failed();
+      jira.crashAfterNextComment = true;
+      jira.crashAfterNextTransition = true;
+      await sweep.tick();
+      expect(jira.commentsOn(issue.key)).toHaveLength(1);
+      expect(jira.appliedOn(issue.key)).toEqual([]);
+
+      later(5);
+      await sweep.tick();
+      expect(jira.appliedOn(issue.key)).toEqual(['52']);
+      expect((await detail(runId)).jiraOutcome.transitions.failed.state).toBe('pending');
+
+      later(5);
+      await sweep.tick();
+      later(5);
+      await sweep.tick();
+      expect(jira.commentsOn(issue.key)).toHaveLength(1);
+      expect(jira.appliedOn(issue.key)).toEqual(['52']);
+      expect(await detail(runId)).toMatchObject({
+        status: 'failed',
+        jiraOutcome: { failure: { state: 'posted' }, transitions: { failed: { state: 'already_in_status' } } },
+      });
+    });
   });
 });

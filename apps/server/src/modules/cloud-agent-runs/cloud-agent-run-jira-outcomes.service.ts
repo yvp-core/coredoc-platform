@@ -8,19 +8,31 @@ import {
   JiraNotFoundError,
   JiraRateLimitError,
 } from '../delivery/jira-client.js';
-import {
-  type JiraCommentOutcome,
-  jiraOutcomeOf,
-  type RunJiraOutcome,
-  recordedPullRequests,
-} from './cloud-agent-run-delivery.service.js';
+import { recordedPullRequests } from './cloud-agent-run-delivery.service.js';
 import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js';
 import { FAILURE_MESSAGES, type FailureCode } from './failure-codes.js';
 import { type CommentPullRequest, commentHasMarker, doneComment, failureComment, runMarker } from './jira-comments.js';
+import {
+  type JiraCommentOutcome,
+  jiraOutcomeOf,
+  queueStatusTransition,
+  type RunJiraOutcome,
+  StatusEvent,
+  type StatusTransitionOutcome,
+  sameStatusName,
+  transitionTo,
+} from './jira-outcome.js';
 import { CLOUD_AGENT_RUNS_RETRY_DELAY, defaultRetryDelay, type RetryDelay, withRetries } from './retry.js';
 import { runPageUrl } from './run-links.js';
 import { RunEventCode, RunFailureCode, RunStatus, ServerEventType } from './run-states.js';
-import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, type NewRunEvent, systemClock } from './run-store.js';
+import {
+  appendRunEvents,
+  CLOUD_AGENT_RUNS_CLOCK,
+  type Clock,
+  type NewRunEvent,
+  systemClock,
+  type Tx,
+} from './run-store.js';
 import { failRun, lockRun, markRunDone } from './run-transitions.js';
 
 /** Rows claimed per job and tick. */
@@ -31,6 +43,11 @@ const CLAIM_MS = 5 * 60_000;
 const MAX_ATTEMPTS = 5;
 
 type CommentKind = 'done' | 'failure';
+
+/** Started before the end-of-run events, so one tick never leaves the issue in the started status. */
+const STATUS_EVENTS: readonly StatusEvent[] = [StatusEvent.Started, StatusEvent.Cancelled, StatusEvent.Failed];
+
+const MOVED_OUT = 'The issue moved out of the configured projects.';
 
 /** Why a comment is skipped when the run marker check cannot see every comment. */
 const MARKER_UNKNOWN =
@@ -72,12 +89,14 @@ function describe(error: unknown): string {
 
 interface IssueTarget {
   client: JiraClient;
-  statusId: string | null;
+  /** The issue's current status name. */
+  status: string | null;
 }
 
 /**
  * The run sweep's Jira jobs: the done comment and transition for delivered
- * runs, and one failure comment per failed run. Rows are claimed with
+ * runs, one failure comment per failed run, and the configured started,
+ * cancelled and failed transitions. Rows are claimed with
  * skip-locked claims and a next-attempt time; a run marker on each comment
  * keeps a retry after a crash to one comment. Only server-owned facts reach
  * Jira: fixed messages, verified pull requests and the run link.
@@ -149,6 +168,143 @@ export class CloudAgentRunJiraOutcomes {
     }
   }
 
+  /**
+   * Queued started, cancelled and failed transitions, with the same claim and
+   * next-attempt time as the comments. A transition never changes the run's
+   * outcome: problems end as warnings on the run.
+   */
+  async applyStatusTransitions(): Promise<void> {
+    for (const event of STATUS_EVENTS) {
+      const at = this.now();
+      const due = await this.prisma.$queryRaw<Array<{ id: string; workspace_id: string }>>`
+        WITH due AS (
+          SELECT id FROM cloud_agent_runs
+          WHERE jira_outcome->'transitions'->${event}::text->>'state' = 'pending'
+            AND (jira_outcome->'transitions'->${event}::text->>'nextAttemptAt')::timestamptz <= ${at}
+          ORDER BY created_at, id
+          LIMIT ${BATCH}
+          FOR UPDATE SKIP LOCKED
+        )
+        UPDATE cloud_agent_runs r
+        SET jira_outcome = jsonb_set(r.jira_outcome, ARRAY['transitions', ${event}::text, 'nextAttemptAt'],
+                                     to_jsonb(${new Date(at.getTime() + CLAIM_MS).toISOString()}::text))
+        FROM due WHERE r.id = due.id
+        RETURNING r.id, r.workspace_id`;
+      for (const row of due) {
+        try {
+          await this.applyStatusTransition(row.workspace_id, row.id, event);
+        } catch (error) {
+          this.logger.error(`Could not settle the ${event} transition of run ${row.id}: ${(error as Error).message}`);
+        }
+      }
+    }
+  }
+
+  /**
+   * Re-checks the project, skips an issue already in the status, then applies
+   * the transition to it. A crash after Jira moved the issue is retried at the
+   * next claim and ends in the already-in-status skip: one transition.
+   */
+  private async applyStatusTransition(workspaceId: string, runId: string, event: StatusEvent): Promise<void> {
+    const run = await this.prisma.cloudAgentRun.findFirst({ where: { id: runId, workspaceId } });
+    const queued = run ? jiraOutcomeOf(run).transitions?.[event] : undefined;
+    if (!run || queued?.state !== 'pending') return;
+    const status = queued.status;
+    try {
+      const target = await this.issueTarget(run);
+      if (!target) {
+        await this.settleTransition(run, event, { state: 'skipped', reason: MOVED_OUT }, [
+          warning(`The issue moved out of the configured projects, so it was not moved to ${status}.`),
+        ]);
+        return;
+      }
+      if (sameStatusName(target.status, status)) {
+        await this.settleTransition(run, event, { state: 'already_in_status' }, [
+          {
+            type: ServerEventType.RunEvent,
+            payload: { code: RunEventCode.TransitionSkipped, text: `The issue is already in ${status}` },
+          },
+        ]);
+        return;
+      }
+      const chosen = transitionTo(await this.retry(() => target.client.listTransitions(run.jiraIssueId)), status);
+      if (!chosen) {
+        const reason = `No transition to ${status} is available for the issue.`;
+        await this.settleTransition(run, event, { state: 'warning', reason }, [warning(reason)]);
+        return;
+      }
+      await this.retry(() => target.client.transitionIssue(run.jiraIssueId, chosen.id));
+      await this.settleTransition(run, event, { state: 'transitioned' }, [
+        {
+          type: ServerEventType.RunEvent,
+          payload: { code: RunEventCode.JiraTransitioned, text: `Moved the Jira issue to ${status}` },
+        },
+      ]);
+    } catch (error) {
+      await this.recordFailedTransition(run, event, error);
+    }
+  }
+
+  private async settleTransition(
+    run: CloudAgentRun,
+    event: StatusEvent,
+    patch: Pick<StatusTransitionOutcome, 'state' | 'reason'>,
+    events: NewRunEvent[],
+  ): Promise<void> {
+    const at = this.now();
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await lockRun(tx, run.workspaceId, run.id);
+      const current = locked ? jiraOutcomeOf(locked) : null;
+      const queued = current?.transitions?.[event];
+      if (!locked || !current || queued?.state !== 'pending') return;
+      await this.writeTransition(tx, locked, current, event, { ...queued, ...patch, nextAttemptAt: null });
+      await appendRunEvents(tx, { workspaceId: locked.workspaceId, runId: locked.id }, events, at);
+    });
+  }
+
+  /** One failed attempt; a permanent error or the fifth attempt ends in a warning. */
+  private async recordFailedTransition(run: CloudAgentRun, event: StatusEvent, error: unknown): Promise<void> {
+    const at = this.now();
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await lockRun(tx, run.workspaceId, run.id);
+      const current = locked ? jiraOutcomeOf(locked) : null;
+      const queued = current?.transitions?.[event];
+      if (!locked || !current || queued?.state !== 'pending') return;
+      const attempts = queued.attempts + 1;
+      const reason = `The issue could not be moved to ${queued.status}: ${describe(error)}`;
+      if (!isPermanent(error) && attempts < MAX_ATTEMPTS) {
+        await this.writeTransition(tx, locked, current, event, { ...queued, attempts, reason });
+        return;
+      }
+      await this.writeTransition(tx, locked, current, event, {
+        ...queued,
+        state: 'warning',
+        attempts,
+        nextAttemptAt: null,
+        reason,
+      });
+      await appendRunEvents(tx, { workspaceId: locked.workspaceId, runId: locked.id }, [warning(reason)], at);
+    });
+  }
+
+  private async writeTransition(
+    tx: Tx,
+    run: CloudAgentRun,
+    current: RunJiraOutcome,
+    event: StatusEvent,
+    next: StatusTransitionOutcome,
+  ): Promise<void> {
+    await tx.cloudAgentRun.update({
+      where: { id: run.id },
+      data: {
+        jiraOutcome: {
+          ...current,
+          transitions: { ...current.transitions, [event]: next },
+        } as unknown as Prisma.InputJsonObject,
+      },
+    });
+  }
+
   private async postDone(workspaceId: string, runId: string): Promise<void> {
     const run = await this.prisma.cloudAgentRun.findFirst({ where: { id: runId, workspaceId } });
     const outcome = run ? jiraOutcomeOf(run).done : undefined;
@@ -158,10 +314,10 @@ export class CloudAgentRunJiraOutcomes {
       if (!target) {
         await this.finishDone(
           run,
-          { state: 'skipped', reason: 'The issue moved out of the configured projects.' },
+          { state: 'skipped', reason: MOVED_OUT },
           {
             outcome: 'skipped',
-            reason: 'The issue moved out of the configured projects.',
+            reason: MOVED_OUT,
           },
         );
         return;
@@ -192,12 +348,9 @@ export class CloudAgentRunJiraOutcomes {
     try {
       const target = await this.issueTarget(run);
       if (!target) {
-        await this.settle(
-          run,
-          'failure',
-          { state: 'skipped', reason: 'The issue moved out of the configured projects.' },
-          [warning('The issue moved out of the configured projects, so no failure comment was posted.')],
-        );
+        await this.settle(run, 'failure', { state: 'skipped', reason: MOVED_OUT }, [
+          warning('The issue moved out of the configured projects, so no failure comment was posted.'),
+        ]);
         return;
       }
       const runUrl = await runPageUrl(this.prisma, run.workspaceId, run.id);
@@ -233,9 +386,9 @@ export class CloudAgentRunJiraOutcomes {
       throw new ConnectorUnavailable('The workspace’s Jira connector has unusable credentials.');
     }
     const issue = await this.retry(() => client.getIssue(run.jiraIssueId, ['project', 'status']));
-    const fields = (issue.fields ?? {}) as { project?: { key?: unknown }; status?: { id?: unknown } };
+    const fields = (issue.fields ?? {}) as { project?: { key?: unknown }; status?: { name?: unknown } };
     if (typeof fields.project?.key !== 'string' || !state.projectKeys.includes(fields.project.key)) return null;
-    return { client, statusId: typeof fields.status?.id === 'string' ? fields.status.id : null };
+    return { client, status: typeof fields.status?.name === 'string' ? fields.status.name : null };
   }
 
   /**
@@ -260,23 +413,20 @@ export class CloudAgentRunJiraOutcomes {
   }
 
   /**
-   * The configured transition, preferring one without a screen. Never fails
-   * the run: problems after the done comment are recorded as warnings.
+   * The configured done transition, matched by status name and preferring
+   * one without a screen. Never fails the run: problems after the done
+   * comment are recorded as warnings.
    */
   private async transition(
     target: IssueTarget,
     run: CloudAgentRun,
   ): Promise<NonNullable<RunJiraOutcome['transition']>> {
     const settings = await this.prisma.agentRunSettings.findUnique({ where: { workspaceId: run.workspaceId } });
-    const statusId = settings?.doneStatusId;
-    if (!statusId) return { outcome: 'not_configured' };
-    if (target.statusId === statusId) return { outcome: 'already_in_status' };
-    const status = settings.doneStatusName ?? statusId;
+    const status = settings?.doneStatus;
+    if (!status) return { outcome: 'not_configured' };
+    if (sameStatusName(target.status, status)) return { outcome: 'already_in_status' };
     try {
-      const candidates = (await this.retry(() => target.client.listTransitions(run.jiraIssueId)))
-        .filter((transition) => transition.to?.id === statusId)
-        .sort((a, b) => Number(Boolean(a.hasScreen)) - Number(Boolean(b.hasScreen)));
-      const chosen = candidates[0];
+      const chosen = transitionTo(await this.retry(() => target.client.listTransitions(run.jiraIssueId)), status);
       if (!chosen) return { outcome: 'warning', reason: `No transition to ${status} is available for the issue.` };
       await this.retry(() => target.client.transitionIssue(run.jiraIssueId, chosen.id));
       return { outcome: 'transitioned' };
@@ -333,13 +483,16 @@ export class CloudAgentRunJiraOutcomes {
       const locked = await lockRun(tx, run.workspaceId, run.id);
       const current = locked ? jiraOutcomeOf(locked) : null;
       if (!locked || !current || (current[kind]?.state ?? 'pending') !== 'pending') return;
+      const next: RunJiraOutcome = {
+        ...current,
+        [kind]: { state: 'pending', attempts: 0, ...current[kind], nextAttemptAt: null, ...patch },
+      };
       await tx.cloudAgentRun.update({
         where: { id: locked.id },
         data: {
-          jiraOutcome: {
-            ...current,
-            [kind]: { state: 'pending', attempts: 0, ...current[kind], nextAttemptAt: null, ...patch },
-          } as unknown as Prisma.InputJsonObject,
+          jiraOutcome: (kind === 'failure'
+            ? await this.queueFailedTransition(tx, locked, next, at)
+            : next) as unknown as Prisma.InputJsonObject,
         },
       });
       await appendRunEvents(tx, { workspaceId: locked.workspaceId, runId: locked.id }, events, at);
@@ -378,9 +531,14 @@ export class CloudAgentRunJiraOutcomes {
       const next: JiraCommentOutcome = giveUp
         ? { ...outcome, state: 'not_posted', attempts, nextAttemptAt: null, reason }
         : { ...outcome, attempts, reason };
+      const recorded: RunJiraOutcome = { ...current, [kind]: next };
       const updated = await tx.cloudAgentRun.update({
         where: { id: locked.id },
-        data: { jiraOutcome: { ...current, [kind]: next } as unknown as Prisma.InputJsonObject },
+        data: {
+          jiraOutcome: (giveUp && kind === 'failure'
+            ? await this.queueFailedTransition(tx, locked, recorded, at)
+            : recorded) as unknown as Prisma.InputJsonObject,
+        },
       });
       if (!giveUp) return;
       await appendRunEvents(
@@ -399,6 +557,20 @@ export class CloudAgentRunJiraOutcomes {
         );
       }
     });
+  }
+
+  /** Once the failure comment is posted, skipped or given up on, the configured failed status is queued. */
+  private async queueFailedTransition(
+    tx: Tx,
+    run: CloudAgentRun,
+    outcome: RunJiraOutcome,
+    at: Date,
+  ): Promise<RunJiraOutcome> {
+    const settings = await tx.agentRunSettings.findUnique({
+      where: { workspaceId: run.workspaceId },
+      select: { failedStatus: true },
+    });
+    return queueStatusTransition(outcome, StatusEvent.Failed, settings?.failedStatus, at);
   }
 
   private retry<T>(call: () => Promise<T>): Promise<T> {

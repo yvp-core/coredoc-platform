@@ -50,6 +50,8 @@ export class CloudAgentRunSweep {
     // After the jobs that fail runs, so a run failed in this tick gets its comment in it.
     await this.jiraOutcomes.postDoneComments();
     await this.jiraOutcomes.postFailureComments();
+    // After the failure comments, which queue the failed transition.
+    await this.jiraOutcomes.applyStatusTransitions();
     if (parseRetentionFlag(this.workers.retention.agentRunsEnabled, { defaultEnabled: true })) {
       await pruneEndedRuns(this.deps);
     }

@@ -58,6 +58,12 @@ export class CloudAgentRunsController {
     return this.settings.view(workspaceId);
   }
 
+  @Get('settings/jira-statuses')
+  @WorkspaceRole('member')
+  getJiraStatuses(@Param('workspaceId') workspaceId: string) {
+    return this.settings.jiraStatuses(workspaceId);
+  }
+
   @Put('settings')
   @WorkspaceRole('admin')
   @RequirePermission(TokenPermission.WorkspaceManage)

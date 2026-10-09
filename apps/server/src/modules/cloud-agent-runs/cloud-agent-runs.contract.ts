@@ -31,6 +31,15 @@ const intBetween = (field: string, min: number, max: number) =>
     .min(min, { error: `${field} must be at least ${min}` })
     .max(max, { error: `${field} must be at most ${max}` });
 
+const jiraStatusName = (field: string) =>
+  z
+    .string({ error: `${field} must be a Jira status name` })
+    .trim()
+    .min(1, { error: `${field} must be a Jira status name` })
+    .max(255, { error: `${field} must be at most 255 characters` })
+    .nullable()
+    .optional();
+
 export const UpdateSettingsSchema = z
   .object({
     enabled: z.boolean().optional(),
@@ -40,12 +49,11 @@ export const UpdateSettingsSchema = z
       .string()
       .regex(/^\S{1,255}$/, { error: 'triggerLabel must be a Jira label: 1 to 255 characters, no spaces' })
       .optional(),
-    /** The Jira status the done transition moves to; null for none. */
-    doneStatus: z
-      .object({ id: z.string().trim().min(1).max(64), name: z.string().trim().min(1).max(255) })
-      .strict()
-      .nullable()
-      .optional(),
+    /** Jira statuses, by name, the issue moves to on each event; null for none. */
+    startedStatus: jiraStatusName('startedStatus'),
+    doneStatus: jiraStatusName('doneStatus'),
+    failedStatus: jiraStatusName('failedStatus'),
+    cancelledStatus: jiraStatusName('cancelledStatus'),
     questionsPolicy: z.enum(QUESTIONS_POLICIES).optional(),
     scopeAcceptancePolicy: z.enum(SCOPE_ACCEPTANCE_POLICIES).optional(),
     maxSpendUsd: z

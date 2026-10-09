@@ -5,8 +5,9 @@
  * one consistent order across all API and worker processes.
  */
 import { randomUUID } from 'node:crypto';
-import type { AgentRunSettings, CloudAgentRun } from '../../generated/prisma/client.js';
+import type { AgentRunSettings, CloudAgentRun, Prisma } from '../../generated/prisma/client.js';
 import { FAILURE_MESSAGES, type FailureCode } from './failure-codes.js';
+import { jiraOutcomeOf, queueStatusTransition, StatusEvent } from './jira-outcome.js';
 import { RunPhase, RunStatus, ServerEventType, TERMINAL_RUN_STATUSES } from './run-states.js';
 import { appendRunEvents, type Tx } from './run-store.js';
 
@@ -117,12 +118,23 @@ export async function promoteQueuedRuns(
     where: { workspaceId, status: RunStatus.Queued },
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     take: free,
-    select: { id: true },
+    select: { id: true, jiraOutcome: true },
   });
-  for (const { id } of queued) {
+  for (const { id, jiraOutcome } of queued) {
     await tx.cloudAgentRun.update({
       where: { id },
-      data: { status: RunStatus.Scoping, startedAt: at, activeSince: at },
+      data: {
+        status: RunStatus.Scoping,
+        startedAt: at,
+        activeSince: at,
+        // The run sweep moves the issue to the configured started status.
+        jiraOutcome: queueStatusTransition(
+          jiraOutcomeOf({ jiraOutcome }),
+          StatusEvent.Started,
+          settings.startedStatus,
+          at,
+        ) as unknown as Prisma.InputJsonObject,
+      },
     });
     await tx.cloudAgentRunTurn.create({
       data: { workspaceId, runId: id, ordinal: 1, kind: RunPhase.Scope, createdAt: at },

@@ -5,6 +5,13 @@
 import type { CloudAgentRun } from '../../generated/prisma/client.js';
 import { FAILURE_MESSAGES } from './failure-codes.js';
 import {
+  jiraOutcomeOf,
+  queueStatusTransition,
+  type RunJiraOutcome,
+  StatusEvent,
+  supersedeStartedTransition,
+} from './jira-outcome.js';
+import {
   isTerminalRunStatus,
   QuestionState,
   type RunFailureCode,
@@ -86,9 +93,18 @@ export async function failRun(
   });
 }
 
-/** A member cancels: like a failure, without a code. The runner hears `stop` at its next heartbeat. */
+/**
+ * A member cancels: like a failure, without a code. The runner hears `stop`
+ * at its next heartbeat. The configured cancelled status is queued for the
+ * run sweep; a cancelled run gets no Jira comment.
+ */
 export async function cancelRun(tx: Tx, run: CloudAgentRun, at: Date): Promise<void> {
-  await endRun(tx, run, RunStatus.Cancelled, at, {});
+  const settings = await tx.agentRunSettings.findUnique({
+    where: { workspaceId: run.workspaceId },
+    select: { cancelledStatus: true },
+  });
+  const jiraOutcome = queueStatusTransition(jiraOutcomeOf(run), StatusEvent.Cancelled, settings?.cancelledStatus, at);
+  await endRun(tx, run, RunStatus.Cancelled, at, { jiraOutcome });
 }
 
 /** Delivery finished: the done comment and the transition outcome are recorded. */
@@ -105,7 +121,8 @@ export async function markRunDone(
 /**
  * Every transition to a terminal status: abandon the queued or claimed turn
  * and delete its MCP token in the same transaction, so neither claim nor lease
- * expiry ever hands the run new work; cancel its open questions.
+ * expiry ever hands the run new work; cancel its open questions; drop a
+ * started transition that has not gone out yet.
  */
 async function endRun(
   tx: Tx,
@@ -129,7 +146,10 @@ async function endRun(
     pending.map((turn) => turn.id),
   );
   await cancelOpenQuestions(tx, run, at);
-  await setRunStatus(tx, run, to, at, data, events);
+  const jiraOutcome = supersedeStartedTransition(
+    (data.jiraOutcome as RunJiraOutcome | undefined) ?? jiraOutcomeOf(run),
+  );
+  await setRunStatus(tx, run, to, at, { ...data, jiraOutcome }, events);
 }
 
 /** Questions still open when a run ends are cancelled, with a timeline entry each. */

@@ -1864,8 +1864,11 @@ model AgentRunSettings {
   /// Recorded when agent runs are switched on, or on an explicit takeover; never by other saves.
   runOwnerId             String?  @map("run_owner_id") @db.VarChar(256)
   triggerLabel           String   @default("coredoc-agent") @map("trigger_label") @db.VarChar(255)
-  doneStatusId           String?  @map("done_status_id") @db.VarChar(64)
-  doneStatusName         String?  @map("done_status_name") @db.VarChar(255)
+  /// Jira statuses the run sweep moves the issue to, matched by name; null leaves Jira alone.
+  startedStatus          String?  @map("started_status") @db.VarChar(255)
+  doneStatus             String?  @map("done_status") @db.VarChar(255)
+  failedStatus           String?  @map("failed_status") @db.VarChar(255)
+  cancelledStatus        String?  @map("cancelled_status") @db.VarChar(255)
   questionsPolicy        String   @default("pause") @map("questions_policy") @db.VarChar(16)
   scopeAcceptancePolicy  String   @default("required") @map("scope_acceptance_policy") @db.VarChar(16)
   maxSpendUsd            Float    @default(25) @map("max_spend_usd") @db.DoublePrecision

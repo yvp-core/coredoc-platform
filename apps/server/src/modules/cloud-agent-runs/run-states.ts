@@ -123,6 +123,7 @@ export const RunEventCode = {
   WorkflowDiffWithheld: 'workflow_diff_withheld',
   PullRequestOpened: 'pull_request_opened',
   JiraCommented: 'jira_commented',
+  JiraTransitioned: 'jira_transitioned',
   TransitionSkipped: 'transition_skipped',
   Warning: 'warning',
   RepositoryAdded: 'repository_added',
