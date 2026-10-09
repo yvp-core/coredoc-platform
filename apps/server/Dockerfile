@@ -87,7 +87,7 @@ RUN cd /app/node_modules/.pnpm && rm -rf @biomejs+* turbo@* turbo-* @vitest+* vi
 # server (apps/server/src/libs/spa-serving.ts). @coredoc/core is a web
 # devDependency (types only, not value-imported), so it needs no build here.
 # =============================================================================
-FROM node:22-bookworm-slim AS web-build
+FROM node:22-bookworm-slim AS web-deps
 
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
@@ -104,7 +104,17 @@ RUN pnpm install --frozen-lockfile --filter @coredoc/web...
 COPY packages/core/ ./packages/core/
 COPY apps/web/ ./apps/web/
 
+FROM web-deps AS web-build
+
 RUN pnpm --filter @coredoc/web build
+
+# Local dev only (apps/server/docker-compose.yml mounts apps/web/src): Vite's
+# dev server with HMR, proxying API paths to SERVER_ORIGIN. Never shipped.
+FROM web-deps AS web-dev
+
+WORKDIR /app/apps/web
+EXPOSE 5173
+CMD ["pnpm", "exec", "vite", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]
 
 # =============================================================================
 # Stage 3: Production - Minimal runtime

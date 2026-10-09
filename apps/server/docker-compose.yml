@@ -1,3 +1,27 @@
+# Local development stack: Postgres, Neo4j, the server, the web app and the
+# agent runner. A development harness only (source mounts, watch mode,
+# hard-coded database credentials): never ship it; see ONPREM.md.
+#
+# Prerequisites: Docker Desktop, with "Use Rosetta for x86_64/amd64 emulation"
+# on Apple Silicon (the runner is linux/amd64; under qemu Claude Code aborts
+# and the runner reports sdk_unusable), and apps/server/.env filled in from
+# .env.example.
+#
+#   cd apps/server
+#   docker compose up --build           # everything; -d to detach
+#   docker compose logs -f coredoc-server coredoc-web agent-runner
+#
+# Server http://localhost:3000, web (Vite, HMR) http://localhost:5173,
+# Neo4j browser http://localhost:7474, Postgres localhost:5432.
+#
+# Edits under apps/server/src, apps/web/src and apps/agent-runner/src reload
+# their service. Changes to packages/* (core, db, mcp), package.json or a
+# Dockerfile need `docker compose up -d --build <service>`.
+#
+# The runner waits ("not configured") until agent-runner.env holds a runner
+# token: create one in Settings → Agent runs, copy agent-runner.env.example to
+# agent-runner.env, fill it in, then `docker compose up -d agent-runner`.
+# Full instructions: README.md, "Local stack with Docker Compose".
 services:
   coredoc-server:
     build:
@@ -9,59 +33,55 @@ services:
     depends_on:
       postgres-db:
         condition: service_healthy
+    env_file:
+      - ./.env
+    # Overrides for the container network; everything else comes from .env.
     environment:
       PORT: 3000
       NODE_ENV: development
-      DATABASE_URL: postgresql://coredoc:coredoc@postgres:5432/coredoc
-      MCP_SERVER_URL: http://localhost:3000
+      # The worker polls its queue every few seconds; per-query logging drowns the log.
+      # Set to true here to see every Prisma query.
+      PRISMA_QUERY_LOG: "false"
+      DATABASE_URL: postgresql://coredoc:coredoc@postgres-db:5432/coredoc
+      NEO4J_URI: bolt://coredoc-parsers-neo4j:7687
+      MCP_SERVER_URL: ${MCP_SERVER_URL:-http://localhost:3000}
 
       # Ensure TypeScript watch works reliably in Docker Desktop mounts
       TSC_WATCHFILE: DynamicPriorityPolling
       TSC_WATCHDIRECTORY: DynamicPriorityPolling
-
-      # Self-hosted OAuth AS — upstream identity provider + access-token signing.
-      OAUTH_UPSTREAM: ${OAUTH_UPSTREAM:-github}
-      OAUTH_JWT_SECRET: ${OAUTH_JWT_SECRET}
-      # GitHub upstream (OAUTH_UPSTREAM=github, the default)
-      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
-      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
-      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
-      # WorkOS AuthKit-as-OIDC (Connect) upstream (OAUTH_UPSTREAM=workos).
-      # CLIENT_ID / CLIENT_SECRET are the Connect OAuth Application's OWN
-      # credentials. WORKOS_AUTHKIT_CLIENT_ID / WORKOS_API_KEY belong to the
-      # AuthKit Application that delivers and completes invitation emails.
-      WORKOS_AUTHKIT_DOMAIN: ${WORKOS_AUTHKIT_DOMAIN:-}
-      WORKOS_AUTHKIT_CLIENT_ID: ${WORKOS_AUTHKIT_CLIENT_ID:-}
-      WORKOS_API_KEY: ${WORKOS_API_KEY:-}
-      WORKOS_CLIENT_ID: ${WORKOS_CLIENT_ID:-}
-      WORKOS_CLIENT_SECRET: ${WORKOS_CLIENT_SECRET:-}
-
-      # Encryption key for Turso DB tokens at rest (64 hex chars = 32 bytes)
-      SERVER_ENCRYPTION_KEY: ${SERVER_ENCRYPTION_KEY}
-
-      # Turso — workspace database provisioning (optional for local dev)
-      TURSO_ORG: ${TURSO_ORG:-}
-      TURSO_ORG_TOKEN: ${TURSO_ORG_TOKEN:-}
-
-      # R2 — parser storage (optional, falls back to in-memory)
-      R2_ENDPOINT: ${R2_ENDPOINT:-}
-      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
-      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
-      R2_BUCKET: ${R2_BUCKET:-coredoc-parsers}
-
-      # Desktop release bucket for the invitation handoff download buttons
-      # (optional; defaults to the hosted bucket).
-      DESKTOP_RELEASES_URL: ${DESKTOP_RELEASES_URL:-}
-
     restart: unless-stopped
     init: true
     working_dir: /app
+    # prisma generate writes into the mounted src/generated (git-ignored), so a
+    # checkout that never ran it on the host still compiles.
     command: >
-      sh -c "pnpm --filter @coredoc/server exec tsc &&
+      sh -c "pnpm --filter @coredoc/server exec prisma generate &&
+             pnpm --filter @coredoc/server exec prisma migrate deploy &&
+             pnpm --filter @coredoc/server exec tsc &&
              (pnpm --filter @coredoc/server exec tsc --watch --preserveWatchOutput &
               node --watch apps/server/dist/main.js)"
     volumes:
       - ../../apps/server/src:/app/apps/server/src
+      - ../../apps/server/prisma:/app/apps/server/prisma:ro
+
+  coredoc-web:
+    build:
+      context: ../..
+      dockerfile: apps/server/Dockerfile
+      target: web-dev
+    ports:
+      - "5173:5173"
+    depends_on:
+      - coredoc-server
+    environment:
+      # apps/web/vite.config.ts proxies /api, /mcp, OAuth paths, ... here.
+      SERVER_ORIGIN: http://coredoc-server:3000
+      # Vite's watcher (chokidar) misses some host edits on Docker Desktop mounts.
+      CHOKIDAR_USEPOLLING: "true"
+    restart: unless-stopped
+    init: true
+    volumes:
+      - ../../apps/web/src:/app/apps/web/src
 
   postgres-db:
     image: postgres:16-alpine
@@ -78,7 +98,37 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-  
+
+  # Settings live in agent-runner.env (copy agent-runner.env.example; never
+  # committed). Without it the runner logs what is missing and waits.
+  agent-runner:
+    build:
+      context: ../..
+      dockerfile: apps/agent-runner/Dockerfile
+      target: dev
+    # Claude Code and the plugin's launcher ship for linux/amd64 only. On Apple
+    # Silicon, Docker Desktop must emulate amd64 with Rosetta: under qemu the
+    # Claude Code binary aborts.
+    platform: linux/amd64
+    depends_on:
+      - coredoc-server
+    env_file:
+      - path: ./agent-runner.env
+        required: false
+    environment:
+      COREDOC_API_URL: http://coredoc-server:3000
+      # Local development only: lets CLAUDE_CODE_OAUTH_TOKEN (your own `claude setup-token`)
+      # stand in for ANTHROPIC_API_KEY. Products always use the customer's API key.
+      COREDOC_RUNNER_DEV_SUBSCRIPTION: "1"
+      # An idle runner claims every 30 s here instead of 5 s, to keep the logs readable.
+      COREDOC_RUNNER_POLL_SECONDS: "30"
+      TSC_WATCHFILE: DynamicPriorityPolling
+      TSC_WATCHDIRECTORY: DynamicPriorityPolling
+    volumes:
+      - ../../apps/agent-runner/src:/app/apps/agent-runner/src
+      - agent-runner-scratch:/scratch
+    restart: unless-stopped
+
   coredoc-parsers-neo4j:
     container_name: coredoc-parsers-neo4j
     image: neo4j:latest
@@ -96,6 +146,7 @@ services:
     volumes:
       - ./data/neo4j_db/data:/data
       - ./data/neo4j_db/plugins:/plugins
-    
+
 volumes:
   pgdata:
+  agent-runner-scratch:

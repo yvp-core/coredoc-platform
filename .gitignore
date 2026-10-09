@@ -101,3 +101,6 @@ apps/desktop/ds-pkg/
 # Local PR-review evidence and deferred runtime experiment; keep eval templates tracked.
 /evals/pr-review/pilots/
 /experiments/pr-review-eve/
+
+# Local agent runner settings for apps/server/docker-compose.yml
+agent-runner.env

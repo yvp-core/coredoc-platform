@@ -136,6 +136,38 @@ RUN set -eu; \
     chmod -R go-w /opt/coredoc-workflows
 
 # =============================================================================
+# Dev — local watch mode for apps/server/docker-compose.yml, never shipped.
+# The build stage's full install (TypeScript included) with the plugin, git and
+# tini; the compose file mounts apps/agent-runner/src and runs tsc --watch plus
+# node --watch. Writable dist, so no read-only root filesystem here. Production
+# must stay the last stage: CI and release build the default target.
+# =============================================================================
+FROM build AS dev
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git ca-certificates tini && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=plugin /opt/coredoc-workflows /opt/coredoc-workflows
+
+RUN mkdir -p /scratch && \
+    chown -R 10001:10001 /scratch /app/apps/agent-runner
+
+ENV HOME=/scratch \
+    TMPDIR=/scratch \
+    COREDOC_RUNNER_SCRATCH=/scratch \
+    COREDOC_WORKFLOWS_PLUGIN_PATH=/opt/coredoc-workflows \
+    PATH=/app/apps/agent-runner/node_modules/.bin:$PATH
+
+WORKDIR /app/apps/agent-runner
+USER 10001:10001
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+# --incremental: the watcher's first pass then re-emits nothing, so node does not
+# restart (and rerun the start-up check) right after starting.
+CMD ["sh", "-c", "tsc --incremental && (tsc --watch --incremental --preserveWatchOutput & node --watch dist/main.js)"]
+
+# =============================================================================
 # Stage 4: Production — runtime only
 # =============================================================================
 FROM node:22-bookworm-slim AS production

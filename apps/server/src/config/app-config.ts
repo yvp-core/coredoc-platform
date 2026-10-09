@@ -152,6 +152,7 @@ const RawEnvSchema = z.object({
   PROCESS_ROLE: optionalString,
   DATABASE_URL: optionalString,
   NODE_ENV: optionalString,
+  PRISMA_QUERY_LOG: optionalString,
   ENVIRONMENT: optionalString,
   PORT: optionalString,
   WEB_DIST_PATH: optionalString,
@@ -340,6 +341,8 @@ export interface MiscConfig {
   databaseUrl?: string;
   /** Raw; compared to the literal 'development' / 'production'. */
   nodeEnv?: string;
+  /** Exact literal: only `'false'` silences per-query logging in development. */
+  prismaQueryLog: boolean;
   /** Raw; compared to the literal 'development' / 'production'. */
   environment?: string;
   /** Raw; `main.ts` and `web-auth.service.ts` keep their 3000 fallback. */
@@ -391,6 +394,7 @@ function toMisc(raw: z.infer<typeof RawEnvSchema>): MiscConfig {
     processRole: raw.PROCESS_ROLE,
     databaseUrl: raw.DATABASE_URL,
     nodeEnv: raw.NODE_ENV,
+    prismaQueryLog: raw.PRISMA_QUERY_LOG !== 'false',
     environment: raw.ENVIRONMENT,
     port: raw.PORT,
     webDistPath: raw.WEB_DIST_PATH,
