@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Segmented } from '@/components/ui/segmented';
 import { Switch } from '@/components/ui/switch';
+import { RUNNER_REFUSALS, runnerVersionsText } from '@/features/agent-runs/agent-run-presentation';
 import type {
   AgentRunSettings,
   AvailabilityReason,
@@ -37,19 +38,6 @@ function message(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
 }
 
-const REFUSALS: Record<string, string> = {
-  creator_not_admin: 'Refused: its creator is no longer an admin of this workspace. Mint a new token.',
-  runner_incompatible: 'Refused: this runner version is not supported. Upgrade the runner.',
-};
-
-function versionsText(versions: RunnerTokenStatus['versions']): string | null {
-  if (!versions) return null;
-  const parts = Object.entries(versions)
-    .filter(([, value]) => Boolean(value))
-    .map(([name, value]) => `${name === 'claudeCode' ? 'claude code' : name} ${value}`);
-  return parts.length > 0 ? parts.join(' · ') : null;
-}
-
 function RunnerTokenRow({
   token,
   onRevoke,
@@ -57,7 +45,7 @@ function RunnerTokenRow({
   token: RunnerTokenStatus;
   onRevoke: (token: RunnerTokenStatus) => void;
 }) {
-  const versions = versionsText(token.versions);
+  const versions = runnerVersionsText(token.versions);
   return (
     <Tr>
       <Td className="text-left">
@@ -66,7 +54,7 @@ function RunnerTokenRow({
       </Td>
       <Td className="text-left">
         {token.refusal ? (
-          <span className="text-danger-text">{REFUSALS[token.refusal] ?? token.refusal}</span>
+          <span className="text-danger-text">{RUNNER_REFUSALS[token.refusal] ?? token.refusal}</span>
         ) : token.lastSeenAt ? (
           <span>
             {token.lastAction} {formatRelativeTime(token.lastSeenAt)}

@@ -233,6 +233,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     const started = await start(issueKey).expect(201);
     expect(started.body).toMatchObject({
       issueKey,
+      issueUrl: `https://example.atlassian.net/browse/${issueKey}`,
       trigger: 'manual',
       runOwner: { userId: MEMBER.id },
       currentTurn: { kind: 'scope', state: 'queued', attempt: 0 },

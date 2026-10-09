@@ -139,8 +139,15 @@ let reviewAnswer: 'ok' | 'stale' = 'ok';
 let agentRunsEnabled = true;
 let posts: { path: string; body: unknown }[] = [];
 let detail: Record<string, unknown>;
-let timelineEvents: typeof EVENTS = EVENTS;
+let timelineEvents: Array<{
+  seq: number;
+  type: string;
+  payload: Record<string, unknown>;
+  truncated: boolean;
+  createdAt: string;
+}> = EVENTS;
 let availability: { available: boolean; reasons: { code: string; message: string }[] };
+let runnerTokens: Record<string, unknown>[] = [];
 
 beforeEach(() => {
   agentRunsEnabled = true;
@@ -151,6 +158,7 @@ beforeEach(() => {
   reviewAnswer = 'ok';
   answerReply = 'ok';
   availability = { available: true, reasons: [] };
+  runnerTokens = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -198,7 +206,7 @@ beforeEach(() => {
       if (path === '/api/v1/workspaces/ws1/cloud-agent-runs')
         return new Response(JSON.stringify({ runs: [run()], nextOffset: null }));
       if (path === '/api/v1/workspaces/ws1/cloud-agent-runs/settings')
-        return new Response(JSON.stringify({ availability }));
+        return new Response(JSON.stringify({ availability, runnerTokens }));
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}`) return new Response(JSON.stringify(detail));
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RERUN_ID}`)
         return new Response(JSON.stringify(run({ id: RERUN_ID, trigger: 'rerun', previousRunId: RUN_ID })));
@@ -261,6 +269,69 @@ describe('agent runs routes', () => {
       expect.stringContaining('Scope turn started (attempt 1)'),
       expect.stringContaining('Agent activity (1)'),
     ]);
+  });
+
+  it('heads the run page with the Jira issue link, status and phase, and lists the agent’s current tasks', async () => {
+    detail = run({ issueUrl: 'https://example.atlassian.net/browse/PROJ-7' });
+    timelineEvents = [
+      ...EVENTS,
+      { seq: 5, type: 'todos', payload: { items: [{ text: 'Read the PRD', status: 'in_progress' }] } },
+      {
+        seq: 6,
+        type: 'todos',
+        payload: {
+          items: [
+            { text: 'Read the PRD', status: 'completed' },
+            { text: 'Draft the spec', status: 'in_progress' },
+            { text: 'Propose the scope', status: 'pending' },
+          ],
+        },
+      },
+    ].map((event) => ({ ...event, truncated: false, createdAt: '2026-10-10T09:00:00.000Z' }));
+    mount(`/w/acme/agent-runs/${RUN_ID}`);
+
+    expect(await screen.findByRole('link', { name: /Open PROJ-7 in Jira/ })).toHaveAttribute(
+      'href',
+      'https://example.atlassian.net/browse/PROJ-7',
+    );
+    expect(screen.getByText('Scope phase')).toBeInTheDocument();
+
+    const tasks = await screen.findByRole('list', { name: 'Agent tasks' });
+    expect(
+      within(tasks)
+        .getAllByRole('listitem')
+        .map((row) => row.textContent),
+    ).toEqual([
+      expect.stringMatching(/Done.*Read the PRD/),
+      expect.stringMatching(/In progress.*Draft the spec/),
+      expect.stringMatching(/To do.*Propose the scope/),
+    ]);
+  });
+
+  it('shows when each runner token last claimed or heartbeated', async () => {
+    runnerTokens = [
+      {
+        id: 'rt1',
+        name: 'prod-runner',
+        lastSeenAt: new Date(Date.now() - 2 * 60_000).toISOString(),
+        lastAction: 'heartbeat',
+        refusal: null,
+      },
+      { id: 'rt2', name: 'spare-runner', lastSeenAt: null, lastAction: null, refusal: null },
+    ];
+    mount('/w/acme/agent-runs');
+
+    const runners = await screen.findByRole('list', { name: 'Agent runners' });
+    expect(
+      within(runners)
+        .getByText(/prod-runner/)
+        .closest('li')!.textContent,
+    ).toMatch(/heartbeat .*2 min/);
+    expect(
+      within(runners)
+        .getByText(/spare-runner/)
+        .closest('li')!.textContent,
+    ).toMatch(/never connected/i);
   });
 
   it('starts a run with seed repository keys', async () => {

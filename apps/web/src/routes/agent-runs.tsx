@@ -13,7 +13,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { statusLabel, statusTone, waitingForRunnerSince } from '@/features/agent-runs/agent-run-presentation';
+import {
+  RUNNER_REFUSALS,
+  statusLabel,
+  statusTone,
+  waitingForRunnerSince,
+} from '@/features/agent-runs/agent-run-presentation';
 import { Table, Td, Th, Tr } from '@/features/teams/table';
 import { formatRelativeTime } from '@/lib/time';
 
@@ -101,6 +106,29 @@ function AvailabilityBanner({ wsId }: { wsId: string }) {
   );
 }
 
+/** Each runner token's last successful claim or heartbeat: informational, runs queue without a runner. */
+function RunnerStatus({ wsId }: { wsId: string }) {
+  const settings = useQuery(agentRunSettingsQueryOptions(wsId));
+  const tokens = settings.data?.runnerTokens ?? [];
+  if (tokens.length === 0) return null;
+  return (
+    <ul aria-label="Agent runners" className="flex flex-col gap-1 text-[13px] text-ink-3">
+      {tokens.map((token) => (
+        <li key={token.id}>
+          <span className="text-ink-2">{token.name}</span>:{' '}
+          {token.refusal ? (
+            <span className="text-danger-text">{RUNNER_REFUSALS[token.refusal] ?? token.refusal}</span>
+          ) : token.lastSeenAt ? (
+            `last ${token.lastAction ?? 'seen'} ${formatRelativeTime(token.lastSeenAt)}`
+          ) : (
+            'never connected'
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function WorkspaceAgentRuns() {
   const { slug } = useParams({ strict: false });
   const { data: me } = useSuspenseQuery(meQueryOptions);
@@ -113,6 +141,7 @@ export function WorkspaceAgentRuns() {
     <div className="flex flex-col gap-4">
       <PageHead title="Agent runs" sub="Jira issues taken to draft pull requests by your agent runner" />
       <AvailabilityBanner wsId={workspace.id} />
+      <RunnerStatus wsId={workspace.id} />
       <StartRunCard wsId={workspace.id} slug={slug} />
       <Card>
         <CardHead title="Runs" sub="Newest first" />

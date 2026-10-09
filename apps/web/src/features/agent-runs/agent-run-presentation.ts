@@ -4,7 +4,7 @@
  * timers. Payloads are free-form on the wire, so nothing here may assume a
  * shape or throw on one it does not recognise.
  */
-import type { AgentRun, AgentRunEvent, RunStatus } from './types.js';
+import type { AgentRun, AgentRunEvent, RunnerTokenStatus, RunStatus, TurnKind } from './types.js';
 
 export const POLL_INTERVAL_MS = 3000;
 
@@ -159,4 +159,56 @@ export function spendText(spend: AgentRun['spend']): string {
 /** When a turn waits in the queue, the run is waiting for an agent runner since then. */
 export function waitingForRunnerSince(run: Pick<AgentRun, 'currentTurn'>): string | null {
   return run.currentTurn?.state === 'queued' ? run.currentTurn.queuedAt : null;
+}
+
+const PHASE_LABELS: Record<TurnKind, string> = {
+  scope: 'Scope phase',
+  implement: 'Implement phase',
+  delivery: 'Delivery phase',
+};
+
+export function phaseLabel(phase: string): string {
+  return PHASE_LABELS[phase as TurnKind] ?? phase;
+}
+
+export type AgentTaskStatus = 'pending' | 'in_progress' | 'completed';
+
+export interface AgentTask {
+  text: string;
+  status: AgentTaskStatus;
+}
+
+const TASK_STATUSES: readonly string[] = ['pending', 'in_progress', 'completed'];
+
+export const TASK_STATUS_LABELS: Record<AgentTaskStatus, string> = {
+  pending: 'To do',
+  in_progress: 'In progress',
+  completed: 'Done',
+};
+
+/** The agent's current tasks: the items of the latest todos event. */
+export function currentTasks(events: readonly AgentRunEvent[]): AgentTask[] {
+  const latest = [...events].reverse().find((event) => event.type === 'todos');
+  const items = latest?.payload?.items;
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item: unknown) => {
+    const { text: taskText, status } = (item ?? {}) as Record<string, unknown>;
+    const label = text(taskText);
+    return label
+      ? [{ text: label, status: TASK_STATUSES.includes(String(status)) ? (status as AgentTaskStatus) : 'pending' }]
+      : [];
+  });
+}
+
+export const RUNNER_REFUSALS: Record<string, string> = {
+  creator_not_admin: 'Refused: its creator is no longer an admin of this workspace. Mint a new token.',
+  runner_incompatible: 'Refused: this runner version is not supported. Upgrade the runner.',
+};
+
+export function runnerVersionsText(versions: RunnerTokenStatus['versions']): string | null {
+  if (!versions) return null;
+  const parts = Object.entries(versions)
+    .filter(([, value]) => Boolean(value))
+    .map(([name, value]) => `${name === 'claudeCode' ? 'claude code' : name} ${value}`);
+  return parts.length > 0 ? parts.join(' · ') : null;
 }

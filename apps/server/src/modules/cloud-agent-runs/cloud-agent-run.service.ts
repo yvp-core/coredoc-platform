@@ -2,6 +2,7 @@ import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { AgentRunSettings, CloudAgentRun, CloudAgentRunTurn } from '../../generated/prisma/client.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
+import { normalizeJiraBaseUrl } from '../delivery/jira-client.js';
 import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
 import { CloudAgentRunIssueResolver } from './cloud-agent-run-issue.resolver.js';
 import { CloudAgentRunQuestionService } from './cloud-agent-run-questions.service.js';
@@ -199,6 +200,7 @@ export class CloudAgentRunService {
     const questions = await this.questions.forRun(workspaceId, run.id);
     return {
       ...this.project(run, await this.memberEmails(workspaceId, [run.runOwnerId])),
+      issueUrl: await this.issueUrl(run),
       seeds: run.seeds,
       repositories: run.repositories,
       droppedSeeds: run.droppedSeeds,
@@ -210,6 +212,25 @@ export class CloudAgentRunService {
       openQuestion: questions.find((question) => question.state === QuestionState.Open) ?? null,
       questions,
     };
+  }
+
+  /** The issue on the Jira site of the connector the run was created through. */
+  private async issueUrl(run: CloudAgentRun): Promise<string | null> {
+    const connector = await this.prisma.deliveryConnector.findFirst({
+      where: {
+        workspaceId: run.workspaceId,
+        provider: 'jira',
+        ...(run.jiraConnectorId ? { id: run.jiraConnectorId } : {}),
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { baseUrl: true },
+    });
+    if (!connector?.baseUrl) return null;
+    try {
+      return `${normalizeJiraBaseUrl(connector.baseUrl)}/browse/${encodeURIComponent(run.issueKey)}`;
+    } catch {
+      return null;
+    }
   }
 
   /** Every published spec version of a run, oldest first. */

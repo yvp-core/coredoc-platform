@@ -17,10 +17,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
 import {
+  currentTasks,
   isTerminalStatus,
+  phaseLabel,
   spendText,
   statusLabel,
   statusTone,
+  TASK_STATUS_LABELS,
   timelineItems,
   waitingForRunnerSince,
 } from '@/features/agent-runs/agent-run-presentation';
@@ -28,7 +31,7 @@ import { Assumptions, QuestionCard } from '@/features/agent-runs/QuestionCard';
 import { RunPullRequests } from '@/features/agent-runs/RunPullRequests';
 import { RunRepositories } from '@/features/agent-runs/RunRepositories';
 import { ScopeReview } from '@/features/agent-runs/ScopeReview';
-import type { AgentRun } from '@/features/agent-runs/types';
+import type { AgentRun, AgentRunDetail } from '@/features/agent-runs/types';
 import { formatRelativeTime } from '@/lib/time';
 
 import { findWorkspace } from './workspace';
@@ -122,6 +125,21 @@ function CancelAction({ wsId, run }: { wsId: string; run: AgentRun }) {
   );
 }
 
+function JiraLink({ run }: { run: AgentRunDetail }) {
+  if (!run.issueUrl) return null;
+  return (
+    <a
+      href={run.issueUrl}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open ${run.issueKey} in Jira`}
+      className="hover:underline"
+    >
+      Open in Jira
+    </a>
+  );
+}
+
 function RunHeader({ wsId, slug, run }: { wsId: string; slug: string; run: AgentRun }) {
   const waiting = waitingForRunnerSince(run);
   return (
@@ -141,7 +159,6 @@ function RunHeader({ wsId, slug, run }: { wsId: string; slug: string; run: Agent
           </p>
         )}
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Field label="Phase">{run.phase}</Field>
           <Field label="Acts as">{run.runOwner.email ?? run.runOwner.userId}</Field>
           <Field label="Trigger">{TRIGGER_LABELS[run.trigger] ?? run.trigger}</Field>
           <Field label="Spend">{spendText(run.spend)}</Field>
@@ -168,6 +185,32 @@ function RunHeader({ wsId, slug, run }: { wsId: string; slug: string; run: Agent
             </Field>
           )}
         </dl>
+      </CardBody>
+    </Card>
+  );
+}
+
+const TASK_MARKERS = { completed: 'bg-brand', in_progress: 'bg-blue', pending: 'border border-border-soft' } as const;
+
+/** The agent's current tasks, from the latest todos event of the timeline. */
+function RunTasks({ wsId, run }: { wsId: string; run: AgentRun }) {
+  const queryClient = useQueryClient();
+  const timeline = useQuery(agentRunTimelineQueryOptions(queryClient, wsId, run.id, run.status));
+  const tasks = currentTasks(timeline.data ?? []);
+  if (tasks.length === 0) return null;
+  return (
+    <Card>
+      <CardHead title="Agent tasks" sub="The agent’s own checklist, as it last reported it" />
+      <CardBody className="pt-2">
+        <ul aria-label="Agent tasks" className="flex flex-col gap-1.5">
+          {tasks.map((task) => (
+            <li key={`${task.status}:${task.text}`} className="flex items-start gap-2 text-[13.5px] text-ink-2">
+              <span aria-hidden className={`mt-[5px] size-2.5 shrink-0 rounded-full ${TASK_MARKERS[task.status]}`} />
+              <span className="sr-only">{TASK_STATUS_LABELS[task.status]}: </span>
+              <span className={task.status === 'completed' ? 'text-ink-4 line-through' : undefined}>{task.text}</span>
+            </li>
+          ))}
+        </ul>
       </CardBody>
     </Card>
   );
@@ -242,6 +285,8 @@ export function WorkspaceAgentRun() {
               sub={
                 <>
                   <Badge variant={statusTone(data.status)}>{statusLabel(data.status)}</Badge>
+                  <Badge variant="neutral">{phaseLabel(data.phase)}</Badge>
+                  <JiraLink run={data} />
                   <Link to="/w/$slug/agent-runs" params={{ slug }} className="hover:underline">
                     All agent runs
                   </Link>
@@ -254,6 +299,7 @@ export function WorkspaceAgentRun() {
             <RunRepositories run={data} />
             <RunPullRequests run={data} />
             <Assumptions run={data} />
+            <RunTasks wsId={workspace.id} run={data} />
             <Timeline wsId={workspace.id} run={data} />
           </>
         )}

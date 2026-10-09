@@ -170,6 +170,8 @@ export interface AgentRunJiraOutcome {
 }
 
 export interface AgentRunDetail extends AgentRun {
+  /** The issue on the Jira connector's site; null when the connector has no site URL. */
+  issueUrl: string | null;
   latestSpec: AgentRunSpec | null;
   repositories: RunRepository[];
   result?: AgentRunResult | null;
