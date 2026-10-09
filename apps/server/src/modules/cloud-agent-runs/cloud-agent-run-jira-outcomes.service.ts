@@ -32,6 +32,10 @@ const MAX_ATTEMPTS = 5;
 
 type CommentKind = 'done' | 'failure';
 
+/** Why a comment is skipped when the run marker check cannot see every comment. */
+const MARKER_UNKNOWN =
+  'The issue has too many comments for Coredoc to check whether it already posted this one, so it posted none.';
+
 /** The workspace's Jira connector cannot be used: a permanent failure for the comment. */
 class ConnectorUnavailable extends Error {}
 
@@ -168,6 +172,10 @@ export class CloudAgentRunJiraOutcomes {
         commentId = await this.postOnce(target.client, run, runMarker(run.id, 'done'), (marker) =>
           doneComment({ pullRequests: this.commentPulls(run), runUrl, marker }),
         );
+        if (!commentId) {
+          await this.finishDone(run, { state: 'skipped', reason: MARKER_UNKNOWN }, await this.transition(target, run));
+          return;
+        }
         // Kept before the transition: a crash between the two never posts again.
         await this.patch(run, 'done', { commentId });
       }
@@ -197,6 +205,10 @@ export class CloudAgentRunJiraOutcomes {
       const commentId = await this.postOnce(target.client, run, runMarker(run.id, 'failure'), (marker) =>
         failureComment({ message, pullRequests: this.commentPulls(run), runUrl, marker }),
       );
+      if (!commentId) {
+        await this.settle(run, 'failure', { state: 'skipped', reason: MARKER_UNKNOWN }, [warning(MARKER_UNKNOWN)]);
+        return;
+      }
       await this.settle(run, 'failure', { state: 'posted', commentId }, [
         commented('Posted the failure comment on Jira'),
       ]);
@@ -229,18 +241,21 @@ export class CloudAgentRunJiraOutcomes {
   /**
    * Posts the comment unless one with the marker is already there (a crash
    * after Jira accepted it), and returns its id. A retry looks again first.
+   * Null when the listing stopped at its cap without the marker: posting
+   * could duplicate a comment, so nothing is posted.
    */
   private postOnce(
     client: JiraClient,
     run: CloudAgentRun,
     marker: string,
     build: (marker: string) => unknown,
-  ): Promise<string> {
+  ): Promise<string | null> {
     return this.retry(async () => {
-      const existing = (await client.listComments(run.jiraIssueId)).find((comment) =>
-        commentHasMarker(comment.body, marker),
-      );
-      return existing ? existing.id : (await client.addComment(run.jiraIssueId, build(marker))).id;
+      const listed = await client.listComments(run.jiraIssueId);
+      const existing = listed.comments.find((comment) => commentHasMarker(comment.body, marker));
+      if (existing) return existing.id;
+      if (!listed.complete) return null;
+      return (await client.addComment(run.jiraIssueId, build(marker))).id;
     });
   }
 
@@ -282,6 +297,7 @@ export class CloudAgentRunJiraOutcomes {
       if (!locked || locked.status !== RunStatus.Delivering || current?.done?.state !== 'pending') return;
       const events: NewRunEvent[] = [];
       if (done.state === 'posted') events.push(commented('Posted the done comment on Jira'));
+      else if (done.reason === MARKER_UNKNOWN) events.push(warning(MARKER_UNKNOWN));
       else events.push(warning('The issue moved out of the configured projects, so Jira was left unchanged.'));
       if (transition.outcome === 'warning') events.push(warning(transition.reason ?? 'The Jira transition failed.'));
       else if (transition.outcome !== 'transitioned' && done.state === 'posted') {

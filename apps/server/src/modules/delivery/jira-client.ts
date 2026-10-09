@@ -216,12 +216,14 @@ export class JiraClient {
     return { id: res.id };
   }
 
-  /** Every comment on an issue, oldest first. */
-  async listComments(issueIdOrKey: string): Promise<JiraComment[]> {
+  /**
+   * An issue's comments, oldest first, up to `maxPages` pages. `complete` is
+   * false when the cap stopped the listing before the last comment.
+   */
+  async listComments(issueIdOrKey: string, maxPages = 20): Promise<{ comments: JiraComment[]; complete: boolean }> {
     const out: JiraComment[] = [];
     let startAt = 0;
-    // Every page: the run-marker check must not miss a comment Coredoc already posted.
-    for (;;) {
+    for (let page = 0; page < maxPages; page++) {
       const query = new URLSearchParams({
         startAt: String(startAt),
         maxResults: String(PAGE_SIZE),
@@ -236,9 +238,11 @@ export class JiraClient {
       }
       startAt += comments.length;
       const total = nonNegativeInteger(res.total);
-      if (comments.length === 0 || (total === null ? comments.length < PAGE_SIZE : startAt >= total)) break;
+      if (comments.length === 0 || (total === null ? comments.length < PAGE_SIZE : startAt >= total)) {
+        return { comments: out, complete: true };
+      }
     }
-    return out;
+    return { comments: out, complete: false };
   }
 
   async listTransitions(issueIdOrKey: string): Promise<JiraTransition[]> {

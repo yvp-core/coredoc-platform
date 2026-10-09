@@ -4,7 +4,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request, { type Response } from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   type DeliveryReport,
   type ProposeScopeRequest,
@@ -556,6 +556,60 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
     });
     // The agent's reason stays on the run page.
     expect(JSON.stringify(comments[0]!.body)).not.toContain('GitHub refused.');
+  });
+
+  describe('a discussion longer than the comment listing reaches', () => {
+    const personComment = (id: number) => ({ id: String(id), body: paragraphDoc(`A person, ${id}`) });
+
+    afterEach(() => {
+      jira.listedComments = null;
+    });
+
+    it('a run marker within the listing is still found: no second comment', async () => {
+      const { runId, issue, turn } = await delivering();
+      await complete(turn, { outcome: { kind: 'failed', code: 'delivery_failed', reason: 'x' } }).expect(200);
+      jira.crashAfterNextComment = true;
+      await sweep.tick();
+      const [posted] = jira.commentsOn(issue.key);
+      jira.comments.set(issue.id, [posted!, personComment(1), personComment(2)]);
+      jira.listedComments = 2;
+
+      later(5);
+      await sweep.tick();
+      expect(jira.commentsOn(issue.key)).toHaveLength(3);
+      expect(await detail(runId)).toMatchObject({
+        jiraOutcome: { failure: { state: 'posted', commentId: posted!.id } },
+      });
+    });
+
+    it('a failure comment is skipped with a warning when the listing stops before the end without the marker', async () => {
+      const { runId, issue, turn } = await delivering();
+      await complete(turn, { outcome: { kind: 'failed', code: 'delivery_failed', reason: 'x' } }).expect(200);
+      jira.comments.set(issue.id, [personComment(1), personComment(2), personComment(3)]);
+      jira.listedComments = 2;
+
+      await sweep.tick();
+      expect(jira.commentsOn(issue.key)).toHaveLength(3);
+      expect(await detail(runId)).toMatchObject({ jiraOutcome: { failure: { state: 'skipped' } } });
+      const warnings = (await events(runId)).filter((event) => event.payload.code === 'warning');
+      expect(warnings.map((event) => event.payload.text)).toEqual([expect.stringMatching(/too many comments/)]);
+    });
+
+    it('a done comment is skipped with a warning, and the run still ends done', async () => {
+      const { runId, issue, branch, turn } = await delivering();
+      await complete(turn, { deliveries: openPulls(branch) }).expect(200);
+      jira.comments.set(issue.id, [personComment(1), personComment(2), personComment(3)]);
+      jira.listedComments = 2;
+
+      await sweep.tick();
+      expect(jira.commentsOn(issue.key)).toHaveLength(3);
+      expect(await detail(runId)).toMatchObject({
+        status: 'done',
+        jiraOutcome: { done: { state: 'skipped' }, transition: { outcome: 'transitioned' } },
+      });
+      const warnings = (await events(runId)).filter((event) => event.payload.code === 'warning');
+      expect(warnings.map((event) => event.payload.text)).toEqual([expect.stringMatching(/too many comments/)]);
+    });
   });
 
   it('a permanent Jira error, or five failed attempts, records the failure comment as not posted', async () => {

@@ -508,14 +508,15 @@ describe('JiraClient writes for agent runs', () => {
       .mockResolvedValueOnce(jsonResponse({ startAt: 2, total: 3, comments: [{ id: '3' }] }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const comments = await makeClient().listComments('10001');
-    expect(comments.map((comment) => comment.id)).toEqual(['1', '2', '3']);
+    const listed = await makeClient().listComments('10001');
+    expect(listed).toMatchObject({ complete: true });
+    expect(listed.comments.map((comment) => comment.id)).toEqual(['1', '2', '3']);
     expect(fetchMock.mock.calls[1][0]).toBe(
       'https://acme.atlassian.net/rest/api/3/issue/10001/comment?startAt=2&maxResults=100&orderBy=created',
     );
   });
 
-  it('lists every comment of a long discussion, however many pages it takes', async () => {
+  it('stops a long discussion at the page cap and says the listing is incomplete', async () => {
     const total = 2_150;
     vi.stubGlobal(
       'fetch',
@@ -528,9 +529,10 @@ describe('JiraClient writes for agent runs', () => {
       }),
     );
 
-    const comments = await makeClient().listComments('10001');
-    expect(comments).toHaveLength(total);
-    expect(comments.at(-1)?.id).toBe('2149');
+    const listed = await makeClient().listComments('10001');
+    expect(listed.complete).toBe(false);
+    expect(listed.comments).toHaveLength(2_000);
+    expect(listed.comments.at(-1)?.id).toBe('1999');
   });
 
   it('lists transitions with their target status and screen flag', async () => {

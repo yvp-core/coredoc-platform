@@ -51,6 +51,8 @@ export class FakeJira {
   transitionError: Error | null = null;
   /** Every comment fails with this, without being stored, until it is cleared. */
   commentError: Error | null = null;
+  /** How many comments a listing reaches before its page cap; null lists them all. */
+  listedComments: number | null = null;
   /** The next comment is stored, then the call throws: Jira accepted it and the caller crashed. */
   crashAfterNextComment = false;
   private commentSeq = 0;
@@ -129,7 +131,9 @@ export class FakeJira {
       listComments: async (idOrKey: string) => {
         const issue = this.find(idOrKey);
         if (!issue) throw new JiraNotFoundError(`Jira API 404 for /issue/${idOrKey}/comment`);
-        return [...(this.comments.get(issue.id) ?? [])];
+        const all = this.comments.get(issue.id) ?? [];
+        const cap = this.listedComments ?? all.length;
+        return { comments: all.slice(0, cap), complete: all.length <= cap };
       },
       listTransitions: async () => [...this.transitions],
       transitionIssue: async (idOrKey: string, transitionId: string) => {
