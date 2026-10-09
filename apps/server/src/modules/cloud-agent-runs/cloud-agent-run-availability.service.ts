@@ -4,7 +4,7 @@ import { isEncryptionAvailable } from '../../database/encryption.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { AgentRunSettings } from '../../generated/prisma/client.js';
 import { LicenseService } from '../license/license.service.js';
-import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira.service.js';
+import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js';
 
 export interface AvailabilityReason {
   code: string;

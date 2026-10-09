@@ -14,7 +14,7 @@ import {
   type RunJiraOutcome,
   recordedPullRequests,
 } from './cloud-agent-run-delivery.service.js';
-import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira.service.js';
+import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js';
 import { FAILURE_MESSAGES, type FailureCode } from './failure-codes.js';
 import { type CommentPullRequest, commentHasMarker, doneComment, failureComment, runMarker } from './jira-comments.js';
 import { CLOUD_AGENT_RUNS_RETRY_DELAY, defaultRetryDelay, type RetryDelay, withRetries } from './retry.js';

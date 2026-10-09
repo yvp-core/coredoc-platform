@@ -6,7 +6,7 @@ import {
   JiraRateLimitError,
   normalizeJiraBaseUrl,
 } from '../delivery/jira-client.js';
-import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira.service.js';
+import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js';
 import { buildPrdDocument, type PrdIssue } from './prd-document.js';
 import { RunFailureCode } from './run-states.js';
 

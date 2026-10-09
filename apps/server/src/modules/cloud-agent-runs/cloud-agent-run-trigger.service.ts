@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
-import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira.service.js';
+import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js';
 import { CloudAgentRunSettingsService } from './cloud-agent-run-settings.service.js';
 import { CloudAgentRunService, type TriggeredIssue } from './cloud-agent-run.service.js';
 

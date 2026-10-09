@@ -11,7 +11,7 @@ import { CloudAgentRunScopeService } from './cloud-agent-run-scope.service.js';
 import { LicenseCoreModule } from '../license/license.module.js';
 import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
 import { CloudAgentRunIssueResolver } from './cloud-agent-run-issue.resolver.js';
-import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira.service.js';
+import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js';
 import { CloudAgentRunQuestionService } from './cloud-agent-run-questions.service.js';
 import { CloudAgentRunRepositoryRequestService } from './cloud-agent-run-repository-requests.service.js';
 import { CloudAgentRunSettingsService } from './cloud-agent-run-settings.service.js';
