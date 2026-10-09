@@ -9,7 +9,6 @@ import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { HookCallback, Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import {
-  type AssignedRepository,
   MAX_STATE_ARCHIVE_BYTES,
   type TurnAssignment,
   type TurnOutcome,
@@ -17,11 +16,11 @@ import {
 import { Git, gitEnvironment } from '../git/git.js';
 import { SecretScanner } from '../git/secret-scan.js';
 import { type Clone, TurnGit } from '../git/turn-git.js';
-import { GithubApi } from '../github/github-api.js';
+import { type BotGithubOptions, checkBotPermissions, requireBot } from '../github/bot-github.js';
 import type { RunnerApiClient } from '../runner-api.js';
 import type { TurnExecutor, TurnIO, TurnResult } from '../runner.js';
-import { defaultRetryDelay, type RetryDelay, TurnFailure } from '../turn-failure.js';
-import { deliver } from '../delivery/deliver.js';
+import { DeliveryExecutor } from '../delivery/delivery-executor.js';
+import { failedOutcome as failed, reportingFailures, TurnFailure } from '../turn-failure.js';
 import { implementPrompt, runPreamble, scopePrompt } from './prompts.js';
 import { QuestionBridge } from './question-bridge.js';
 import { RUN_CONTROL_SERVER, type RunControlState, runControlServer } from './run-control.js';
@@ -48,14 +47,7 @@ const WIND_DOWN_GRACE_MS = 60_000;
 const DURATION_REACHED =
   'This turn reached its duration limit. Stop now and end your turn without calling more tools: the runner pushes your work and the run continues in a new turn.';
 
-/** The bot account the runner works as on GitHub: its token and the commit identity. */
-export interface BotAccount {
-  token: string;
-  name: string;
-  email: string;
-}
-
-export interface ClaudeExecutorOptions {
+export interface ClaudeExecutorOptions extends BotGithubOptions {
   query: QueryFn;
   /** Resolves the assignment's MCP path against the Coredoc API base. */
   api: Pick<RunnerApiClient, 'resolve'>;
@@ -67,10 +59,6 @@ export interface ClaudeExecutorOptions {
   modelBaseUrl?: string;
   hostEnv: NodeJS.ProcessEnv;
   maxArchiveBytes?: number;
-  /** The bot's GitHub token and commit identity; needed by turns that touch repositories. */
-  bot?: BotAccount;
-  githubFetch?: typeof fetch;
-  retryDelay?: RetryDelay;
   windDownGraceMs?: number;
   log?: (message: string) => void;
 }
@@ -95,61 +83,31 @@ const TOOL_DEFERRED = 'tool_deferred';
 
 export class ClaudeExecutor implements TurnExecutor {
   private readonly log: (message: string) => void;
+  private readonly delivery: DeliveryExecutor;
 
   constructor(private readonly options: ClaudeExecutorOptions) {
     this.log = options.log ?? (() => undefined);
+    this.delivery = new DeliveryExecutor(options);
   }
 
   async run(turn: TurnAssignment, io: TurnIO): Promise<TurnResult> {
-    if (turn.turn.kind === 'delivery') return this.deliveryTurn(turn, io);
+    if (turn.turn.kind === 'delivery') return this.delivery.run(turn, io);
     // Fail closed: a session never starts without a spend budget and a duration limit to bound it.
     const unbounded = missingLimit(turn);
     if (unbounded) return { spend: null, outcome: unbounded };
     const paths = turnPaths(this.options.scratchRoot, turn.run.id, turn.turn.id);
     try {
-      // Before any session, in every turn: the bot must be neither admin nor maintainer where the run may work.
-      await this.checkBotPermissions(turn.repositories);
-      await createTurnDirectories(paths);
-      if (turn.hasStateArchive) await extractStateArchive(await io.downloadArchive(), paths.state);
-      if (turn.turn.kind === 'implement') return await this.implementTurn(turn, io, paths);
-      return await this.scopeTurn(turn, io, paths);
-    } catch (error) {
-      if (error instanceof TurnFailure) return { spend: null, outcome: failed(error) };
-      throw error;
+      return await reportingFailures(async () => {
+        // Before any session, in every turn: the bot must be neither admin nor maintainer where the run may work.
+        await checkBotPermissions(this.options, turn.repositories);
+        await createTurnDirectories(paths);
+        if (turn.hasStateArchive) await extractStateArchive(await io.downloadArchive(), paths.state);
+        if (turn.turn.kind === 'implement') return this.implementTurn(turn, io, paths);
+        return this.scopeTurn(turn, io, paths);
+      });
     } finally {
       await wipeScratch(this.options.scratchRoot);
     }
-  }
-
-  /** No agent session and no scratch: the bot check, then draft pull requests. */
-  private async deliveryTurn(turn: TurnAssignment, io: TurnIO): Promise<TurnResult> {
-    try {
-      await this.checkBotPermissions(turn.repositories);
-      const github = new GithubApi({
-        token: this.requireBot().token,
-        fetchImpl: this.options.githubFetch,
-        retryDelay: this.options.retryDelay,
-      });
-      return await deliver(turn, io, github, this.options.retryDelay ?? defaultRetryDelay);
-    } catch (error) {
-      if (error instanceof TurnFailure) return { spend: null, outcome: failed(error) };
-      throw error;
-    }
-  }
-
-  private requireBot(): BotAccount {
-    if (!this.options.bot) throw new TurnFailure('github_error', 'The runner has no GitHub bot token configured.');
-    return this.options.bot;
-  }
-
-  private async checkBotPermissions(repositories: AssignedRepository[]): Promise<void> {
-    if (repositories.length === 0) return;
-    const github = new GithubApi({
-      token: this.requireBot().token,
-      fetchImpl: this.options.githubFetch,
-      retryDelay: this.options.retryDelay,
-    });
-    for (const repository of repositories) await github.checkBotPermissions(repository);
   }
 
   /**
@@ -158,7 +116,7 @@ export class ClaudeExecutor implements TurnExecutor {
    * turn with the findings; a second block fails the run and pushes nothing.
    */
   private async implementTurn(turn: TurnAssignment, io: TurnIO, paths: TurnPaths): Promise<TurnResult> {
-    const bot = this.requireBot();
+    const bot = requireBot(this.options);
     const git = new Git(gitEnvironment({ hostEnv: this.options.hostEnv, home: paths.home, author: bot }), bot.token);
     const turnGit = new TurnGit({
       git,
@@ -190,7 +148,7 @@ export class ClaudeExecutor implements TurnExecutor {
       const cloned = clones.find((clone) => clone.repository.key === repository.key);
       if (cloned) return cloned.dir;
       try {
-        await this.checkBotPermissions([repository]);
+        await checkBotPermissions(this.options, [repository]);
         const [clone] = await turnGit.prepare([repository], paths.work);
         clones.push(clone!);
         return clone!.dir;
@@ -583,10 +541,6 @@ function spendOf(result: SessionOutcome['result'], turn: TurnAssignment): TurnRe
     costUsd: Math.max(0, Math.round((result.total_cost_usd - turn.run.priorSessionSpendUsd) * 1e6) / 1e6),
     sdkTurns: result.num_turns,
   };
-}
-
-function failed(error: TurnFailure): TurnOutcome {
-  return { kind: 'failed', code: error.code, reason: error.message };
 }
 
 function promptClone(clone: Clone) {

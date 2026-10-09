@@ -1,4 +1,5 @@
-import type { RunnerFailureCode } from '@coredoc/core/agent-runner';
+import type { RunnerFailureCode, TurnOutcome } from '@coredoc/core/agent-runner';
+import type { TurnResult } from './runner.js';
 
 /** A failure the runner detects during a turn; it fails the run with this code through `complete`. */
 export class TurnFailure extends Error {
@@ -8,6 +9,20 @@ export class TurnFailure extends Error {
   ) {
     super(reason.slice(0, 2_000));
     this.name = 'TurnFailure';
+  }
+}
+
+export function failedOutcome(error: TurnFailure): TurnOutcome {
+  return { kind: 'failed', code: error.code, reason: error.message };
+}
+
+/** Runs a turn's work; a TurnFailure becomes the turn's failed outcome instead of an error. */
+export async function reportingFailures(work: () => Promise<TurnResult>): Promise<TurnResult> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof TurnFailure) return { spend: null, outcome: failedOutcome(error) };
+    throw error;
   }
 }
 
