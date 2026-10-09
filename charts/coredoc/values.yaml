@@ -211,3 +211,109 @@ telemetry:
   # COREDOC_POSTHOG_KEY — leave empty (default) for an on-prem privacy
   # posture; telemetry is off when unset.
   posthogKey: ""
+
+# Optional agent runner for cloud agent runs: a separate Deployment that claims
+# turns from the Coredoc API and runs Claude Code against your repositories.
+# It holds only its own credentials (model key, bot token, runner token) and
+# receives none of the server's secrets or environment. One runner Deployment
+# serves one workspace; install it again (another release) for another.
+agentRunner:
+  enabled: false
+  image:
+    # Usually your derived image with your repositories' toolchains (see
+    # apps/agent-runner/derived-image.example.Dockerfile), rebuilt from each
+    # runner release. Not tied to the server image.
+    repository: ghcr.io/yvp-core/coredoc-agent-runner
+    # Defaults to the chart appVersion when empty.
+    tag: ""
+    # Immutable digest; wins over tag when set.
+    digest: ""
+    pullPolicy: IfNotPresent
+  # One turn per runner process; scale concurrency with replicas. Each replica
+  # needs its own scratch volume (see scratch.sizeLimit).
+  replicas: 1
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+  # REQUIRED when enabled. Name of a pre-created Secret loaded via envFrom
+  # (every key becomes a variable). Expected keys:
+  #   ANTHROPIC_API_KEY     a dedicated key with a provider-side spend limit
+  #   COREDOC_GITHUB_TOKEN  the bot account's token
+  #   COREDOC_RUNNER_TOKEN  the workspace's runner token (cdt_…)
+  # plus any credential variables named by packageRegistries ("env:NAME").
+  existingSecret: ""
+  # REQUIRED when enabled. The workspace this runner serves.
+  workspaceId: ""
+  # Coredoc API base URL; defaults to the in-cluster server Service.
+  apiUrl: ""
+  # The GitHub REST API the bot is checked against: empty for github.com, or
+  # https://<host>/api/v3 for GitHub Enterprise Server.
+  githubApiUrl: ""
+  # Commit identity: the bot account's name and no-reply address.
+  gitAuthor:
+    name: ""
+    # REQUIRED when enabled.
+    email: ""
+  # Optional model gateway (ANTHROPIC_BASE_URL); empty uses the Anthropic API.
+  modelBaseUrl: ""
+  # Package registries for dependency installs, written into each turn's
+  # user-level .npmrc (repository registry files are never decrypted). Keys are
+  # package scopes or "default"; credential is "github" (the bot token, which
+  # GitHub Packages accepts when it is a classic token with read:packages),
+  # "env:NAME" (a key of existingSecret), or omitted. Example:
+  #   "@acme":  { url: https://npm.pkg.github.com, credential: github }
+  #   default:  { url: https://npm-mirror.internal.example/ }
+  packageRegistries: {}
+  # Outbound proxy for Claude Code, git and package managers.
+  proxy:
+    httpsProxy: ""
+    httpProxy: ""
+    noProxy: ""
+  # Extra CA bundle (PEM) from a ConfigMap, for a TLS-inspecting proxy or an
+  # internal registry. Node, Claude Code and package managers add it to their
+  # defaults; git uses it INSTEAD of the system bundle, so include the public
+  # roots too unless all traffic goes through the inspecting proxy.
+  caBundle:
+    configMap: ""
+    key: ca.crt
+  # The only writable volume: clones, dependencies, package caches and the
+  # session state of one turn, wiped after every turn. Size it for the
+  # largest set of repositories a run touches (up to five) with installed
+  # dependencies and the package manager's cache. Five typical Node services
+  # measured about 6 GiB in all; five large web apps about 12 GiB.
+  scratch:
+    sizeLimit: 16Gi
+    # "" (node disk) or "Memory" (tmpfs, counted against the memory limit).
+    medium: ""
+  # Covers stopping a session on SIGTERM, including its session-end hook
+  # (up to 2 minutes). A rollout still discards in-flight turns, which rerun.
+  terminationGracePeriodSeconds: 180
+  # The image and the plugin's bundled runtime are linux/amd64 only.
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  tolerations: []
+  affinity: {}
+  # Escape hatch: extra plain env vars on the runner container (NAME: value).
+  env: {}
+  # Optional NetworkPolicy: denies all ingress and limits egress to DNS, the
+  # in-cluster Coredoc server and the rules listed here. NetworkPolicy matches
+  # IP blocks, not host names, so list the CIDRs of the Anthropic API (or your
+  # gateway), GitHub (or your GitHub Enterprise Server), your package
+  # registries — or, simpler, only your egress proxy. Requires a CNI that
+  # enforces NetworkPolicy.
+  networkPolicy:
+    enabled: false
+    # NetworkPolicyEgressRule entries, rendered verbatim. Example:
+    #   - to: [{ ipBlock: { cidr: 10.0.0.10/32 } }]
+    #     ports: [{ protocol: TCP, port: 3128 }]
+    egress: []
+    # Namespace and pod labels of the cluster DNS service.
+    dns:
+      namespaceSelector:
+        kubernetes.io/metadata.name: kube-system
+      podSelector:
+        k8s-app: kube-dns
