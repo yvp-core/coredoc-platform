@@ -6,7 +6,7 @@ import type { CloudAgentRun, Prisma } from '../../generated/prisma/client.js';
 import { GithubApiError, GithubClient, GithubRateLimitError } from '../../libs/github/github-client.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
 import { GITHUB_CLIENT_FACTORY, type GithubClientFactory } from '../delivery/github-importer.service.js';
-import { strictPullSchema } from '../intent/intent-handoff-github.service.js';
+import { strictPullWithHeadSchema } from '../../libs/github/github-pull.js';
 import { CloudAgentRunImplementService, type RunResult, runRepositories } from './cloud-agent-run-implement.service.js';
 import type { RunAssumption } from './cloud-agent-run-scope.service.js';
 import { assemblePullRequest } from './pull-request-body.js';
@@ -218,7 +218,7 @@ export class CloudAgentRunDeliveryService {
   ): Promise<RecordedPullRequest> {
     const { owner, name, gitOrigin, client } = await this.repository(run, key);
     const raw = await withRetries(() => client.getPullMetadata(owner, name, number), transientGithub, this.retryDelay);
-    const parsed = strictPullSchema.safeParse(raw);
+    const parsed = strictPullWithHeadSchema.safeParse(raw);
     const fullName = `${owner}/${name}`.toLowerCase();
     const pull = parsed.success ? parsed.data : null;
     if (

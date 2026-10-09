@@ -2,28 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { decrypt } from '../../database/encryption.js';
 import { GithubClient } from '../../libs/github/github-client.js';
+import { strictPullSchema } from '../../libs/github/github-pull.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
-import { HandoffSha } from './intent-handoff.operations.js';
 
-/**
- * The strict pull read's schema. Agent-run delivery verifies pull requests
- * with it too, so it carries the head's repository (null when a fork was
- * deleted) and branch; the handoff reads neither.
- */
-export const strictPullSchema = z.object({
-  number: z.number().int().positive(),
-  state: z.enum(['open', 'closed']),
-  merged: z.boolean(),
-  draft: z.boolean(),
-  head: z.object({
-    sha: HandoffSha,
-    ref: z.string().min(1),
-    repo: z.object({ full_name: z.string() }).nullable(),
-  }),
-  base: z.object({ ref: z.string().min(1), repo: z.object({ full_name: z.string(), default_branch: z.string() }) }),
-  merge_commit_sha: HandoffSha.nullable(),
-  merged_at: z.iso.datetime({ offset: true }).nullable(),
-});
 export type HandoffPull = z.infer<typeof strictPullSchema>;
 
 @Injectable()
