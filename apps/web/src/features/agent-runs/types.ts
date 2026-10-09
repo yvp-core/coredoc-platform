@@ -215,7 +215,7 @@ export interface AgentRunEventPage {
   lastSeq: number;
 }
 
-export type RunnerRefusal = 'creator_not_admin' | 'runner_incompatible';
+export type RunnerRefusal = 'creator_not_admin' | 'runner_incompatible' | 'startup_check_failed';
 
 export interface RunnerTokenStatus {
   id: string;
@@ -225,7 +225,7 @@ export interface RunnerTokenStatus {
   createdByEmail: string | null;
   createdAt: string;
   lastSeenAt: string | null;
-  lastAction: 'claim' | 'heartbeat' | null;
+  lastAction: 'claim' | 'heartbeat' | 'startup_check' | null;
   protocolVersion: number | null;
   versions: { runner?: string; sdk?: string; claudeCode?: string; plugin?: string } | null;
   refusal: RunnerRefusal | null;

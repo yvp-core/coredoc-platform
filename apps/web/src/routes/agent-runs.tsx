@@ -19,7 +19,7 @@ import { Card, CardBody, CardHead } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  RUNNER_REFUSALS,
+  runnerRefusalText,
   statusLabel,
   statusTone,
   waitingForRunnerSince,
@@ -122,7 +122,12 @@ function RunnerStatus({ wsId }: { wsId: string }) {
         <li key={token.id}>
           <span className="text-ink-2">{token.name}</span>:{' '}
           {token.refusal ? (
-            <span className="text-danger-text">{RUNNER_REFUSALS[token.refusal] ?? token.refusal}</span>
+            <span className="text-danger-text">
+              {runnerRefusalText(token)}
+              {token.refusal === 'startup_check_failed' &&
+                token.lastSeenAt &&
+                ` (reported ${formatRelativeTime(token.lastSeenAt)})`}
+            </span>
           ) : token.lastSeenAt ? (
             `last ${token.lastAction ?? 'seen'} ${formatRelativeTime(token.lastSeenAt)}`
           ) : (

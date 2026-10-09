@@ -195,4 +195,6 @@ export const RunnerRefusal = {
   CreatorNotAdmin: 'creator_not_admin',
   /** The runner's protocol version is not supported by this server. */
   RunnerIncompatible: 'runner_incompatible',
+  /** The runner's start-up check failed (the plugin does not load, the bot is an admin, …); it claims nothing. */
+  StartupCheckFailed: 'startup_check_failed',
 } as const;

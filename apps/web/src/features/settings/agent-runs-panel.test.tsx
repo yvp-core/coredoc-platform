@@ -133,6 +133,14 @@ describe('AgentRunsPanel', () => {
           versions: { runner: '1.1.0', sdk: '0.3.285' },
         }),
         runnerToken({ id: 'tok2', name: 'runner-old', refusal: 'creator_not_admin' }),
+        runnerToken({
+          id: 'tok3',
+          name: 'runner-misconfigured',
+          lastSeenAt: new Date().toISOString(),
+          lastAction: 'startup_check',
+          refusal: 'startup_check_failed',
+          refusalDetail: 'The coredoc-workflows plugin did not load',
+        }),
       ],
     };
     mount();
@@ -140,6 +148,9 @@ describe('AgentRunsPanel', () => {
     expect(await screen.findByText(/heartbeat just now/)).toBeInTheDocument();
     expect(screen.getByText(/runner 1\.1\.0 · sdk 0\.3\.285/)).toBeInTheDocument();
     expect(screen.getByText(/creator is no longer an admin/)).toBeInTheDocument();
+    expect(screen.getByText('runner-misconfigured').closest('tr')!.textContent).toMatch(
+      /Start-up check failed: The coredoc-workflows plugin did not load.*just now/,
+    );
   });
 
   it('lists what keeps runs from starting, why the trigger is idle, and each repository’s eligibility', async () => {

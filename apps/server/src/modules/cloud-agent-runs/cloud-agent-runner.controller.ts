@@ -28,6 +28,8 @@ import {
   type ReserveBranchRequest,
   ReserveBranchRequestSchema,
   RUNNER_LEASE_HEADER,
+  type RunnerStartupProblem,
+  RunnerStartupProblemSchema,
   type SubmitResult,
   SubmitResultRequestSchema,
   type ClaimRequest,
@@ -81,6 +83,19 @@ export class CloudAgentRunnerController {
     const assignment = await this.turns.claim(principal(request), body);
     if (!assignment) response.status(204);
     return assignment ?? undefined;
+  }
+
+  /** A runner whose start-up check fails says why instead of claiming; settings show it. */
+  @Post('startup-check')
+  @HttpCode(200)
+  @WorkspaceRole('admin')
+  @RequirePermission(TokenPermission.AgentRunnerRun)
+  async startupCheck(
+    @Req() request: RunnerRequest,
+    @Body(new ZodValidationPipe(RunnerStartupProblemSchema)) body: RunnerStartupProblem,
+  ) {
+    await this.turns.recordStartupProblem(principal(request), body);
+    return { recorded: true };
   }
 
   @Post('turns/:turnId/heartbeat')

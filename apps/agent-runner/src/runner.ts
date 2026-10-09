@@ -143,8 +143,20 @@ export class Runner {
     this.log(
       `versions: runner ${runner}, sdk ${sdk ?? '?'}, claude code ${claudeCode ?? '?'}, plugin ${plugin ?? '?'}`,
     );
-    if (report.problem) this.log(`start-up check failed; claiming nothing: ${report.problem}`);
-    return report.problem === null;
+    if (report.problem === null) return true;
+    this.log(`start-up check failed; claiming nothing: ${report.problem}`);
+    const problem = secretMasker(this.options.secrets ?? [])(report.problem);
+    try {
+      await this.options.api.reportStartupProblem({
+        protocolVersion: RUNNER_PROTOCOL_VERSION,
+        versions: this.versions,
+        problem: problem.slice(0, 2_000),
+      });
+    } catch (error) {
+      // Informational only: an older server without the route, or one that is down, must not stop the checks.
+      this.log(`could not report the start-up problem: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return false;
   }
 
   /** Poll and run turns until `signal` aborts (shutdown). */

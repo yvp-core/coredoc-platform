@@ -25,6 +25,8 @@ import {
   RunnerErrorBodySchema,
   RunnerErrorCode,
   type RunnerEvent,
+  type RunnerStartupProblem,
+  RunnerStartupProblemResponseSchema,
   type RunnerVersions,
   type SubmitResultRequest,
   type SubmitResultResponse,
@@ -87,6 +89,12 @@ export class RunnerApiClient {
     const response = await this.post('/claim', request);
     if (response.status === 204) return null;
     return TurnAssignmentSchema.parse(await this.json(response));
+  }
+
+  /** Why the runner claims nothing: its start-up check failed. Claims nothing itself. */
+  async reportStartupProblem(report: RunnerStartupProblem): Promise<void> {
+    const response = await this.post('/startup-check', report);
+    RunnerStartupProblemResponseSchema.parse(await this.json(response));
   }
 
   async heartbeat(turn: TurnRef, versions: RunnerVersions): Promise<HeartbeatResponse> {

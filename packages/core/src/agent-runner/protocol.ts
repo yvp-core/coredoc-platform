@@ -134,6 +134,23 @@ export const ClaimRequestSchema = z.object({
 });
 export type ClaimRequest = z.infer<typeof ClaimRequestSchema>;
 
+/**
+ * Sent instead of claiming while the runner's start-up check fails (the
+ * plugin does not load, the bot account is an admin, …), so settings can say
+ * why the runner claims nothing. It claims nothing itself; the next claim
+ * clears the reported problem. Added within protocol version 1: a server
+ * without the route answers 404, which the runner ignores.
+ */
+export const RunnerStartupProblemSchema = z.object({
+  protocolVersion: z.number().int().positive(),
+  versions: RunnerVersionsSchema,
+  problem: z.string().trim().min(1).max(2_000),
+});
+export type RunnerStartupProblem = z.infer<typeof RunnerStartupProblemSchema>;
+
+export const RunnerStartupProblemResponseSchema = z.object({ recorded: z.literal(true) });
+export type RunnerStartupProblemResponse = z.infer<typeof RunnerStartupProblemResponseSchema>;
+
 export const TurnAssignmentSchema = z.object({
   turn: z.object({
     id: z.uuid(),

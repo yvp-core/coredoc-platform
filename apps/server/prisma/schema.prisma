@@ -1889,11 +1889,11 @@ model AgentRunnerSeen {
   serviceTokenId  String   @id @map("service_token_id") @db.Uuid
   workspaceId     String   @map("workspace_id") @db.Uuid
   lastSeenAt      DateTime @map("last_seen_at") @db.Timestamptz
-  /// `claim` or `heartbeat`.
+  /// `claim`, `heartbeat` or `startup_check` (a failed start-up check; claims nothing).
   lastAction      String   @map("last_action") @db.VarChar(16)
   protocolVersion Int      @map("protocol_version")
   versions        Json     @db.JsonB
-  /// Set when the server refused the runner (e.g. an unsupported protocol version).
+  /// Set when the server refused the runner (an unsupported protocol version) or its start-up check failed.
   refusedReason   String?  @map("refused_reason") @db.VarChar(200)
 
   workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)

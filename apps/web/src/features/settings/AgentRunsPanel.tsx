@@ -21,7 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Segmented } from '@/components/ui/segmented';
 import { Switch } from '@/components/ui/switch';
-import { RUNNER_REFUSALS, runnerVersionsText } from '@/features/agent-runs/agent-run-presentation';
+import { runnerRefusalText, runnerVersionsText } from '@/features/agent-runs/agent-run-presentation';
 import type {
   AgentRunSettings,
   AvailabilityReason,
@@ -46,6 +46,7 @@ function RunnerTokenRow({
   onRevoke: (token: RunnerTokenStatus) => void;
 }) {
   const versions = runnerVersionsText(token.versions);
+  const refusal = runnerRefusalText(token);
   return (
     <Tr>
       <Td className="text-left">
@@ -53,8 +54,13 @@ function RunnerTokenRow({
         <div className="font-mono text-[12px] text-ink-4">{token.tokenPrefix ?? '—'}</div>
       </Td>
       <Td className="text-left">
-        {token.refusal ? (
-          <span className="text-danger-text">{RUNNER_REFUSALS[token.refusal] ?? token.refusal}</span>
+        {refusal ? (
+          <span className="text-danger-text">
+            {refusal}
+            {token.refusal === 'startup_check_failed' && token.lastSeenAt && (
+              <span className="block text-[12px] text-ink-4">reported {formatRelativeTime(token.lastSeenAt)}</span>
+            )}
+          </span>
         ) : token.lastSeenAt ? (
           <span>
             {token.lastAction} {formatRelativeTime(token.lastSeenAt)}

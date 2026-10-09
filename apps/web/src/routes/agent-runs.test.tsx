@@ -329,6 +329,14 @@ describe('agent runs routes', () => {
         refusal: null,
       },
       { id: 'rt2', name: 'spare-runner', lastSeenAt: null, lastAction: null, refusal: null },
+      {
+        id: 'rt3',
+        name: 'new-runner',
+        lastSeenAt: new Date(Date.now() - 60_000).toISOString(),
+        lastAction: 'startup_check',
+        refusal: 'startup_check_failed',
+        refusalDetail: 'The bot account can administer acme/orders',
+      },
     ];
     mount('/w/acme/agent-runs');
 
@@ -343,6 +351,11 @@ describe('agent runs routes', () => {
         .getByText(/spare-runner/)
         .closest('li')!.textContent,
     ).toMatch(/never connected/i);
+    expect(
+      within(runners)
+        .getByText(/new-runner/)
+        .closest('li')!.textContent,
+    ).toMatch(/Start-up check failed: The bot account can administer acme\/orders.*1 min/);
   });
 
   it('says when the run list shows only the newest runs', async () => {

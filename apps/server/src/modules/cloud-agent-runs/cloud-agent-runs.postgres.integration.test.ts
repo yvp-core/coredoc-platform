@@ -207,6 +207,11 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
       .send(body as object);
   }
 
+  async function settingsTokens(): Promise<Array<Record<string, unknown>>> {
+    const settings = await api().get(`${runsBase()}/settings`).set('Authorization', human(ADMIN)).expect(200);
+    return settings.body.runnerTokens;
+  }
+
   /** Claim until the runner gets nothing, so each scenario starts with an empty queue. */
   async function drainQueue(token: string): Promise<void> {
     for (;;) {
@@ -381,6 +386,42 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     expect(settings.body.runnerTokens).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'runner-old', refusal: 'runner_incompatible' })]),
     );
+  });
+
+  it('a runner whose start-up check fails says why, settings show it, and its next claim clears it', async () => {
+    await enable();
+    const token = await mintRunnerToken('runner-startup');
+    const tokenRow = () => settingsTokens().then((tokens) => tokens.find((row) => row.name === 'runner-startup'));
+    const problem = 'The bot account can administer acme/orders; give it the Write role only';
+
+    await api()
+      .post(`${runnerBase()}/startup-check`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ protocolVersion: RUNNER_PROTOCOL_VERSION, versions: VERSIONS, problem })
+      .expect(200, { recorded: true });
+    expect(await tokenRow()).toMatchObject({
+      lastSeenAt: now.toISOString(),
+      lastAction: 'startup_check',
+      versions: VERSIONS,
+      refusal: 'startup_check_failed',
+      refusalDetail: problem,
+    });
+
+    // It claims nothing; humans and unsupported protocol versions are refused like on claim.
+    await api()
+      .post(`${runnerBase()}/startup-check`)
+      .set('Authorization', human(ADMIN))
+      .send({ protocolVersion: RUNNER_PROTOCOL_VERSION, versions: VERSIONS, problem })
+      .expect(403);
+    const old = await api()
+      .post(`${runnerBase()}/startup-check`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ protocolVersion: 999, versions: VERSIONS, problem })
+      .expect(409);
+    expect(old.body.code).toBe('RUNNER_INCOMPATIBLE');
+
+    await drainQueue(token);
+    expect(await tokenRow()).toMatchObject({ lastAction: 'claim', refusal: null, refusalDetail: null });
   });
 
   it('the /me agent-runs flag is on while enabled, stays on for a workspace with runs, and is off otherwise', async () => {

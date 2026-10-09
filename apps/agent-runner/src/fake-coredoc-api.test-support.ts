@@ -17,6 +17,8 @@ import {
   ReserveBranchRequestSchema,
   type ReportQuestion,
   ReportQuestionRequestSchema,
+  type RunnerStartupProblem,
+  RunnerStartupProblemSchema,
   type RequestRepo,
   RequestRepoRequestSchema,
   type RequestRepoResponse,
@@ -74,6 +76,10 @@ export class FakeCoredocApi {
   uploads = 0;
   heartbeats = 0;
   claims: unknown[] = [];
+  /** Start-up problems the runner reported while it claimed nothing. */
+  readonly startupProblems: RunnerStartupProblem[] = [];
+  /** 200 records the report; another status stands in for an older server without the route. */
+  startupCheckAnswer = 200;
   /** What a heartbeat answers: keep going, stop (run became terminal) or a lost lease. */
   heartbeatAnswer: 'continue' | 'stop' | 'lease_lost' = 'continue';
   readonly questions: ReportQuestion[] = [];
@@ -124,6 +130,12 @@ export class FakeCoredocApi {
       if (!next) return reply(204);
       this.leases.set(next.turn.id, next.lease.token);
       return reply(200, next);
+    }
+
+    if (path === `${prefix}/startup-check`) {
+      if (this.startupCheckAnswer !== 200) return reply(this.startupCheckAnswer, { message: 'not found' });
+      this.startupProblems.push(RunnerStartupProblemSchema.parse(body));
+      return reply(200, { recorded: true });
     }
 
     const match = path.match(

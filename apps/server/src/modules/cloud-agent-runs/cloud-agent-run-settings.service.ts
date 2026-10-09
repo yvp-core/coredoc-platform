@@ -150,7 +150,9 @@ export class CloudAgentRunSettingsService {
           !creator || !ADMIN_ROLES.has(creator.role)
             ? RunnerRefusal.CreatorNotAdmin
             : seen?.refusedReason
-              ? RunnerRefusal.RunnerIncompatible
+              ? seen.lastAction === 'startup_check'
+                ? RunnerRefusal.StartupCheckFailed
+                : RunnerRefusal.RunnerIncompatible
               : null;
         return {
           id: token.id,

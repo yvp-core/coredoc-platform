@@ -150,6 +150,54 @@ describe('runner loop', () => {
     expect(api.completions[0]!.body.lastMessage).toBe('last message: [REDACTED] [REDACTED] [REDACTED] [REDACTED]');
   });
 
+  it('a failed start-up check is reported to the server, masked, and nothing is claimed', async () => {
+    const botToken = 'github_pat_bot_token_for_the_startup_test';
+    api.queue.push(assignment());
+    const shutdown = new AbortController();
+    const checking = new Runner({
+      api: new RunnerApiClient({ baseUrl: api.baseUrl, workspaceId: WORKSPACE, token: TOKEN }),
+      executor: blockingExecutor(),
+      versions: VERSIONS,
+      secrets: [botToken],
+      startupCheck: async () => ({
+        versions: { ...VERSIONS, sdk: '0.3.285' },
+        problem: `The bot account is an admin of acme/orders (token ${botToken})`,
+      }),
+      startupRetryMs: 5,
+    });
+    const started = checking.start(shutdown.signal);
+    await waitFor(() => api.startupProblems.length >= 2);
+    shutdown.abort();
+    await started;
+
+    expect(api.startupProblems[0]).toEqual({
+      protocolVersion: RUNNER_PROTOCOL_VERSION,
+      versions: { ...VERSIONS, sdk: '0.3.285' },
+      problem: 'The bot account is an admin of acme/orders (token [REDACTED])',
+    });
+    expect(api.claims).toEqual([]);
+  });
+
+  it('keeps checking when the server cannot take the start-up report, and claims once the check passes', async () => {
+    api.startupCheckAnswer = 404;
+    let checks = 0;
+    const shutdown = new AbortController();
+    const checking = new Runner({
+      api: new RunnerApiClient({ baseUrl: api.baseUrl, workspaceId: WORKSPACE, token: TOKEN }),
+      executor: blockingExecutor(),
+      versions: VERSIONS,
+      idlePollMs: 5,
+      startupCheck: async () => ({ versions: VERSIONS, problem: ++checks < 3 ? 'The plugin did not load' : null }),
+      startupRetryMs: 5,
+    });
+    const started = checking.start(shutdown.signal);
+    await waitFor(() => api.claims.length >= 1);
+    shutdown.abort();
+    await started;
+
+    expect(checks).toBe(3);
+  });
+
   it('a lost lease stops the turn without completing it', async () => {
     api.queue.push(assignment());
     api.heartbeatAnswer = 'lease_lost';

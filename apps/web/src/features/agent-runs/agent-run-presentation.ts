@@ -205,10 +205,19 @@ export function currentTasks(events: readonly AgentRunEvent[]): AgentTask[] {
   });
 }
 
-export const RUNNER_REFUSALS: Record<string, string> = {
+const RUNNER_REFUSALS: Record<string, string> = {
   creator_not_admin: 'Refused: its creator is no longer an admin of this workspace. Mint a new token.',
   runner_incompatible: 'Refused: this runner version is not supported. Upgrade the runner.',
 };
+
+/** Why a runner token is refused or claims nothing, with the runner's own reason for a failed start-up check. */
+export function runnerRefusalText(token: Pick<RunnerTokenStatus, 'refusal' | 'refusalDetail'>): string | null {
+  if (!token.refusal) return null;
+  if (token.refusal === 'startup_check_failed') {
+    return `Start-up check failed: ${token.refusalDetail ?? 'no reason reported'}`;
+  }
+  return RUNNER_REFUSALS[token.refusal] ?? token.refusal;
+}
 
 export function runnerVersionsText(versions: RunnerTokenStatus['versions']): string | null {
   if (!versions) return null;

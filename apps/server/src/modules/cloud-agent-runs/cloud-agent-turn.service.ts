@@ -15,6 +15,7 @@ import {
   type RequestRepo,
   type RequestRepoResponse,
   type ReserveBranchResponse,
+  type RunnerStartupProblem,
   type RunnerVersions,
   type SubmitResult,
   type SubmitResultResponse,
@@ -63,6 +64,10 @@ export const LEASE_MS = 2 * 60_000;
 const MCP_TOKEN_GRACE_MS = 15 * 60_000;
 /** Claim attempts per request when a claimed turn's run fails its run-level re-check. */
 const MAX_CLAIM_ATTEMPTS = 5;
+/** The width of `agent_runner_seen.refused_reason`. */
+const MAX_REFUSED_REASON = 200;
+/** What settings show as a runner token's last report; `agent_runner_seen.last_action` holds 16 characters. */
+type RunnerSeenAction = 'claim' | 'heartbeat' | 'startup_check';
 
 /** The calling runner: its token and the workspace that token belongs to. */
 export interface RunnerPrincipal {
@@ -141,11 +146,7 @@ export class CloudAgentTurnService {
    * queued turn is tried instead.
    */
   async claim(runner: RunnerPrincipal, request: ClaimRequest): Promise<TurnAssignment | null> {
-    if (!SUPPORTED_RUNNER_PROTOCOL_VERSIONS.includes(request.protocolVersion)) {
-      const reason = `Protocol version ${request.protocolVersion} is not supported; this server supports ${SUPPORTED_RUNNER_PROTOCOL_VERSIONS.join(', ')}`;
-      await this.recordSeen(runner, 'claim', request.protocolVersion, request.versions, reason);
-      throw cloudAgentRunError(CloudAgentRunErrorCode.RunnerIncompatible, reason);
-    }
+    await this.refuseIncompatible(runner, request);
 
     let assignment: TurnAssignment | null = null;
     for (let attempt = 0; attempt < MAX_CLAIM_ATTEMPTS && !assignment; attempt += 1) {
@@ -156,6 +157,29 @@ export class CloudAgentTurnService {
     }
     await this.recordSeen(runner, 'claim', request.protocolVersion, request.versions, null);
     return assignment;
+  }
+
+  /**
+   * A runner whose start-up check fails reports why instead of claiming;
+   * settings show the reason until its next claim clears it.
+   */
+  async recordStartupProblem(runner: RunnerPrincipal, report: RunnerStartupProblem): Promise<void> {
+    await this.refuseIncompatible(runner, report);
+    const reason =
+      report.problem.length > MAX_REFUSED_REASON
+        ? `${report.problem.slice(0, MAX_REFUSED_REASON - 1)}…`
+        : report.problem;
+    await this.recordSeen(runner, 'startup_check', report.protocolVersion, report.versions, reason);
+  }
+
+  private async refuseIncompatible(
+    runner: RunnerPrincipal,
+    request: { protocolVersion: number; versions: RunnerVersions },
+  ): Promise<void> {
+    if (SUPPORTED_RUNNER_PROTOCOL_VERSIONS.includes(request.protocolVersion)) return;
+    const reason = `Protocol version ${request.protocolVersion} is not supported; this server supports ${SUPPORTED_RUNNER_PROTOCOL_VERSIONS.join(', ')}`;
+    await this.recordSeen(runner, 'claim', request.protocolVersion, request.versions, reason);
+    throw cloudAgentRunError(CloudAgentRunErrorCode.RunnerIncompatible, reason);
   }
 
   /**
@@ -729,11 +753,11 @@ export class CloudAgentTurnService {
 
   /**
    * Settings show each runner token's last successful claim or heartbeat with
-   * its versions, or why it was refused.
+   * its versions, or why it was refused or claims nothing.
    */
   private async recordSeen(
     runner: RunnerPrincipal,
-    action: 'claim' | 'heartbeat',
+    action: RunnerSeenAction,
     protocolVersion: number | null,
     versions: RunnerVersions,
     refusedReason: string | null,
