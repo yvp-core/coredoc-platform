@@ -148,6 +148,7 @@ let timelineEvents: Array<{
 }> = EVENTS;
 let availability: { available: boolean; reasons: { code: string; message: string }[] };
 let runnerTokens: Record<string, unknown>[] = [];
+let listNextOffset: number | null = null;
 
 beforeEach(() => {
   agentRunsEnabled = true;
@@ -159,6 +160,7 @@ beforeEach(() => {
   answerReply = 'ok';
   availability = { available: true, reasons: [] };
   runnerTokens = [];
+  listNextOffset = null;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -204,7 +206,7 @@ beforeEach(() => {
       }
       if (path === '/api/v1/me') return new Response(JSON.stringify(me(agentRunsEnabled)));
       if (path === '/api/v1/workspaces/ws1/cloud-agent-runs')
-        return new Response(JSON.stringify({ runs: [run()], nextOffset: null }));
+        return new Response(JSON.stringify({ runs: [run()], nextOffset: listNextOffset }));
       if (path === '/api/v1/workspaces/ws1/cloud-agent-runs/settings')
         return new Response(JSON.stringify({ availability, runnerTokens }));
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}`) return new Response(JSON.stringify(detail));
@@ -212,8 +214,17 @@ beforeEach(() => {
         return new Response(JSON.stringify(run({ id: RERUN_ID, trigger: 'rerun', previousRunId: RUN_ID })));
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/specs`)
         return new Response(JSON.stringify({ versions: specs }));
-      if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/events`)
-        return new Response(JSON.stringify({ events: timelineEvents, lastSeq: timelineEvents.length }));
+      if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/events`) {
+        const params = new URL(url, 'http://local.test').searchParams;
+        const after = Number(params.get('after') ?? 0);
+        const limit = Number(params.get('limit') ?? 200);
+        const page = [...timelineEvents]
+          .sort((a, b) => a.seq - b.seq)
+          .filter((event) => event.seq > after)
+          .slice(0, limit);
+        const lastSeq = Math.max(0, ...timelineEvents.map((event) => event.seq));
+        return new Response(JSON.stringify({ events: page, lastSeq }));
+      }
       // Unrelated shell reads (repos, members) stay pending.
       return new Promise<Response>(() => undefined);
     }),
@@ -332,6 +343,27 @@ describe('agent runs routes', () => {
         .getByText(/spare-runner/)
         .closest('li')!.textContent,
     ).toMatch(/never connected/i);
+  });
+
+  it('says when the run list shows only the newest runs', async () => {
+    listNextOffset = 50;
+    mount('/w/acme/agent-runs');
+    expect(await screen.findByText(/Showing the 50 newest runs/)).toBeInTheDocument();
+  });
+
+  it('reads the whole timeline of a finished run, page after page', async () => {
+    detail = run({ status: 'done', currentTurn: null });
+    timelineEvents = Array.from({ length: 1_200 }, (_, index) => ({
+      seq: index + 1,
+      type: 'raw',
+      payload: { text: `line ${index + 1}` },
+      truncated: false,
+      createdAt: '2026-10-10T09:00:00.000Z',
+    }));
+    mount(`/w/acme/agent-runs/${RUN_ID}`);
+
+    const timeline = await screen.findByRole('list', { name: 'Timeline' });
+    expect(within(timeline).getByText('Agent activity (1200)')).toBeInTheDocument();
   });
 
   it('starts a run with seed repository keys', async () => {

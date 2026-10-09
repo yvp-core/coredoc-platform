@@ -16,10 +16,13 @@ import { request } from '../client.js';
 // The desktop telemetry ingest owns `/agent-runs`; cloud agent runs live under their own prefix.
 const base = (wsId: string) => `/api/v1/workspaces/${wsId}/cloud-agent-runs`;
 
+/** The list shows the newest runs only; the page says so when there are more. */
+export const AGENT_RUN_LIST_LIMIT = 50;
+
 export const agentRunsQueryOptions = (wsId: string) =>
   queryOptions({
     queryKey: ['ws', wsId, 'agent-runs', 'list'] as const,
-    queryFn: () => request<AgentRunList>(`${base(wsId)}?limit=50`),
+    queryFn: () => request<AgentRunList>(`${base(wsId)}?limit=${AGENT_RUN_LIST_LIMIT}`),
     // Runs move on their own (runners, sweeps), so the list refreshes while open.
     refetchInterval: 10_000,
   });
@@ -33,10 +36,13 @@ export const agentRunQueryOptions = (wsId: string, runId: string) =>
 
 const timelineKey = (wsId: string, runId: string) => ['ws', wsId, 'agent-runs', runId, 'timeline'] as const;
 
+const TIMELINE_PAGE = 500;
+
 /**
  * The timeline, appended forwards: each fetch asks only for events after the
- * last sequence already in the cache and merges them in. The caller passes the
- * run's status so polling stops once the run is terminal.
+ * last sequence already in the cache, page after page until it has caught up,
+ * and merges them in. The caller passes the run's status so polling stops once
+ * the run is terminal.
  */
 export const agentRunTimelineQueryOptions = (
   queryClient: QueryClient,
@@ -47,10 +53,15 @@ export const agentRunTimelineQueryOptions = (
   queryOptions({
     queryKey: timelineKey(wsId, runId),
     queryFn: async () => {
-      const existing = queryClient.getQueryData<AgentRunEvent[]>(timelineKey(wsId, runId)) ?? [];
-      const after = existing.at(-1)?.seq ?? 0;
-      const page = await request<AgentRunEventPage>(`${base(wsId)}/${runId}/events?after=${after}&limit=500`);
-      return mergeTimeline(existing, page.events);
+      let events = queryClient.getQueryData<AgentRunEvent[]>(timelineKey(wsId, runId)) ?? [];
+      for (;;) {
+        const after = events.at(-1)?.seq ?? 0;
+        const page = await request<AgentRunEventPage>(
+          `${base(wsId)}/${runId}/events?after=${after}&limit=${TIMELINE_PAGE}`,
+        );
+        events = mergeTimeline(events, page.events);
+        if (page.events.length < TIMELINE_PAGE || (events.at(-1)?.seq ?? 0) >= page.lastSeq) return events;
+      }
     },
     refetchInterval: pollInterval(status),
   });

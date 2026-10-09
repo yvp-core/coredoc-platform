@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 
@@ -219,6 +219,13 @@ function RunTasks({ wsId, run }: { wsId: string; run: AgentRun }) {
 function Timeline({ wsId, run }: { wsId: string; run: AgentRun }) {
   const queryClient = useQueryClient();
   const timeline = useQuery(agentRunTimelineQueryOptions(queryClient, wsId, run.id, run.status));
+  const { refetch } = timeline;
+  const shownStatus = useRef(run.status);
+  // Polling stops when the run ends; the events written as it ended are read once more.
+  useEffect(() => {
+    if (shownStatus.current !== run.status && isTerminalStatus(run.status)) void refetch();
+    shownStatus.current = run.status;
+  }, [run.status, refetch]);
   return (
     <Card>
       <CardHead title="Timeline" sub="Updates every few seconds while the run is active" />

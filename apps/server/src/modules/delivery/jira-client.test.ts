@@ -515,6 +515,24 @@ describe('JiraClient writes for agent runs', () => {
     );
   });
 
+  it('lists every comment of a long discussion, however many pages it takes', async () => {
+    const total = 2_150;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const startAt = Number(new URL(url).searchParams.get('startAt'));
+        const ids = Array.from({ length: Math.min(100, total - startAt) }, (_, index) => ({
+          id: String(startAt + index),
+        }));
+        return jsonResponse({ startAt, total, comments: ids });
+      }),
+    );
+
+    const comments = await makeClient().listComments('10001');
+    expect(comments).toHaveLength(total);
+    expect(comments.at(-1)?.id).toBe('2149');
+  });
+
   it('lists transitions with their target status and screen flag', async () => {
     const transitions = [{ id: '31', name: 'Done', hasScreen: false, to: { id: '10002', name: 'Done' } }];
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse({ transitions })));

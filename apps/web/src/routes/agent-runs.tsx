@@ -3,7 +3,12 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
 
 import { ApiError } from '@/api/client';
-import { agentRunSettingsQueryOptions, agentRunsQueryOptions, startAgentRun } from '@/api/queries/agent-runs';
+import {
+  AGENT_RUN_LIST_LIMIT,
+  agentRunSettingsQueryOptions,
+  agentRunsQueryOptions,
+  startAgentRun,
+} from '@/api/queries/agent-runs';
 import { meQueryOptions } from '@/api/queries/me';
 import { EmptyNote } from '@/components/empty-note';
 import { PageHead } from '@/components/page-head';
@@ -151,44 +156,51 @@ export function WorkspaceAgentRuns() {
               data.runs.length === 0 ? (
                 <EmptyNote>No agent runs yet.</EmptyNote>
               ) : (
-                <Table minWidth={640}>
-                  <thead>
-                    <tr>
-                      <Th>Issue</Th>
-                      <Th>Status</Th>
-                      <Th>Trigger</Th>
-                      <Th>Acts as</Th>
-                      <Th>Created</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.runs.map((run) => {
-                      const waiting = waitingForRunnerSince(run);
-                      return (
-                        <Tr key={run.id}>
-                          <Td className="text-left">
-                            <Link
-                              to="/w/$slug/agent-runs/$runId"
-                              params={{ slug, runId: run.id }}
-                              className="font-mono text-ink-1 hover:underline"
-                            >
-                              {run.issueKey}
-                            </Link>
-                          </Td>
-                          <Td>
-                            <span className="inline-flex items-center gap-1.5">
-                              <Badge variant={statusTone(run.status)}>{statusLabel(run.status)}</Badge>
-                              {waiting && <span className="text-[12px] text-ink-4">waiting for a runner</span>}
-                            </span>
-                          </Td>
-                          <Td>{TRIGGER_LABELS[run.trigger] ?? run.trigger}</Td>
-                          <Td>{run.runOwner.email ?? run.runOwner.userId}</Td>
-                          <Td>{formatRelativeTime(run.createdAt)}</Td>
-                        </Tr>
-                      );
-                    })}
-                  </tbody>
-                </Table>
+                <>
+                  <Table minWidth={640}>
+                    <thead>
+                      <tr>
+                        <Th>Issue</Th>
+                        <Th>Status</Th>
+                        <Th>Trigger</Th>
+                        <Th>Acts as</Th>
+                        <Th>Created</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.runs.map((run) => {
+                        const waiting = waitingForRunnerSince(run);
+                        return (
+                          <Tr key={run.id}>
+                            <Td className="text-left">
+                              <Link
+                                to="/w/$slug/agent-runs/$runId"
+                                params={{ slug, runId: run.id }}
+                                className="font-mono text-ink-1 hover:underline"
+                              >
+                                {run.issueKey}
+                              </Link>
+                            </Td>
+                            <Td>
+                              <span className="inline-flex items-center gap-1.5">
+                                <Badge variant={statusTone(run.status)}>{statusLabel(run.status)}</Badge>
+                                {waiting && <span className="text-[12px] text-ink-4">waiting for a runner</span>}
+                              </span>
+                            </Td>
+                            <Td>{TRIGGER_LABELS[run.trigger] ?? run.trigger}</Td>
+                            <Td>{run.runOwner.email ?? run.runOwner.userId}</Td>
+                            <Td>{formatRelativeTime(run.createdAt)}</Td>
+                          </Tr>
+                        );
+                      })}
+                    </tbody>
+                  </Table>
+                  {data.nextOffset !== null && (
+                    <p className="mt-2 text-[12.5px] text-ink-4">
+                      Showing the {AGENT_RUN_LIST_LIMIT} newest runs; older runs are not listed.
+                    </p>
+                  )}
+                </>
               )
             }
           </QueryBoundary>
