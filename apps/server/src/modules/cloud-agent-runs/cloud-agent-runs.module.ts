@@ -3,6 +3,7 @@ import { AuthModule } from '../../auth/auth.module.js';
 import { DatabaseModule } from '../../database/database.module.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE, ObjectStorageArchiveStore } from './cloud-agent-run-archive.store.js';
+import { CloudAgentRunActivityService } from './cloud-agent-run-activity.service.js';
 import { CloudAgentRunDeliveryService } from './cloud-agent-run-delivery.service.js';
 import { CloudAgentRunImplementService } from './cloud-agent-run-implement.service.js';
 import { CloudAgentRunJiraOutcomes } from './cloud-agent-run-jira-outcomes.service.js';
@@ -48,6 +49,7 @@ export const cloudAgentRunsCoreProviders = [
   CloudAgentRunSweep,
   CloudAgentRunDeliveryService,
   CloudAgentRunJiraOutcomes,
+  CloudAgentRunActivityService,
   GithubRepositoryResolver,
 ];
 

@@ -1,9 +1,16 @@
 import 'dotenv/config';
 import { createHash, randomBytes } from 'node:crypto';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import type { IncomingMessage } from 'node:http';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
+import * as tar from 'tar';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { RUNNER_LEASE_HEADER, RUNNER_PROTOCOL_VERSION } from '@coredoc/core/agent-runner';
 import { AuthService } from '../../auth/auth.service.js';
@@ -25,6 +32,7 @@ import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { cloudAgentRunsCoreProviders, CLOUD_AGENT_RUNS_CLOCK } from './cloud-agent-runs.module.js';
 import { FakeJira, InMemoryArchiveStore, paragraphDoc } from './cloud-agent-runs.test-support.js';
+import { MAX_TRANSCRIPT_BYTES } from './run-transcript.js';
 
 /**
  * The cloud agent runs module driven through its two HTTP surfaces on real
@@ -50,6 +58,13 @@ function nextIssueKey(): string {
   const key = `PROJ-${issueSeed}`;
   jira.add({ key, summary: `Issue ${issueSeed}`, project: 'PROJ', description: paragraphDoc('A PRD.') });
   return key;
+}
+
+/** Reads a download whole, whatever its content type. */
+function binaryBody(res: IncomingMessage, callback: (error: Error | null, body: Buffer) => void): void {
+  const chunks: Buffer[] = [];
+  res.on('data', (chunk: Buffer) => chunks.push(chunk));
+  res.on('end', () => callback(null, Buffer.concat(chunks)));
 }
 
 describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)', () => {
@@ -127,7 +142,9 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
       ],
     }).compile();
 
-    app = moduleRef.createNestApplication();
+    app = moduleRef.createNestApplication<NestExpressApplication>({ rawBody: true });
+    // State archives are uploaded as raw bodies, as in production (body-limits.ts).
+    (app as NestExpressApplication).useBodyParser('raw', { type: 'application/octet-stream' });
     // The real MCP authentication in front of a stub transport that answers once a request is let through.
     const mcp = new McpRewriteMiddleware(moduleRef.get(AuthService), moduleRef.get(ControlPlaneService));
     app.use((req: Request, res: Response, next: NextFunction) => void mcp.use(req, res, next));
@@ -449,6 +466,292 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     await api().put(`${runsBase()}/settings`).set('Authorization', human(ADMIN)).send({ enabled: false }).expect(200);
     expect((await flags()).get(workspaceId)).toBe(true);
     await enable();
+  });
+
+  describe('activity and transcript', () => {
+    async function claimFor(token: string, runId: string) {
+      const res = await claim(token).expect(200);
+      expect(res.body.run.id).toBe(runId);
+      return {
+        id: res.body.turn.id as string,
+        lease: res.body.lease.token as string,
+        sessionId: res.body.run.sessionId as string,
+      };
+    }
+
+    /** A state archive as the runner packs it: Claude Code's config directory, transcripts included. */
+    async function stateArchive(files: Record<string, string>): Promise<Buffer> {
+      const dir = await mkdtemp(join(tmpdir(), 'car-state-'));
+      try {
+        for (const [path, content] of Object.entries(files)) {
+          await mkdir(dirname(join(dir, path)), { recursive: true });
+          await writeFile(join(dir, path), content);
+        }
+        const chunks: Buffer[] = [];
+        for await (const chunk of tar.create({ gzip: true, cwd: dir, portable: true }, [
+          '.',
+        ]) as AsyncIterable<Buffer>) {
+          chunks.push(Buffer.from(chunk));
+        }
+        return Buffer.concat(chunks);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    }
+
+    function uploadArchive(token: string, turn: { id: string; lease: string }, archive: Buffer) {
+      return api()
+        .put(`${runnerBase()}/turns/${turn.id}/archive`)
+        .set('Authorization', `Bearer ${token}`)
+        .set(RUNNER_LEASE_HEADER, turn.lease)
+        .set('Content-Type', 'application/octet-stream')
+        .send(archive)
+        .expect(200);
+    }
+
+    const transcript = (runId: string, query = '') =>
+      api().get(`${runsBase()}/${runId}/transcript${query}`).set('Authorization', human(MEMBER));
+
+    it('serves each turn’s phase, timing, spend and tool calls, and the run’s skill and tool counts, from its events', async () => {
+      await enable();
+      const token = await mintRunnerToken('runner-activity');
+      await drainQueue(token);
+      const { body: run } = await start(nextIssueKey()).expect(201);
+
+      const startedAt = new Date(now);
+      const first = await claimFor(token, run.id);
+      await turnCall(token, first.id, first.lease, 'events', {
+        events: [
+          { type: 'skill', name: 'coredoc-workflows:coredoc-spec' },
+          { type: 'message', text: 'Reading the PRD.' },
+          { type: 'tool', name: 'Read', target: 'PRD.md', summary: '42 lines', isError: false },
+          {
+            type: 'tool',
+            name: 'Bash',
+            target: 'pnpm test',
+            summary: '2 failed',
+            isError: true,
+            errorOutput: 'FAIL orders.test.ts\nGITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789',
+          },
+          { type: 'tool', name: 'search_symbols', server: 'coredoc', target: 'order export', isError: false },
+          // An older runner's line still counts for nothing and still renders.
+          { type: 'raw', text: '[tool] Read {}' },
+        ],
+      }).expect(200);
+      // Within the lease, so the completion is still this runner's.
+      now = new Date(now.getTime() + 90_000);
+      await turnCall(token, first.id, first.lease, 'complete', {
+        outcome: { kind: 'ended' },
+        spend: { costUsd: 0.25 },
+        versions: VERSIONS,
+      }).expect(200);
+
+      const second = await claimFor(token, run.id);
+      await turnCall(token, second.id, second.lease, 'events', {
+        events: [
+          { type: 'skill', name: 'coredoc-workflows:coredoc-spec' },
+          { type: 'tool', name: 'Read', target: 'src/orders.ts', summary: '10 lines', isError: false },
+        ],
+      }).expect(200);
+
+      const activity = await api()
+        .get(`${runsBase()}/${run.id}/activity`)
+        .set('Authorization', human(MEMBER))
+        .expect(200);
+      expect(activity.body.turns).toEqual([
+        {
+          id: first.id,
+          ordinal: 1,
+          kind: 'scope',
+          state: 'completed',
+          outcome: 'no_outcome',
+          startedAt: startedAt.toISOString(),
+          endedAt: now.toISOString(),
+          durationSeconds: 90,
+          spendUsd: 0.25,
+          toolCalls: 3,
+          failedToolCalls: 1,
+        },
+        {
+          id: second.id,
+          ordinal: 2,
+          kind: 'scope',
+          state: 'claimed',
+          outcome: null,
+          startedAt: now.toISOString(),
+          endedAt: null,
+          durationSeconds: null,
+          spendUsd: null,
+          toolCalls: 1,
+          failedToolCalls: 0,
+        },
+      ]);
+      expect(activity.body.skills).toEqual([{ name: 'coredoc-workflows:coredoc-spec', count: 2 }]);
+      expect(activity.body.tools).toEqual([
+        { name: 'Read', server: null, count: 2 },
+        { name: 'Bash', server: null, count: 1 },
+        { name: 'search_symbols', server: 'coredoc', count: 1 },
+      ]);
+
+      // The trace reads each event with its turn; stored payloads are redacted like every other event.
+      const timeline = await api()
+        .get(`${runsBase()}/${run.id}/events?after=0`)
+        .set('Authorization', human(MEMBER))
+        .expect(200);
+      const failed = timeline.body.events.find(
+        (event: { type: string; payload: { isError?: boolean } }) => event.type === 'tool' && event.payload.isError,
+      );
+      expect(failed).toMatchObject({
+        turnId: first.id,
+        payload: { name: 'Bash', errorOutput: 'FAIL orders.test.ts\nGITHUB_TOKEN=[REDACTED]' },
+      });
+    });
+
+    it('serves the intent items the agent read and proposed, from the ids its intent calls reported', async () => {
+      await enable();
+      const token = await mintRunnerToken('runner-intent');
+      await drainQueue(token);
+      const { body: run } = await start(nextIssueKey()).expect(201);
+      const audit = { createdBy: ADMIN.id, updatedBy: ADMIN.id };
+      const domain = `car-cli-${RUN}`;
+      const feature = `car-status-${RUN}`;
+      await prisma.intentDomain.create({ data: { workspaceId, id: domain, title: 'CLI', statement: 'CLI', ...audit } });
+      await prisma.intentFeature.create({
+        data: { workspaceId, id: feature, domainId: domain, title: 'Status', statement: 'Status', ...audit },
+      });
+      const item = (id: string, title: string, authority: 'accepted' | 'candidate', attach: object) =>
+        prisma.intentItem.create({
+          data: { workspaceId, id, title, statement: title, kind: 'business_rule', authority, ...attach, ...audit },
+        });
+      await item(`br-car-readable-${RUN}`, 'Status output stays readable', 'accepted', {
+        domainId: domain,
+        featureId: feature,
+      });
+      await item(`br-car-root-${RUN}`, 'Exit codes are stable', 'accepted', {});
+      await item(`br-car-json-${RUN}`, 'JSON status output is opt-in', 'candidate', { domainId: domain });
+
+      const turn = await claimFor(token, run.id);
+      const call = (name: string, intentIds: string[]) => ({
+        type: 'tool',
+        name,
+        server: 'coredoc',
+        isError: false,
+        intentIds,
+      });
+      await turnCall(token, turn.id, turn.lease, 'events', {
+        events: [
+          call('get_intent_context', [`br-car-readable-${RUN}`, `br-car-json-${RUN}`, `br-car-deleted-${RUN}`]),
+          call('get_intent_context', [`br-car-root-${RUN}`, `br-car-readable-${RUN}`]),
+          call('intent_propose', [`br-car-json-${RUN}`]),
+        ],
+      }).expect(200);
+
+      const activity = await api()
+        .get(`${runsBase()}/${run.id}/activity`)
+        .set('Authorization', human(MEMBER))
+        .expect(200);
+      expect(activity.body.intent).toEqual({
+        // First seen first; the proposed item is not repeated as read; a deleted item keeps its id.
+        read: [
+          {
+            id: `br-car-readable-${RUN}`,
+            title: 'Status output stays readable',
+            kind: 'business_rule',
+            authority: 'accepted',
+            location: 'CLI · Status',
+          },
+          { id: `br-car-deleted-${RUN}`, title: null, kind: null, authority: null, location: null },
+          {
+            id: `br-car-root-${RUN}`,
+            title: 'Exit codes are stable',
+            kind: 'business_rule',
+            authority: 'accepted',
+            location: null,
+          },
+        ],
+        proposed: [
+          {
+            id: `br-car-json-${RUN}`,
+            title: 'JSON status output is opt-in',
+            kind: 'business_rule',
+            authority: 'candidate',
+            location: 'CLI',
+          },
+        ],
+      });
+    });
+
+    it('streams the phase’s Claude Code session transcript from the run’s latest state archive', async () => {
+      await enable();
+      const token = await mintRunnerToken('runner-transcript');
+      await drainQueue(token);
+      const { body: run } = await start(nextIssueKey()).expect(201);
+      await transcript(run.id).expect(404);
+
+      const turn = await claimFor(token, run.id);
+      const first = JSON.stringify({ type: 'user', sessionId: turn.sessionId });
+      // The token follows an escaped newline, so a pattern over the raw JSON line would miss it.
+      const leaky = (github: string, key: string, url: string) =>
+        JSON.stringify({ type: 'tool_result', content: `token:\n${github}\nkey ${key}\nremote ${url}` });
+      const lines = `${first}\n${leaky('ghp_0123456789abcdefghijABCDEFGHIJ012345', 'sk-ant-api03-abcdefghijklmnopqrstuv', 'https://bot:s3cretpass@github.example.com/acme/orders.git')}\n`;
+      // Archives are unredacted; the download is not.
+      const redacted = `${first}\n${leaky('[REDACTED]', '[REDACTED]', 'https://[REDACTED]@github.example.com/acme/orders.git')}\n`;
+      const project = `claude/projects/-scratch-runs-${run.id}-work`;
+      await uploadArchive(
+        token,
+        turn,
+        await stateArchive({
+          [`${project}/0b5e8a52-0000-4000-8000-000000000000.jsonl`]: '{"another":"session"}\n',
+          [`${project}/${turn.sessionId}.jsonl`]: lines,
+          'coredoc-workflows/runs/state.json': '{}',
+        }),
+      );
+      // Not before the turn completes: the run adopts the archive then.
+      await transcript(run.id).expect(404);
+      await turnCall(token, turn.id, turn.lease, 'complete', {
+        outcome: { kind: 'ended' },
+        spend: { costUsd: 0.1 },
+        versions: VERSIONS,
+      }).expect(200);
+
+      const res = await transcript(run.id).buffer(true).parse(binaryBody).expect(200);
+      expect(res.headers['content-disposition']).toBe(`attachment; filename="${run.issueKey}-scope-transcript.jsonl"`);
+      expect((res.body as Buffer).toString('utf8')).toBe(redacted);
+
+      // The implement session never ran, so it has no transcript.
+      const missing = await transcript(run.id, '?phase=implement').expect(404);
+      expect(missing.body.code).toBe('TRANSCRIPT_NOT_FOUND');
+
+      const runner = await mintRunnerToken('runner-transcript-refused');
+      await api().get(`${runsBase()}/${run.id}/transcript`).set('Authorization', `Bearer ${runner}`).expect(403);
+    });
+
+    it('refuses a transcript over the download cap without streaming it', async () => {
+      await enable();
+      const token = await mintRunnerToken('runner-transcript-cap');
+      await drainQueue(token);
+      const { body: run } = await start(nextIssueKey()).expect(201);
+      const turn = await claimFor(token, run.id);
+      // A header announcing a transcript over the cap; the body never needs to be read.
+      const header = new tar.Header({
+        path: `claude/projects/-scratch-runs-${run.id}-work/${turn.sessionId}.jsonl`,
+        type: 'File',
+        size: MAX_TRANSCRIPT_BYTES + 1,
+        mode: 0o644,
+        mtime: new Date(0),
+      });
+      const block = Buffer.alloc(512);
+      header.encode(block, 0);
+      await uploadArchive(token, turn, gzipSync(Buffer.concat([block, Buffer.alloc(4096, 0x61)])));
+      await turnCall(token, turn.id, turn.lease, 'complete', {
+        outcome: { kind: 'ended' },
+        spend: { costUsd: 0.1 },
+        versions: VERSIONS,
+      }).expect(200);
+
+      const refused = await transcript(run.id).expect(413);
+      expect(refused.body.code).toBe('TRANSCRIPT_TOO_LARGE');
+    });
   });
 
   describe('guards', () => {

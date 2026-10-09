@@ -3,6 +3,7 @@
  * suites: an in-memory Jira and GitHub (behind the importers' client-factory
  * seams) and an in-memory state-archive store.
  */
+import { Readable } from 'node:stream';
 import type { JiraClient, JiraComment, JiraTransition } from '../delivery/jira-client.js';
 import { JiraAuthError, JiraNotFoundError, JiraRateLimitError } from '../delivery/jira-client.js';
 import { GithubApiError, type GithubClient } from '../../libs/github/github-client.js';
@@ -271,6 +272,11 @@ export class InMemoryArchiveStore implements CloudAgentRunArchiveStore {
 
   async get(key: string): Promise<Buffer | null> {
     return this.objects.get(key) ?? null;
+  }
+
+  async getStream(key: string): Promise<AsyncIterable<Uint8Array> | null> {
+    const object = this.objects.get(key);
+    return object ? Readable.from([object]) : null;
   }
 
   async delete(key: string): Promise<void> {

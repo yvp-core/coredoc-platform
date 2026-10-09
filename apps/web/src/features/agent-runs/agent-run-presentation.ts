@@ -4,7 +4,7 @@
  * timers. Payloads are free-form on the wire, so nothing here may assume a
  * shape or throw on one it does not recognise.
  */
-import type { AgentRun, AgentRunEvent, RunnerTokenStatus, RunStatus, TurnKind, TurnOutcome } from './types.js';
+import type { AgentRun, AgentRunEvent, RunnerTokenStatus, RunStatus, TurnKind } from './types.js';
 
 export const POLL_INTERVAL_MS = 3000;
 
@@ -52,103 +52,8 @@ export function statusTone(status: RunStatus): StatusTone {
   return 'info';
 }
 
-export type TimelineItem =
-  | { kind: 'entry'; seq: number; text: string }
-  | { kind: 'raw'; seq: number; lines: string[] }
-  /** Workflow changes withheld from the push, with their diff for a person to apply when it was shown. */
-  | { kind: 'diff'; seq: number; text: string; paths: string[]; diff: string | null; note: string | null };
-
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value : null;
-}
-
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-const TURN_OUTCOME_WORDS: Record<TurnOutcome, string> = {
-  no_outcome: 'without an outcome',
-  question_asked: 'with a question for a person',
-  scope_proposed: 'with a scope proposal',
-  checkpoint: 'at a checkpoint; the agent continues in a new turn',
-  result_submitted: 'with the implementation result',
-  delivered: 'with its pull requests verified',
-  repository_requested: 'with a repository request for a person',
-  runner_lost: 'after its runner stopped responding',
-  model_unavailable: 'because the model was unavailable; the turn is retried',
-};
-
-function describeEvent(event: AgentRunEvent): string {
-  const payload = event.payload ?? {};
-  switch (event.type) {
-    case 'status_changed': {
-      const to = text(payload.to);
-      return to ? `Status: ${statusLabel(to)}` : 'Status changed';
-    }
-    case 'turn_started': {
-      const kind = text(payload.kind) ?? 'agent';
-      const attempt = typeof payload.attempt === 'number' ? ` (attempt ${payload.attempt})` : '';
-      return `${capitalize(kind)} turn started${attempt}`;
-    }
-    case 'turn_ended': {
-      const outcome = TURN_OUTCOME_WORDS[String(payload.outcome) as TurnOutcome] ?? text(payload.outcome);
-      const spend = typeof payload.spendUsd === 'number' ? `$${payload.spendUsd.toFixed(2)}` : 'spend not reported';
-      return `Turn ended${outcome ? ` ${outcome}` : ''} (${spend})`;
-    }
-    case 'phase': {
-      const phase = text(payload.phase);
-      return phase ? `Phase: ${phase}` : 'Phase changed';
-    }
-    case 'todos':
-      return 'Task list updated';
-    case 'question': {
-      const headers = Array.isArray(payload.headers) ? payload.headers.filter((h) => typeof h === 'string') : [];
-      const about = headers.length ? `: ${headers.join(', ')}` : '';
-      return payload.state === 'auto_answered'
-        ? `The agent asked${about}; answered automatically (assume policy)`
-        : `The agent asked a question${about}`;
-    }
-    case 'question_resolved':
-      return payload.state === 'cancelled' ? 'Question cancelled: the run ended' : 'Question answered';
-    case 'run_event':
-      return text(payload.text) ?? 'Run event';
-    case 'done':
-      return payload.ok === false
-        ? `Agent session failed${text(payload.error) ? `: ${payload.error}` : ''}`
-        : 'Agent session finished';
-    default:
-      return event.type;
-  }
-}
-
-/** Timeline rows: raw agent activity collapsed into one group per consecutive run. */
-export function timelineItems(events: readonly AgentRunEvent[]): TimelineItem[] {
-  const items: TimelineItem[] = [];
-  for (const event of events) {
-    if (event.type === 'raw') {
-      const line = text(event.payload?.text) ?? (event.truncated ? '[truncated]' : '');
-      const last = items[items.length - 1];
-      if (last?.kind === 'raw') last.lines.push(line);
-      else items.push({ kind: 'raw', seq: event.seq, lines: [line] });
-      continue;
-    }
-    if (event.type === 'run_event' && event.payload?.code === 'workflow_diff_withheld') {
-      const paths = Array.isArray(event.payload.paths)
-        ? event.payload.paths.filter((path): path is string => typeof path === 'string')
-        : [];
-      items.push({
-        kind: 'diff',
-        seq: event.seq,
-        text: describeEvent(event),
-        paths,
-        diff: text(event.payload.diff),
-        note: text(event.payload.note) ?? (event.truncated ? 'The diff was too large to keep.' : null),
-      });
-      continue;
-    }
-    items.push({ kind: 'entry', seq: event.seq, text: describeEvent(event) });
-  }
-  return items;
 }
 
 const usd = (value: number) => `$${value.toFixed(2)}`;

@@ -59,6 +59,8 @@ interface SessionScript {
   result?: Partial<Extract<SDKMessage, { type: 'result' }>> | 'throw';
   /** End on a model API failure, in the shape the pinned SDK reports one (measured in Phase 0). */
   apiError?: ApiFailure;
+  /** Assistant and tool-result messages Claude Code streams after init, given the session's working directory. */
+  transcript?: (cwd: string) => SDKMessage[];
 }
 
 interface ApiFailure {
@@ -112,8 +114,10 @@ function fakeQuery(
         plugins: script.plugins ?? [{ name: 'coredoc-workflows', path: PLUGIN }],
         ...(script.pluginErrors ? { plugin_errors: script.pluginErrors } : {}),
         skills: ['coredoc-workflows:spec'],
+        cwd: options.cwd,
       } as unknown as SDKMessage;
       if (options.abortController?.signal.aborted) return;
+      yield* script.transcript?.(options.cwd!) ?? [];
 
       const prdPath = join(options.cwd!, 'PRD.md');
       if (existsSync(prdPath)) record.prd = await readFile(prdPath, 'utf8');
@@ -625,6 +629,135 @@ describe('Claude executor in the runner loop', () => {
         { decision: 'deny', reason: expect.stringContaining('return this question to the main session') },
       ]);
     });
+  });
+
+  it('reports what the agent did as structured events: tool calls paired with their results, skills, messages and the result', async () => {
+    const assistant = (...content: unknown[]) =>
+      ({ type: 'assistant', message: { content }, parent_tool_use_id: null }) as unknown as SDKMessage;
+    const use = (id: string, name: string, input: Record<string, unknown>) => ({ type: 'tool_use', id, name, input });
+    const answered = (id: string, content: unknown, isError = false) =>
+      ({
+        type: 'user',
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] },
+        parent_tool_use_id: null,
+      }) as unknown as SDKMessage;
+    const { done } = runTurn(assignment(), {
+      transcript: (cwd) => [
+        assistant(
+          { type: 'text', text: 'I will read the PRD first.' },
+          use('t1', 'Skill', { skill: 'coredoc-workflows:coredoc-spec' }),
+        ),
+        answered('t1', 'Launching skill: coredoc-workflows:coredoc-spec'),
+        assistant(use('t2', 'Read', { file_path: `${cwd}/PRD.md` })),
+        assistant(use('t3', 'Bash', { command: 'pnpm --filter orders test\n  --reporter dot' })),
+        // Results can arrive out of order; each pairs with its own call.
+        answered('t3', 'FAIL orders.test.ts\nExpected 1, received 2\nusing cdt_turn_token', true),
+        answered('t2', [{ type: 'text', text: '     1\t# PROJ-1\n     2\t\n     3\tCustomers need order exports.' }]),
+        assistant(use('t4', 'mcp__coredoc__search_symbols', { query: 'order export', limit: 5 })),
+        answered('t4', [{ type: 'text', text: '6 symbols\nOrderExporter …' }]),
+        assistant(
+          use('t5', 'mcp__agent_run__submit_result', {
+            summary: 'Added CSV exports.',
+            repositories: [{ key: 'orders-api', summary: 'New export endpoint' }],
+            notBuiltOrTested: [{ key: 'billing', reason: 'Needs Docker' }],
+          }),
+        ),
+        answered('t5', 'Your result is recorded and your turn is over.'),
+        // The session stopped before this call returned.
+        assistant(use('t6', 'Edit', { file_path: `${cwd}/src/export.ts`, old_string: 'a', new_string: 'b' })),
+      ],
+    });
+
+    await expect(done).resolves.toBe('completed');
+    const activity = api.events.filter((event) => ['message', 'skill', 'tool', 'result'].includes(event.type));
+    expect(activity).toEqual([
+      { type: 'message', text: 'I will read the PRD first.' },
+      { type: 'skill', name: 'coredoc-workflows:coredoc-spec' },
+      {
+        type: 'tool',
+        name: 'Bash',
+        target: 'pnpm --filter orders test',
+        summary: 'FAIL orders.test.ts',
+        isError: true,
+        // The turn's MCP token is one of the credentials the runner masks.
+        errorOutput: 'FAIL orders.test.ts\nExpected 1, received 2\nusing [REDACTED]',
+      },
+      { type: 'tool', name: 'Read', target: 'PRD.md', summary: '3 lines', isError: false },
+      {
+        type: 'tool',
+        name: 'search_symbols',
+        server: 'coredoc',
+        target: 'order export 5',
+        summary: '6 symbols',
+        isError: false,
+      },
+      {
+        type: 'tool',
+        name: 'submit_result',
+        server: 'agent_run',
+        target: 'Added CSV exports.',
+        summary: 'Your result is recorded and your turn is over.',
+        isError: false,
+      },
+      {
+        type: 'result',
+        summary: 'Added CSV exports.',
+        points: ['orders-api: New export endpoint', 'billing: not built or tested here (Needs Docker)'],
+      },
+      { type: 'tool', name: 'Edit', target: 'src/export.ts', summary: 'no result', isError: false },
+    ]);
+    // Agent text is no longer reported as raw lines.
+    expect(api.events.filter((event) => event.type === 'raw')).toEqual([{ type: 'raw', text: '[init] model=default' }]);
+  });
+
+  it('reports the intent items an intent read returned and an intent proposal created', async () => {
+    const assistant = (...content: unknown[]) =>
+      ({ type: 'assistant', message: { content }, parent_tool_use_id: null }) as unknown as SDKMessage;
+    const use = (id: string, name: string, input: Record<string, unknown>) => ({ type: 'tool_use', id, name, input });
+    const answered = (id: string, answer: unknown, isError = false) =>
+      ({
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: id,
+              content: [{ type: 'text', text: typeof answer === 'string' ? answer : JSON.stringify(answer) }],
+              is_error: isError,
+            },
+          ],
+        },
+        parent_tool_use_id: null,
+      }) as unknown as SDKMessage;
+    const { done } = runTurn(assignment(), {
+      transcript: () => [
+        assistant(use('t1', 'mcp__coredoc__get_intent_context', { task: 'exports' })),
+        answered('t1', { matches: [{ id: 'export-format' }, { id: 'export-limit' }, { id: 'export-format' }] }),
+        assistant(use('t2', 'mcp__coredoc__get_intent_context', { mode: 'list' })),
+        answered('t2', { entries: [{ id: 'csv-default' }] }),
+        assistant(use('t3', 'mcp__coredoc__intent_propose', { idempotencyKey: 'k1' })),
+        answered('t3', { items: [{ itemId: 'csv-opt-in', outcome: 'created' }], hints: [] }),
+        // A state answer, a text answer and a failed call carry no ids.
+        assistant(use('t4', 'mcp__coredoc__get_intent_context', { task: 'other' })),
+        answered('t4', { status: 'not_configured' }),
+        assistant(use('t5', 'mcp__coredoc__get_intent_context', { task: 'text' })),
+        answered('t5', '# Intent\nexport-format'),
+        assistant(use('t6', 'mcp__coredoc__intent_propose', { idempotencyKey: 'k2' })),
+        answered('t6', { items: [{ itemId: 'refused' }] }, true),
+      ],
+    });
+
+    await expect(done).resolves.toBe('completed');
+    const tools = api.events.filter((event) => event.type === 'tool') as Array<Record<string, unknown>>;
+    expect(tools.map((event) => event.intentIds)).toEqual([
+      ['export-format', 'export-limit'],
+      ['csv-default'],
+      ['csv-opt-in'],
+      undefined,
+      undefined,
+      undefined,
+    ]);
   });
 
   it('a scope turn that reaches the SDK turn cap without a proposal reports a checkpoint, not an outcome-less end', async () => {

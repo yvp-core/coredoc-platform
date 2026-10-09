@@ -189,28 +189,72 @@ function OpenQuestion({ wsId, run, open }: { wsId: string; run: AgentRunDetail; 
  * A repository request offers only its fixed "Add" and "Don't add".
  * Exactly one answer is accepted; a reviewer who answers second is told so.
  */
-export function QuestionCard({ wsId, run }: { wsId: string; run: AgentRunDetail }) {
-  const open = run.openQuestion;
-  if (!open || run.status !== 'awaiting_answer') return null;
-  return <OpenQuestion key={open.requestId} wsId={wsId} run={run} open={open} />;
+export function QuestionCard({
+  wsId,
+  run,
+  question,
+}: {
+  wsId: string;
+  run: AgentRunDetail;
+  question: AgentRunQuestion;
+}) {
+  return <OpenQuestion key={question.requestId} wsId={wsId} run={run} open={question} />;
 }
 
-/** The decisions nobody was asked about: listed by the agent in its proposal or result. */
-export function Assumptions({ run }: { run: AgentRunDetail }) {
-  if (!run.assumptions?.length) return null;
+const RESOLUTION: Record<Exclude<AgentRunQuestion['state'], 'open'>, string> = {
+  answered: 'Answered',
+  auto_answered: 'Answered automatically (assume policy)',
+  cancelled: 'Cancelled: the run ended',
+};
+
+/** A question that is no longer open, each part with its options and the chosen ones marked. */
+export function AnsweredQuestion({ question }: { question: AgentRunQuestion }) {
   return (
-    <Card role="region" aria-label="Assumptions">
-      <CardHead title="Assumptions" sub="Decisions the agent made without asking; check them before accepting." />
-      <CardBody>
-        <ul className="list-disc pl-5 text-[13.5px] text-ink-2">
-          {run.assumptions.map((assumption) => (
-            <li key={`${assumption.phase}:${assumption.text}`}>
-              <IntentMarkdown inline noRemote text={assumption.text} />
-              <span className="text-ink-4"> ({assumption.phase})</span>
-            </li>
-          ))}
-        </ul>
-      </CardBody>
-    </Card>
+    <div className="flex flex-col gap-3">
+      {question.questions.map((asked, index) => {
+        const answer = question.answers?.[index];
+        return (
+          <div key={asked.question} className="flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-2 text-[13.5px] text-ink-1">
+              <Badge variant="neutral">{asked.header}</Badge>
+              <IntentMarkdown inline noRemote text={asked.question} />
+            </div>
+            <ul aria-label={`Options: ${asked.header}`} className="flex flex-col gap-1 text-[13px]">
+              {asked.options.map((option) => {
+                const picked = answer?.labels.includes(option.label) ?? false;
+                return (
+                  <li
+                    key={option.label}
+                    aria-current={picked ? 'true' : undefined}
+                    className={
+                      picked
+                        ? 'rounded-md border border-brand bg-brand-wash px-2 py-1 font-medium text-brand-text'
+                        : 'rounded-md border border-border-soft px-2 py-1 text-ink-3'
+                    }
+                  >
+                    {option.label}
+                  </li>
+                );
+              })}
+              {answer?.other && (
+                <li
+                  aria-current="true"
+                  className="rounded-md border border-brand bg-brand-wash px-2 py-1 text-brand-text"
+                >
+                  <span className="font-medium">Other: </span>
+                  {answer.other}
+                </li>
+              )}
+            </ul>
+          </div>
+        );
+      })}
+      {question.state !== 'open' && (
+        <p className="text-[12.5px] text-ink-4">
+          {RESOLUTION[question.state]}
+          {question.answeredAt ? ` ${formatRelativeTime(question.answeredAt)}` : ''}
+        </p>
+      )}
+    </div>
   );
 }

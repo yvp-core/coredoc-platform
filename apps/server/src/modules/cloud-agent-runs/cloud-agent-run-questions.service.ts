@@ -153,6 +153,8 @@ export function projectQuestion(row: CloudAgentRunQuestion) {
     askedAt: row.askedAt.toISOString(),
     answeredAt: row.answeredAt?.toISOString() ?? null,
     answeredBy: row.answeredBy,
+    /** The turn that asked, whose trace shows the question. */
+    askedInTurnId: row.askedInTurnId,
   };
 }
 

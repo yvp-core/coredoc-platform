@@ -10,6 +10,8 @@ export interface CloudAgentRunArchiveStore {
   /** Create-only: a key is never overwritten. */
   put(key: string, body: Buffer): Promise<void>;
   get(key: string): Promise<Buffer | null>;
+  /** Streams an archive without buffering it; aborting the signal stops the read. */
+  getStream(key: string, signal?: AbortSignal): Promise<AsyncIterable<Uint8Array> | null>;
   delete(key: string): Promise<void>;
 }
 
@@ -27,6 +29,10 @@ export class ObjectStorageArchiveStore implements CloudAgentRunArchiveStore {
 
   get(key: string): Promise<Buffer | null> {
     return this.storage.download(key);
+  }
+
+  getStream(key: string, signal?: AbortSignal): Promise<AsyncIterable<Uint8Array> | null> {
+    return this.storage.downloadStream(key, { signal });
   }
 
   delete(key: string): Promise<void> {

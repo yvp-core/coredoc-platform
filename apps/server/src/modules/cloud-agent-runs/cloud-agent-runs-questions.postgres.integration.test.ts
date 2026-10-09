@@ -307,7 +307,12 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: questions and policies (P
       const resumed = await detail(run.id);
       expect(resumed).toMatchObject({ status: 'scoping', openQuestion: null, currentTurn: { state: 'queued' } });
       expect(resumed.questions).toEqual([
-        expect.objectContaining({ state: 'answered', answeredBy: MEMBER.id, answers: goodAnswers }),
+        expect.objectContaining({
+          state: 'answered',
+          answeredBy: MEMBER.id,
+          answers: goodAnswers,
+          askedInTurnId: first.id,
+        }),
       ]);
 
       const second = await claimTurn();

@@ -119,6 +119,12 @@ export const AnswerQuestionSchema = z.object({
 export type AnswerQuestionInput = z.output<typeof AnswerQuestionSchema>;
 export type QuestionAnswer = AnswerQuestionInput['answers'][number];
 
+export const TranscriptQuerySchema = z.object({
+  /** The session to download; defaults to the run's latest agent phase. */
+  phase: z.enum(['scope', 'implement'], { error: 'phase must be scope or implement' }).optional(),
+});
+export type TranscriptQuery = z.infer<typeof TranscriptQuerySchema>;
+
 export const EventsQuerySchema = z.object({
   after: nonNegativeInt('after', 0, 2_147_483_647),
   limit: nonNegativeInt('limit', 200, 500),

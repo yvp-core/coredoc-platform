@@ -23,7 +23,7 @@ import { implementPrompt, runPreamble, scopePrompt } from './prompts.js';
 import { QuestionBridge } from './question-bridge.js';
 import { RUN_CONTROL_SERVER, type RunControlState, runControlServer } from './run-control.js';
 import { sessionEnvironment } from './session-environment.js';
-import { eventsFor } from './session-events.js';
+import { SessionEvents } from './session-events.js';
 import { extractStateArchive, packStateArchive } from './state-archive.js';
 import { DENIED_TOOLS, evaluateToolUse } from './tool-policy.js';
 import { createTurnDirectories, sessionExists, type TurnPaths, turnPaths, wipeScratch } from './turn-paths.js';
@@ -338,6 +338,7 @@ export class ClaudeExecutor implements TurnExecutor {
     };
     // A model API failure arrives as a synthetic assistant message naming its kind, then the result.
     let apiError: SDKAssistantMessageError | null = null;
+    const activity = new SessionEvents();
     try {
       for await (const message of this.options.query({
         prompt,
@@ -379,8 +380,10 @@ export class ClaudeExecutor implements TurnExecutor {
             fail({ code: 'agent_error', reason: errors?.join('; ') || `The session ended with ${message.subtype}` });
           }
         }
-        const events = eventsFor(message);
+        const events = activity.eventsFor(message);
         if (message.type === 'result') {
+          // Calls the session ended without answering are reported before the session's end.
+          events.push(...activity.flush());
           events.push({
             type: 'done',
             ok: outcome.failure === null,
@@ -391,6 +394,7 @@ export class ClaudeExecutor implements TurnExecutor {
         }
         await io.emit(events);
       }
+      await io.emit(activity.flush());
     } catch (error) {
       if (!abort.signal.aborted) {
         fail({ code: 'agent_error', reason: error instanceof Error ? error.message : String(error) });

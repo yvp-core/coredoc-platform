@@ -9,8 +9,11 @@ import {
   Post,
   Put,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { pipeline } from 'node:stream/promises';
+import type { Response } from 'express';
 import { AuthGuard } from '../../auth/auth.guard.js';
 import { CurrentUser, type AuthUser } from '../../auth/decorators/current-user.decorator.js';
 import { RequirePermission } from '../../auth/decorators/require-permission.decorator.js';
@@ -19,6 +22,7 @@ import { PermissionsGuard, TokenPermission } from '../../auth/permissions.guard.
 import { UserSessionGuard } from '../../auth/user-session.guard.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
+import { CloudAgentRunActivityService } from './cloud-agent-run-activity.service.js';
 import { CloudAgentRunSettingsService } from './cloud-agent-run-settings.service.js';
 import { CloudAgentRunQuestionService } from './cloud-agent-run-questions.service.js';
 import { CloudAgentRunService } from './cloud-agent-run.service.js';
@@ -29,6 +33,8 @@ import {
   ListRunsQuerySchema,
   RequestScopeChangesSchema,
   StartRunSchema,
+  type TranscriptQuery,
+  TranscriptQuerySchema,
   type RequestScopeChangesInput,
   UpdateSettingsSchema,
   type StartRunInput,
@@ -49,6 +55,7 @@ export class CloudAgentRunsController {
     private readonly runs: CloudAgentRunService,
     private readonly settings: CloudAgentRunSettingsService,
     private readonly questions: CloudAgentRunQuestionService,
+    private readonly activity: CloudAgentRunActivityService,
   ) {}
 
   // Declared before `/:runId`, so `settings` is never taken for a run id.
@@ -163,6 +170,33 @@ export class CloudAgentRunsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.runs.rerun(workspaceId, user.id, runId);
+  }
+
+  /** Per-turn timing, spend and tool calls, and the run's skill and tool counts. */
+  @Get(':runId/activity')
+  @WorkspaceRole('member')
+  runActivity(@Param('workspaceId') workspaceId: string, @Param('runId', ParseUUIDPipe) runId: string) {
+    return this.activity.activity(workspaceId, runId);
+  }
+
+  /** Claude Code's session transcript (JSONL) from the latest state archive, masked and streamed as a download. */
+  @Get(':runId/transcript')
+  @WorkspaceRole('member')
+  async transcript(
+    @Param('workspaceId') workspaceId: string,
+    @Param('runId', ParseUUIDPipe) runId: string,
+    @Query(new ZodValidationPipe(TranscriptQuerySchema)) query: TranscriptQuery,
+    @Res() response: Response,
+  ) {
+    const download = await this.activity.transcript(workspaceId, runId, query.phase);
+    response.set({
+      'Content-Type': 'application/x-ndjson',
+      'Content-Disposition': `attachment; filename="${download.filename}"`,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    // A failure after the headers went out can only cut the response short.
+    await pipeline(download.stream, response).catch(() => response.destroy());
   }
 
   @Get(':runId/events')

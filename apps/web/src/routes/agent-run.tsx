@@ -4,18 +4,25 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router';
 
 import { ApiError } from '@/api/client';
 import {
+  agentRunActivityQueryOptions,
   agentRunQueryOptions,
+  agentRunSpecsQueryOptions,
   agentRunTimelineQueryOptions,
   cancelAgentRun,
   rerunAgentRun,
 } from '@/api/queries/agent-runs';
 import { meQueryOptions } from '@/api/queries/me';
-import { EmptyNote } from '@/components/empty-note';
 import { PageHead } from '@/components/page-head';
 import { QueryBoundary } from '@/components/query-boundary';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardBody, CardHead } from '@/components/ui/card';
+import {
+  conversationItems,
+  type RunStage,
+  runSpan,
+  runStages,
+  stageTarget,
+} from '@/features/agent-runs/agent-run-page';
 import {
   currentTasks,
   isTerminalStatus,
@@ -23,16 +30,12 @@ import {
   spendText,
   statusLabel,
   statusTone,
-  TASK_STATUS_LABELS,
-  timelineItems,
   waitingForRunnerSince,
 } from '@/features/agent-runs/agent-run-presentation';
-import { Assumptions, QuestionCard } from '@/features/agent-runs/QuestionCard';
-import { RunPullRequests } from '@/features/agent-runs/RunPullRequests';
-import { RunRepositories } from '@/features/agent-runs/RunRepositories';
-import { ScopeReview } from '@/features/agent-runs/ScopeReview';
+import { type ActivityDrawer, RunActivityDrawer } from '@/features/agent-runs/RunActivityDrawers';
+import { RunConversation } from '@/features/agent-runs/RunConversation';
+import { ArtifactCards, StageRail } from '@/features/agent-runs/RunRail';
 import type { AgentRun, AgentRunDetail } from '@/features/agent-runs/types';
-import { formatRelativeTime } from '@/lib/time';
 
 import { findWorkspace } from './workspace';
 
@@ -42,7 +45,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return (
     <div className="flex flex-col gap-0.5">
       <dt className="text-[11.5px] uppercase tracking-[0.04em] text-ink-4">{label}</dt>
-      <dd className="text-[13.5px] text-ink-2">{children}</dd>
+      <dd className="break-words text-[13px] text-ink-2">{children}</dd>
     </div>
   );
 }
@@ -125,100 +128,35 @@ function CancelAction({ wsId, run }: { wsId: string; run: AgentRun }) {
   );
 }
 
-function JiraLink({ run }: { run: AgentRunDetail }) {
-  if (!run.issueUrl) return null;
+function RunDetails({ run }: { run: AgentRunDetail }) {
   return (
-    <a
-      href={run.issueUrl}
-      target="_blank"
-      rel="noreferrer"
-      aria-label={`Open ${run.issueKey} in Jira`}
-      className="hover:underline"
+    <dl
+      aria-label="Run details"
+      className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-surface px-3 py-3 shadow-card"
     >
-      Open in Jira
-    </a>
+      <Field label="Acts as">{run.runOwner.email ?? run.runOwner.userId}</Field>
+      <Field label="Trigger">{TRIGGER_LABELS[run.trigger] ?? run.trigger}</Field>
+      <Field label="Questions">{run.questionsPolicy}</Field>
+      <Field label="Scope acceptance">{run.scopeAcceptancePolicy}</Field>
+      <Field label="Model">{run.model ?? 'Claude Code default'}</Field>
+      <Field label="Branch">
+        <span className="break-all font-mono text-[12px]">{run.branch}</span>
+      </Field>
+      {run.seeds.length > 0 && (
+        <Field label="Seed repositories">
+          <span className="font-mono text-[12px]">{run.seeds.join(', ')}</span>
+        </Field>
+      )}
+    </dl>
   );
 }
 
-function RunHeader({ wsId, slug, run }: { wsId: string; slug: string; run: AgentRun }) {
-  const waiting = waitingForRunnerSince(run);
-  return (
-    <Card>
-      <CardBody className="flex flex-col gap-3">
-        <RerunAction wsId={wsId} slug={slug} run={run} />
-        <CancelAction wsId={wsId} run={run} />
-        {waiting && (
-          <p className="rounded-lg bg-warn-wash px-3 py-2 text-[13px] text-warn-text">
-            Waiting for an agent runner since {formatRelativeTime(waiting)}.
-          </p>
-        )}
-        {run.failureReason && (
-          <p className="rounded-lg bg-danger-wash px-3 py-2 text-[13px] text-danger-text">
-            {run.failureCode ? `${run.failureCode}: ` : ''}
-            {run.failureReason}
-          </p>
-        )}
-        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Field label="Acts as">{run.runOwner.email ?? run.runOwner.userId}</Field>
-          <Field label="Trigger">{TRIGGER_LABELS[run.trigger] ?? run.trigger}</Field>
-          <Field label="Spend">{spendText(run.spend)}</Field>
-          <Field label="Questions">{run.questionsPolicy}</Field>
-          <Field label="Scope acceptance">{run.scopeAcceptancePolicy}</Field>
-          <Field label="Branch">
-            <span className="font-mono text-[12.5px]">{run.branch}</span>
-          </Field>
-          <Field label="Model">{run.model ?? 'Claude Code default'}</Field>
-          {run.seeds.length > 0 && (
-            <Field label="Seed repositories">
-              <span className="font-mono text-[12.5px]">{run.seeds.join(', ')}</span>
-            </Field>
-          )}
-          {run.previousRunId && (
-            <Field label="Re-run of">
-              <Link
-                to="/w/$slug/agent-runs/$runId"
-                params={{ slug, runId: run.previousRunId }}
-                className="hover:underline"
-              >
-                Previous run
-              </Link>
-            </Field>
-          )}
-        </dl>
-      </CardBody>
-    </Card>
-  );
-}
-
-const TASK_MARKERS = { completed: 'bg-brand', in_progress: 'bg-blue', pending: 'border border-border-soft' } as const;
-
-/** The agent's current tasks, from the latest todos event of the timeline. */
-function RunTasks({ wsId, run }: { wsId: string; run: AgentRun }) {
+function RunPage({ wsId, slug, run }: { wsId: string; slug: string; run: AgentRunDetail }) {
   const queryClient = useQueryClient();
   const timeline = useQuery(agentRunTimelineQueryOptions(queryClient, wsId, run.id, run.status));
-  const tasks = currentTasks(timeline.data ?? []);
-  if (tasks.length === 0) return null;
-  return (
-    <Card>
-      <CardHead title="Agent tasks" sub="The agent’s own checklist, as it last reported it" />
-      <CardBody className="pt-2">
-        <ul aria-label="Agent tasks" className="flex flex-col gap-1.5">
-          {tasks.map((task) => (
-            <li key={`${task.status}:${task.text}`} className="flex items-start gap-2 text-[13.5px] text-ink-2">
-              <span aria-hidden className={`mt-[5px] size-2.5 shrink-0 rounded-full ${TASK_MARKERS[task.status]}`} />
-              <span className="sr-only">{TASK_STATUS_LABELS[task.status]}: </span>
-              <span className={task.status === 'completed' ? 'text-ink-4 line-through' : undefined}>{task.text}</span>
-            </li>
-          ))}
-        </ul>
-      </CardBody>
-    </Card>
-  );
-}
-
-function Timeline({ wsId, run }: { wsId: string; run: AgentRun }) {
-  const queryClient = useQueryClient();
-  const timeline = useQuery(agentRunTimelineQueryOptions(queryClient, wsId, run.id, run.status));
+  const activity = useQuery(agentRunActivityQueryOptions(wsId, run.id, run.status));
+  const specs = useQuery(agentRunSpecsQueryOptions(wsId, run.id, run.latestSpec?.version));
+  const [drawer, setDrawer] = useState<ActivityDrawer>(null);
   const { refetch } = timeline;
   const shownStatus = useRef(run.status);
   // Polling stops when the run ends; the events written as it ended are read once more.
@@ -226,52 +164,70 @@ function Timeline({ wsId, run }: { wsId: string; run: AgentRun }) {
     if (shownStatus.current !== run.status && isTerminalStatus(run.status)) void refetch();
     shownStatus.current = run.status;
   }, [run.status, refetch]);
+
+  const now = new Date();
+  const events = timeline.data ?? [];
+  const turns = activity.data?.turns ?? [];
+  const stages = runStages(run, events, now);
+  const items = conversationItems(run, specs.data ?? [], turns, events);
+  const jump = (stage: RunStage) => {
+    const target = stageTarget(stage, items);
+    if (target) document.getElementById(`run-${target}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  };
+
   return (
-    <Card>
-      <CardHead title="Timeline" sub="Updates every few seconds while the run is active" />
-      <CardBody className="pt-2">
-        <QueryBoundary query={timeline}>
-          {(events) =>
-            events.length === 0 ? (
-              <EmptyNote>Nothing has happened yet.</EmptyNote>
-            ) : (
-              <ol aria-label="Timeline" className="flex flex-col gap-1.5">
-                {timelineItems(events).map((item) =>
-                  item.kind === 'raw' ? (
-                    <li key={item.seq} className="text-[13px] text-ink-3">
-                      <details>
-                        <summary className="cursor-pointer">Agent activity ({item.lines.length})</summary>
-                        <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-surface-2 p-2 font-mono text-[12px] text-ink-3">
-                          {item.lines.join('\n')}
-                        </pre>
-                      </details>
-                    </li>
-                  ) : item.kind === 'diff' ? (
-                    <li key={item.seq} className="text-[13.5px] text-ink-2">
-                      <details>
-                        <summary className="cursor-pointer">{item.text}</summary>
-                        <p className="mt-1 font-mono text-[12px] text-ink-3">{item.paths.join(', ')}</p>
-                        {item.diff ? (
-                          <pre className="mt-1 overflow-x-auto whitespace-pre rounded-lg bg-surface-2 p-2 font-mono text-[12px] text-ink-3">
-                            {item.diff}
-                          </pre>
-                        ) : (
-                          item.note && <p className="mt-1 text-[12.5px] text-ink-4">{item.note}</p>
-                        )}
-                      </details>
-                    </li>
-                  ) : (
-                    <li key={item.seq} className="text-[13.5px] text-ink-2">
-                      {item.text}
-                    </li>
-                  ),
-                )}
-              </ol>
-            )
-          }
-        </QueryBoundary>
-      </CardBody>
-    </Card>
+    <>
+      <PageHead
+        title={run.issueKey}
+        sub={
+          <>
+            <Badge variant={statusTone(run.status)}>{statusLabel(run.status)}</Badge>
+            <Badge variant="neutral">{phaseLabel(run.phase)}</Badge>
+            <span className="tabular-nums">{spendText(run.spend)}</span>
+            {run.previousRunId && (
+              <Link
+                to="/w/$slug/agent-runs/$runId"
+                params={{ slug, runId: run.previousRunId }}
+                className="hover:underline"
+              >
+                Previous run
+              </Link>
+            )}
+            <Link to="/w/$slug/agent-runs" params={{ slug }} className="hover:underline">
+              All agent runs
+            </Link>
+          </>
+        }
+        right={
+          <>
+            <CancelAction wsId={wsId} run={run} />
+            <RerunAction wsId={wsId} slug={slug} run={run} />
+          </>
+        }
+      />
+      <div className="grid items-start gap-5 md:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="flex flex-col gap-3 md:sticky md:top-3">
+          <StageRail
+            stages={stages}
+            span={runSpan(run, stages, now)}
+            running={!isTerminalStatus(run.status)}
+            onJump={jump}
+          />
+          <ArtifactCards run={run} specs={specs.data ?? []} activity={activity.data} onOpen={setDrawer} />
+          <RunDetails run={run} />
+        </aside>
+        <RunConversation
+          wsId={wsId}
+          run={run}
+          items={items}
+          tasks={isTerminalStatus(run.status) ? [] : currentTasks(events)}
+          waitingSince={waitingForRunnerSince(run)}
+          now={now}
+          onOpen={setDrawer}
+        />
+      </div>
+      <RunActivityDrawer wsId={wsId} slug={slug} run={run} drawer={drawer} onClose={() => setDrawer(null)} />
+    </>
   );
 }
 
@@ -284,33 +240,7 @@ export function WorkspaceAgentRun() {
 
   return (
     <div className="flex flex-col gap-4">
-      <QueryBoundary query={run}>
-        {(data) => (
-          <>
-            <PageHead
-              title={data.issueKey}
-              sub={
-                <>
-                  <Badge variant={statusTone(data.status)}>{statusLabel(data.status)}</Badge>
-                  <Badge variant="neutral">{phaseLabel(data.phase)}</Badge>
-                  <JiraLink run={data} />
-                  <Link to="/w/$slug/agent-runs" params={{ slug }} className="hover:underline">
-                    All agent runs
-                  </Link>
-                </>
-              }
-            />
-            <RunHeader wsId={workspace.id} slug={slug} run={data} />
-            <QuestionCard wsId={workspace.id} run={data} />
-            <ScopeReview wsId={workspace.id} run={data} />
-            <RunRepositories run={data} />
-            <RunPullRequests run={data} />
-            <Assumptions run={data} />
-            <RunTasks wsId={workspace.id} run={data} />
-            <Timeline wsId={workspace.id} run={data} />
-          </>
-        )}
-      </QueryBoundary>
+      <QueryBoundary query={run}>{(data) => <RunPage wsId={workspace.id} slug={slug} run={data} />}</QueryBoundary>
     </div>
   );
 }

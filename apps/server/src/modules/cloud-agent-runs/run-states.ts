@@ -130,7 +130,7 @@ export const RunEventCode = {
   RepositoryDeclined: 'repository_declined',
 } as const;
 
-/** Server-owned timeline events; agent events (`phase`, `todos`, `raw`, `done`) come from the runner contract. */
+/** Server-owned timeline events; agent events (`phase`, `todos`, `message`, `tool`, `skill`, `result`, `raw`, `done`) come from the runner contract. */
 export const ServerEventType = {
   StatusChanged: 'status_changed',
   TurnStarted: 'turn_started',
@@ -164,6 +164,10 @@ export const CloudAgentRunErrorCode = {
   QuestionNotFound: 'QUESTION_NOT_FOUND',
   ArchiveTooLarge: 'ARCHIVE_TOO_LARGE',
   ArchiveNotFound: 'ARCHIVE_NOT_FOUND',
+  /** The run's state archive holds no transcript for the phase, or there is no archive yet. */
+  TranscriptNotFound: 'TRANSCRIPT_NOT_FOUND',
+  /** The transcript is over MAX_TRANSCRIPT_BYTES; it is not downloaded. */
+  TranscriptTooLarge: 'TRANSCRIPT_TOO_LARGE',
   /** A runner report that contradicts the run (a repository outside it, a push to an unreserved branch). */
   InvalidReport: 'INVALID_REPORT',
   /** The runner token sent more requests than its rate limit allows. */

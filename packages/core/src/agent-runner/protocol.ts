@@ -286,10 +286,21 @@ export const AGENT_TODO_STATUSES = ['pending', 'in_progress', 'completed'] as co
 
 const boundedText = z.string().max(16_384);
 
+/** Caps on the structured activity events; each event stays well under the server's stored-payload cap. */
+export const MAX_TOOL_TARGET_CHARS = 500;
+export const MAX_TOOL_SUMMARY_CHARS = 200;
+export const MAX_TOOL_ERROR_OUTPUT_CHARS = 4_000;
+export const MAX_TOOL_INTENT_IDS = 50;
+export const MAX_AGENT_MESSAGE_CHARS = 4_000;
+
 /**
  * Events a runner may report. Status, turn and run events are server-owned and
  * deliberately absent, so a runner can never forge a status change on the
  * timeline.
+ *
+ * `message`, `tool`, `skill` and `result` were added within protocol version
+ * 1 and replace the agent's `raw` text lines; a server must still accept and
+ * show `raw` from older runners. Upgrade the server before the runner.
  */
 export const RunnerEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('phase'), phase: z.string().min(1).max(64) }),
@@ -298,6 +309,36 @@ export const RunnerEventSchema = z.discriminatedUnion('type', [
     items: z.array(z.object({ text: z.string().max(2_000), status: z.enum(AGENT_TODO_STATUSES) })).max(200),
   }),
   z.object({ type: z.literal('raw'), text: boundedText }),
+  /** The agent's own text between tool calls. */
+  z.object({ type: z.literal('message'), text: z.string().max(MAX_AGENT_MESSAGE_CHARS) }),
+  /** One tool call, reported when its result arrives (or when the session ended without one). */
+  z.object({
+    type: z.literal('tool'),
+    /** The tool's name; for an MCP tool, the name within its server. */
+    name: z.string().min(1).max(200),
+    /** The MCP server, for MCP tools. */
+    server: z.string().min(1).max(200).optional(),
+    /** What it acted on: a path, a command, a query. */
+    target: z.string().max(MAX_TOOL_TARGET_CHARS).optional(),
+    /** A one-line summary of the result. */
+    summary: z.string().max(MAX_TOOL_SUMMARY_CHARS).optional(),
+    isError: z.boolean(),
+    /** The start of a failed call's output. */
+    errorOutput: z.string().max(MAX_TOOL_ERROR_OUTPUT_CHARS).optional(),
+    /**
+     * Intent item ids from the call's answer: the items a `get_intent_context`
+     * returned, or the items an `intent_propose` created or updated.
+     */
+    intentIds: z.array(z.string().min(1).max(200)).max(MAX_TOOL_INTENT_IDS).optional(),
+  }),
+  /** A skill the agent loaded, by its full name (`plugin:skill`). */
+  z.object({ type: z.literal('skill'), name: z.string().min(1).max(200) }),
+  /** The implement phase's recorded `submit_result`: its summary and one point per repository. */
+  z.object({
+    type: z.literal('result'),
+    summary: z.string().max(4_000),
+    points: z.array(z.string().max(2_000)).max(100),
+  }),
   z.object({
     type: z.literal('done'),
     ok: z.boolean(),

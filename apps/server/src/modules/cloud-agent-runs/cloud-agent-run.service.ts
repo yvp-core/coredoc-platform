@@ -278,7 +278,7 @@ export class CloudAgentRunService {
       where: { runId, seq: { gt: after } },
       orderBy: { seq: 'asc' },
       take: limit,
-      select: { seq: true, type: true, payload: true, truncated: true, createdAt: true },
+      select: { seq: true, turnId: true, type: true, payload: true, truncated: true, createdAt: true },
     });
     return {
       events: events.map((event) => ({ ...event, createdAt: event.createdAt.toISOString() })),

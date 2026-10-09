@@ -124,6 +124,8 @@ export interface AgentRunQuestion {
   answeredAt: string | null;
   /** Null when answered automatically. */
   answeredBy: string | null;
+  /** The turn that asked; absent from servers that predate it. */
+  askedInTurnId?: string | null;
 }
 
 /** An assumption the agent listed instead of asking. */
@@ -155,7 +157,6 @@ export interface AgentRunResult {
   notes: string;
 }
 
-/** One run as the run page reads it. */
 /** A pull request the server read back from GitHub and confirmed is the run branch's. */
 export interface AgentRunPullRequest {
   repository: string;
@@ -181,6 +182,7 @@ export interface AgentRunJiraOutcome {
   transition?: { outcome: string; reason?: string | null };
 }
 
+/** One run as the run page reads it. */
 export interface AgentRunDetail extends AgentRun {
   /** The issue on the Jira connector's site; null when the connector has no site URL. */
   issueUrl: string | null;
@@ -204,10 +206,47 @@ export interface AgentRunList {
 
 export interface AgentRunEvent {
   seq: number;
+  /** The turn whose runner reported it, or which it records; null for run-level events. */
+  turnId?: string | null;
   type: string;
   payload: Record<string, unknown>;
   truncated: boolean;
   createdAt: string;
+}
+
+/** One turn of a run, as the activity endpoint reports it. */
+export interface AgentRunTurnActivity {
+  id: string;
+  ordinal: number;
+  kind: TurnKind;
+  state: 'queued' | 'claimed' | 'completed' | 'abandoned';
+  outcome: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationSeconds: number | null;
+  spendUsd: number | null;
+  toolCalls: number;
+  failedToolCalls: number;
+}
+
+/** An intent item the agent read or proposed; the nulls are an item that no longer exists. */
+export interface AgentRunIntentRef {
+  id: string;
+  title: string | null;
+  kind: string | null;
+  authority: 'candidate' | 'accepted' | 'rejected' | 'superseded' | null;
+  /** The domain and feature titles, joined; null for a product-level item. */
+  location: string | null;
+}
+
+/** Per-turn activity and the run's skill and tool counts, from the runner's structured events. */
+export interface AgentRunActivity {
+  turns: AgentRunTurnActivity[];
+  skills: Array<{ name: string; count: number }>;
+  /** `server` is set for MCP tools. */
+  tools: Array<{ name: string; server: string | null; count: number }>;
+  /** Absent from servers that predate it. */
+  intent?: { read: AgentRunIntentRef[]; proposed: AgentRunIntentRef[] };
 }
 
 export interface AgentRunEventPage {

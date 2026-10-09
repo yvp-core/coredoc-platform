@@ -117,12 +117,69 @@ export function redactSecrets(text: string): string {
   return redacted;
 }
 
-/** Masks every string value in an event payload; keys, numbers and booleans are kept. */
-export function redactPayload<T>(value: T): T {
-  if (typeof value === 'string') return redactSecrets(value) as T;
-  if (Array.isArray(value)) return value.map((item) => redactPayload(item)) as T;
+function redactStrings<T>(value: T, redact: (text: string) => string): T {
+  if (typeof value === 'string') return redact(value) as T;
+  if (Array.isArray(value)) return value.map((item) => redactStrings(item, redact)) as T;
   if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactPayload(item)])) as T;
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactStrings(item, redact)])) as T;
   }
   return value;
+}
+
+/** Masks every string value in an event payload; keys, numbers and booleans are kept. */
+export function redactPayload<T>(value: T): T {
+  return redactStrings(value, redactSecrets);
+}
+
+/** How far back from a window's end a cut is looked for. */
+const CUT_LOOKBACK = 8 * 1024;
+const TOKEN_CHAR = /[A-Za-z0-9_.~+/=-]/;
+
+/**
+ * Where the window starting at `start` ends: after the last newline in its
+ * tail, else after whitespace, else after a character no token contains. No
+ * pattern but a private-key block spans a newline, and those are masked over
+ * the whole text first.
+ */
+function windowEnd(text: string, start: number): number {
+  const end = start + MAX_REDACTED_CHARS;
+  if (end >= text.length) return text.length;
+  const from = end - CUT_LOOKBACK;
+  const newline = text.lastIndexOf('\n', end - 1);
+  if (newline >= from) return newline + 1;
+  for (let at = end - 1; at >= from; at -= 1) if (/\s/.test(text[at]!)) return at + 1;
+  for (let at = end - 1; at >= from; at -= 1) if (!TOKEN_CHAR.test(text[at]!)) return at + 1;
+  return end;
+}
+
+/**
+ * Masks text of any length without cutting it: private-key blocks over the
+ * whole text, the other patterns window by window, each window ending on a
+ * boundary no other pattern crosses. Linear, like redactSecrets.
+ */
+export function redactLongText(text: string): string {
+  if (text.length <= MAX_REDACTED_CHARS) return redactSecrets(text);
+  const masked = maskPrivateKeys(text);
+  let redacted = '';
+  for (let start = 0; start < masked.length; ) {
+    const end = windowEnd(masked, start);
+    redacted += redactSecrets(masked.slice(start, end));
+    start = end;
+  }
+  return redacted;
+}
+
+/**
+ * Masks one line of a Claude Code transcript (JSONL). A JSON line is masked
+ * string by string after decoding, so an escaped newline before a token does
+ * not hide it; anything else is masked as text. Nothing is cut.
+ */
+export function redactTranscriptLine(line: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return redactLongText(line);
+  }
+  return JSON.stringify(redactStrings(parsed, redactLongText));
 }

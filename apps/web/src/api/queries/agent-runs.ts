@@ -2,6 +2,7 @@ import { type QueryClient, queryOptions } from '@tanstack/react-query';
 import { mergeTimeline, pollInterval } from '../../features/agent-runs/agent-run-presentation.js';
 import type {
   AgentRun,
+  AgentRunActivity,
   AgentRunDetail,
   AgentRunEvent,
   AgentRunEventPage,
@@ -66,6 +67,19 @@ export const agentRunTimelineQueryOptions = (
     },
     refetchInterval: pollInterval(status),
   });
+
+/** Per-turn activity and skill and tool counts, refreshed with the timeline while the run is active. */
+export const agentRunActivityQueryOptions = (wsId: string, runId: string, status: AgentRun['status'] | undefined) =>
+  queryOptions({
+    queryKey: ['ws', wsId, 'agent-runs', runId, 'activity'] as const,
+    queryFn: () => request<AgentRunActivity>(`${base(wsId)}/${runId}/activity`),
+    refetchInterval: pollInterval(status),
+  });
+
+/** A plain link: the session cookie authenticates the download, which the browser streams to disk. */
+export function agentRunTranscriptUrl(wsId: string, runId: string, phase: 'scope' | 'implement'): string {
+  return `${base(wsId)}/${runId}/transcript?phase=${phase}`;
+}
 
 export function startAgentRun(params: {
   wsId: string;

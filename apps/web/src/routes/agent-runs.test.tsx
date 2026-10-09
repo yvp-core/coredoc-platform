@@ -141,6 +141,7 @@ let posts: { path: string; body: unknown }[] = [];
 let detail: Record<string, unknown>;
 let timelineEvents: Array<{
   seq: number;
+  turnId?: string | null;
   type: string;
   payload: Record<string, unknown>;
   truncated: boolean;
@@ -149,6 +150,8 @@ let timelineEvents: Array<{
 let availability: { available: boolean; reasons: { code: string; message: string }[] };
 let runnerTokens: Record<string, unknown>[] = [];
 let listNextOffset: number | null = null;
+const NO_ACTIVITY = { turns: [], skills: [], tools: [] };
+let activity: Record<string, unknown> = NO_ACTIVITY;
 
 beforeEach(() => {
   agentRunsEnabled = true;
@@ -161,6 +164,7 @@ beforeEach(() => {
   availability = { available: true, reasons: [] };
   runnerTokens = [];
   listNextOffset = null;
+  activity = NO_ACTIVITY;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -212,6 +216,8 @@ beforeEach(() => {
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}`) return new Response(JSON.stringify(detail));
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RERUN_ID}`)
         return new Response(JSON.stringify(run({ id: RERUN_ID, trigger: 'rerun', previousRunId: RUN_ID })));
+      if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/activity`)
+        return new Response(JSON.stringify(activity));
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/specs`)
         return new Response(JSON.stringify({ versions: specs }));
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/events`) {
@@ -234,6 +240,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 function mount(path: string) {
@@ -264,22 +271,18 @@ describe('agent runs routes', () => {
     );
   });
 
-  it('deep-links to a run: status, waiting note and the timeline in sequence order', async () => {
+  it('deep-links to a run: header, the stage under way, and the waiting note', async () => {
     mount(`/w/acme/agent-runs/${RUN_ID}`);
 
     expect(await screen.findByRole('heading', { name: 'PROJ-7' })).toBeInTheDocument();
     expect(screen.getByText(/Waiting for an agent runner since/)).toBeInTheDocument();
-
-    const timeline = await screen.findByRole('list', { name: 'Timeline' });
-    const rows = within(timeline)
-      .getAllByRole('listitem')
-      .map((row) => row.textContent);
-    expect(rows).toEqual([
-      expect.stringContaining('Status: Queued'),
-      expect.stringContaining('Status: Scoping'),
-      expect.stringContaining('Scope turn started (attempt 1)'),
-      expect.stringContaining('Agent activity (1)'),
-    ]);
+    const stages = await screen.findByRole('navigation', { name: 'Stages' });
+    expect(await within(stages).findByRole('button', { name: /Scope.*so far/ })).toBeInTheDocument();
+    expect(within(stages).getByText('Total')).toBeInTheDocument();
+    const conversation = screen.getByRole('region', { name: 'Conversation' });
+    expect(within(conversation).getByText('Started')).toBeInTheDocument();
+    // Raw runner lines stay in the trace.
+    expect(within(conversation).queryByText(/no agent configured/)).toBeNull();
   });
 
   it('heads the run page with the Jira issue link, status and phase, and lists the agent’s current tasks', async () => {
@@ -368,15 +371,18 @@ describe('agent runs routes', () => {
     detail = run({ status: 'done', currentTurn: null });
     timelineEvents = Array.from({ length: 1_200 }, (_, index) => ({
       seq: index + 1,
-      type: 'raw',
-      payload: { text: `line ${index + 1}` },
+      type: index === 1_199 ? 'run_event' : 'raw',
+      payload:
+        index === 1_199
+          ? { code: 'workflow_diff_withheld', text: 'Workflow changes withheld', paths: ['ci.yml'], diff: null }
+          : { text: `line ${index + 1}` },
       truncated: false,
       createdAt: '2026-10-10T09:00:00.000Z',
     }));
     mount(`/w/acme/agent-runs/${RUN_ID}`);
 
-    const timeline = await screen.findByRole('list', { name: 'Timeline' });
-    expect(within(timeline).getByText('Agent activity (1200)')).toBeInTheDocument();
+    const conversation = await screen.findByRole('region', { name: 'Conversation' });
+    expect(await within(conversation).findByText('Workflow changes withheld')).toBeInTheDocument();
   });
 
   it('starts a run with seed repository keys', async () => {
@@ -558,18 +564,22 @@ describe('agent runs routes', () => {
       expect(await within(card).findByText(/already been answered/)).toBeInTheDocument();
     });
 
-    it('lists the assumptions the agent made', async () => {
-      detail = run({
-        status: 'awaiting_scope_acceptance',
-        currentTurn: null,
-        openQuestion: null,
-        questions: [],
-        assumptions: [{ phase: 'scope', text: 'Exports are CSV only' }],
-      });
+    it('shows an answered question with the chosen options marked, and no answer form', async () => {
+      const answered = {
+        ...openQuestion(),
+        state: 'answered',
+        answers: [{ labels: ['Blue'] }, { labels: ['CSV'], other: 'Parquet' }],
+        answeredAt: '2026-10-10T09:05:00.000Z',
+        answeredBy: 'u1',
+      };
+      detail = run({ status: 'scoping', currentTurn: null, openQuestion: null, questions: [answered] });
       mount(`/w/acme/agent-runs/${RUN_ID}`);
 
-      const assumptions = await screen.findByRole('region', { name: 'Assumptions' });
-      expect(within(assumptions).getByText('Exports are CSV only')).toBeInTheDocument();
+      const colour = await screen.findByRole('list', { name: 'Options: Colour' });
+      expect(within(colour).getByText('Blue')).toHaveAttribute('aria-current', 'true');
+      expect(within(colour).getByText('Red')).not.toHaveAttribute('aria-current');
+      const formats = screen.getByRole('list', { name: 'Options: Formats' });
+      expect(within(formats).getByText('Parquet').closest('li')).toHaveAttribute('aria-current', 'true');
       expect(screen.queryByRole('region', { name: 'Question from the agent' })).toBeNull();
     });
   });
@@ -587,27 +597,43 @@ describe('agent runs routes', () => {
       });
     });
 
-    it('shows the latest proposal: spec, repositories with eligibility, dropped seeds and candidates', async () => {
+    it('shows both proposals and the review between them, with the review actions on the latest only', async () => {
       mount(`/w/acme/agent-runs/${RUN_ID}`);
-      const review = await screen.findByRole('region', { name: 'Scope review' });
+      const conversation = await screen.findByRole('region', { name: 'Conversation' });
 
-      expect(within(review).getByRole('heading', { name: 'Spec v2' })).toBeInTheDocument();
-      const rows = within(within(review).getByRole('table', { name: 'Repositories' }))
+      expect(await within(conversation).findByText('Scope v1')).toBeInTheDocument();
+      expect(within(conversation).getByText('Scope v2')).toBeInTheDocument();
+      expect(within(conversation).getByText('Changes requested on v1')).toBeInTheDocument();
+      expect(within(conversation).getByText('Cover billing too.')).toBeInTheDocument();
+      expect(within(conversation).getAllByRole('region', { name: 'Scope review' })).toHaveLength(1);
+      expect(
+        within(conversation).getByText('Scope v2').closest('li')!.querySelector('[aria-label="Scope review"]'),
+      ).not.toBeNull();
+    });
+
+    it('opens the spec in a drawer: repositories with eligibility, dropped seeds and candidates', async () => {
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      fireEvent.click(await screen.findByRole('button', { name: 'Spec: v2 · Proposed' }));
+
+      const drawer = await screen.findByRole('dialog', { name: 'Spec' });
+      const document = within(drawer).getByRole('article', { name: 'Spec v2' });
+      const rows = within(within(document).getByRole('table', { name: 'Repositories' }))
         .getAllByRole('row')
         .map((row) => row.textContent);
       expect(rows[1]).toContain('orders-api');
       expect(rows[1]).toContain('Owns the order records');
       expect(rows[2]).toMatch(/billing-api.*Not eligible/);
-      expect(within(review).getByText(/legacy-tool/)).toBeInTheDocument();
-      expect(within(review).getByText('Should exports include refunds?')).toBeInTheDocument();
+      expect(within(document).getByText(/legacy-tool/)).toBeInTheDocument();
+      expect(within(document).getByText('Should exports include refunds?')).toBeInTheDocument();
     });
 
     it('never renders a remote image from agent-written markdown', async () => {
       mount(`/w/acme/agent-runs/${RUN_ID}`);
-      const review = await screen.findByRole('region', { name: 'Scope review' });
+      fireEvent.click(await screen.findByRole('button', { name: 'Open spec v2' }));
+      const drawer = await screen.findByRole('dialog', { name: 'Spec' });
 
-      expect(review.querySelector('img')).toBeNull();
-      expect(within(review).getByText(/architecture/)).toHaveTextContent('https://images.example.com/diagram.png');
+      expect(drawer.querySelector('img')).toBeNull();
+      expect(within(drawer).getByText(/architecture/)).toHaveTextContent('https://images.example.com/diagram.png');
     });
 
     it('accepts the displayed version', async () => {
@@ -646,28 +672,30 @@ describe('agent runs routes', () => {
       );
     });
 
-    it('shows an earlier version with its review text, without review actions', async () => {
+    it('switches the spec drawer to an earlier version with the reviewer’s feedback', async () => {
       mount(`/w/acme/agent-runs/${RUN_ID}`);
-      fireEvent.change(await screen.findByLabelText('Version'), { target: { value: '1' } });
+      fireEvent.click(await screen.findByRole('button', { name: 'Spec: v2 · Proposed' }));
+      const drawer = await screen.findByRole('dialog', { name: 'Spec' });
+      fireEvent.click(await within(drawer).findByRole('button', { name: 'v1' }));
 
-      const review = screen.getByRole('region', { name: 'Scope review' });
-      expect(await within(review).findByRole('heading', { name: 'Spec v1' })).toBeInTheDocument();
-      expect(within(review).getByText('Cover billing too.')).toBeInTheDocument();
-      expect(within(review).queryByRole('button', { name: 'Accept scope' })).toBeNull();
+      const document = within(drawer).getByRole('article', { name: 'Spec v1' });
+      expect(within(document).getByText('Changes requested')).toBeInTheDocument();
+      expect(within(document).getByText('Cover billing too.')).toBeInTheDocument();
+      expect(within(drawer).queryByRole('button', { name: 'Accept scope' })).toBeNull();
     });
   });
 
   describe('implementation', () => {
     const HEAD = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
 
-    it('lists repositories with pushed heads, withheld paths and those not built or tested, and the withheld workflow diff', async () => {
+    it('shows the result with what is not built or tested, what was withheld, the assumptions and the withheld workflow diff', async () => {
       detail = run({
         status: 'delivering',
         phase: 'delivery',
         currentTurn: null,
         openQuestion: null,
         questions: [],
-        assumptions: [],
+        assumptions: [{ phase: 'implement', text: 'Exports are CSV only' }],
         result: { summary: 'Added the orders export.', repositories: [], notes: '' },
         repositories: [
           {
@@ -722,23 +750,266 @@ describe('agent runs routes', () => {
       ] as typeof EVENTS;
       mount(`/w/acme/agent-runs/${RUN_ID}`);
 
-      const card = await screen.findByRole('region', { name: 'Repositories' });
-      expect(within(card).getByText('Added the orders export.')).toBeInTheDocument();
-      const rows = within(card)
-        .getAllByRole('row')
-        .map((row) => row.textContent);
-      expect(rows).toEqual([
-        expect.stringContaining('Repository'),
-        expect.stringMatching(/billing-api.*Not pushed.*Its tests need Docker compose.*\.env/),
-        expect.stringMatching(/orders-api.*a1b2c3d.*Built and tested in the runner.*\.github\/workflows\/ci\.yml/),
+      const conversation = await screen.findByRole('region', { name: 'Conversation' });
+      const result = (await within(conversation).findByText('Result')).closest('li')!;
+      expect(within(result).getByText('Added the orders export.')).toBeInTheDocument();
+      expect(within(result).getByText(/Exports are CSV only/)).toBeInTheDocument();
+      expect(
+        within(result)
+          .getAllByRole('listitem')
+          .map((row) => row.textContent),
+      ).toEqual([
+        'billing-api: not built or tested in the runner (Its tests need Docker compose)',
+        'billing-api: left out of the push: .env',
+        'orders-api: left out of the push: .github/workflows/ci.yml',
+        'Exports are CSV only',
       ]);
 
-      const timeline = await screen.findByRole('list', { name: 'Timeline' });
-      expect(within(timeline).getByText('Pushed coredoc/PROJ-7 in orders-api')).toBeInTheDocument();
-      expect(within(timeline).getByText(/Workflow changes in orders-api were withheld/)).toBeInTheDocument();
+      expect(await within(conversation).findByText(/Workflow changes in orders-api were withheld/)).toBeInTheDocument();
       expect(
-        within(timeline).getByText('+    runs-on: ubuntu-latest', { normalizer: (text) => text }),
+        within(conversation).getByText('+    runs-on: ubuntu-latest', { normalizer: (text) => text }),
       ).toBeInTheDocument();
+    });
+  });
+
+  describe('trace', () => {
+    const at = (minute: number) => `2026-10-10T09:${String(minute).padStart(2, '0')}:00.000Z`;
+    const event = (seq: number, turnId: string | null, type: string, payload: Record<string, unknown>) => ({
+      seq,
+      turnId,
+      type,
+      payload,
+      truncated: false,
+      createdAt: at(seq),
+    });
+
+    beforeEach(() => {
+      activity = {
+        turns: [
+          {
+            id: 'turn-1',
+            ordinal: 1,
+            kind: 'scope',
+            state: 'completed',
+            outcome: 'no_outcome',
+            startedAt: at(1),
+            endedAt: at(12),
+            durationSeconds: 660,
+            spendUsd: 0.4,
+            toolCalls: 3,
+            failedToolCalls: 1,
+          },
+          {
+            id: 'turn-2',
+            ordinal: 2,
+            kind: 'scope',
+            state: 'claimed',
+            outcome: null,
+            startedAt: at(13),
+            endedAt: null,
+            durationSeconds: null,
+            spendUsd: null,
+            toolCalls: 1,
+            failedToolCalls: 0,
+          },
+        ],
+        skills: [{ name: 'coredoc-workflows:coredoc-spec', count: 2 }],
+        tools: [
+          { name: 'Read', server: null, count: 2 },
+          { name: 'Bash', server: null, count: 1 },
+          { name: 'search_symbols', server: 'coredoc', count: 1 },
+        ],
+      };
+      timelineEvents = [
+        event(1, 'turn-1', 'turn_started', { kind: 'scope', attempt: 1 }),
+        event(2, 'turn-1', 'raw', { text: '[init] model=default' }),
+        event(3, 'turn-1', 'skill', { name: 'coredoc-workflows:coredoc-spec' }),
+        event(4, 'turn-1', 'tool', { name: 'Read', target: 'PRD.md', summary: '42 lines', isError: false }),
+        event(5, 'turn-1', 'message', { text: 'The PRD names one service.' }),
+        event(6, 'turn-1', 'tool', {
+          name: 'Bash',
+          target: 'pnpm test',
+          summary: '2 failed',
+          isError: true,
+          errorOutput: 'FAIL orders.test.ts > exports CSV',
+        }),
+        event(7, 'turn-1', 'tool', {
+          name: 'search_symbols',
+          server: 'coredoc',
+          target: 'order export',
+          summary: '6 symbols',
+          isError: false,
+        }),
+        event(8, 'turn-1', 'turn_ended', { outcome: 'no_outcome', spendUsd: 0.4 }),
+        event(9, 'turn-2', 'turn_started', { kind: 'scope', attempt: 1 }),
+        event(10, 'turn-2', 'skill', { name: 'coredoc-workflows:coredoc-spec' }),
+        event(11, 'turn-2', 'tool', { name: 'Read', target: 'src/orders.ts', summary: '10 lines', isError: false }),
+      ];
+    });
+
+    it('opens every turn’s trace in a drawer: tool rows with results, failures with their output, messages, and the transcript download', async () => {
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      fireEvent.click(await screen.findByRole('button', { name: /^Trace: / }));
+
+      const drawer = await screen.findByRole('dialog', { name: 'Trace' });
+      const first = within(drawer).getByRole('list', { name: 'Scope 1 trace' });
+      expect(
+        within(first)
+          .getAllByRole('listitem')
+          .map((row) => row.textContent),
+      ).toEqual([
+        expect.stringContaining('[init] model=default'),
+        expect.stringMatching(/Skill.*coredoc-spec/),
+        expect.stringMatching(/Read.*PRD\.md.*42 lines/),
+        expect.stringContaining('The PRD names one service.'),
+        expect.stringMatching(/Bash.*pnpm test.*2 failed.*FAIL orders\.test\.ts > exports CSV/),
+        expect.stringMatching(/MCP.*search_symbols order export.*6 symbols/),
+      ]);
+      expect(within(first).getByText('FAIL orders.test.ts > exports CSV').closest('li')).toHaveAttribute(
+        'data-failed',
+        'true',
+      );
+      expect(within(drawer).getByRole('list', { name: 'Scope 2 trace' })).toBeInTheDocument();
+      expect(within(drawer).getByRole('link', { name: /Download transcript/ })).toHaveAttribute(
+        'href',
+        `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/transcript?phase=scope`,
+      );
+    });
+
+    it('opens a turn’s trace from its timeline line, with only that turn expanded', async () => {
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      fireEvent.click(await screen.findByRole('button', { name: 'Trace of turn 2' }));
+
+      const drawer = await screen.findByRole('dialog', { name: 'Trace' });
+      expect(within(drawer).getByRole('list', { name: 'Scope 2 trace' }).closest('details')).toHaveAttribute('open');
+      expect(within(drawer).getByRole('list', { name: 'Scope 1 trace' }).closest('details')).not.toHaveAttribute(
+        'open',
+      );
+    });
+
+    it('shows a question the turn asked, with the options the person chose', async () => {
+      detail = run({
+        status: 'scoping',
+        currentTurn: null,
+        questions: [
+          {
+            ...openQuestion(),
+            state: 'answered',
+            answers: [{ labels: ['Blue'] }, { labels: ['CSV'], other: 'Parquet' }],
+            askedAt: at(5),
+            answeredAt: at(9),
+            answeredBy: 'u1',
+            askedInTurnId: 'turn-1',
+          },
+        ],
+      });
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      fireEvent.click(await screen.findByRole('button', { name: 'Trace of turn 1' }));
+
+      const first = within(await screen.findByRole('dialog', { name: 'Trace' })).getByRole('list', {
+        name: 'Scope 1 trace',
+      });
+      const rows = within(first)
+        .getAllByRole('listitem')
+        .map((row) => row.textContent);
+      expect(rows.indexOf(rows.find((row) => row?.includes('Colour · Formats'))!)).toBe(4);
+      expect(rows[4]).toMatch(/Ask.*Colour · Formats.*answered.*Colour.*Blue.*Formats.*CSV, Other: Parquet/);
+    });
+
+    it('counts the skills and tools the agent used', async () => {
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      fireEvent.click(await screen.findByRole('button', { name: /^Skills and tools: / }));
+
+      const drawer = await screen.findByRole('dialog', { name: 'Skills and tools' });
+      const rows = (name: string) =>
+        within(within(drawer).getByRole('list', { name }))
+          .getAllByRole('listitem')
+          .map((row) => row.textContent);
+      expect(rows('Skills')).toEqual(['coredoc-spec2']);
+      expect(rows('Tools')).toEqual(['Read2', 'Bash1', 'search_symbols1']);
+    });
+  });
+
+  describe('product intent and stages', () => {
+    const ref = (id: string, title: string | null, authority: string | null, location: string | null) => ({
+      id,
+      title,
+      kind: title ? 'business_rule' : null,
+      authority,
+      location,
+    });
+
+    it('lists the intent the agent read and the candidates it proposed, linking to Intent review', async () => {
+      activity = {
+        ...NO_ACTIVITY,
+        turns: [
+          {
+            id: 'turn-1',
+            ordinal: 1,
+            kind: 'implement',
+            state: 'completed',
+            outcome: 'result_submitted',
+            startedAt: '2026-10-10T09:00:00.000Z',
+            endedAt: '2026-10-10T09:10:00.000Z',
+            durationSeconds: 600,
+            spendUsd: 1,
+            toolCalls: 4,
+            failedToolCalls: 0,
+          },
+        ],
+        intent: {
+          read: [
+            ref('br-default-table', 'Status output stays human-readable by default', 'accepted', 'CLI · Status'),
+            ref('br-gone', null, null, null),
+          ],
+          proposed: [ref('br-json-opt-in', 'JSON status output is opt-in', 'candidate', 'CLI · Status')],
+        },
+      };
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      fireEvent.click(await screen.findByRole('button', { name: 'Product intent: 2 items read' }));
+
+      const drawer = await screen.findByRole('dialog', { name: 'Product intent' });
+      expect(
+        within(within(drawer).getByRole('list', { name: 'Read by the agent' }))
+          .getAllByRole('listitem')
+          .map((row) => row.textContent),
+      ).toEqual([
+        'Status output stays human-readable by defaultCLI · Status',
+        'br-goneNo longer in the product intent',
+      ]);
+      expect(within(drawer).getByRole('list', { name: 'Proposed' }).textContent).toBe(
+        'JSON status output is opt-inCLI · StatusWaiting for Intent review',
+      );
+      expect(within(drawer).getByRole('link', { name: 'Open Intent review' })).toHaveAttribute(
+        'href',
+        '/w/acme/intent',
+      );
+    });
+
+    it('scrolls the conversation to a stage when it is clicked', async () => {
+      const scrolled: string[] = [];
+      vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+        scrolled.push(this.id);
+      });
+      specs = [
+        spec(1, 'changes_requested', { reviewText: 'Cover billing too.', reviewedAt: '2026-10-10T09:20:00.000Z' }),
+      ];
+      detail = run({ status: 'scoping', latestSpec: specs[0], currentTurn: null });
+      timelineEvents = [
+        { seq: 1, type: 'status_changed', payload: { to: 'scoping' }, createdAt: '2026-10-10T09:00:00.000Z' },
+        {
+          seq: 2,
+          type: 'status_changed',
+          payload: { to: 'awaiting_scope_acceptance' },
+          createdAt: '2026-10-10T09:00:00.000Z',
+        },
+        { seq: 3, type: 'status_changed', payload: { to: 'scoping' }, createdAt: '2026-10-10T09:20:00.000Z' },
+      ].map((event) => ({ ...event, truncated: false }));
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+
+      const stages = await screen.findByRole('navigation', { name: 'Stages' });
+      fireEvent.click(await within(stages).findByRole('button', { name: /^Review/ }));
+      expect(scrolled).toEqual(['run-review-1']);
     });
   });
 
@@ -770,16 +1041,19 @@ describe('agent runs routes', () => {
       });
       mount(`/w/acme/agent-runs/${RUN_ID}`);
 
-      const card = await screen.findByRole('region', { name: 'Pull requests' });
-      const links = within(card).getAllByRole('link');
+      const links = await screen.findAllByRole('link', { name: /^Pull request #/ });
       expect(links.map((link) => link.getAttribute('href'))).toEqual([
         'https://github.com/example-org/billing-api/pull/4',
         'https://github.com/example-org/orders-api/pull/9',
       ]);
-      expect(within(card).getByText('Draft')).toBeInTheDocument();
-      expect(within(card).getByText('Merged')).toBeInTheDocument();
-      expect(within(card).getByText(/Done comment posted on Jira/)).toBeInTheDocument();
-      expect(within(card).getByText(/No transition to Done is available/)).toBeInTheDocument();
+      expect(links.map((link) => link.textContent)).toEqual([
+        expect.stringContaining('#4 · Draft'),
+        expect.stringContaining('#9 · Merged'),
+      ]);
+      const conversation = screen.getByRole('region', { name: 'Conversation' });
+      expect(within(conversation).getByText('PR #4, PR #9')).toBeInTheDocument();
+      expect(within(conversation).getByText(/Done comment posted on Jira/)).toBeInTheDocument();
+      expect(within(conversation).getByText(/No transition to Done is available/)).toBeInTheDocument();
     });
 
     it('says when the Jira failure comment could not be posted', async () => {
@@ -800,8 +1074,10 @@ describe('agent runs routes', () => {
       });
       mount(`/w/acme/agent-runs/${RUN_ID}`);
 
-      const card = await screen.findByRole('region', { name: 'Pull requests' });
-      expect(within(card).getByText(/Failure comment not posted on Jira: Jira answered 503\./)).toBeInTheDocument();
+      const conversation = await screen.findByRole('region', { name: 'Conversation' });
+      expect(
+        within(conversation).getByText(/Failure comment not posted on Jira: Jira answered 503\./),
+      ).toBeInTheDocument();
     });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_REDACTED_CHARS, redactPayload, redactSecrets } from './redact-secrets.js';
+import { MAX_REDACTED_CHARS, redactPayload, redactSecrets, redactTranscriptLine } from './redact-secrets.js';
 
 describe('redactSecrets', () => {
   it.each([
@@ -141,5 +141,28 @@ describe('redactPayload', () => {
       ok: true,
       costUsd: 1.5,
     });
+  });
+});
+
+describe('redactTranscriptLine', () => {
+  const token = 'ghp_0123456789abcdefghijABCDEFGHIJ012345';
+
+  it('keeps a tool result longer than the scan cap whole and masks a secret near its end', () => {
+    const output = `${'line of build output\n'.repeat(5_000)}export GITHUB_TOKEN=${token}\ndone`;
+    expect(output.length).toBeGreaterThan(MAX_REDACTED_CHARS);
+    const line = JSON.stringify({ type: 'user', content: [{ type: 'tool_result', content: output }] });
+
+    const redacted = JSON.parse(redactTranscriptLine(line));
+    expect(redacted.content[0].content).toBe(output.replace(token, '[REDACTED]'));
+  });
+
+  it('masks a private key block that spans the scan windows', () => {
+    const key = `-----BEGIN RSA PRIVATE KEY-----\n${'MIIEpAIBAAKCAQEA0Z3VS5JJcds3xfn\n'.repeat(4_000)}-----END RSA PRIVATE KEY-----`;
+    const line = JSON.stringify({ content: `before\n${key}\nafter` });
+    expect(JSON.parse(redactTranscriptLine(line))).toEqual({ content: 'before\n[REDACTED]\nafter' });
+  });
+
+  it('masks a line that is not JSON as text', () => {
+    expect(redactTranscriptLine(`garbled ${token}`)).toBe('garbled [REDACTED]');
   });
 });
