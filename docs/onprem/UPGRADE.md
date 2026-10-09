@@ -73,13 +73,29 @@ helm upgrade coredoc oci://ghcr.io/yvp-core/charts/coredoc \
 
 Keep migrations a single pre-deploy step — never per replica.
 
+## Agent runner (cloud agent runs)
+
+Only if you enabled `agentRunner` ([AGENT-RUNS.md](AGENT-RUNS.md)):
+
+- **Rebuild your derived runner image** from the new release's
+  `coredoc-agent-runner` image and point `agentRunner.image` at it. A derived
+  image built on an older base keeps the older runner, SDK and plugin.
+- **Upgrade the server first, then the runner.** A runner whose protocol
+  version the server does not support claims nothing; settings show
+  *Refused: this runner version is not supported*.
+- **A rollout discards in-flight turns.** The stopped runner skips its pushes
+  and does not complete the turn; the turn runs again from its last state
+  archive once its lease expires, and **its model spend is repeated**. Roll
+  the runner while no turn is in progress if that matters.
+
 ## Air-gapped upgrades
 
 Same flow with the new release's air-gap kit: verify `SHA-256SUMS`, load and
 re-push the new images to your internal registry, update `image.tag` (and the
 neo4j image override if the pinned Neo4j version changed — check the kit's
-`images/` directory), then `helm upgrade` from the kit's local
-`chart/coredoc-<version>.tgz`.
+`images/` directory; and your derived runner image, rebuilt from the kit's
+`coredoc-agent-runner` image, if you run agent runs), then `helm upgrade` from
+the kit's local `chart/coredoc-<version>.tgz`.
 
 ## Verify after upgrading
 
