@@ -7,7 +7,7 @@
  */
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import type { HookCallback, Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { HookCallback, Options, SDKAssistantMessageError, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { MAX_STATE_ARCHIVE_BYTES, type TurnAssignment, type TurnOutcome } from '@coredoc/core/agent-runner';
 import { Git, gitEnvironment } from '../git/git.js';
 import { SecretScanner } from '../git/secret-scan.js';
@@ -17,6 +17,7 @@ import type { RunnerApiClient } from '../runner-api.js';
 import type { TurnExecutor, TurnIO, TurnResult } from '../runner.js';
 import { DeliveryExecutor } from '../delivery/delivery-executor.js';
 import { failedOutcome as failed, reportingFailures, TurnFailure } from '../turn-failure.js';
+import { classifyModelFailure } from './model-failure.js';
 import { implementPrompt, runPreamble, scopePrompt } from './prompts.js';
 import { QuestionBridge } from './question-bridge.js';
 import { RUN_CONTROL_SERVER, type RunControlState, runControlServer } from './run-control.js';
@@ -59,8 +60,15 @@ export interface ClaudeExecutorOptions extends BotGithubOptions {
   log?: (message: string) => void;
 }
 
+interface SessionFailure {
+  code: 'plugin_missing' | 'session_mismatch' | 'agent_error';
+  reason: string;
+  /** The model was unavailable: the turn goes back to the queue instead of failing the run. */
+  transient?: boolean;
+}
+
 interface SessionOutcome {
-  failure: { code: 'plugin_missing' | 'session_mismatch' | 'agent_error'; reason: string } | null;
+  failure: SessionFailure | null;
   result: Extract<SDKMessage, { type: 'result' }> | null;
   /** The session reached the turn's duration limit or the SDK turn cap. */
   checkpoint: boolean;
@@ -172,7 +180,7 @@ export class ClaudeExecutor implements TurnExecutor {
       if (session.failure && (session.failure.code !== 'agent_error' || !control.submitted)) {
         return {
           spend,
-          outcome: failed(new TurnFailure(session.failure.code, session.failure.reason)),
+          outcome: sessionFailureOutcome(session.failure),
           repositories: turnGit.untouchedReports(clones),
         };
       }
@@ -272,12 +280,7 @@ export class ClaudeExecutor implements TurnExecutor {
 
     if (session.failure && (session.failure.code !== 'agent_error' || control.proposedVersion === null)) {
       // Classified from the runner's own state: a recorded proposal outlives a late SDK error.
-      const outcome: TurnOutcome = {
-        kind: 'failed',
-        code: session.failure.code,
-        reason: session.failure.reason.slice(0, 2_000),
-      };
-      return { spend, outcome, lastMessage };
+      return { spend, outcome: sessionFailureOutcome(session.failure), lastMessage };
     }
     // Like an implement turn, a limit hit before any proposal or question continues the session.
     const checkpoint =
@@ -324,10 +327,12 @@ export class ClaudeExecutor implements TurnExecutor {
       Math.min(Math.max(0, limits.deadlineAt - Date.now()), MAX_TIMER_MS),
     );
 
-    const fail = (failure: NonNullable<SessionOutcome['failure']>) => {
+    const fail = (failure: SessionFailure) => {
       outcome.failure ??= failure;
       stop();
     };
+    // A model API failure arrives as a synthetic assistant message naming its kind, then the result.
+    let apiError: SDKAssistantMessageError | null = null;
     try {
       for await (const message of this.options.query({
         prompt,
@@ -350,13 +355,21 @@ export class ClaudeExecutor implements TurnExecutor {
             break;
           }
         }
+        if (message.type === 'assistant' && message.error) apiError = message.error;
         if (message.type === 'result') {
           outcome.result = message;
           // A parked question ends the session by design, whatever subtype the SDK gives it.
           const parked = message.terminal_reason === TOOL_DEFERRED && questions.state.parkedQuestion !== null;
           // The SDK turn cap is a runaway guard, not a failure: a checkpoint like the duration limit.
           if (message.subtype === 'error_max_turns') outcome.checkpoint = true;
-          else if (!parked && (message.subtype !== 'success' || message.is_error)) {
+          else if (!parked && message.terminal_reason === 'api_error') {
+            const failure = classifyModelFailure({
+              error: apiError,
+              status: message.subtype === 'success' ? message.api_error_status : undefined,
+              text: message.subtype === 'success' ? message.result : (message.errors ?? []).join('; '),
+            });
+            fail({ code: 'agent_error', ...failure });
+          } else if (!parked && (message.subtype !== 'success' || message.is_error)) {
             const errors = 'errors' in message ? message.errors : [];
             fail({ code: 'agent_error', reason: errors?.join('; ') || `The session ended with ${message.subtype}` });
           }
@@ -522,6 +535,12 @@ function missingLimit(turn: TurnAssignment): TurnOutcome | null {
     };
   }
   return null;
+}
+
+/** A transient failure goes back to the queue; any other fails the run. */
+function sessionFailureOutcome(failure: SessionFailure): TurnOutcome {
+  if (failure.transient) return { kind: 'transient', reason: failure.reason.slice(0, 2_000) };
+  return failed(new TurnFailure(failure.code, failure.reason));
 }
 
 /** The agent's final message, when the session produced one. */

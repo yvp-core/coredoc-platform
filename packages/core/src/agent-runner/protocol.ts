@@ -297,6 +297,13 @@ export const TurnOutcomeSchema = z.discriminatedUnion('kind', [
    * a run-control outcome: the work is pushed and the run continues.
    */
   z.object({ kind: z.literal('checkpoint') }),
+  /**
+   * The model stayed unavailable (overloaded, rate limited, connection lost)
+   * through Claude Code's own retries. The server re-queues the turn like a
+   * lost lease, consuming an attempt; the last attempt fails the run with
+   * `agent_error` and this reason.
+   */
+  z.object({ kind: z.literal('transient'), reason: z.string().max(2_000) }),
 ]);
 export type TurnOutcome = z.infer<typeof TurnOutcomeSchema>;
 

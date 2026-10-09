@@ -57,6 +57,18 @@ interface SessionScript {
   /** AskUserQuestion calls, in order, before any proposal; a deferred one ends the session. */
   ask?: AskScript[];
   result?: Partial<Extract<SDKMessage, { type: 'result' }>> | 'throw';
+  /** End on a model API failure, in the shape the pinned SDK reports one (measured in Phase 0). */
+  apiError?: ApiFailure;
+}
+
+interface ApiFailure {
+  /** The synthetic assistant message's `error`. */
+  error: string;
+  /** The result's `api_error_status`; null when no response arrived. */
+  status: number | null;
+  text: string;
+  /** Spend reported up to the failure. */
+  costUsd?: number;
 }
 
 /**
@@ -140,6 +152,10 @@ function fakeQuery(
       }
 
       if (script.result === 'throw') throw new Error('Claude Code process exited with code 1');
+      if (script.apiError) {
+        yield* apiFailure(script.apiError, sessionId);
+        return;
+      }
       yield {
         type: 'result',
         subtype: 'success',
@@ -151,6 +167,34 @@ function fakeQuery(
         ...script.result,
       } as unknown as SDKMessage;
     })();
+}
+
+/**
+ * How the pinned SDK ends a session on a model API failure: a synthetic
+ * assistant message carrying the error kind, a `success` result flagged
+ * `is_error` with `terminal_reason: 'api_error'`, then a throw.
+ */
+async function* apiFailure(failure: ApiFailure, sessionId: string): AsyncGenerator<SDKMessage> {
+  yield {
+    type: 'assistant',
+    error: failure.error,
+    message: { model: '<synthetic>', content: [{ type: 'text', text: failure.text }] },
+    parent_tool_use_id: null,
+    session_id: sessionId,
+  } as unknown as SDKMessage;
+  yield {
+    type: 'result',
+    subtype: 'success',
+    is_error: true,
+    terminal_reason: 'api_error',
+    api_error_status: failure.status,
+    result: failure.text,
+    total_cost_usd: failure.costUsd ?? 0,
+    num_turns: 1,
+    duration_ms: 300,
+    session_id: sessionId,
+  } as unknown as SDKMessage;
+  throw new Error(`Claude Code returned an error result: ${failure.text}`);
 }
 
 /**
@@ -297,6 +341,93 @@ describe('Claude executor in the runner loop', () => {
     const { done } = runTurn(assignment(), script as SessionScript);
     await expect(done).resolves.toBe('completed');
     expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code });
+  });
+
+  describe('model failures', () => {
+    it.each([
+      [
+        'a rejected credential',
+        { error: 'authentication_failed', status: 401, text: 'Invalid API key · Fix external API key' },
+        /^The model credential was rejected/,
+      ],
+      [
+        'a credential without permission',
+        {
+          error: 'authentication_failed',
+          status: 403,
+          text: 'Failed to authenticate. API Error: 403 Your API key does not have permission to use the specified resource.',
+        },
+        /^The model credential was rejected/,
+      ],
+      [
+        'exhausted credit',
+        { error: 'billing_error', status: 400, text: 'Credit balance is too low' },
+        /^The model provider's credit or limit is exhausted/,
+      ],
+      [
+        'a reached usage limit',
+        {
+          error: 'unknown',
+          status: 400,
+          text: 'API Error: 400 You have reached your specified API usage limits. You will regain access on 2026-11-01 at 00:00 UTC.',
+        },
+        /^The model provider's credit or limit is exhausted/,
+      ],
+      [
+        'an unknown model',
+        { error: 'model_not_found', status: 404, text: "There's an issue with the selected model (claude-x)." },
+        /^The configured model does not exist or the model credential cannot use it/,
+      ],
+      [
+        'a refused request',
+        { error: 'unknown', status: 400, text: 'API Error: 400 messages: field required' },
+        /^The model provider refused the request/,
+      ],
+    ])('%s fails the run with agent_error and a plain reason', async (_name, failure, reason) => {
+      const { done } = runTurn(assignment(), { apiError: failure });
+
+      await expect(done).resolves.toBe('completed');
+      const { outcome } = api.completions[0]!.body;
+      expect(outcome).toMatchObject({ kind: 'failed', code: 'agent_error', reason: expect.stringMatching(reason) });
+      // The SDK's own wording follows, for whoever investigates.
+      expect((outcome as { reason: string }).reason).toContain(failure.text);
+    });
+
+    it.each([
+      [
+        'an overloaded model',
+        { error: 'server_error', status: 529, text: 'API Error: 529 Overloaded. This is a server-side issue.' },
+      ],
+      ['a rate limit', { error: 'rate_limit', status: 429, text: 'API Error: Request rejected (429) · rate limit' }],
+      [
+        'a lost connection',
+        { error: 'server_error', status: null, text: 'API Error: Connection dropped (ECONNRESET)' },
+      ],
+      [
+        'a provider server error',
+        { error: 'server_error', status: 500, text: 'API Error: 500 Internal server error.' },
+      ],
+    ])('%s sends the turn back to the queue with the spend so far, uploading nothing', async (_name, failure) => {
+      const turn = assignment({ run: { ...assignment().run, priorSessionSpendUsd: 0.5 } });
+      const { done } = runTurn(turn, { apiError: { ...failure, costUsd: 0.8 } });
+
+      await expect(done).resolves.toBe('completed');
+      expect(api.uploads).toBe(0);
+      expect(api.completions[0]!.body).toMatchObject({
+        outcome: { kind: 'transient', reason: expect.stringContaining(failure.text) },
+        spend: { costUsd: 0.3 },
+      });
+    });
+
+    it('a model failure after a recorded proposal still ends the turn with the proposal', async () => {
+      const { done } = runTurn(assignment(), {
+        propose: [proposal],
+        apiError: { error: 'rate_limit', status: 429, text: 'API Error: Request rejected (429)' },
+      });
+
+      await expect(done).resolves.toBe('completed');
+      expect(api.completions[0]!.body.outcome).toEqual({ kind: 'ended' });
+    });
   });
 
   it.each([
