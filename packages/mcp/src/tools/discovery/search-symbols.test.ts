@@ -1617,6 +1617,31 @@ describe('find_code Tool Handler', () => {
       expect(elements[0].name).toBe('createTemplate');
     });
 
+    it('exact resolves a common method name by equality, with bare or qualified query', async () => {
+      const findCode = vi.fn().mockResolvedValue([
+        createMockCodeElement({ id: 'a', name: 'get', type: 'function', filePath: 'src/handler.ts' }),
+        createMockCodeElement({ id: 'b', name: 'get', type: 'function', filePath: 'src/handler.ts' }),
+        createMockCodeElement({ id: 'c', name: 'getUser', type: 'function', filePath: 'src/handler.ts' }),
+        createMockCodeElement({ id: 'd', name: 'get', type: 'function', filePath: 'src/other.ts' }),
+      ]);
+      const mockRepo = createMockRepository({ findCode });
+      getRepository.mockResolvedValue(mockRepo);
+
+      for (const query of ['get', 'SomeHandler.get']) {
+        const result = await handleSearchSymbols(
+          { query, exact: true, path: 'src/handler.ts' },
+          mockScope,
+          'raw',
+          defaultDetailLevel,
+          defaultDetailConfig,
+          mockRepo,
+        );
+        expect((result.data as CodeElementInfo[]).map((e) => e.id).sort()).toEqual(['a', 'b']);
+        // Equality lookup on the bare name, not a `*get*` substring scan.
+        expect(findCode.mock.calls.at(-1)?.[0]).toMatchObject({ pattern: 'get', limit: 1000 });
+      }
+    });
+
     it('exact match is case-insensitive', async () => {
       const findCode = vi
         .fn()

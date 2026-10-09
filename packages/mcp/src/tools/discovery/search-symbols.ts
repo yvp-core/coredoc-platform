@@ -130,7 +130,14 @@ export async function handleSearchSymbols(
   //      `AnalyzeApplyTemplateRequestDto`.
   const tokens = query.includes('*') || query.includes('?') ? null : query.trim().split(/\s+/).filter(Boolean);
   let findCodePattern: string;
-  if (!tokens) {
+  // Exact mode resolves a declared name, so look it up by equality instead of the
+  // `*word*` substring scan: a common name (`get`) otherwise fills the row limit with
+  // unrelated near-misses before the exact filter runs. A qualified `Class.method`
+  // query resolves through its bare member name, which is what the graph stores.
+  const exactBareName = exact && tokens?.length === 1 ? tokens[0]!.split('.').pop() || tokens[0]! : undefined;
+  if (exactBareName) {
+    findCodePattern = exactBareName;
+  } else if (!tokens) {
     findCodePattern = query;
   } else if (tokens.length === 1) {
     findCodePattern = `*${tokens[0]}*`;
@@ -142,7 +149,14 @@ export async function handleSearchSymbols(
   }
   // Multi-token queries may need a larger pre-filter pool since the post-
   // filter discards rows that lack one of the other tokens.
-  const dbFetchLimit = tokens && tokens.length > 1 ? Math.max(fetchLimit * 4, 50) : fetchLimit;
+  // A path filter is applied after the fetch, so an exact lookup must read every
+  // same-named member before narrowing.
+  const dbFetchLimit =
+    exactBareName && pathFilter
+      ? 1000
+      : tokens && tokens.length > 1
+        ? Math.max(fetchLimit * 4, 50)
+        : fetchLimit;
 
   const applyTokenFilter = (rows: typeof rawResults) =>
     tokens && tokens.length > 1
@@ -212,7 +226,11 @@ export async function handleSearchSymbols(
   let resolvedCodeElements = dedupeParserDuplicates(codeElements);
   if (exact) {
     const lowerQuery = query.trim().toLowerCase();
-    resolvedCodeElements = resolvedCodeElements.filter((c) => c.name.toLowerCase() === lowerQuery);
+    const lowerBare = exactBareName?.toLowerCase();
+    resolvedCodeElements = resolvedCodeElements.filter((c) => {
+      const lowerName = c.name.toLowerCase();
+      return lowerName === lowerQuery || lowerName === lowerBare;
+    });
   }
   if (pathFilter) {
     resolvedCodeElements = resolvedCodeElements.filter(
@@ -228,8 +246,9 @@ export async function handleSearchSymbols(
   // original relevance+name ordering is preserved exactly.
   const vantagePrefix = scope.currentRepoHash ? `${scope.currentRepoHash}:` : undefined;
   resolvedCodeElements.sort((a, b) => {
-    const aExact = a.name.toLowerCase() === query.toLowerCase() ? 0 : 1;
-    const bExact = b.name.toLowerCase() === query.toLowerCase() ? 0 : 1;
+    const rankName = (exactBareName ?? query).toLowerCase();
+    const aExact = a.name.toLowerCase() === rankName ? 0 : 1;
+    const bExact = b.name.toLowerCase() === rankName ? 0 : 1;
     if (aExact !== bExact) return aExact - bExact;
     if (vantagePrefix) {
       const aVantage = a.id.startsWith(vantagePrefix) ? 0 : 1;

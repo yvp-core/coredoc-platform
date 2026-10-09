@@ -1276,6 +1276,38 @@ describe('Response Formatter', () => {
       expect(result.data).toContain('- `UserService` (class) - src/service.ts:20');
     });
 
+    describe('multi-repo header', () => {
+      const multi = (): McpResponseMetadata => ({
+        scope: { ...mockScope, repoHashes: ['h1', 'h2', 'h3'], resolvedRepos: ['alpha', 'beta', 'gamma'] },
+        staleness: {
+          warning: 'Data reflects parsed stable branch, not local changes',
+          parsedAt: 'unknown',
+          repositories: [
+            { name: 'alpha', parsedAt: '2024-01-15T10:30:00.000Z', parsedCommit: 'abcdef1234' },
+            { name: 'beta', parsedAt: '2024-01-10T10:30:00.000Z' },
+            { name: 'gamma', parsedAt: '2024-01-20T10:30:00.000Z' },
+          ],
+        },
+        format: 'summary',
+      });
+
+      it('lists only contributing repos and collapses the rest', () => {
+        const els: CodeElementInfo[] = [{ name: 'f', filePath: 'a.ts', startLine: 1, type: 'function', id: 'h1:function:a.ts:f' }];
+        const body = formatCodeElementList(els, 'R', multi()).data as string;
+        expect(body).toContain('> snapshot alpha@abcdef1 · 2024-01-15');
+        expect(body).toContain('> 2 other repos in scope · parsed 2024-01-10–2024-01-20 · see describe_repository');
+        expect(body).not.toContain('beta');
+        expect(body).not.toContain('gamma');
+        expect(body).not.toContain('Data reflects');
+      });
+
+      it('renders only the collapsed line on zero results', () => {
+        const body = formatCodeElementList([], 'R', multi()).data as string;
+        expect(body).toContain('> 3 other repos in scope · parsed 2024-01-10–2024-01-20 · see describe_repository');
+        expect(body).not.toContain('snapshot');
+      });
+    });
+
     it('should return raw data in raw mode', () => {
       mockMetadata.format = 'raw';
       const result = formatCodeElementList(mockElements, 'Search Results', mockMetadata);
