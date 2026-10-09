@@ -49,6 +49,35 @@ export const MAX_STATE_ARCHIVE_BYTES = 128 * 1024 * 1024;
  * fails the run with the code and keeps the reason (agent-written text stays
  * on the run page, never in Jira).
  */
+/** Every code a run can fail with; the server words each one for the run page and Jira. */
+export const RUN_FAILURE_CODES = [
+  'invalid_repository_label',
+  'too_many_repositories',
+  'issue_not_readable',
+  'run_owner_removed',
+  'connector_inactive',
+  'plugin_missing',
+  'agent_error',
+  'session_mismatch',
+  'repository_not_eligible',
+  'branch_exists',
+  'push_rejected',
+  'secret_scan_blocked',
+  'no_outcome',
+  'budget_exhausted',
+  'wall_clock_exceeded',
+  'waiting_expired',
+  'no_changes',
+  'github_error',
+  'jira_error',
+  'archive_too_large',
+  'report_limit_exceeded',
+  'delivery_failed',
+  'runner_lost',
+] as const;
+export type RunFailureCode = (typeof RUN_FAILURE_CODES)[number];
+
+/** The failure codes a runner may report; the rest are the server's own. */
 export const RUNNER_FAILURE_CODES = [
   'plugin_missing',
   'session_mismatch',
@@ -68,7 +97,7 @@ export const RUNNER_FAILURE_CODES = [
   'github_error',
   /** Delivery turns: a pull request could not be opened or reused. */
   'delivery_failed',
-] as const;
+] as const satisfies readonly RunFailureCode[];
 export type RunnerFailureCode = (typeof RUNNER_FAILURE_CODES)[number];
 
 /**

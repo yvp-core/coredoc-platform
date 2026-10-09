@@ -5,7 +5,7 @@
  * pending turn states.
  */
 import { ConflictException, HttpException, HttpStatus } from '@nestjs/common';
-import { FAILURE_MESSAGES } from './failure-codes.js';
+import type { RunFailureCode as ContractFailureCode } from '@coredoc/core/agent-runner';
 
 export const RunStatus = {
   Queued: 'queued',
@@ -69,7 +69,7 @@ export const QuestionState = {
   Cancelled: 'cancelled',
 } as const;
 
-/** The closed set of run failure codes, each with the plain-words message the run page and Jira show. */
+/** Named run failure codes; the closed set and its messages are in the shared contract and failure-codes.ts. */
 export const RunFailureCode = {
   InvalidRepositoryLabel: 'invalid_repository_label',
   TooManyRepositories: 'too_many_repositories',
@@ -94,11 +94,8 @@ export const RunFailureCode = {
   ReportLimitExceeded: 'report_limit_exceeded',
   DeliveryFailed: 'delivery_failed',
   RunnerLost: 'runner_lost',
-} as const;
-export type RunFailureCode = (typeof RunFailureCode)[keyof typeof RunFailureCode];
-// Every named code has a message in failure-codes.ts.
-const _everyCodeHasAMessage: Record<RunFailureCode, unknown> = FAILURE_MESSAGES;
-void _everyCodeHasAMessage;
+} as const satisfies Record<string, ContractFailureCode>;
+export type RunFailureCode = ContractFailureCode;
 
 /** Spec version lifecycle; `draft` is the running turn's proposal, hidden from people. */
 export const SpecStatus = {

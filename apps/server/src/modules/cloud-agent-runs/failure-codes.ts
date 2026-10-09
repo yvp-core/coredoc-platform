@@ -1,8 +1,10 @@
+import type { RunFailureCode } from '@coredoc/core/agent-runner';
+
 /**
- * The closed set of run failure codes, each with the
- * plain-words message the run page and the Jira failure comment show.
+ * Every run failure code of the shared contract, with the plain-words message
+ * the run page and the Jira failure comment show.
  */
-export const FAILURE_MESSAGES = {
+export const FAILURE_MESSAGES: Record<RunFailureCode, string> = {
   invalid_repository_label: 'A repository label names no eligible workspace repository.',
   too_many_repositories: 'More repositories were named than the run’s cap allows.',
   issue_not_readable: 'The Jira issue could not be read through the workspace’s Jira connector.',
@@ -27,6 +29,6 @@ export const FAILURE_MESSAGES = {
   report_limit_exceeded: 'The runner sent more events, proposals or questions than a turn allows.',
   delivery_failed: 'Opening or verifying the pull requests, or posting the Jira done comment, failed.',
   runner_lost: 'The agent runner stopped responding during the same turn three times.',
-} as const;
+};
 
-export type FailureCode = keyof typeof FAILURE_MESSAGES;
+export type FailureCode = RunFailureCode;
