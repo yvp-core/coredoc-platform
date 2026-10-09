@@ -4,7 +4,7 @@
  * timers. Payloads are free-form on the wire, so nothing here may assume a
  * shape or throw on one it does not recognise.
  */
-import type { AgentRun, AgentRunEvent, RunnerTokenStatus, RunStatus, TurnKind } from './types.js';
+import type { AgentRun, AgentRunEvent, RunnerTokenStatus, RunStatus, TurnKind, TurnOutcome } from './types.js';
 
 export const POLL_INTERVAL_MS = 3000;
 
@@ -66,10 +66,14 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-const TURN_OUTCOME_WORDS: Record<string, string> = {
+const TURN_OUTCOME_WORDS: Record<TurnOutcome, string> = {
   no_outcome: 'without an outcome',
   question_asked: 'with a question for a person',
   scope_proposed: 'with a scope proposal',
+  checkpoint: 'at a checkpoint; the agent continues in a new turn',
+  result_submitted: 'with the implementation result',
+  delivered: 'with its pull requests verified',
+  repository_requested: 'with a repository request for a person',
   runner_lost: 'after its runner stopped responding',
 };
 
@@ -86,7 +90,7 @@ function describeEvent(event: AgentRunEvent): string {
       return `${capitalize(kind)} turn started${attempt}`;
     }
     case 'turn_ended': {
-      const outcome = TURN_OUTCOME_WORDS[String(payload.outcome)] ?? text(payload.outcome);
+      const outcome = TURN_OUTCOME_WORDS[String(payload.outcome) as TurnOutcome] ?? text(payload.outcome);
       const spend = typeof payload.spendUsd === 'number' ? `$${payload.spendUsd.toFixed(2)}` : 'spend not reported';
       return `Turn ended${outcome ? ` ${outcome}` : ''} (${spend})`;
     }

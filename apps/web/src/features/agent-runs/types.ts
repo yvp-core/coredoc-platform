@@ -17,6 +17,17 @@ export type RunStatus =
   | 'cancelled';
 
 export type TurnKind = 'scope' | 'implement' | 'delivery';
+
+/** What a completed turn achieved (run-states.ts `TurnOutcome`); a failed turn records its failure code instead. */
+export type TurnOutcome =
+  | 'no_outcome'
+  | 'scope_proposed'
+  | 'question_asked'
+  | 'checkpoint'
+  | 'result_submitted'
+  | 'delivered'
+  | 'repository_requested'
+  | 'runner_lost';
 export type TurnState = 'queued' | 'claimed' | 'completed' | 'abandoned';
 
 export interface AgentRunTurn {
