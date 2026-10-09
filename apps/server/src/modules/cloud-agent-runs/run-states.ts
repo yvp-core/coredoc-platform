@@ -1,5 +1,5 @@
 /**
- * Closed vocabularies of the cloud agent runs module (SF-001). Stored as
+ * Closed vocabularies of the cloud agent runs module. Stored as
  * VarChar, so these constants are the single source; the hand-written partial
  * indexes in migration 20261010120000 repeat the terminal statuses and the
  * pending turn states.

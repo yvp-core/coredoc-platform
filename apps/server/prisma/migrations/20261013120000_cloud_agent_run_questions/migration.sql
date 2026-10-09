@@ -1,4 +1,4 @@
--- SF-001 questions: clarifications the agent asks through AskUserQuestion,
+-- Cloud agent run questions: clarifications the agent asks through AskUserQuestion,
 -- parked for a person (pause) or answered at once (assume).
 -- Additive only; rollback = drop cloud_agent_run_questions.
 

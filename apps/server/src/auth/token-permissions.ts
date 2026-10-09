@@ -48,7 +48,7 @@ export enum TokenPermission {
   /** Apply a PR's CI anchor operations against the graph its CI run published. */
   IntentBindings = 'intent:bindings',
   /**
-   * Act as a cloud agent runner of the workspace (SF-001): claim turns and
+   * Act as a cloud agent runner of the workspace: claim turns and
    * report on them over the runner API. An exact-purpose token holding only
    * this permission is refused everywhere else (AuthGuard and the MCP
    * middleware), and the legacy wildcard never grants it.

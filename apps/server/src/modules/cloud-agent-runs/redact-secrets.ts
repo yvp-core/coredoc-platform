@@ -3,7 +3,7 @@
  * shapes are masked before an event is stored, so the run page does not show
  * a credential the agent read. It starts from the intent module's secret
  * pattern. The runner also masks the exact values it holds; what neither
- * catches can still reach the run page (SF-001, Limitations and risks).
+ * catches can still reach the run page, a documented limitation.
  *
  * The text is runner-supplied, so every pattern must run in linear time on
  * hostile input and must mask a secret whole, however long:

@@ -1,5 +1,5 @@
 /**
- * The closed set of run failure codes (SF-001 Data model), each with the
+ * The closed set of run failure codes, each with the
  * plain-words message the run page and the Jira failure comment show.
  */
 export const FAILURE_MESSAGES = {

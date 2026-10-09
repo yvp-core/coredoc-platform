@@ -1,4 +1,4 @@
--- SF-001 scope phase: spec versions (scope proposals and their reviews) and the
+-- Cloud agent runs, scope phase: spec versions (scope proposals and their reviews) and the
 -- state archive a turn uploaded, which the run adopts when the turn completes.
 -- Additive only; rollback = drop cloud_agent_run_spec_versions and the
 -- cloud_agent_run_turns.state_archive_key column.

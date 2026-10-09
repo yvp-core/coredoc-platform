@@ -1,4 +1,4 @@
--- SF-001 per-turn report caps: what the runner reported during a turn, so a
+-- Cloud agent runs, per-turn report caps: what the runner reported during a turn, so a
 -- runaway runner fails the run with report_limit_exceeded.
 -- Additive only; rollback = drop the four columns.
 

@@ -34,13 +34,13 @@ import { createTurnDirectories, sessionExists, type TurnPaths, turnPaths, wipeSc
 /** The SDK's `query`, injected so tests drive a scripted fake instead of a model. */
 export type QueryFn = (params: { prompt: string; options: Options }) => AsyncIterable<SDKMessage>;
 
-/** A high fixed runaway guard (spec: 500), not a setting. */
+/** A high fixed runaway guard, not a setting. */
 const SDK_MAX_TURNS = 500;
 /** Coredoc MCP tool calls are otherwise effectively unbounded. */
 const MCP_TOOL_TIMEOUT_MS = 120_000;
 /** setTimeout's ceiling; a longer turn limit is clamped to it. */
 const MAX_TIMER_MS = 2_147_483_647;
-/** Long enough for the plugin to suspend its run at session end; Phase 0 measures it with five clones. */
+/** Long enough for the plugin to suspend its run at session end, with several clones. */
 const SESSION_END_HOOK_TIMEOUT_MS = 120_000;
 /** How long a session told to end its turn may take to do so before it is stopped. */
 const WIND_DOWN_GRACE_MS = 60_000;

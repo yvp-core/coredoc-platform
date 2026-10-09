@@ -1,5 +1,5 @@
 /**
- * The runner API contract (SF-001): the only meeting point of the Coredoc
+ * The runner API contract: the only meeting point of the Coredoc
  * server and the customer-run agent runner. Both sides parse with these
  * schemas, so neither can drift without the other failing to compile or to
  * parse. Imports zod only, so the runner's dependency graph stays small.
@@ -38,9 +38,9 @@ const versionString = z.string().trim().min(1).max(64);
 
 /**
  * Cap on the state archive (Claude Code's config and session directory plus
- * the plugin's state home). Provisional until Phase 0 sizes a long run's
- * archive (SF-001 ticket 13); the runner checks it before uploading and the
- * server's body-size tier for the archive route is derived from it.
+ * the plugin's state home), provisional until a long run's archive is
+ * measured. The runner checks it before uploading and the server's body-size
+ * tier for the archive route is derived from it.
  */
 export const MAX_STATE_ARCHIVE_BYTES = 128 * 1024 * 1024;
 

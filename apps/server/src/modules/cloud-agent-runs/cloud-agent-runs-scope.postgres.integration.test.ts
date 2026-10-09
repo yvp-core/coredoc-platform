@@ -163,7 +163,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
     await app.init();
     await app.listen(0, '127.0.0.1');
 
-    // Scenarios leave runs open; the concurrency queue is ticket 09's subject, not this suite's.
+    // Scenarios leave runs open; the concurrency queue has its own suite.
     await api()
       .put(`${runsBase()}/settings`)
       .set('Authorization', human(ADMIN))

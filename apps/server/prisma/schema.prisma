@@ -246,7 +246,7 @@ model ServiceToken {
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
   lastUsedAt     DateTime? @map("last_used_at") @db.Timestamptz
   /// Set only on a cloud agent run's per-turn MCP token: MCP-only, hash-only,
-  /// hidden from the token list, deleted with its turn (SF-001).
+  /// hidden from the token list, deleted with its turn.
   owningTurnId   String?   @map("owning_turn_id") @db.Uuid
 
   workspace    Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -1639,7 +1639,7 @@ model IntentHandoff {
 }
 
 // ---------------------------------------------------------------------------
-// Cloud agent runs (SF-001): Jira issue to draft pull requests, executed by a
+// Cloud agent runs: Jira issue to draft pull requests, executed by a
 // customer-run agent runner over the runner API. Not the desktop telemetry
 // `DesktopAgentRun`. Status and state columns are VarChar with code constants
 // (modules/cloud-agent-runs/run-states.ts), so a new value never needs ALTER TYPE.

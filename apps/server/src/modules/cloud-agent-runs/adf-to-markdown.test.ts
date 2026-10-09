@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { adfToMarkdown } from './adf-to-markdown.js';
 
-/** Synthetic until the first real PRD description is captured and scrubbed (SF-001 ticket 13). */
+/** Synthetic until a real PRD description is captured and scrubbed. */
 const syntheticPrd: unknown = JSON.parse(
   readFileSync(new URL('./fixtures/synthetic-prd.adf.json', import.meta.url), 'utf8'),
 );

@@ -42,7 +42,7 @@ export const OTLP_BODY_LIMIT = 25 * OneMB;
 export const INTENT_IMPORT_BODY_LIMIT = 6 * OneMB;
 
 /**
- * Agent runner state archive PUT (SF-001): a raw gzip body, buffered for the
+ * Agent runner state archive PUT: a raw gzip body, buffered for the
  * create-only object write. Its own tier, derived from the shared archive cap
  * plus headroom, so the service sees an over-cap archive and fails the run
  * with `archive_too_large` instead of a bare 413.

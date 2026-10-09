@@ -14,7 +14,7 @@ const ISSUE_FIELDS = ['summary', 'description', 'labels', 'issuetype', 'status',
 /** In-process retries for rate limits and server errors before a read gives up. */
 const JIRA_ATTEMPTS = 4;
 /**
- * Waits are capped well below the spec's 5 minutes: these reads run inside a
+ * Waits are capped far below the usual 5 minutes: these reads run inside a
  * runner's claim request, which the runner times out after 30 seconds.
  */
 const MAX_RETRY_WAIT_MS = 5_000;

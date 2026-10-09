@@ -1,4 +1,4 @@
--- SF-001 cloud agent runs: runs, turns, timeline events, per-workspace settings,
+-- Cloud agent runs: runs, turns, timeline events, per-workspace settings,
 -- runner last-seen rows, and the per-turn MCP token's owning-turn column.
 -- Additive only; rollback = drop the cloud_agent_run* / agent_run* / agent_runner_seen
 -- tables and the service_tokens.owning_turn_id column.

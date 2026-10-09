@@ -73,9 +73,9 @@ export interface RunnerOptions {
   api: RunnerApiClient;
   executor: TurnExecutor;
   versions: RunnerVersions;
-  /** Spec: every 20 s, well inside the 2-minute lease. */
+  /** Every 20 s by default, well inside the 2-minute lease. */
   heartbeatIntervalMs?: number;
-  /** Spec: claim every 5 s while idle. */
+  /** Claim every 5 s while idle by default. */
   idlePollMs?: number;
   /**
    * Run before claiming: while it reports a problem the runner claims

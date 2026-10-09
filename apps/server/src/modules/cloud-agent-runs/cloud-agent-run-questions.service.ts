@@ -21,7 +21,7 @@ import {
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
 import { lockRun, queueTurn, setRunStatus } from './run-transitions.js';
 
-/** What the assume policy answers every question with (spec: Questions, scope acceptance and waiting). */
+/** What the assume policy answers every question with. */
 export const ASSUME_ANSWER =
   'No one is available to answer. Choose the option you judge best, continue, and list this decision in the assumptions of your next propose_scope or submit_result call.';
 

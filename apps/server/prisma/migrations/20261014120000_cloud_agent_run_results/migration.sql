@@ -1,4 +1,4 @@
--- SF-001 implement phase: the agent's submit_result, stored on its turn while
+-- Cloud agent runs, implement phase: the agent's submit_result, stored on its turn while
 -- the turn runs and adopted by the run when the turn completes.
 -- Additive only; rollback = drop the two columns.
 
