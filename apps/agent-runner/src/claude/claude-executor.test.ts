@@ -453,6 +453,22 @@ describe('Claude executor in the runner loop', () => {
     });
   });
 
+  it('a scope turn that reaches the SDK turn cap without a proposal reports a checkpoint, not an outcome-less end', async () => {
+    const { done } = runTurn(assignment(), { result: { subtype: 'error_max_turns', is_error: true } as never });
+    await expect(done).resolves.toBe('completed');
+    expect(api.uploads).toBe(1);
+    expect(api.completions[0]!.body.outcome).toEqual({ kind: 'checkpoint' });
+  });
+
+  it('a scope turn that proposed before the SDK turn cap ends with its proposal', async () => {
+    const { done } = runTurn(assignment(), {
+      propose: [proposal],
+      result: { subtype: 'error_max_turns', is_error: true } as never,
+    });
+    await expect(done).resolves.toBe('completed');
+    expect(api.completions[0]!.body.outcome).toEqual({ kind: 'ended' });
+  });
+
   it('an archive over the cap fails the run with archive_too_large instead of uploading', async () => {
     const turn = assignment();
     api.queue.push(turn);

@@ -316,27 +316,24 @@ export class ClaudeExecutor implements TurnExecutor {
     const control: RunControlState = { proposedVersion: null, submitted: false };
     const questions = new QuestionBridge(turn, io);
     const session = await this.runSession(turn, io, paths, prompt, resume, control, questions);
-    if (io.signal.aborted) return { spend: spendOf(session.result, turn) };
+    const spend = spendOf(session.result, turn);
+    if (io.signal.aborted) return { spend };
+    const lastMessage = lastMessageOf(session.result);
 
-    let outcome: TurnOutcome = { kind: 'ended' };
     if (session.failure && (session.failure.code !== 'agent_error' || control.proposedVersion === null)) {
       // Classified from the runner's own state: a recorded proposal outlives a late SDK error.
-      outcome = { kind: 'failed', code: session.failure.code, reason: session.failure.reason.slice(0, 2_000) };
+      const outcome: TurnOutcome = {
+        kind: 'failed',
+        code: session.failure.code,
+        reason: session.failure.reason.slice(0, 2_000),
+      };
+      return { spend, outcome, lastMessage };
     }
-    if (outcome.kind === 'ended') {
-      const archive = await packStateArchive(paths.state);
-      const cap = this.options.maxArchiveBytes ?? MAX_STATE_ARCHIVE_BYTES;
-      if (archive.length > cap) {
-        outcome = {
-          kind: 'failed',
-          code: 'archive_too_large',
-          reason: `The session state archive is ${archive.length} bytes; the limit is ${cap}.`,
-        };
-      } else {
-        await io.uploadArchive(archive);
-      }
-    }
-    return { spend: spendOf(session.result, turn), outcome, lastMessage: lastMessageOf(session.result) };
+    // Like an implement turn, a limit hit before any proposal or question continues the session.
+    const checkpoint =
+      session.checkpoint && control.proposedVersion === null && questions.state.parkedQuestion === null;
+    const archived = await this.uploadState(paths, io);
+    return { spend, outcome: archived ?? { kind: checkpoint ? 'checkpoint' : 'ended' }, lastMessage };
   }
 
   private async runSession(
