@@ -495,6 +495,40 @@ describe('implement turns in the runner loop', () => {
       expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code: 'push_rejected' });
     });
 
+    it('a push that fails for a later repository still reports the heads already pushed', async () => {
+      const { bare: ordersBare, repo: ordersRepo } = await orders();
+      const billingBare = await bareRemote(root, 'billing', { 'src/billing.ts': 'export const billing = 0;\n' });
+      github.add('example-org', 'billing');
+      const billingRepo = repository(billingBare, github, 'billing', { mergeOrder: 1 });
+      const { done } = runTurn(implementAssignment([ordersRepo, billingRepo]), [
+        {
+          act: async (cwd) => {
+            await writeFile(join(cwd, 'orders-api', 'src', 'orders.ts'), 'export const orders = [5];\n');
+            await writeFile(join(cwd, 'billing', 'src', 'billing.ts'), 'export const billing = 5;\n');
+            // The billing remote stops accepting objects, so only its push fails.
+            await chmod(join(billingBare, 'objects'), 0o555);
+          },
+          submit: RESULT,
+        },
+      ]);
+      try {
+        await expect(done).resolves.toBe('completed');
+      } finally {
+        await chmod(join(billingBare, 'objects'), 0o755);
+      }
+
+      const pushed = remoteHead(ordersBare, BRANCH);
+      expect(pushed).toBeTruthy();
+      expect(remoteHead(billingBare, BRANCH)).toBeNull();
+      expect(api.completions[0]!.body).toMatchObject({
+        outcome: { kind: 'failed', code: 'github_error' },
+        repositories: [
+          expect.objectContaining({ key: 'orders-api', pushedHead: pushed }),
+          expect.objectContaining({ key: 'billing', pushedHead: null }),
+        ],
+      });
+    });
+
     it('a retried attempt that died between reserving and pushing creates the branch and pushes', async () => {
       const { bare, repo } = await orders({ branchCreated: true });
       const { done } = runTurn(implementAssignment([repo]), [

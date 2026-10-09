@@ -65,7 +65,9 @@ export function configTemplate(freshConfig: string, cloneUrl: string): string {
 
 export type PublishOutcome =
   | { kind: 'published'; reports: RepositoryReport[] }
-  | { kind: 'blocked'; findings: string[]; reports: RepositoryReport[] };
+  | { kind: 'blocked'; findings: string[]; reports: RepositoryReport[] }
+  /** A push failed; the reports keep the heads that earlier pushes already put on the remote. */
+  | { kind: 'failed'; failure: TurnFailure; reports: RepositoryReport[] };
 
 export interface TurnGitOptions {
   git: Git;
@@ -208,6 +210,7 @@ export class TurnGit {
       return { kind: 'blocked', findings, reports: entries.map(({ report }) => report) };
     }
 
+    const reports = entries.map(({ report }) => report);
     for (const entry of entries) {
       if (!entry.committed || this.options.stopped()) continue;
       const { clone } = entry;
@@ -215,10 +218,15 @@ export class TurnGit {
         await this.options.reserveBranch(clone.repository.key);
         clone.repository.branchCreated = true;
       }
-      await this.push(clone);
+      try {
+        await this.push(clone);
+      } catch (error) {
+        if (error instanceof TurnFailure) return { kind: 'failed', failure: error, reports };
+        throw error;
+      }
       entry.report.pushedHead = await git.output(['rev-parse', 'HEAD'], clone.dir);
     }
-    return { kind: 'published', reports: entries.map(({ report }) => report) };
+    return { kind: 'published', reports };
   }
 
   /** Reports for clones that pushed nothing this turn. */

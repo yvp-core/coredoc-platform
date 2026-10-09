@@ -277,6 +277,7 @@ export class ClaudeExecutor implements TurnExecutor {
   > {
     try {
       const outcome = await turnGit.publish(clones);
+      if (outcome.kind === 'failed') return { kind: 'failed', outcome: failed(outcome.failure), reports: outcome.reports };
       return outcome.kind === 'published' ? outcome : { kind: 'blocked', findings: outcome.findings };
     } catch (error) {
       if (!(error instanceof TurnFailure)) throw error;
