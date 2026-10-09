@@ -1,0 +1,5 @@
+{
+  "enabledPlugins": {
+    "jira-prd@day-io-plugins": true
+  }
+}
