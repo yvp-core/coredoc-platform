@@ -221,7 +221,11 @@ export class JiraClient {
     const out: JiraComment[] = [];
     let startAt = 0;
     for (let page = 0; page < maxPages; page++) {
-      const query = new URLSearchParams({ startAt: String(startAt), maxResults: String(PAGE_SIZE), orderBy: 'created' });
+      const query = new URLSearchParams({
+        startAt: String(startAt),
+        maxResults: String(PAGE_SIZE),
+        orderBy: 'created',
+      });
       const res = asRecord(
         await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/comment?${query}`),
       );

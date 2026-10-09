@@ -19,6 +19,7 @@ import {
   waitingForRunnerSince,
 } from '@/features/agent-runs/agent-run-presentation';
 import { Assumptions, QuestionCard } from '@/features/agent-runs/QuestionCard';
+import { RunPullRequests } from '@/features/agent-runs/RunPullRequests';
 import { RunRepositories } from '@/features/agent-runs/RunRepositories';
 import { ScopeReview } from '@/features/agent-runs/ScopeReview';
 import type { AgentRun } from '@/features/agent-runs/types';
@@ -197,6 +198,7 @@ export function WorkspaceAgentRun() {
             <QuestionCard wsId={workspace.id} run={data} />
             <ScopeReview wsId={workspace.id} run={data} />
             <RunRepositories run={data} />
+            <RunPullRequests run={data} />
             <Assumptions run={data} />
             <Timeline wsId={workspace.id} run={data} />
           </>

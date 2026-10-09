@@ -532,18 +532,18 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
 
   it('two concurrent sweep ticks post one failure comment, and a crash after posting is recovered by the marker', async () => {
     const first = await delivering();
-    await complete(first.turn, { outcome: { kind: 'failed', code: 'delivery_failed', reason: 'GitHub refused.' } }).expect(
-      200,
-    );
+    await complete(first.turn, {
+      outcome: { kind: 'failed', code: 'delivery_failed', reason: 'GitHub refused.' },
+    }).expect(200);
     await Promise.all([sweep.tick(), sweep.tick()]);
     expect(jira.commentsOn(first.issue.key)).toHaveLength(1);
     await sweep.tick();
     expect(jira.commentsOn(first.issue.key)).toHaveLength(1);
 
     const second = await delivering();
-    await complete(second.turn, { outcome: { kind: 'failed', code: 'delivery_failed', reason: 'GitHub refused.' } }).expect(
-      200,
-    );
+    await complete(second.turn, {
+      outcome: { kind: 'failed', code: 'delivery_failed', reason: 'GitHub refused.' },
+    }).expect(200);
     jira.crashAfterNextComment = true;
     await sweep.tick();
     expect(jira.commentsOn(second.issue.key)).toHaveLength(1);

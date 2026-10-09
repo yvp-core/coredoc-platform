@@ -144,10 +144,37 @@ export interface AgentRunResult {
 }
 
 /** One run as the run page reads it. */
+/** A pull request the server read back from GitHub and confirmed is the run branch's. */
+export interface AgentRunPullRequest {
+  repository: string;
+  number: number;
+  url: string;
+  state: 'open' | 'closed' | 'merged';
+  draft: boolean;
+  created: boolean;
+  verifiedAt: string;
+}
+
+export interface AgentRunJiraComment {
+  state: 'pending' | 'posted' | 'not_posted' | 'skipped';
+  attempts: number;
+  nextAttemptAt: string | null;
+  commentId?: string | null;
+  reason?: string | null;
+}
+
+export interface AgentRunJiraOutcome {
+  done?: AgentRunJiraComment;
+  failure?: AgentRunJiraComment;
+  transition?: { outcome: string; reason?: string | null };
+}
+
 export interface AgentRunDetail extends AgentRun {
   latestSpec: AgentRunSpec | null;
   repositories: RunRepository[];
   result?: AgentRunResult | null;
+  pullRequests?: AgentRunPullRequest[];
+  jiraOutcome?: AgentRunJiraOutcome;
   droppedSeeds: Array<{ key: string; reason: string }>;
   assumptions: AgentRunAssumption[];
   /** The question waiting for a person, if any. */

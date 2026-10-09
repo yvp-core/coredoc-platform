@@ -37,7 +37,8 @@ class ConnectorUnavailable extends Error {}
 
 function transientJira(error: unknown): { retryAfterMs: number | null } | false {
   if (error instanceof JiraRateLimitError) return { retryAfterMs: error.retryAfterMs };
-  if (error instanceof JiraApiError) return error.status >= 500 || error.status === 408 ? { retryAfterMs: null } : false;
+  if (error instanceof JiraApiError)
+    return error.status >= 500 || error.status === 408 ? { retryAfterMs: null } : false;
   if (error instanceof TypeError || (error instanceof Error && error.name === 'TimeoutError')) {
     return { retryAfterMs: null };
   }
@@ -58,7 +59,8 @@ function isPermanent(error: unknown): boolean {
 function describe(error: unknown): string {
   if (error instanceof ConnectorUnavailable) return error.message;
   if (error instanceof JiraAuthError) return 'Jira refused the connector’s credentials or permissions.';
-  if (error instanceof JiraNotFoundError) return 'Jira could not find the issue, or the connector’s user cannot see it.';
+  if (error instanceof JiraNotFoundError)
+    return 'Jira could not find the issue, or the connector’s user cannot see it.';
   if (error instanceof JiraApiError) return `Jira answered ${error.status}.`;
   if (error instanceof JiraRateLimitError) return 'Jira kept rate limiting the connector.';
   return 'Jira could not be reached.';
@@ -150,10 +152,14 @@ export class CloudAgentRunJiraOutcomes {
     try {
       const target = await this.issueTarget(run);
       if (!target) {
-        await this.finishDone(run, { state: 'skipped', reason: 'The issue moved out of the configured projects.' }, {
-          outcome: 'skipped',
-          reason: 'The issue moved out of the configured projects.',
-        });
+        await this.finishDone(
+          run,
+          { state: 'skipped', reason: 'The issue moved out of the configured projects.' },
+          {
+            outcome: 'skipped',
+            reason: 'The issue moved out of the configured projects.',
+          },
+        );
         return;
       }
       let commentId = outcome.commentId ?? null;
@@ -178,18 +184,22 @@ export class CloudAgentRunJiraOutcomes {
     try {
       const target = await this.issueTarget(run);
       if (!target) {
-        await this.settle(run, 'failure', { state: 'skipped', reason: 'The issue moved out of the configured projects.' }, [
-          warning('The issue moved out of the configured projects, so no failure comment was posted.'),
-        ]);
+        await this.settle(
+          run,
+          'failure',
+          { state: 'skipped', reason: 'The issue moved out of the configured projects.' },
+          [warning('The issue moved out of the configured projects, so no failure comment was posted.')],
+        );
         return;
       }
       const runUrl = await runPageUrl(this.prisma, run.workspaceId, run.id);
-      const message =
-        FAILURE_MESSAGES[run.failureCode as FailureCode] ?? 'The run failed; the run page says why.';
+      const message = FAILURE_MESSAGES[run.failureCode as FailureCode] ?? 'The run failed; the run page says why.';
       const commentId = await this.postOnce(target.client, run, runMarker(run.id, 'failure'), (marker) =>
         failureComment({ message, pullRequests: this.commentPulls(run), runUrl, marker }),
       );
-      await this.settle(run, 'failure', { state: 'posted', commentId }, [commented('Posted the failure comment on Jira')]);
+      await this.settle(run, 'failure', { state: 'posted', commentId }, [
+        commented('Posted the failure comment on Jira'),
+      ]);
     } catch (error) {
       await this.recordFailedAttempt(run, 'failure', error);
     }
@@ -202,7 +212,8 @@ export class CloudAgentRunJiraOutcomes {
   /** The issue as Jira has it now, or null when it moved out of the configured projects. */
   private async issueTarget(run: CloudAgentRun): Promise<IssueTarget | null> {
     const state = await this.connector.state(run.workspaceId);
-    if (state.status !== 'active') throw new ConnectorUnavailable('The workspace’s Jira connector is missing or paused.');
+    if (state.status !== 'active')
+      throw new ConnectorUnavailable('The workspace’s Jira connector is missing or paused.');
     let client: JiraClient;
     try {
       client = this.connector.client(state.connector);
@@ -370,7 +381,13 @@ export class CloudAgentRunJiraOutcomes {
         at,
       );
       if (kind === 'done' && updated.status === RunStatus.Delivering) {
-        await failRun(tx, updated, RunFailureCode.DeliveryFailed, `The Jira done comment was not posted: ${reason}`, at);
+        await failRun(
+          tx,
+          updated,
+          RunFailureCode.DeliveryFailed,
+          `The Jira done comment was not posted: ${reason}`,
+          at,
+        );
       }
     });
   }

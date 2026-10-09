@@ -21,8 +21,16 @@ describe('sanitiseAgentText', () => {
     ['an epic child key counts as foreign', 'Split from PROJ-13 and PROJ-12', `Split from PROJ${NB}13 and PROJ-12`],
     ['keys inside words are not keys', 'utf-8 and X-1 and abcPROJ-9', `utf-8 and X-1 and abcPROJ-9`],
     ['keys with digits and underscores', 'A2_B-44, PROJ-120', `A2_B${NB}44, PROJ${NB}120`],
-    ['an inline image is escaped', 'Look ![chart](https://x.example/c.png)', 'Look \\![chart](https://x.example/c.png)'],
-    ['an HTML image is escaped', 'Look <img src="https://x.example/c.png">', 'Look &lt;img src="https://x.example/c.png"&gt;'],
+    [
+      'an inline image is escaped',
+      'Look ![chart](https://x.example/c.png)',
+      'Look \\![chart](https://x.example/c.png)',
+    ],
+    [
+      'an HTML image is escaped',
+      'Look <img src="https://x.example/c.png">',
+      'Look &lt;img src="https://x.example/c.png"&gt;',
+    ],
     ['an ordinary link stays', 'Docs at [the guide](https://x.example/g)', 'Docs at [the guide](https://x.example/g)'],
     ['a key wrapped in markup is still neutralised', '<OPS-7>', `&lt;OPS${NB}7&gt;`],
   ])('%s', (_name, text, expected) => {
@@ -37,7 +45,10 @@ describe('sanitiseAgentText', () => {
     ['a reference image with its definition', '![chart][1]\n\n[1]: https://x.example/p.png'],
     ['an image URL with parentheses', '![chart](https://x.example/a_(b).png)'],
     ['a doubled bang', '!![x](https://x.example/a.png)[y](https://x.example/b.png)'],
-    ['an agent-written escape before the image', '\\![x](https://x.example/a.png) and \\\\![y](https://x.example/b.png)'],
+    [
+      'an agent-written escape before the image',
+      '\\![x](https://x.example/a.png) and \\\\![y](https://x.example/b.png)',
+    ],
     ['an image inside a link', '[![x](https://x.example/a.png)](https://x.example)'],
   ])('%s cannot render HTML or an image', (_name, text) => {
     const out = sanitiseAgentText(text, 'PROJ-12');

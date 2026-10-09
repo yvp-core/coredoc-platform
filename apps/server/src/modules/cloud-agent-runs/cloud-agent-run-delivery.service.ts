@@ -66,7 +66,8 @@ class Unconfirmed extends Error {}
 
 function transientGithub(error: unknown): { retryAfterMs: number | null } | false {
   if (error instanceof GithubRateLimitError) return { retryAfterMs: null };
-  if (error instanceof GithubApiError) return error.status >= 500 || error.status === 408 ? { retryAfterMs: null } : false;
+  if (error instanceof GithubApiError)
+    return error.status >= 500 || error.status === 408 ? { retryAfterMs: null } : false;
   // fetch rejects with a TypeError on network failures and a TimeoutError on its timeout.
   if (error instanceof TypeError || (error instanceof Error && error.name === 'TimeoutError')) {
     return { retryAfterMs: null };
@@ -111,9 +112,7 @@ export class CloudAgentRunDeliveryService {
       (assumption) => assumption.text,
     );
     const runUrl = await runPageUrl(this.prisma, run.workspaceId, run.id);
-    const previousRunUrl = run.previousRunId
-      ? await runPageUrl(this.prisma, run.workspaceId, run.previousRunId)
-      : null;
+    const previousRunUrl = run.previousRunId ? await runPageUrl(this.prisma, run.workspaceId, run.previousRunId) : null;
     const mergeOrder = repositories.map((repository) => repository.key);
     return {
       repositories,

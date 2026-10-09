@@ -10,7 +10,11 @@ const PULLS = [
 /** Text and link targets in document order. */
 function flatten(node: unknown): string[] {
   if (!node || typeof node !== 'object') return [];
-  const { text, marks, content } = node as { text?: string; marks?: Array<{ attrs?: { href?: string } }>; content?: unknown[] };
+  const { text, marks, content } = node as {
+    text?: string;
+    marks?: Array<{ attrs?: { href?: string } }>;
+    content?: unknown[];
+  };
   const own = [
     ...(text ? [text] : []),
     ...(marks ?? []).flatMap((mark) => (mark.attrs?.href ? [`<${mark.attrs.href}>`] : [])),

@@ -103,7 +103,10 @@ describe('delivery turns in the runner loop', () => {
 
     await expect(runTurn(deliveryTurn(2))).resolves.toBe('completed');
     expect(github.pulls).toHaveLength(2);
-    expect(github.pulls.map((pull) => pull.body)).toEqual(['Changes in billing-api (body v2)', 'Changes in orders-api (body v2)']);
+    expect(github.pulls.map((pull) => pull.body)).toEqual([
+      'Changes in billing-api (body v2)',
+      'Changes in orders-api (body v2)',
+    ]);
     expect(lastCompletion().deliveries).toEqual([
       { key: 'billing-api', pullRequest: { number: billing!.number } },
       { key: 'orders-api', pullRequest: { number: orders!.number } },
@@ -153,7 +156,9 @@ describe('delivery turns in the runner loop', () => {
       merged: true,
     });
     await expect(runTurn(deliveryTurn())).resolves.toBe('completed');
-    expect(github.pullsIn('example-org/billing-api')).toMatchObject([{ number: 77, state: 'closed', body: 'Old body' }]);
+    expect(github.pullsIn('example-org/billing-api')).toMatchObject([
+      { number: 77, state: 'closed', body: 'Old body' },
+    ]);
     expect(lastCompletion().deliveries[0]).toEqual({ key: 'billing-api', pullRequest: { number: 77 } });
   });
 
@@ -180,7 +185,10 @@ describe('delivery turns in the runner loop', () => {
     await expect(runTurn(deliveryTurn(), 5)).resolves.toBe('stopped');
     expect(github.pulls).toHaveLength(2);
     // The create already in flight landed; nothing was written after the stop.
-    expect(lastCompletion().deliveries.map((report: { key: string }) => report.key)).toEqual(['billing-api', 'orders-api']);
+    expect(lastCompletion().deliveries.map((report: { key: string }) => report.key)).toEqual([
+      'billing-api',
+      'orders-api',
+    ]);
 
     api.heartbeatAnswer = 'continue';
     github.pulls.length = 0;

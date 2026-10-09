@@ -58,7 +58,12 @@ async function deliverOne(
   for (let attempt = 1; attempt <= GITHUB_ATTEMPTS; attempt += 1) {
     // The heartbeat's answer is checked before each write.
     if (signal.aborted) return null;
-    const result = await github.createDraftPull(repository, { title: planned.title, body: planned.body, head: branch, base });
+    const result = await github.createDraftPull(repository, {
+      title: planned.title,
+      body: planned.body,
+      head: branch,
+      base,
+    });
     if (result.kind === 'created') return { key: planned.key, pullRequest: { number: result.number } };
     if (result.kind === 'no_commits') return { key: planned.key, pullRequest: null };
     // A 422, timeout or 5xx may still have opened it: look it up by head before any retry.

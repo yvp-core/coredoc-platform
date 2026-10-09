@@ -568,4 +568,67 @@ describe('agent runs routes', () => {
       ).toBeInTheDocument();
     });
   });
+
+  describe('delivery', () => {
+    const pull = (repository: string, number: number, state = 'open') => ({
+      repository,
+      number,
+      url: `https://github.com/example-org/${repository}/pull/${number}`,
+      state,
+      draft: state === 'open',
+      created: true,
+      verifiedAt: '2026-10-10T09:00:00.000Z',
+    });
+
+    it('links the verified pull requests in merge order and shows the Jira outcome', async () => {
+      detail = run({
+        status: 'done',
+        phase: 'delivery',
+        currentTurn: null,
+        openQuestion: null,
+        questions: [],
+        assumptions: [],
+        repositories: [],
+        pullRequests: [pull('billing-api', 4), pull('orders-api', 9, 'merged')],
+        jiraOutcome: {
+          done: { state: 'posted', attempts: 0, nextAttemptAt: null, commentId: '20001' },
+          transition: { outcome: 'warning', reason: 'No transition to Done is available for the issue.' },
+        },
+      });
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+
+      const card = await screen.findByRole('region', { name: 'Pull requests' });
+      const links = within(card).getAllByRole('link');
+      expect(links.map((link) => link.getAttribute('href'))).toEqual([
+        'https://github.com/example-org/billing-api/pull/4',
+        'https://github.com/example-org/orders-api/pull/9',
+      ]);
+      expect(within(card).getByText('Draft')).toBeInTheDocument();
+      expect(within(card).getByText('Merged')).toBeInTheDocument();
+      expect(within(card).getByText(/Done comment posted on Jira/)).toBeInTheDocument();
+      expect(within(card).getByText(/No transition to Done is available/)).toBeInTheDocument();
+    });
+
+    it('says when the Jira failure comment could not be posted', async () => {
+      detail = run({
+        status: 'failed',
+        failureCode: 'delivery_failed',
+        failureReason: 'GitHub refused.',
+        phase: 'delivery',
+        currentTurn: null,
+        openQuestion: null,
+        questions: [],
+        assumptions: [],
+        repositories: [],
+        pullRequests: [],
+        jiraOutcome: {
+          failure: { state: 'not_posted', attempts: 5, nextAttemptAt: null, reason: 'Jira answered 503.' },
+        },
+      });
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+
+      const card = await screen.findByRole('region', { name: 'Pull requests' });
+      expect(within(card).getByText(/Failure comment not posted on Jira: Jira answered 503\./)).toBeInTheDocument();
+    });
+  });
 });

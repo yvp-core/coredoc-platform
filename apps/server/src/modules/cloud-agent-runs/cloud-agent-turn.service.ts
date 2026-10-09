@@ -143,7 +143,8 @@ export class CloudAgentTurnService {
   private async withRunChecks(claimed: ClaimedTurn): Promise<TurnAssignment | null> {
     const { assignment, run } = claimed;
     try {
-      if (assignment.turn.kind === RunPhase.Delivery) return { ...assignment, ...(await this.delivery.assignment(run)) };
+      if (assignment.turn.kind === RunPhase.Delivery)
+        return { ...assignment, ...(await this.delivery.assignment(run)) };
       const repositories = await this.implement.repositoriesFor(run, assignment.turn.kind);
       if (assignment.turn.kind === RunPhase.Implement) {
         return { ...assignment, repositories, acceptedSpec: await this.implement.acceptedSpec(run) };
