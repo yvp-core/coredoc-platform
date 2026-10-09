@@ -170,6 +170,27 @@ describe('implement turns in the runner loop', () => {
     expect(existsSync(scratch) ? await readdir(scratch) : []).toEqual([]);
   });
 
+  it('an unavailable model sends the turn back to the queue without pushing the attempt’s work', async () => {
+    const { bare, repo } = await orders();
+    const turn = implementAssignment([repo]);
+
+    const { done } = runTurn(turn, [
+      {
+        act: async (cwd) => writeFile(join(cwd, 'orders-api', 'src', 'export.ts'), 'export {};\n'),
+        apiError: { error: 'server_error', status: 529, text: 'API Error: 529 Overloaded.' },
+      },
+    ]);
+    await expect(done).resolves.toBe('completed');
+
+    expect(remoteHead(bare, BRANCH)).toBeNull();
+    expect(api.uploads).toBe(0);
+    expect(api.completions[0]!.body).toMatchObject({
+      outcome: { kind: 'transient', reason: expect.stringContaining('529 Overloaded') },
+      spend: { costUsd: 1.5 },
+      repositories: [{ key: 'orders-api', pushedHead: null }],
+    });
+  });
+
   describe('the staging rule', () => {
     async function hostile() {
       const bare = await bareRemote(root, 'orders-api', {

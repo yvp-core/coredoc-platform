@@ -38,6 +38,12 @@ export const TurnState = {
 } as const;
 export type TurnState = (typeof TurnState)[keyof typeof TurnState];
 
+/**
+ * Attempts are counted at claim. A turn re-queued for a lost lease or an
+ * unavailable model fails the run on its third attempt.
+ */
+export const MAX_TURN_ATTEMPTS = 3;
+
 /** Outcomes the server records on a completed turn (failed turns record their failure code). */
 export const TurnOutcome = {
   /** Ended without a run-control call or a question (the nudge rule counts these). */
@@ -56,6 +62,8 @@ export const TurnOutcome = {
   RepositoryRequested: 'repository_requested',
   /** The lease expired without a completion: the turn was re-queued, or the run failed on the third loss. */
   RunnerLost: 'runner_lost',
+  /** The model stayed unavailable through Claude Code's retries: re-queued like a lost lease, attempt consumed. */
+  ModelUnavailable: 'model_unavailable',
 } as const;
 
 export const QuestionKind = { Clarification: 'clarification', RepositoryRequest: 'repository_request' } as const;

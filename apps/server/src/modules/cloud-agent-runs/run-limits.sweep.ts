@@ -8,6 +8,7 @@ import type { Logger } from '@nestjs/common';
 import type { PrismaService } from '../../database/prisma.service.js';
 import type { CloudAgentRunArchiveStore } from './cloud-agent-run-archive.store.js';
 import {
+  MAX_TURN_ATTEMPTS,
   QuestionState,
   RunFailureCode,
   RunStatus,
@@ -28,9 +29,6 @@ export interface SweepDeps {
 
 /** Rows handled per job and tick; the next tick takes the rest. */
 const BATCH = 100;
-
-/** The third lease expiry of one turn fails the run with `runner_lost`. */
-export const MAX_TURN_ATTEMPTS = 3;
 
 /**
  * A claimed turn of a live run whose lease expired: its runner is gone. The

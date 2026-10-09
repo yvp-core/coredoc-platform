@@ -75,6 +75,7 @@ const TURN_OUTCOME_WORDS: Record<TurnOutcome, string> = {
   delivered: 'with its pull requests verified',
   repository_requested: 'with a repository request for a person',
   runner_lost: 'after its runner stopped responding',
+  model_unavailable: 'because the model was unavailable; the turn is retried',
 };
 
 function describeEvent(event: AgentRunEvent): string {

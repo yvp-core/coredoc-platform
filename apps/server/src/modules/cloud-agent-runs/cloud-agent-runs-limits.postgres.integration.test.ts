@@ -646,6 +646,63 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
       await claim().expect(204);
     });
 
+    const unavailable = (turn: { id: string; lease: string }, costUsd: number) =>
+      turnCall(turn, 'complete', {
+        outcome: { kind: 'transient', reason: 'The model was unavailable (API Error: 529 Overloaded.).' },
+        spend: { costUsd, sdkTurns: 2 },
+        versions: VERSIONS,
+      });
+
+    it('a turn the model was unavailable for goes back to the queue like a lost lease, keeping its spend', async () => {
+      const run = await startRun();
+      const first = await claimTurn();
+      await api()
+        .put(`${runnerBase()}/turns/${first.id}/archive`)
+        .set('Authorization', `Bearer ${runnerToken}`)
+        .set(RUNNER_LEASE_HEADER, first.lease)
+        .set('Content-Type', 'application/octet-stream')
+        .send(Buffer.from('unavailable attempt'))
+        .expect(200);
+      const uploaded = (await turnRow(first.id)).stateArchiveKey!;
+
+      await unavailable(first, 0.75).expect(200);
+      expect(await turnRow(first.id)).toMatchObject({ state: 'queued', attempts: 1, stateArchiveKey: null });
+      expect((await turnRow(first.id)).leaseToken).not.toBe(first.lease);
+      expect(await prisma.serviceToken.count({ where: { owningTurnId: first.id } })).toBe(0);
+      expect(archives.objects.has(uploaded)).toBe(false);
+      expect(await detail(run.id)).toMatchObject({ status: 'scoping', spend: { usd: 0.75, unknownTurns: 0 } });
+      expect((await heartbeat(first).expect(409)).body.code).toBe('LEASE_LOST');
+
+      const second = await claimTurn();
+      expect(second.id).toBe(first.id);
+      expect(second.body.turn.attempt).toBe(2);
+      expect(second.body.hasStateArchive).toBe(false);
+      expect(second.body.mcp.token).toEqual(expect.any(String));
+      // The lost attempt's session was not kept, so its spend is not part of the session's reported total.
+      expect(second.body.run.priorSessionSpendUsd).toBe(0);
+      expect(second.body.run.remainingSpendUsd).toBe(9.25);
+      expect(await prisma.cloudAgentRunEvent.findMany({ where: { runId: run.id, type: 'turn_ended' } })).toEqual([
+        expect.objectContaining({ payload: { outcome: 'model_unavailable', spendUsd: 0.75 } }),
+      ]);
+    });
+
+    it('the third attempt the model is unavailable for fails the run with agent_error and the reason', async () => {
+      const run = await startRun();
+      for (let attempt = 1; attempt <= 2; attempt += 1) await unavailable(await claimTurn(), 0.5).expect(200);
+      const third = await claimTurn();
+      expect(third.body.turn.attempt).toBe(3);
+      await unavailable(third, 0.5).expect(200);
+
+      expect(await detail(run.id)).toMatchObject({
+        status: 'failed',
+        failureCode: 'agent_error',
+        failureReason: 'The model was unavailable (API Error: 529 Overloaded.).',
+        spend: { usd: 1.5 },
+      });
+      expect(await prisma.serviceToken.count({ where: { owningTurnId: third.id } })).toBe(0);
+      await claim().expect(204);
+    });
+
     it('an archive the lost attempt uploaded is deleted; the run keeps its previous one', async () => {
       const run = await startRun();
       const turn = await claimTurn();

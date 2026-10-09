@@ -343,6 +343,8 @@ export interface SessionStep {
   resultSubtype?: 'success' | 'error_max_turns';
   /** Keep working (calling tools) until the runner refuses tools, as at the duration limit. */
   untilStopped?: boolean;
+  /** End on a model API failure after the work, as the pinned SDK reports one: a synthetic message, an error result, a throw. */
+  apiError?: { error: string; status: number | null; text: string };
 }
 
 export interface SeenSession {
@@ -432,6 +434,28 @@ export function fakeImplementQuery(steps: SessionStep[], seen: SeenSession[]): Q
       } else {
         const denial = await preToolUse(options, 'Bash');
         if (denial) record.denials.push(denial);
+      }
+      if (step.apiError) {
+        yield {
+          type: 'assistant',
+          error: step.apiError.error,
+          message: { model: '<synthetic>', content: [{ type: 'text', text: step.apiError.text }] },
+          parent_tool_use_id: null,
+          session_id: sessionId,
+        } as unknown as SDKMessage;
+        yield {
+          type: 'result',
+          subtype: 'success',
+          is_error: true,
+          terminal_reason: 'api_error',
+          api_error_status: step.apiError.status,
+          result: step.apiError.text,
+          total_cost_usd: seen.length * 1.5,
+          num_turns: 5,
+          duration_ms: 1000,
+          session_id: sessionId,
+        } as unknown as SDKMessage;
+        throw new Error(`Claude Code returned an error result: ${step.apiError.text}`);
       }
       yield {
         type: 'result',
