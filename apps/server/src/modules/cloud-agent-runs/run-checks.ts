@@ -4,6 +4,7 @@
  */
 import type { PrismaService } from '../../database/prisma.service.js';
 import type { CloudAgentRun } from '../../generated/prisma/client.js';
+import { activeGithubConnectors } from '../../libs/github/github-repository-resolver.service.js';
 import { RunCheckFailure } from './cloud-agent-run-implement.service.js';
 import { RunFailureCode } from './run-states.js';
 
@@ -14,7 +15,7 @@ export async function checkRunOwnerAndConnectors(prisma: PrismaService, run: Clo
       where: { workspaceId_userId: { workspaceId: run.workspaceId, userId: run.runOwnerId } },
       select: { pending: true },
     }),
-    prisma.deliveryConnector.count({ where: { workspaceId: run.workspaceId, provider: 'github', status: 'active' } }),
+    prisma.deliveryConnector.count({ where: activeGithubConnectors(run.workspaceId) }),
   ]);
   if (!owner || owner.pending) {
     throw new RunCheckFailure(RunFailureCode.RunOwnerRemoved, 'The member this run acts as left the workspace.');
