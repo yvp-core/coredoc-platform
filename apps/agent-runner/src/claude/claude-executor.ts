@@ -15,7 +15,8 @@ import { type Clone, TurnGit } from '../git/turn-git.js';
 import { GithubApi } from '../github/github-api.js';
 import type { RunnerApiClient } from '../runner-api.js';
 import type { TurnExecutor, TurnIO, TurnResult } from '../runner.js';
-import { type RetryDelay, TurnFailure } from '../turn-failure.js';
+import { defaultRetryDelay, type RetryDelay, TurnFailure } from '../turn-failure.js';
+import { deliver } from '../delivery/deliver.js';
 import { implementPrompt, runPreamble, scopePrompt } from './prompts.js';
 import { QuestionBridge } from './question-bridge.js';
 import { RUN_CONTROL_SERVER, type RunControlState, runControlServer } from './run-control.js';
@@ -95,6 +96,7 @@ export class ClaudeExecutor implements TurnExecutor {
   }
 
   async run(turn: TurnAssignment, io: TurnIO): Promise<TurnResult> {
+    if (turn.turn.kind === 'delivery') return this.deliveryTurn(turn, io);
     if (turn.turn.kind !== 'scope' && turn.turn.kind !== 'implement') {
       await io.emit([{ type: 'raw', text: `[runner] ${turn.turn.kind} turns are not supported by this runner yet` }]);
       return { spend: null };
@@ -115,6 +117,22 @@ export class ClaudeExecutor implements TurnExecutor {
       throw error;
     } finally {
       await wipeScratch(this.options.scratchRoot);
+    }
+  }
+
+  /** No agent session and no scratch: the bot check, then draft pull requests. */
+  private async deliveryTurn(turn: TurnAssignment, io: TurnIO): Promise<TurnResult> {
+    try {
+      await this.checkBotPermissions(turn);
+      const github = new GithubApi({
+        token: this.requireBot().token,
+        fetchImpl: this.options.githubFetch,
+        retryDelay: this.options.retryDelay,
+      });
+      return await deliver(turn, io, github, this.options.retryDelay ?? defaultRetryDelay);
+    } catch (error) {
+      if (error instanceof TurnFailure) return { spend: null, outcome: failed(error) };
+      throw error;
     }
   }
 

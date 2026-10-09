@@ -47,6 +47,7 @@ export function assignment(overrides: Partial<TurnAssignment> = {}): TurnAssignm
     acceptedSpec: null,
     prd: { markdown: '# PROJ-1: Export orders\n\nCustomers need order exports.\n' },
     repositories: [],
+    delivery: null,
     mcp: { token: 'cdt_turn_token', path: `/api/v1/workspaces/${WORKSPACE}/mcp` },
     hasStateArchive: false,
     answer: null,

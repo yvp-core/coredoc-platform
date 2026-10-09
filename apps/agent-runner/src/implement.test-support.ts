@@ -7,7 +7,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { createServer, type Server } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -132,12 +132,98 @@ interface FakeRepository {
   status?: number;
 }
 
-/** A stateful fake of GitHub's REST API: repository reads with the bot's permissions. */
+export interface FakePull {
+  repository: string;
+  number: number;
+  /** `owner:branch`, as GitHub's head filter takes it. */
+  head: string;
+  base: string;
+  title: string;
+  body: string;
+  draft: boolean;
+  state: 'open' | 'closed';
+  merged: boolean;
+}
+
+/** What the next create answers instead of 201; `afterStoring` means GitHub kept the pull request anyway. */
+export interface CreateAnswer {
+  status: number;
+  message?: string;
+  afterStoring?: boolean;
+}
+
+/** A stateful fake of GitHub's REST API: repository reads with the bot's permissions, and pull requests. */
 export class FakeGithub {
   readonly repositories = new Map<string, FakeRepository>();
-  readonly requests: Array<{ path: string; authorization?: string; apiVersion?: string }> = [];
+  readonly requests: Array<{ method: string; path: string; authorization?: string; apiVersion?: string }> = [];
+  readonly pulls: FakePull[] = [];
+  /** Answers for the next creates, in order. */
+  createAnswers: CreateAnswer[] = [];
+  /** Runs before each create is answered; tests use it to stop the turn mid-delivery. */
+  beforeCreate: (() => Promise<void>) | null = null;
+  private nextNumber = 1;
   private server!: Server;
   baseUrl = '';
+
+  pullsIn(repository: string): FakePull[] {
+    return this.pulls.filter((pull) => pull.repository === repository);
+  }
+
+  private async pullRoute(
+    method: string,
+    repository: string,
+    rest: string,
+    body: Record<string, unknown>,
+    reply: (status: number, body: unknown) => void,
+  ): Promise<void> {
+    if (method === 'GET' && rest.startsWith('?')) {
+      const query = new URLSearchParams(rest.slice(1));
+      return reply(
+        200,
+        this.pullsIn(repository)
+          .filter((pull) => pull.head === query.get('head'))
+          .map((pull) => this.wire(pull)),
+      );
+    }
+    if (method === 'POST' && rest === '') {
+      await this.beforeCreate?.();
+      const answer = this.createAnswers.shift();
+      if (answer && !answer.afterStoring) return reply(answer.status, { message: answer.message ?? 'refused' });
+      const pull: FakePull = {
+        repository,
+        number: this.nextNumber++,
+        head: `${repository.split('/')[0]}:${body.head as string}`,
+        base: body.base as string,
+        title: body.title as string,
+        body: body.body as string,
+        draft: body.draft === true,
+        state: 'open',
+        merged: false,
+      };
+      this.pulls.push(pull);
+      if (answer) return reply(answer.status, { message: answer.message ?? 'refused' });
+      return reply(201, this.wire(pull));
+    }
+    const number = /^\/(\d+)$/.exec(rest)?.[1];
+    const pull = this.pullsIn(repository).find((candidate) => candidate.number === Number(number));
+    if (method === 'PATCH' && pull) {
+      if (typeof body.body === 'string') pull.body = body.body;
+      return reply(200, this.wire(pull));
+    }
+    return reply(404, { message: 'Not Found' });
+  }
+
+  private wire(pull: FakePull) {
+    return {
+      number: pull.number,
+      html_url: `https://github.example/${pull.repository}/pull/${pull.number}`,
+      state: pull.state,
+      draft: pull.draft,
+      merged_at: pull.merged ? '2026-10-10T10:00:00Z' : null,
+      head: { ref: pull.head.split(':')[1], label: pull.head },
+      base: { ref: pull.base },
+    };
+  }
 
   add(owner: string, name: string, permissions: Partial<Record<string, boolean>> = {}): void {
     this.repositories.set(`${owner}/${name}`, {
@@ -151,18 +237,36 @@ export class FakeGithub {
 
   async listen(): Promise<void> {
     this.server = createServer((req, res) => {
+      void this.handle(req, res);
+    });
+    await new Promise<void>((resolve) => this.server.listen(0, '127.0.0.1', resolve));
+    this.baseUrl = `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`;
+  }
+
+  private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const raw = Buffer.concat(chunks).toString('utf8');
+      const method = req.method ?? 'GET';
       this.requests.push({
+        method,
         path: req.url ?? '',
         authorization: req.headers.authorization,
         apiVersion: req.headers['x-github-api-version'] as string | undefined,
       });
-      const match = /^\/repos\/([^/]+)\/([^/]+)$/.exec(req.url ?? '');
-      const repo = match ? this.repositories.get(`${match[1]}/${match[2]}`) : undefined;
       const reply = (status: number, body: unknown, headers: Record<string, string> = {}) => {
         res.writeHead(status, { 'content-type': 'application/json', ...headers });
         res.end(JSON.stringify(body));
       };
       if (req.headers.authorization !== `Bearer ${BOT_TOKEN}`) return reply(401, { message: 'Bad credentials' });
+      const pulls = /^\/repos\/([^/]+)\/([^/]+)\/pulls(.*)$/.exec(req.url ?? '');
+      if (pulls) {
+        if (!this.repositories.has(`${pulls[1]}/${pulls[2]}`)) return reply(404, { message: 'Not Found' });
+        return this.pullRoute(method, `${pulls[1]}/${pulls[2]}`, pulls[3]!, raw ? JSON.parse(raw) : {}, reply);
+      }
+      const match = /^\/repos\/([^/]+)\/([^/]+)$/.exec(req.url ?? '');
+      const repo = match ? this.repositories.get(`${match[1]}/${match[2]}`) : undefined;
       if (!repo) return reply(404, { message: 'Not Found' });
       if (repo.failures > 0) {
         repo.failures -= 1;
@@ -174,9 +278,7 @@ export class FakeGithub {
         default_branch: 'main',
         permissions: repo.permissions,
       });
-    });
-    await new Promise<void>((resolve) => this.server.listen(0, '127.0.0.1', resolve));
-    this.baseUrl = `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`;
+    }
   }
 
   async close(): Promise<void> {

@@ -4,6 +4,7 @@
  * run is over or the lease is gone. One turn at a time per process.
  */
 import {
+  type DeliveryReport,
   type ProposeScopeRequest,
   type ProposeScopeResponse,
   type RepositoryReport,
@@ -44,6 +45,8 @@ export interface TurnResult {
   outcome?: TurnOutcome;
   /** Implement turns: what the end of the turn left in each repository. */
   repositories?: RepositoryReport[];
+  /** Delivery turns: the pull request opened or reused in each repository. */
+  deliveries?: DeliveryReport[];
   /** The agent's final message; the server keeps it as the reason when outcome-less turns fail the run. */
   lastMessage?: string | null;
 }
@@ -198,16 +201,19 @@ export class Runner {
         uploadArchive: (archive) => this.options.api.uploadArchive(ref, archive),
       };
       const result = await this.options.executor.run(assignment, io);
-      if (end) return end;
+      // A stopped delivery turn still completes, so the pull requests it opened are recorded.
+      const stoppedDelivery = end === 'stopped' && assignment.turn.kind === 'delivery';
+      if (end && !stoppedDelivery) return end;
 
       await this.options.api.complete(ref, {
         outcome: result.outcome ?? { kind: 'ended' },
         spend: result.spend,
         versions: this.versions,
         ...(result.repositories?.length ? { repositories: result.repositories } : {}),
+        ...(result.deliveries?.length ? { deliveries: result.deliveries } : {}),
         ...(result.lastMessage ? { lastMessage: result.lastMessage.slice(0, 2_000) } : {}),
       });
-      return 'completed';
+      return stoppedDelivery ? 'stopped' : 'completed';
     } catch (error) {
       if (error instanceof LeaseLostError) return 'lease_lost';
       if (end) return end;
