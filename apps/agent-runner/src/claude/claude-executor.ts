@@ -54,6 +54,7 @@ export interface ClaudeExecutorOptions extends BotGithubOptions {
   /** The pinned coredoc-workflows plugin, loaded by path. */
   pluginPath: string;
   modelApiKey: string;
+  modelCredentialKind?: 'api_key' | 'subscription';
   modelBaseUrl?: string;
   hostEnv: NodeJS.ProcessEnv;
   /** Written into each turn's home as its user-level registry configuration. */
@@ -475,6 +476,7 @@ export class ClaudeExecutor implements TurnExecutor {
         paths,
         sessionId: turn.run.sessionId,
         modelApiKey: this.options.modelApiKey,
+        modelCredentialKind: this.options.modelCredentialKind,
         modelBaseUrl: this.options.modelBaseUrl,
         sessionEndHookTimeoutMs: SESSION_END_HOOK_TIMEOUT_MS,
       }),

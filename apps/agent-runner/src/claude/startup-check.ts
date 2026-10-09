@@ -1,21 +1,21 @@
 /**
  * The runner's start-up check: start Claude Code through the SDK with the
- * plugin, read what loaded, and stop before any model call (the prompt is a
- * stream that never sends a message). The runner claims nothing until it passes.
+ * plugin and ask for its initialize answer over the control protocol, which
+ * needs no prompt and no model call (Claude Code sends its init message only
+ * after a first user message). The runner claims nothing until it passes.
+ * Plugin load errors surface in each session's init message instead.
  */
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { RunnerVersions } from '@coredoc/core/agent-runner';
 import type { GithubApi } from '../github/github-api.js';
 import type { StartupProblem, StartupReport } from '../runner.js';
-import { pluginProblem } from './claude-executor.js';
 
-/** The SDK's `query`, as the check calls it: a streaming prompt that sends nothing. */
-export type StartupQueryFn = (params: {
-  prompt: AsyncIterable<SDKUserMessage>;
-  options: Options;
-}) => AsyncIterable<SDKMessage>;
+/** The SDK's `query`, as the check uses it: a streaming prompt that sends nothing, then the initialize answer. */
+export type StartupQueryFn = (params: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => {
+  initializationResult(): Promise<{ commands?: Array<{ name: string }> }>;
+};
 
 export interface StartupCheckOptions {
   query: StartupQueryFn;
@@ -25,7 +25,28 @@ export interface StartupCheckOptions {
   timeoutMs?: number;
 }
 
+async function pluginManifest(pluginPath: string): Promise<{ name: string; version?: string } | null> {
+  try {
+    const manifest = JSON.parse(await readFile(join(pluginPath, '.claude-plugin', 'plugin.json'), 'utf8'));
+    return typeof manifest?.name === 'string' ? manifest : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function checkClaudeStartup(options: StartupCheckOptions): Promise<StartupReport> {
+  const manifest = await pluginManifest(options.pluginPath);
+  if (!manifest) {
+    return {
+      versions: options.versions,
+      problem: { code: 'plugin_missing', detail: `No plugin manifest at ${options.pluginPath}.` },
+    };
+  }
+  const versions: RunnerVersions = {
+    ...options.versions,
+    ...(manifest.version ? { plugin: manifest.version } : {}),
+  };
+  const timeoutMs = options.timeoutMs ?? 60_000;
   const abort = new AbortController();
   await mkdir(options.scratchRoot, { recursive: true });
   const dir = await mkdtemp(join(options.scratchRoot, 'startup-'));
@@ -38,11 +59,10 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
         ),
     }),
   };
-  const timeout = setTimeout(() => abort.abort(), options.timeoutMs ?? 60_000);
-  let versions: RunnerVersions = options.versions;
-  let problem: StartupProblem | null = { code: 'sdk_unusable', detail: 'Claude Code sent no init message' };
+  const timeout = setTimeout(() => abort.abort(), timeoutMs);
+  let problem: StartupProblem | null;
   try {
-    for await (const message of options.query({
+    const session = options.query({
       prompt: silent,
       options: {
         cwd: dir,
@@ -58,20 +78,25 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
           DISABLE_AUTOUPDATER: '1',
         },
       },
-    })) {
-      if (message.type === 'system' && message.subtype === 'init') {
-        const plugin = message.plugins?.find((candidate) => candidate.version);
-        versions = {
-          ...versions,
-          claudeCode: message.claude_code_version,
-          ...(plugin?.version ? { plugin: plugin.version } : {}),
-        };
-        problem = pluginProblem(message, options.pluginPath);
-        break;
-      }
-    }
+    });
+    // Bounded by the timeout even if the SDK's promise ignores the abort.
+    const timedOut = new Promise<never>((_, reject) =>
+      abort.signal.addEventListener('abort', () => reject(new Error('timed out')), { once: true }),
+    );
+    const init = await Promise.race([session.initializationResult(), timedOut]);
+    const skills = (init.commands ?? []).filter((command) => command.name.startsWith(`${manifest.name}:`));
+    problem = skills.length
+      ? null
+      : { code: 'plugin_skills_missing', detail: `Claude Code lists no skills from the plugin ${manifest.name}.` };
   } catch (error) {
-    problem = { code: 'sdk_unusable', detail: error instanceof Error ? error.message : String(error) };
+    problem = {
+      code: 'sdk_unusable',
+      detail: abort.signal.aborted
+        ? `Claude Code did not initialise within ${Math.round(timeoutMs / 1000)} s.`
+        : error instanceof Error
+          ? error.message
+          : String(error),
+    };
   } finally {
     clearTimeout(timeout);
     abort.abort();

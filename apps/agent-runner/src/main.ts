@@ -9,19 +9,30 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { ClaudeExecutor } from './claude/claude-executor.js';
-import { checkRunnerStartup } from './claude/startup-check.js';
+import { checkClaudeStartup, checkRunnerStartup } from './claude/startup-check.js';
 import { GithubApi } from './github/github-api.js';
 import { type PackageRegistry, packageRegistries } from './package-registries.js';
+import { secretMasker } from './mask-secrets.js';
 import { RunnerApiClient } from './runner-api.js';
 import { Runner } from './runner.js';
 
-function required(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    console.error(`[agent-runner] ${name} is required`);
-    process.exit(2);
-  }
-  return value;
+// Local development only: a developer's own Claude subscription token instead of an API key.
+// Products authenticate with the customer's API key; the dev compose service alone sets this switch.
+const DEV_SUBSCRIPTION =
+  process.env.COREDOC_RUNNER_DEV_SUBSCRIPTION === '1' && Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim());
+const REQUIRED = [
+  'COREDOC_API_URL',
+  'COREDOC_WORKSPACE_ID',
+  'COREDOC_RUNNER_TOKEN',
+  DEV_SUBSCRIPTION ? 'CLAUDE_CODE_OAUTH_TOKEN' : 'ANTHROPIC_API_KEY',
+  'COREDOC_GITHUB_TOKEN',
+  'COREDOC_GIT_AUTHOR_EMAIL',
+] as const;
+const NOT_CONFIGURED_REMINDER_MS = 5 * 60_000;
+
+/** Read only after the missing-settings wait below, so always set. */
+function required(name: (typeof REQUIRED)[number]): string {
+  return process.env[name]?.trim() ?? '';
 }
 
 function packageVersion(manifestPath: string): string {
@@ -35,15 +46,55 @@ const log = (message: string) => console.log(`[agent-runner] ${message}`);
 const versions = {
   runner: packageVersion(new URL('../package.json', import.meta.url).pathname),
   sdk: packageVersion(sdkManifest),
+  // The Claude Code build the SDK bundles; the start-up check asks Claude Code for nothing version-related.
+  claudeCode: (JSON.parse(readFileSync(sdkManifest, 'utf8')) as { claudeCodeVersion?: string }).claudeCodeVersion,
 };
 
 const scratchRoot = process.env.COREDOC_RUNNER_SCRATCH?.trim() || '/scratch';
 const pluginPath = process.env.COREDOC_WORKFLOWS_PLUGIN_PATH?.trim() || '/opt/coredoc-workflows';
+
+const shutdown = new AbortController();
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.once(signal, () => {
+    log(`${signal} received; stopping the current turn without pushing or completing it`);
+    shutdown.abort();
+  });
+}
+
+// An unenrolled runner (no token yet) waits instead of exiting, so a restart
+// policy does not turn it into a crash loop. Settings are read once: a restart picks up new ones.
+const missing = REQUIRED.filter((name) => !process.env[name]?.trim());
+if (missing.length > 0) {
+  const notConfigured = `not configured: ${missing.join(', ')} not set; claiming nothing. Create a runner token in Settings → Agent runs, set the missing variables and restart the runner.`;
+  log(notConfigured);
+  // Claude Code needs none of these settings, so a host that cannot run it shows up before enrolment.
+  const { versions: checked, problem } = await checkClaudeStartup({ query, pluginPath, scratchRoot, versions });
+  const mask = secretMasker(
+    ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'COREDOC_GITHUB_TOKEN', 'COREDOC_RUNNER_TOKEN'].map((name) =>
+      process.env[name]?.trim(),
+    ),
+  );
+  log(
+    problem
+      ? `Claude Code check failed (${problem.code})${problem.detail ? `: ${mask(problem.detail.trim())}` : ''}`
+      : `Claude Code check passed: claude code ${checked.claudeCode ?? '?'}, plugin ${checked.plugin ?? '?'}`,
+  );
+  const reminder = setInterval(() => log(notConfigured), NOT_CONFIGURED_REMINDER_MS);
+  await new Promise((resolve) => shutdown.signal.addEventListener('abort', resolve, { once: true }));
+  clearInterval(reminder);
+  log('stopped');
+  process.exit(0);
+}
+
 const botToken = required('COREDOC_GITHUB_TOKEN');
 // The GitHub REST API the bot account is checked against at start-up; a GitHub Enterprise Server's is `https://<host>/api/v3`.
 const githubApiUrl = process.env.COREDOC_GITHUB_API_URL?.trim() || 'https://api.github.com';
 const runnerToken = required('COREDOC_RUNNER_TOKEN');
-const modelApiKey = required('ANTHROPIC_API_KEY');
+const modelApiKey = required(DEV_SUBSCRIPTION ? 'CLAUDE_CODE_OAUTH_TOKEN' : 'ANTHROPIC_API_KEY');
+if (DEV_SUBSCRIPTION)
+  log(
+    'development mode: using a Claude subscription token instead of an API key; never use this outside local testing',
+  );
 let registries: PackageRegistry[] = [];
 // Reported through the start-up check, so settings show it; the runner claims nothing until it is fixed.
 let registryProblem: string | null = null;
@@ -57,14 +108,18 @@ const api = new RunnerApiClient({
   workspaceId: required('COREDOC_WORKSPACE_ID'),
   token: runnerToken,
 });
+// How long an idle runner waits between claims; the spec's 5 s unless set.
+const pollSeconds = Number(process.env.COREDOC_RUNNER_POLL_SECONDS);
 const runner = new Runner({
   api,
+  ...(Number.isFinite(pollSeconds) && pollSeconds >= 1 ? { idlePollMs: pollSeconds * 1000 } : {}),
   executor: new ClaudeExecutor({
     query,
     api,
     scratchRoot,
     pluginPath,
     modelApiKey,
+    modelCredentialKind: DEV_SUBSCRIPTION ? 'subscription' : 'api_key',
     modelBaseUrl: process.env.ANTHROPIC_BASE_URL?.trim() || undefined,
     // The bot account: its fine-grained token (Write role only) and the commit identity, its no-reply address.
     bot: {
@@ -91,14 +146,6 @@ const runner = new Runner({
         }),
   log,
 });
-
-const shutdown = new AbortController();
-for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-  process.once(signal, () => {
-    log(`${signal} received; stopping the current turn without pushing or completing it`);
-    shutdown.abort();
-  });
-}
 
 log(`starting runner ${versions.runner}`);
 await runner.start(shutdown.signal);

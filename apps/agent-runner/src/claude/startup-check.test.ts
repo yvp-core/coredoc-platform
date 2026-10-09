@@ -1,7 +1,6 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assignment, FakeCoredocApi, TOKEN, WORKSPACE } from '../fake-coredoc-api.test-support.js';
 import { RunnerApiClient } from '../runner-api.js';
@@ -10,36 +9,36 @@ import { GithubApi } from '../github/github-api.js';
 import { BOT_TOKEN, FakeGithub } from '../implement.test-support.js';
 import { checkClaudeStartup, checkRunnerStartup, type StartupQueryFn } from './startup-check.js';
 
-const PLUGIN = '/opt/coredoc-workflows';
-
-function initOnly(init: Record<string, unknown>): StartupQueryFn {
-  return () =>
-    (async function* () {
-      yield {
-        type: 'system',
-        subtype: 'init',
-        claude_code_version: '2.1.285',
-        session_id: 's',
-        ...init,
-      } as unknown as SDKMessage;
-    })();
+/** Claude Code's initialize answer listing these commands; the plugin's skills are prefixed with its name. */
+function initResult(commands: string[]): StartupQueryFn {
+  return () => ({ initializationResult: async () => ({ commands: commands.map((name) => ({ name })) }) });
 }
+
+const VERSIONS = { runner: '1.1.0-test', sdk: '0.3.285', claudeCode: '2.1.285' };
 
 const idleExecutor: TurnExecutor = { run: async () => ({ spend: null }) };
 
 describe('runner start-up check', () => {
   let api: FakeCoredocApi;
   let scratch: string;
+  let plugin: string;
 
   beforeEach(async () => {
     api = new FakeCoredocApi();
     await api.listen();
     scratch = await mkdtemp(join(tmpdir(), 'runner-startup-'));
+    plugin = await mkdtemp(join(tmpdir(), 'runner-plugin-'));
+    await mkdir(join(plugin, '.claude-plugin'));
+    await writeFile(
+      join(plugin, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'coredoc-workflows', version: '0.14.0' }),
+    );
   });
 
   afterEach(async () => {
     await api.close();
     await rm(scratch, { recursive: true, force: true });
+    await rm(plugin, { recursive: true, force: true });
   });
 
   async function startFor(query: StartupQueryFn, github?: FakeGithub) {
@@ -48,16 +47,11 @@ describe('runner start-up check', () => {
     const runner = new Runner({
       api: new RunnerApiClient({ baseUrl: api.baseUrl, workspaceId: WORKSPACE, token: TOKEN }),
       executor: idleExecutor,
-      versions: { runner: '1.1.0-test', sdk: '0.3.285' },
+      versions: VERSIONS,
       idlePollMs: 5,
       startupRetryMs: 5,
       startupCheck: () => {
-        const claude = {
-          query,
-          pluginPath: PLUGIN,
-          scratchRoot: scratch,
-          versions: { runner: '1.1.0-test', sdk: '0.3.285' },
-        };
+        const claude = { query, pluginPath: plugin, scratchRoot: scratch, versions: VERSIONS };
         return github
           ? checkRunnerStartup({
               ...claude,
@@ -76,22 +70,25 @@ describe('runner start-up check', () => {
     return logs;
   }
 
-  it('claims nothing while the plugin reports errors, and logs why with the versions', async () => {
-    const logs = await startFor(
-      initOnly({
-        plugins: [{ name: 'coredoc-workflows', path: PLUGIN, version: '0.14.0' }],
-        plugin_errors: [{ plugin: 'coredoc-workflows', type: 'hook-load-failed', message: 'hooks.json is invalid' }],
-        skills: [],
-      }),
-    );
+  it('claims nothing while the plugin has no manifest, and logs why with the versions', async () => {
+    await rm(join(plugin, '.claude-plugin'), { recursive: true });
+    const logs = await startFor(initResult(['coredoc-workflows:spec']));
     expect(api.claims).toEqual([]);
-    expect(logs.join('\n')).toContain('hooks.json is invalid');
+    expect(logs.join('\n')).toContain('No plugin manifest');
     expect(logs.join('\n')).toContain('claude code 2.1.285');
-    expect(api.startupProblems[0]).toMatchObject({
-      code: 'plugin_errors',
-      detail: 'coredoc-workflows: hooks.json is invalid',
-      versions: { claudeCode: '2.1.285', plugin: '0.14.0' },
+    expect(api.startupProblems[0]).toMatchObject({ code: 'plugin_missing' });
+  });
+
+  it('claims nothing while Claude Code does not answer, naming the wait', async () => {
+    const report = await checkClaudeStartup({
+      // A Claude Code that never answers its initialize request.
+      query: () => ({ initializationResult: () => new Promise<never>(() => undefined) }),
+      pluginPath: plugin,
+      scratchRoot: scratch,
+      versions: VERSIONS,
+      timeoutMs: 20,
     });
+    expect(report.problem).toEqual({ code: 'sdk_unusable', detail: 'Claude Code did not initialise within 0 s.' });
   });
 
   it('claims nothing while the SDK cannot start Claude Code', async () => {
@@ -104,10 +101,7 @@ describe('runner start-up check', () => {
   });
 
   describe('the bot account', () => {
-    const loaded = initOnly({
-      plugins: [{ name: 'coredoc-workflows', path: PLUGIN, version: '0.14.0' }],
-      skills: ['coredoc-workflows:spec'],
-    });
+    const loaded = initResult(['init', 'coredoc-workflows:spec']);
     let github: FakeGithub;
 
     beforeEach(async () => {
@@ -138,26 +132,14 @@ describe('runner start-up check', () => {
     });
   });
 
-  it.each([
-    ['is not listed', { plugins: [], skills: [] }, 'plugin_missing'],
-    [
-      'loads without its skills',
-      { plugins: [{ name: 'coredoc-workflows', path: PLUGIN, version: '0.14.0' }], skills: [] },
-      'plugin_skills_missing',
-    ],
-  ])('reports a plugin that %s', async (_case, init, code) => {
-    await startFor(initOnly(init));
+  it('reports a plugin whose skills Claude Code does not list', async () => {
+    await startFor(initResult(['init', 'review']));
     expect(api.claims).toEqual([]);
-    expect(api.startupProblems[0]).toMatchObject({ code });
+    expect(api.startupProblems[0]).toMatchObject({ code: 'plugin_skills_missing' });
   });
 
   it('claims once the plugin and its skills load, reporting the versions it found', async () => {
-    await startFor(
-      initOnly({
-        plugins: [{ name: 'coredoc-workflows', path: PLUGIN, version: '0.14.0' }],
-        skills: ['coredoc-workflows:spec'],
-      }),
-    );
+    await startFor(initResult(['init', 'coredoc-workflows:spec']));
     expect(api.claims[0]).toMatchObject({
       versions: { runner: '1.1.0-test', sdk: '0.3.285', claudeCode: '2.1.285', plugin: '0.14.0' },
     });

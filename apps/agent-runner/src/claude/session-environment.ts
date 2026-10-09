@@ -25,6 +25,8 @@ export interface SessionEnvironmentInput {
   paths: TurnPaths;
   sessionId: string;
   modelApiKey: string;
+  /** `subscription` is honoured only on a development runner (see main.ts); products use API keys. */
+  modelCredentialKind?: 'api_key' | 'subscription';
   modelBaseUrl?: string;
   /** Long enough for the plugin to suspend its run at session end. */
   sessionEndHookTimeoutMs: number;
@@ -37,7 +39,6 @@ export function sessionEnvironment(input: SessionEnvironmentInput): Record<strin
     TMPDIR: input.paths.tmp,
     LANG: 'C.UTF-8',
     CLAUDE_CONFIG_DIR: input.paths.claudeConfig,
-    ANTHROPIC_API_KEY: input.modelApiKey,
     // Opt-outs: non-essential traffic, telemetry, error reporting, auto-update, Claude.ai connectors.
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     DISABLE_TELEMETRY: '1',
@@ -53,6 +54,8 @@ export function sessionEnvironment(input: SessionEnvironmentInput): Record<strin
     COREDOC_WORKFLOWS_HOSTED: '1',
     COREDOC_WORKFLOWS_SESSION_ID: input.sessionId,
   };
+  if (input.modelCredentialKind === 'subscription') env.CLAUDE_CODE_OAUTH_TOKEN = input.modelApiKey;
+  else env.ANTHROPIC_API_KEY = input.modelApiKey;
   for (const name of PASSTHROUGH) {
     const value = input.hostEnv[name];
     if (value) env[name] = value;

@@ -365,8 +365,10 @@ It needs a CNI that enforces NetworkPolicy.
 ## 8. Environment reference
 
 The chart sets these from the values in §5 and the runner Secret. Set them
-yourself only when you run the runner outside the chart. A missing required
-variable stops the runner with exit code 2.
+yourself only when you run the runner outside the chart. With a required
+variable missing, the runner logs `not configured` with the missing names,
+claims nothing and waits (no exit, so no crash loop) until it is restarted with
+them set. It still checks that Claude Code starts and logs the result.
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
@@ -379,6 +381,7 @@ variable stops the runner with exit code 2.
 | `COREDOC_GITHUB_API_URL` | no | `https://api.github.com` | GitHub REST API for the bot's start-up check; `https://<ghes-host>/api/v3` on GitHub Enterprise Server. |
 | `COREDOC_PACKAGE_REGISTRIES` | no | | JSON object keyed by package scope (`@scope`) or `default`: `{"@scope": {"url": "https://npm.pkg.github.com", "credential": "github"}, "default": {"url": "https://npm-mirror.example.com/"}}`. `credential` is `github`, `env:<VARIABLE>` or omitted; a credential is only sent to an `https` registry. An invalid value is reported as a start-up problem (§6). |
 | `COREDOC_RUNNER_SCRATCH` | no | `/scratch` (image) | The scratch volume. |
+| `COREDOC_RUNNER_POLL_SECONDS` | no | `5` | Seconds an idle runner waits between claims. |
 | `COREDOC_WORKFLOWS_PLUGIN_PATH` | no | `/opt/coredoc-workflows` (image) | The pinned plugin in the image. |
 | `ANTHROPIC_API_KEY` | yes | | The dedicated model key (§2.1). |
 | `ANTHROPIC_BASE_URL` | no | Anthropic API | Your model gateway. |
