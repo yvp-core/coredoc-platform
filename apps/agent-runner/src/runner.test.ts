@@ -94,6 +94,62 @@ describe('runner loop', () => {
     expect(api.claims).toHaveLength(1);
   });
 
+  it('masks the credentials it holds in every event and report it sends', async () => {
+    const modelKey = 'sk-ant-model-key-for-the-runner-test';
+    const botToken = 'github_pat_bot_token_for_the_runner_test';
+    const turn = assignment();
+    const mcpToken = turn.mcp!.token;
+    const leak = (where: string) => `${where}: ${modelKey} ${botToken} ${TOKEN} ${mcpToken}`;
+    api.queue.push(turn);
+    const executor: TurnExecutor = {
+      async run(_turn, io) {
+        await io.emit([
+          { type: 'raw', text: leak('raw') },
+          { type: 'todos', items: [{ text: leak('todo'), status: 'pending' }] },
+        ]);
+        await io.reportQuestion({
+          toolUseId: 'toolu_1',
+          questions: [
+            {
+              question: leak('question'),
+              header: 'Format',
+              options: [
+                { label: 'CSV', description: 'Spreadsheets' },
+                { label: 'JSON', description: 'Integrations' },
+              ],
+              multiSelect: false,
+            },
+          ],
+        });
+        await io.proposeScope({
+          title: 'Export orders',
+          summary: leak('summary'),
+          specMarkdown: '# Spec',
+          repositories: [{ key: 'orders-api', reason: 'Owns orders', changes: leak('changes') }],
+        } as never);
+        await io.submitResult({ summary: leak('result'), repositories: [] } as never);
+        return {
+          spend: null,
+          outcome: { kind: 'failed', code: 'agent_error', reason: leak('reason') },
+          lastMessage: leak('last message'),
+        };
+      },
+    };
+    const masked = new Runner({
+      api: new RunnerApiClient({ baseUrl: api.baseUrl, workspaceId: WORKSPACE, token: TOKEN }),
+      executor,
+      versions: VERSIONS,
+      heartbeatIntervalMs: 60_000,
+      secrets: [modelKey, botToken, TOKEN],
+    });
+
+    await expect(masked.runOnce()).resolves.toBe('completed');
+    const sent = JSON.stringify([api.events, api.questions, api.proposals, api.results, api.completions]);
+    for (const secret of [modelKey, botToken, TOKEN, mcpToken]) expect(sent).not.toContain(secret);
+    expect(api.events[0]).toEqual({ type: 'raw', text: 'raw: [REDACTED] [REDACTED] [REDACTED] [REDACTED]' });
+    expect(api.completions[0]!.body.lastMessage).toBe('last message: [REDACTED] [REDACTED] [REDACTED] [REDACTED]');
+  });
+
   it('a lost lease stops the turn without completing it', async () => {
     api.queue.push(assignment());
     api.heartbeatAnswer = 'lease_lost';

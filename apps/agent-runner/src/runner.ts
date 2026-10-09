@@ -20,6 +20,7 @@ import {
   type TurnAssignment,
   type TurnOutcome,
 } from '@coredoc/core/agent-runner';
+import { secretMasker } from './mask-secrets.js';
 import { LeaseLostError, type RunnerApiClient, type TurnRef } from './runner-api.js';
 
 export interface TurnIO {
@@ -82,6 +83,11 @@ export interface RunnerOptions {
    */
   startupCheck?: () => Promise<StartupReport>;
   startupRetryMs?: number;
+  /**
+   * Credentials the runner holds (the model key, the bot's GitHub token, the
+   * runner token): masked, with the turn's MCP token, in everything a turn sends.
+   */
+  secrets?: string[];
   log?: (message: string) => void;
 }
 
@@ -185,23 +191,24 @@ export class Runner {
       );
     }, this.heartbeatIntervalMs);
 
+    const mask = secretMasker([...(this.options.secrets ?? []), assignment.mcp?.token]);
     try {
       const io: TurnIO = {
         signal: session.signal,
         emit: async (events) => {
           if (events.length === 0 || session.signal.aborted) return;
           try {
-            const answer = await this.options.api.postEvents(ref, events);
+            const answer = await this.options.api.postEvents(ref, mask(events));
             if (answer.stop) stop('stopped');
           } catch (error) {
             if (error instanceof LeaseLostError) stop('lease_lost');
             else throw error;
           }
         },
-        proposeScope: (proposal) => this.options.api.proposeScope(ref, proposal),
-        submitResult: (submitted) => this.options.api.submitResult(ref, submitted),
+        proposeScope: (proposal) => this.options.api.proposeScope(ref, mask(proposal)),
+        submitResult: (submitted) => this.options.api.submitResult(ref, mask(submitted)),
         requestRepo: async (requested) => {
-          const answer = await this.options.api.requestRepo(ref, requested);
+          const answer = await this.options.api.requestRepo(ref, mask(requested));
           if (answer.stop) stop('stopped');
           return answer;
         },
@@ -209,7 +216,7 @@ export class Runner {
           await this.options.api.reserveBranch(ref, { repository });
         },
         reportQuestion: async (question) => {
-          const answer = await this.options.api.reportQuestion(ref, question);
+          const answer = await this.options.api.reportQuestion(ref, mask(question));
           if (answer.stop) stop('stopped');
           return answer;
         },
@@ -221,14 +228,17 @@ export class Runner {
       const stoppedDelivery = end === 'stopped' && assignment.turn.kind === 'delivery';
       if (end && !stoppedDelivery) return end;
 
-      await this.options.api.complete(ref, {
-        outcome: result.outcome ?? { kind: 'ended' },
-        spend: result.spend,
-        versions: this.versions,
-        ...(result.repositories?.length ? { repositories: result.repositories } : {}),
-        ...(result.deliveries?.length ? { deliveries: result.deliveries } : {}),
-        ...(result.lastMessage ? { lastMessage: result.lastMessage.slice(0, 2_000) } : {}),
-      });
+      await this.options.api.complete(
+        ref,
+        mask({
+          outcome: result.outcome ?? { kind: 'ended' },
+          spend: result.spend,
+          versions: this.versions,
+          ...(result.repositories?.length ? { repositories: result.repositories } : {}),
+          ...(result.deliveries?.length ? { deliveries: result.deliveries } : {}),
+          ...(result.lastMessage ? { lastMessage: result.lastMessage.slice(0, 2_000) } : {}),
+        }),
+      );
       return stoppedDelivery ? 'stopped' : 'completed';
     } catch (error) {
       if (error instanceof LeaseLostError) return 'lease_lost';

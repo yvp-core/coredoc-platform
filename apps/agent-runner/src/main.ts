@@ -41,10 +41,12 @@ const pluginPath = process.env.COREDOC_WORKFLOWS_PLUGIN_PATH?.trim() || '/opt/co
 const botToken = required('COREDOC_GITHUB_TOKEN');
 // The GitHub REST API the bot account is checked against at start-up; a GitHub Enterprise Server's is `https://<host>/api/v3`.
 const githubApiUrl = process.env.COREDOC_GITHUB_API_URL?.trim() || 'https://api.github.com';
+const runnerToken = required('COREDOC_RUNNER_TOKEN');
+const modelApiKey = required('ANTHROPIC_API_KEY');
 const api = new RunnerApiClient({
   baseUrl: required('COREDOC_API_URL'),
   workspaceId: required('COREDOC_WORKSPACE_ID'),
-  token: required('COREDOC_RUNNER_TOKEN'),
+  token: runnerToken,
 });
 const runner = new Runner({
   api,
@@ -53,7 +55,7 @@ const runner = new Runner({
     api,
     scratchRoot,
     pluginPath,
-    modelApiKey: required('ANTHROPIC_API_KEY'),
+    modelApiKey,
     modelBaseUrl: process.env.ANTHROPIC_BASE_URL?.trim() || undefined,
     // The bot account: its fine-grained token (Write role only) and the commit identity, its no-reply address.
     bot: {
@@ -65,6 +67,7 @@ const runner = new Runner({
     log,
   }),
   versions,
+  secrets: [modelApiKey, botToken, runnerToken],
   startupCheck: () =>
     checkRunnerStartup({
       query,
