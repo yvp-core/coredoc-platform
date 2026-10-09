@@ -250,7 +250,11 @@ export interface AgentRunSettings {
   enabled: boolean;
   runOwner: { userId: string; email: string | null; valid: boolean } | null;
   triggerLabel: string;
-  doneStatus: { id: string; name: string | null } | null;
+  /** Jira status names the issue moves to on each run event; null leaves Jira unchanged. */
+  startedStatus: string | null;
+  doneStatus: string | null;
+  failedStatus: string | null;
+  cancelledStatus: string | null;
   questionsPolicy: 'pause' | 'assume';
   scopeAcceptancePolicy: 'required' | 'automatic';
   maxSpendUsd: number;
@@ -274,6 +278,10 @@ export type AgentRunSettingsUpdate = Partial<
     AgentRunSettings,
     | 'enabled'
     | 'triggerLabel'
+    | 'startedStatus'
+    | 'doneStatus'
+    | 'failedStatus'
+    | 'cancelledStatus'
     | 'questionsPolicy'
     | 'scopeAcceptancePolicy'
     | 'maxSpendUsd'
@@ -284,4 +292,9 @@ export type AgentRunSettingsUpdate = Partial<
     | 'maxRepositories'
     | 'model'
   >
-> & { doneStatus?: { id: string; name: string } | null; takeOverOwnership?: true };
+> & { takeOverOwnership?: true };
+
+/** The statuses the workspace's Jira connector knows, from its Delivery analytics status map. */
+export interface JiraStatusChoices {
+  statuses: string[];
+}

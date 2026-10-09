@@ -9,6 +9,7 @@ import type {
   AgentRunSettings,
   AgentRunSettingsUpdate,
   AgentRunSpec,
+  JiraStatusChoices,
   QuestionAnswer,
 } from '../../features/agent-runs/types.js';
 import { request } from '../client.js';
@@ -136,6 +137,12 @@ export const agentRunSettingsQueryOptions = (wsId: string) =>
     queryKey: ['ws', wsId, 'agent-runs-settings'] as const,
     queryFn: () => request<AgentRunSettings>(`${base(wsId)}/settings`),
     staleTime: 0,
+  });
+
+export const agentRunJiraStatusesQueryOptions = (wsId: string) =>
+  queryOptions({
+    queryKey: ['ws', wsId, 'agent-runs-settings', 'jira-statuses'] as const,
+    queryFn: () => request<JiraStatusChoices>(`${base(wsId)}/settings/jira-statuses`),
   });
 
 export function updateAgentRunSettings(params: { wsId: string } & AgentRunSettingsUpdate): Promise<AgentRunSettings> {

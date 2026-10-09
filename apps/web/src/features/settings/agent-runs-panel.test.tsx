@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentRunsPanel } from './AgentRunsPanel';
 
 const SETTINGS_PATH = '/api/v1/workspaces/ws1/cloud-agent-runs/settings';
+const STATUSES_PATH = '/api/v1/workspaces/ws1/cloud-agent-runs/settings/jira-statuses';
 
 let settings: Record<string, unknown>;
 let writes: { method: string; path: string; body: unknown }[];
@@ -32,7 +33,10 @@ beforeEach(() => {
     enabled: false,
     runOwner: null,
     triggerLabel: 'coredoc-agent',
+    startedStatus: null,
     doneStatus: null,
+    failedStatus: null,
+    cancelledStatus: null,
     questionsPolicy: 'pause',
     scopeAcceptancePolicy: 'required',
     maxSpendUsd: 25,
@@ -70,6 +74,7 @@ beforeEach(() => {
         return new Response(JSON.stringify({ revoked: true }));
       }
       if (path === SETTINGS_PATH) return new Response(JSON.stringify(settings));
+      if (path === STATUSES_PATH) return new Response(JSON.stringify({ statuses: ['Done', 'In Progress', 'To Do'] }));
       return new Promise<Response>(() => undefined);
     }),
   );
@@ -79,6 +84,12 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
+
+async function choose(select: string, option: string) {
+  const trigger = await screen.findByRole('combobox', { name: select });
+  fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+  fireEvent.click(await screen.findByRole('option', { name: option }));
+}
 
 function mount() {
   render(
@@ -184,13 +195,11 @@ describe('AgentRunsPanel', () => {
     ]);
   });
 
-  it('saves the trigger label, done status, policies, budgets and model in one update', async () => {
+  it('saves the trigger label, policies, budgets and model in one update', async () => {
     settings = { ...settings, enabled: true, runOwner: { userId: 'u1', email: 'admin@x.test', valid: true } };
     mount();
 
     fireEvent.change(await screen.findByLabelText('Trigger label'), { target: { value: 'ai-build' } });
-    fireEvent.change(screen.getByLabelText('Done status id'), { target: { value: '31' } });
-    fireEvent.change(screen.getByLabelText('Done status name'), { target: { value: 'In Review' } });
     fireEvent.click(screen.getByRole('button', { name: 'Assume' }));
     fireEvent.click(screen.getByRole('button', { name: 'Automatic' }));
     fireEvent.change(screen.getByLabelText('Spend per run (USD)'), { target: { value: '40' } });
@@ -209,7 +218,10 @@ describe('AgentRunsPanel', () => {
           path: SETTINGS_PATH,
           body: {
             triggerLabel: 'ai-build',
-            doneStatus: { id: '31', name: 'In Review' },
+            startedStatus: null,
+            doneStatus: null,
+            failedStatus: null,
+            cancelledStatus: null,
             questionsPolicy: 'assume',
             scopeAcceptancePolicy: 'automatic',
             maxSpendUsd: 40,
@@ -223,5 +235,43 @@ describe('AgentRunsPanel', () => {
         },
       ]),
     );
+  });
+
+  it('offers the Jira connector’s known statuses for each event and saves the chosen ones', async () => {
+    settings = { ...settings, enabled: true, runOwner: { userId: 'u1', email: 'admin@x.test', valid: true } };
+    mount();
+
+    const started = await screen.findByRole('combobox', { name: 'Started status' });
+    expect(started).toHaveTextContent('No change');
+    fireEvent.keyDown(started, { key: 'ArrowDown' });
+    expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual([
+      'No change',
+      'Done',
+      'In Progress',
+      'To Do',
+    ]);
+    fireEvent.click(screen.getByRole('option', { name: 'In Progress' }));
+    await choose('Done status', 'Done');
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.body).toMatchObject({
+      startedStatus: 'In Progress',
+      doneStatus: 'Done',
+      failedStatus: null,
+      cancelledStatus: null,
+    });
+  });
+
+  it('clearing a status saves no transition for that event, even for a status the connector no longer lists', async () => {
+    settings = { ...settings, enabled: true, failedStatus: 'Blocked', cancelledStatus: 'To Do' };
+    mount();
+
+    expect(await screen.findByRole('combobox', { name: 'Failed status' })).toHaveTextContent('Blocked');
+    await choose('Failed status', 'No change');
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.body).toMatchObject({ failedStatus: null, cancelledStatus: 'To Do' });
   });
 });

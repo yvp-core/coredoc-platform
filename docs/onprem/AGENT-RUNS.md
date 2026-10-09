@@ -84,7 +84,9 @@ Delivery analytics must be enabled for the workspace.
 - The connector's Jira user needs, in each of those projects:
   **Browse projects**, **Add comments** and **Transition issues**. Coredoc
   comments on the issue when a run is done or fails, and moves it to the
-  optional done status from settings.
+  optional started, done, failed and cancelled statuses from settings. The
+  choices are the statuses Delivery analytics has already seen on the
+  connector.
 - The server reaches the Jira site directly (§7).
 
 ### 2.4 GitHub connector
@@ -290,7 +292,8 @@ Under **Settings → Agent runs** (workspace admins):
 2. Switch agent runs on. The admin who does so is recorded as the **run
    owner**: Jira-triggered runs act as that member, who must stay a current
    member.
-3. Review the settings: trigger label (default `coredoc-agent`), done status,
+3. Review the settings: trigger label (default `coredoc-agent`), the Jira
+   statuses for started, done, failed and cancelled runs (each optional),
    questions policy, scope acceptance, spend per run, turn and run time
    limits, started runs per workspace, repositories per run, and the model
    (Claude Code's default when unset).

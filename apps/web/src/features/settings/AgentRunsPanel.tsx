@@ -2,7 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { ApiError } from '@/api/client';
-import { agentRunSettingsQueryOptions, updateAgentRunSettings } from '@/api/queries/agent-runs';
+import {
+  agentRunJiraStatusesQueryOptions,
+  agentRunSettingsQueryOptions,
+  updateAgentRunSettings,
+} from '@/api/queries/agent-runs';
 import { createToken, revokeToken } from '@/api/queries/tokens';
 import type { CreateTokenResult } from '@/api/types';
 import { EmptyNote } from '@/components/empty-note';
@@ -20,6 +24,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Segmented } from '@/components/ui/segmented';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { runnerRefusalText, runnerVersionsText } from '@/features/agent-runs/agent-run-presentation';
 import type {
@@ -261,6 +266,52 @@ function editableValues(settings: AgentRunSettings) {
 const HOUR = 3600;
 const DAY = 86_400;
 
+/** Radix Select items need a non-empty value; this one stands for "no transition". */
+const NO_CHANGE = '__no_change__';
+
+const STATUS_EVENTS = [
+  { key: 'startedStatus', label: 'Started status' },
+  { key: 'doneStatus', label: 'Done status' },
+  { key: 'failedStatus', label: 'Failed status' },
+  { key: 'cancelledStatus', label: 'Cancelled status' },
+] as const;
+
+type StatusKey = (typeof STATUS_EVENTS)[number]['key'];
+type StatusValues = Record<StatusKey, string | null>;
+
+/** One event's Jira status: "No change", or a status the connector knows (the saved one is kept if it no longer lists it). */
+function StatusSelect({
+  label,
+  value,
+  known,
+  onChange,
+}: {
+  label: string;
+  value: string | null;
+  known: string[];
+  onChange: (value: string | null) => void;
+}) {
+  const options = value && !known.includes(value) ? [value, ...known] : known;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[13px] font-medium text-ink-2">{label}</span>
+      <Select value={value ?? NO_CHANGE} onValueChange={(next) => onChange(next === NO_CHANGE ? null : next)}>
+        <SelectTrigger aria-label={label}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_CHANGE}>No change</SelectItem>
+          {options.map((status) => (
+            <SelectItem key={status} value={status}>
+              {status}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 function NumberField({
   id,
   label,
@@ -282,12 +333,17 @@ function NumberField({
   );
 }
 
-/** Trigger label, done status, policies, budgets and model; saved in one update. */
+/** Trigger label, Jira statuses, policies, budgets and model; saved in one update. */
 function SettingsForm({ wsId, settings }: { wsId: string; settings: AgentRunSettings }) {
   const queryClient = useQueryClient();
+  const known = useQuery(agentRunJiraStatusesQueryOptions(wsId));
   const [triggerLabel, setTriggerLabel] = useState(settings.triggerLabel);
-  const [doneId, setDoneId] = useState(settings.doneStatus?.id ?? '');
-  const [doneName, setDoneName] = useState(settings.doneStatus?.name ?? '');
+  const [statuses, setStatuses] = useState<StatusValues>({
+    startedStatus: settings.startedStatus,
+    doneStatus: settings.doneStatus,
+    failedStatus: settings.failedStatus,
+    cancelledStatus: settings.cancelledStatus,
+  });
   const [questionsPolicy, setQuestionsPolicy] = useState(settings.questionsPolicy);
   const [scopeAcceptancePolicy, setScopeAcceptancePolicy] = useState(settings.scopeAcceptancePolicy);
   const [spend, setSpend] = useState(String(settings.maxSpendUsd));
@@ -310,7 +366,7 @@ function SettingsForm({ wsId, settings }: { wsId: string; settings: AgentRunSett
         save.mutate({
           wsId,
           triggerLabel: triggerLabel.trim(),
-          doneStatus: doneId.trim() ? { id: doneId.trim(), name: doneName.trim() || doneId.trim() } : null,
+          ...statuses,
           questionsPolicy,
           scopeAcceptancePolicy,
           maxSpendUsd: Number(spend),
@@ -323,25 +379,29 @@ function SettingsForm({ wsId, settings }: { wsId: string; settings: AgentRunSett
         });
       }}
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="agent-runs-trigger-label">Trigger label</Label>
-          <Input id="agent-runs-trigger-label" value={triggerLabel} onChange={(e) => setTriggerLabel(e.target.value)} />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="agent-runs-done-id">Done status id</Label>
-          <Input
-            id="agent-runs-done-id"
-            value={doneId}
-            placeholder="none"
-            onChange={(e) => setDoneId(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="agent-runs-done-name">Done status name</Label>
-          <Input id="agent-runs-done-name" value={doneName} onChange={(e) => setDoneName(e.target.value)} />
-        </div>
+      <div className="flex flex-col gap-1.5 sm:max-w-xs">
+        <Label htmlFor="agent-runs-trigger-label">Trigger label</Label>
+        <Input id="agent-runs-trigger-label" value={triggerLabel} onChange={(e) => setTriggerLabel(e.target.value)} />
       </div>
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-[13px] text-ink-3">
+          Move the Jira issue when a run starts, delivers, fails or is cancelled
+        </legend>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {STATUS_EVENTS.map(({ key, label }) => (
+            <StatusSelect
+              key={key}
+              label={label}
+              value={statuses[key]}
+              known={known.data?.statuses ?? []}
+              onChange={(value) => setStatuses((current) => ({ ...current, [key]: value }))}
+            />
+          ))}
+        </div>
+        {known.isError && (
+          <p className={ERROR_CLASS}>{message(known.error, 'Failed to load the Jira connector’s statuses')}</p>
+        )}
+      </fieldset>
       <div className="flex flex-wrap gap-6">
         <div className="flex flex-col gap-1.5">
           <span className="text-[13px] font-medium text-ink-2">Questions</span>
