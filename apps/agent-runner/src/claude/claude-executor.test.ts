@@ -351,6 +351,9 @@ describe('Claude executor in the runner loop', () => {
       reportQuestion: async () => {
         throw new Error('no session may run');
       },
+      requestRepo: async () => {
+        throw new Error('no session may run');
+      },
     };
 
     const result = await executor.run(hostile, io);
