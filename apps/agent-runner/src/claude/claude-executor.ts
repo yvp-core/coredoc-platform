@@ -13,6 +13,7 @@ import { Git, gitEnvironment } from '../git/git.js';
 import { SecretScanner } from '../git/secret-scan.js';
 import { type Clone, TurnGit } from '../git/turn-git.js';
 import { type BotGithubOptions, checkBotPermissions, requireBot } from '../github/bot-github.js';
+import { type PackageRegistry, writeUserRegistryConfig } from '../package-registries.js';
 import type { RunnerApiClient } from '../runner-api.js';
 import type { TurnExecutor, TurnIO, TurnResult } from '../runner.js';
 import { DeliveryExecutor } from '../delivery/delivery-executor.js';
@@ -54,6 +55,8 @@ export interface ClaudeExecutorOptions extends BotGithubOptions {
   modelApiKey: string;
   modelBaseUrl?: string;
   hostEnv: NodeJS.ProcessEnv;
+  /** Written into each turn's home as its user-level registry configuration. */
+  packageRegistries?: PackageRegistry[];
   maxArchiveBytes?: number;
   windDownGraceMs?: number;
   log?: (message: string) => void;
@@ -97,6 +100,7 @@ export class ClaudeExecutor implements TurnExecutor {
         // Before any session, in every turn: the bot must be neither admin nor maintainer where the run may work.
         await checkBotPermissions(this.options, turn.repositories);
         await createTurnDirectories(paths);
+        await writeUserRegistryConfig(paths.home, this.options.packageRegistries ?? []);
         if (turn.hasStateArchive) await extractStateArchive(await io.downloadArchive(), paths.state);
         if (turn.turn.kind === 'implement') return this.implementTurn(turn, io, paths);
         return this.scopeTurn(turn, io, paths);

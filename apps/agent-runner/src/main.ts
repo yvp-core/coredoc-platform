@@ -11,6 +11,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { ClaudeExecutor } from './claude/claude-executor.js';
 import { checkRunnerStartup } from './claude/startup-check.js';
 import { GithubApi } from './github/github-api.js';
+import { type PackageRegistry, packageRegistries } from './package-registries.js';
 import { RunnerApiClient } from './runner-api.js';
 import { Runner } from './runner.js';
 
@@ -43,6 +44,13 @@ const botToken = required('COREDOC_GITHUB_TOKEN');
 const githubApiUrl = process.env.COREDOC_GITHUB_API_URL?.trim() || 'https://api.github.com';
 const runnerToken = required('COREDOC_RUNNER_TOKEN');
 const modelApiKey = required('ANTHROPIC_API_KEY');
+let registries: PackageRegistry[];
+try {
+  registries = packageRegistries(process.env, botToken);
+} catch (error) {
+  console.error(`[agent-runner] ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(2);
+}
 const api = new RunnerApiClient({
   baseUrl: required('COREDOC_API_URL'),
   workspaceId: required('COREDOC_WORKSPACE_ID'),
@@ -64,10 +72,11 @@ const runner = new Runner({
       email: required('COREDOC_GIT_AUTHOR_EMAIL'),
     },
     hostEnv: process.env,
+    packageRegistries: registries,
     log,
   }),
   versions,
-  secrets: [modelApiKey, botToken, runnerToken],
+  secrets: [modelApiKey, botToken, runnerToken, ...registries.map((registry) => registry.token ?? '')],
   startupCheck: () =>
     checkRunnerStartup({
       query,

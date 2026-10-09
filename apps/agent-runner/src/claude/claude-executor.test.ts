@@ -66,7 +66,15 @@ interface SessionScript {
  */
 function fakeQuery(
   script: SessionScript,
-  seen: Array<{ prompt: string; options: Options; prd?: string; toolErrors: string[]; asks: AskRecord[] }>,
+  seen: Array<{
+    prompt: string;
+    options: Options;
+    prd?: string;
+    npmrc?: string;
+    workNpmrc?: boolean;
+    toolErrors: string[];
+    asks: AskRecord[];
+  }>,
 ): QueryFn {
   return ({ prompt, options }) =>
     (async function* () {
@@ -75,8 +83,13 @@ function fakeQuery(
         options,
         toolErrors: [] as string[],
         prd: undefined as string | undefined,
+        npmrc: undefined as string | undefined,
+        workNpmrc: existsSync(join(options.cwd!, '.npmrc')),
         asks: [] as AskRecord[],
       };
+      // What a package manager in the session would read as the user-level registry configuration.
+      const userNpmrc = join(options.env!.HOME!, '.npmrc');
+      if (existsSync(userNpmrc)) record.npmrc = await readFile(userNpmrc, 'utf8');
       seen.push(record);
       const sessionId = options.sessionId ?? options.resume!;
       yield {
@@ -219,7 +232,11 @@ describe('Claude executor in the runner loop', () => {
     await rm(scratch, { recursive: true, force: true });
   });
 
-  function runTurn(turn: TurnAssignment, script: SessionScript) {
+  function runTurn(
+    turn: TurnAssignment,
+    script: SessionScript,
+    executorOptions: Partial<ConstructorParameters<typeof ClaudeExecutor>[0]> = {},
+  ) {
     const seen: Parameters<typeof fakeQuery>[1] = [];
     api.queue.push(turn);
     const client = new RunnerApiClient({ baseUrl: api.baseUrl, workspaceId: WORKSPACE, token: TOKEN });
@@ -234,6 +251,7 @@ describe('Claude executor in the runner loop', () => {
         pluginPath: PLUGIN,
         modelApiKey: 'sk-ant-test',
         hostEnv: { PATH: '/usr/bin' },
+        ...executorOptions,
       }),
     });
     return { done: runner.runOnce(), seen };
@@ -279,6 +297,31 @@ describe('Claude executor in the runner loop', () => {
     expect(seen[0]!.options.resume).toBe(first.run.sessionId);
     expect(seen[0]!.options.sessionId).toBeUndefined();
     expect(seen[0]!.prompt).toBe('Also cover billing exports.');
+  });
+
+  it('writes the package registry setting into the turn home before the session, never into the work tree', async () => {
+    const { done, seen } = runTurn(
+      assignment(),
+      { propose: [proposal] },
+      {
+        packageRegistries: [
+          { scope: '@acme', url: 'https://npm.pkg.github.com/', token: 'ghp_bot-token-0123456789' },
+          { scope: null, url: 'https://npm-mirror.internal.example/npm/', token: null },
+        ],
+      },
+    );
+
+    await expect(done).resolves.toBe('completed');
+    expect(seen[0]!.npmrc).toBe(
+      [
+        '@acme:registry=https://npm.pkg.github.com/',
+        '//npm.pkg.github.com/:_authToken=ghp_bot-token-0123456789',
+        'registry=https://npm-mirror.internal.example/npm/',
+        '',
+      ].join('\n'),
+    );
+    expect(seen[0]!.workNpmrc).toBe(false);
+    expect(await readdir(scratch)).toEqual([]);
   });
 
   it.each([
