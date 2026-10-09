@@ -43,7 +43,8 @@ const BASE_FIELDS = [
   'project',
 ];
 
-const PROJECT_KEY_RE = /^[A-Z][A-Z0-9]{1,9}$/;
+/** Only these project keys ever reach a JQL clause, which Jira reads unquoted. */
+export const PROJECT_KEY_RE = /^[A-Z][A-Z0-9]{1,9}$/;
 const ISSUE_KEY_RE = /^[A-Z][A-Z0-9_]+-\d+$/;
 /** Stays under the client's 100-issue search page, so one `key in (...)` call suffices. */
 const SOURCE_CREATED_BACKFILL_BATCH = 50;

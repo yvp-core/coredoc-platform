@@ -3,10 +3,7 @@ import { PrismaService } from '../../database/prisma.service.js';
 import { decrypt, isEncryptionAvailable } from '../../database/encryption.js';
 import type { DeliveryConnector } from '../../generated/prisma/client.js';
 import { JiraClient, normalizeJiraBaseUrl } from '../delivery/jira-client.js';
-import { JIRA_CLIENT_FACTORY, type JiraClientFactory } from '../delivery/jira-importer.service.js';
-
-/** The importer's project-key rule: only these keys ever reach a JQL clause unquoted by Jira. */
-const PROJECT_KEY_RE = /^[A-Z][A-Z0-9]{1,9}$/;
+import { JIRA_CLIENT_FACTORY, type JiraClientFactory, PROJECT_KEY_RE } from '../delivery/jira-importer.service.js';
 
 export type JiraConnectorState =
   | { status: 'missing' }
