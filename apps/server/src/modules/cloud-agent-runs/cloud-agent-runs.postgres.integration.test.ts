@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { createHash, randomBytes } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { RUNNER_LEASE_HEADER, RUNNER_PROTOCOL_VERSION } from '@coredoc/core/agent-runner';
@@ -13,6 +14,9 @@ import { buildPrismaAdapter } from '../../database/create-prisma-client.js';
 import { encrypt } from '../../database/encryption.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { PrismaClient } from '../../generated/prisma/client.js';
+import { McpRewriteMiddleware } from '../../mcp/mcp-rewrite.middleware.js';
+import { ReposController } from '../repos/repos.controller.js';
+import { ReposService } from '../repos/repos.service.js';
 import { TokensController } from '../tokens/tokens.controller.js';
 import { TokensService } from '../tokens/tokens.service.js';
 import { JIRA_CLIENT_FACTORY } from '../delivery/jira-importer.service.js';
@@ -98,9 +102,11 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     const users = new Map([ADMIN, MEMBER, DEMOTED].map((user) => [user.id, user]));
     const storage = storageConfigFromEnv();
     const moduleRef = await Test.createTestingModule({
-      controllers: [CloudAgentRunsController, CloudAgentRunnerController, TokensController],
+      // ReposController stands in for an existing permission-less member route; only its guards matter.
+      controllers: [CloudAgentRunsController, CloudAgentRunnerController, TokensController, ReposController],
       providers: [
         { provide: PrismaService, useValue: prisma as unknown as PrismaService },
+        { provide: ReposService, useValue: { listRepos: async () => [] } },
         ControlPlaneService,
         TokensService,
         ...cloudAgentRunsCoreProviders,
@@ -122,6 +128,10 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     }).compile();
 
     app = moduleRef.createNestApplication();
+    // The real MCP authentication in front of a stub transport that answers once a request is let through.
+    const mcp = new McpRewriteMiddleware(moduleRef.get(AuthService), moduleRef.get(ControlPlaneService));
+    app.use((req: Request, res: Response, next: NextFunction) => void mcp.use(req, res, next));
+    app.use('/mcp', (_req: Request, res: Response) => res.status(200).json({ reached: true }));
     app.setGlobalPrefix('api/v1');
     await app.init();
     await app.listen(0, '127.0.0.1');
@@ -415,6 +425,29 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
 
       const grantAll = await insertToken(workspaceId, ['*']);
       await claim(grantAll).expect(403);
+    });
+
+    it('a runner token is refused by the cloud MCP and a permission-less member route; a turn’s MCP token only works on MCP', async () => {
+      await enable();
+      const runner = await mintRunnerToken('runner-fence');
+      const ci = await insertToken(workspaceId, [TokenPermission.ParserRead]);
+      const repos = `/api/v1/workspaces/${workspaceId}/repos`;
+      const mcp = `/api/v1/workspaces/${workspaceId}/mcp`;
+      // Both surfaces admit an ordinary service token, so the refusals below are the runner fence.
+      await api().get(repos).set('Authorization', `Bearer ${ci}`).expect(200);
+      await api().post(mcp).set('Authorization', `Bearer ${ci}`).send({}).expect(200);
+
+      await api().get(repos).set('Authorization', `Bearer ${runner}`).expect(403);
+      await api().post(mcp).set('Authorization', `Bearer ${runner}`).send({}).expect(403);
+
+      await drainQueue(runner);
+      await start(nextIssueKey()).expect(201);
+      const claimed = await claim(runner).expect(200);
+      const turnToken = claimed.body.mcp.token as string;
+      await api().post(mcp).set('Authorization', `Bearer ${turnToken}`).send({}).expect(200);
+      await api().get(repos).set('Authorization', `Bearer ${turnToken}`).expect(403);
+      await api().get(runsBase()).set('Authorization', `Bearer ${turnToken}`).expect(403);
+      await claim(turnToken).expect(403);
     });
 
     it('a runner token whose creator was demoted is refused, and settings say why', async () => {
