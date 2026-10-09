@@ -87,6 +87,7 @@ interface FencedTurn {
   state: string;
   lease_token: string | null;
   lease_expires_at: Date | null;
+  completed_at: Date | null;
   run_status: string;
 }
 
@@ -95,7 +96,8 @@ interface FencedTurn {
  * - `live`: the lease is this runner's and current;
  * - `stopped`: the turn was abandoned because the run became terminal — the
  *   runner records the turn's own facts and stops;
- * - `completed`: the turn already completed (a repeated completion is a no-op).
+ * - `completed`: the turn already reported its completion, live or stopped (a
+ *   repeated completion is a no-op).
  */
 type FenceResult = { turn: FencedTurn; standing: 'live' | 'stopped' | 'completed' };
 
@@ -721,14 +723,14 @@ export class CloudAgentTurnService {
   private async fence(tx: Tx, runner: RunnerPrincipal, turnId: string, leaseToken: string): Promise<FenceResult> {
     const rows = await tx.$queryRaw<FencedTurn[]>`
       SELECT t.id, t.run_id, t.workspace_id, t.state, t.lease_token::text AS lease_token, t.lease_expires_at,
-             r.status AS run_status
+             t.completed_at, r.status AS run_status
       FROM cloud_agent_run_turns t
       JOIN cloud_agent_runs r ON r.id = t.run_id
       WHERE t.id = ${turnId}::uuid AND t.workspace_id = ${runner.workspaceId}::uuid
       FOR UPDATE OF t`;
     const turn = rows[0];
     if (!turn || turn.lease_token !== leaseToken) throw leaseLost();
-    if (turn.state === TurnState.Completed) return { turn, standing: 'completed' };
+    if (turn.state === TurnState.Completed || turn.completed_at) return { turn, standing: 'completed' };
     if (turn.state === TurnState.Abandoned || isTerminalRunStatus(turn.run_status)) {
       return { turn, standing: 'stopped' };
     }

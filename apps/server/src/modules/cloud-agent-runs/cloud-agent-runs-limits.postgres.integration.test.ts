@@ -249,6 +249,19 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
       await claim().expect(204);
     });
 
+    it('the stopped turn records its facts once: a repeated completion charges nothing more', async () => {
+      const run = await startRun();
+      const turn = await claimTurn();
+      await cancel(run.id).expect(200);
+      const completion = { outcome: { kind: 'ended' }, spend: { costUsd: 1.5, sdkTurns: 4 }, versions: VERSIONS };
+
+      await turnCall(turn, 'complete', completion).expect(200);
+      await turnCall(turn, 'complete', completion).expect(200);
+
+      expect((await detail(run.id)).spend).toMatchObject({ usd: 1.5 });
+      expect(await prisma.cloudAgentRunEvent.count({ where: { runId: run.id, type: 'turn_ended' } })).toBe(1);
+    });
+
     it('while waiting for an answer cancels the open question', async () => {
       const run = await startRun();
       const turn = await claimTurn();
