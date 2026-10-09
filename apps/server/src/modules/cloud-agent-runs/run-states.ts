@@ -52,6 +52,10 @@ export const TurnOutcome = {
   ResultSubmitted: 'result_submitted',
   /** A delivery turn whose pull requests were all verified; the done comment follows. */
   Delivered: 'delivered',
+  /** Ended after `request_repo` under required acceptance: a person decides. */
+  RepositoryRequested: 'repository_requested',
+  /** The lease expired without a completion: the turn was re-queued, or the run failed on the third loss. */
+  RunnerLost: 'runner_lost',
 } as const;
 
 export const QuestionKind = { Clarification: 'clarification', RepositoryRequest: 'repository_request' } as const;
@@ -116,6 +120,8 @@ export const RunEventCode = {
   JiraCommented: 'jira_commented',
   TransitionSkipped: 'transition_skipped',
   Warning: 'warning',
+  RepositoryAdded: 'repository_added',
+  RepositoryDeclined: 'repository_declined',
 } as const;
 
 /** Server-owned timeline events; agent events (`phase`, `todos`, `raw`, `done`) come from the runner contract. */
@@ -152,6 +158,8 @@ export const CloudAgentRunErrorCode = {
   ArchiveNotFound: 'ARCHIVE_NOT_FOUND',
   /** A runner report that contradicts the run (a repository outside it, a push to an unreserved branch). */
   InvalidReport: 'INVALID_REPORT',
+  /** The runner token sent more requests than its rate limit allows. */
+  RateLimited: 'RATE_LIMITED',
 } as const;
 export type CloudAgentRunErrorCode = (typeof CloudAgentRunErrorCode)[keyof typeof CloudAgentRunErrorCode];
 
@@ -160,6 +168,7 @@ const ERROR_NAMES: Partial<Record<number, string>> = {
   404: 'Not Found',
   409: 'Conflict',
   413: 'Payload Too Large',
+  429: 'Too Many Requests',
 };
 
 /** A typed refusal: `{ statusCode, error, code, message }`, the shape the web client parses. */

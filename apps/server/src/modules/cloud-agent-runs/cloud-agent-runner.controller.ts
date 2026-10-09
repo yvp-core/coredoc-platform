@@ -23,6 +23,8 @@ import {
   ProposeScopeRequestSchema,
   type ReportQuestion,
   ReportQuestionRequestSchema,
+  type RequestRepo,
+  RequestRepoRequestSchema,
   type ReserveBranchRequest,
   ReserveBranchRequestSchema,
   RUNNER_LEASE_HEADER,
@@ -41,6 +43,7 @@ import { PermissionsGuard, TokenPermission } from '../../auth/permissions.guard.
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { CloudAgentTurnService, type RunnerPrincipal } from './cloud-agent-turn.service.js';
+import { RunnerRateLimitGuard } from './runner-rate-limit.guard.js';
 
 type RunnerRequest = Request & { serviceTokenId?: string; serviceTokenWorkspaceId?: string };
 
@@ -53,11 +56,12 @@ function principal(request: RunnerRequest): RunnerPrincipal {
  * The runner API: exact agent-runner tokens of the path's workspace only.
  * `@RequirePermission(AgentRunnerRun)` is what the AuthGuard fence keys on;
  * `@WorkspaceRole('admin')` refuses a token whose creator left or was demoted;
- * AgentRunnerTokenGuard refuses human sessions, which PermissionsGuard passes.
+ * AgentRunnerTokenGuard refuses human sessions, which PermissionsGuard passes;
+ * RunnerRateLimitGuard limits requests per runner token.
  * Every `/turns/:turnId` route is fenced on the live lease token.
  */
 @Controller('workspaces/:workspaceId/agent-runner')
-@UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, AgentRunnerTokenGuard)
+@UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, AgentRunnerTokenGuard, RunnerRateLimitGuard)
 export class CloudAgentRunnerController {
   constructor(private readonly turns: CloudAgentTurnService) {}
 
@@ -141,6 +145,20 @@ export class CloudAgentRunnerController {
     @Body(new ZodValidationPipe(SubmitResultRequestSchema)) body: SubmitResult,
   ) {
     return this.turns.submitResult(principal(request), turnId, lease ?? '', body);
+  }
+
+  /** Validation errors come back in the body (`state: rejected`) for the agent to fix. */
+  @Post('turns/:turnId/request-repo')
+  @HttpCode(200)
+  @WorkspaceRole('admin')
+  @RequirePermission(TokenPermission.AgentRunnerRun)
+  requestRepo(
+    @Req() request: RunnerRequest,
+    @Param('turnId', ParseUUIDPipe) turnId: string,
+    @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
+    @Body(new ZodValidationPipe(RequestRepoRequestSchema)) body: RequestRepo,
+  ) {
+    return this.turns.requestRepo(principal(request), turnId, lease ?? '', body);
   }
 
   /** Before the runner's first push of the run branch to a repository. */

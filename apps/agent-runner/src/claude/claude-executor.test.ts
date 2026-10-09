@@ -199,6 +199,7 @@ async function askUserQuestion(options: Options, ask: AskScript, sessionId: stri
     requestId: 'req-1',
     ...(ask.agentId ? { agentID: ask.agentId } : {}),
   });
+  if (!verdict) throw new Error('the permission callback returned no verdict');
   if (verdict.behavior === 'deny') return { decision: 'deny', reason: verdict.message };
   return { decision: 'allow', answers: (verdict.updatedInput as { answers?: Record<string, string> }).answers };
 }
@@ -348,6 +349,9 @@ describe('Claude executor in the runner loop', () => {
         throw new Error('nothing may be pushed');
       },
       reportQuestion: async () => {
+        throw new Error('no session may run');
+      },
+      requestRepo: async () => {
         throw new Error('no session may run');
       },
     };

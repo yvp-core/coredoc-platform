@@ -594,11 +594,10 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
   it('a cancel during delivery records the pull requests already opened and posts no Jira comment', async () => {
     const { runId, issue, branch, turn } = await delivering();
     const [billing] = openPulls(branch);
-    // A member cancels while the turn runs: the run is terminal and its turn abandoned.
-    await prisma.$transaction([
-      prisma.cloudAgentRun.update({ where: { id: runId }, data: { status: 'cancelled' } }),
-      prisma.cloudAgentRunTurn.update({ where: { id: turn.id }, data: { state: 'abandoned' } }),
-    ]);
+    // A member cancels while the turn runs; the runner hears stop and completes with what it opened.
+    await api().post(`${runsBase()}/${runId}/cancel`).set('Authorization', human(MEMBER)).expect(200);
+    const heartbeat = await turnCall(turn, 'heartbeat', { versions: VERSIONS }).expect(200);
+    expect(heartbeat.body.stop).toBe(true);
     await complete(turn, { deliveries: [billing!] }).expect(200);
 
     const run = await detail(runId);

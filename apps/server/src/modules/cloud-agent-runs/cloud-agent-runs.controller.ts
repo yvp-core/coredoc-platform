@@ -141,6 +141,14 @@ export class CloudAgentRunsController {
     return this.runs.detail(workspaceId, runId);
   }
 
+  /** Any member, at any point before the run ends; a run that already ended is RUN_TERMINAL. */
+  @Post(':runId/cancel')
+  @HttpCode(200)
+  @WorkspaceRole('member')
+  cancel(@Param('workspaceId') workspaceId: string, @Param('runId', ParseUUIDPipe) runId: string) {
+    return this.runs.cancel(workspaceId, runId);
+  }
+
   @Post(':runId/rerun')
   @WorkspaceRole('member')
   rerun(

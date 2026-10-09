@@ -12,6 +12,8 @@ import {
   type ProposeScopeResponse,
   type ReportQuestion,
   type ReportQuestionResponse,
+  type RequestRepo,
+  type RequestRepoResponse,
   type ReserveBranchResponse,
   type RunnerVersions,
   type SubmitResult,
@@ -31,6 +33,11 @@ import { CloudAgentRunIssueReader, JiraReadFailure } from './cloud-agent-run-iss
 import { answerForTurn, recordQuestion, settleTurnQuestions } from './cloud-agent-run-questions.service.js';
 import { CloudAgentRunDeliveryService } from './cloud-agent-run-delivery.service.js';
 import { CloudAgentRunImplementService, RunCheckFailure } from './cloud-agent-run-implement.service.js';
+import {
+  CloudAgentRunRepositoryRequestService,
+  openRepositoryRequest,
+  repositoryDecisionForTurn,
+} from './cloud-agent-run-repository-requests.service.js';
 import { CloudAgentRunScopeService } from './cloud-agent-run-scope.service.js';
 import {
   CloudAgentRunErrorCode,
@@ -44,6 +51,9 @@ import {
   TurnState,
 } from './run-states.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
+import { CLOUD_AGENT_RUN_REPORT_CAPS, chargeReport, DEFAULT_REPORT_CAPS, type ReportCaps } from './report-limits.js';
+import { checkRunOwnerAndConnectors } from './run-checks.js';
+import { failIfBudgetSpent, spendBudgetFailure } from './run-budget.js';
 import { deleteTurnTokens, failRun, lockRun, queueTurn } from './run-transitions.js';
 
 /** A claim's lease; the runner heartbeats every 20 s, so this tolerates several missed beats. */
@@ -106,9 +116,11 @@ export class CloudAgentTurnService {
     private readonly jira: CloudAgentRunIssueReader,
     private readonly scope: CloudAgentRunScopeService,
     private readonly implement: CloudAgentRunImplementService,
+    private readonly repositoryRequests: CloudAgentRunRepositoryRequestService,
     private readonly delivery: CloudAgentRunDeliveryService,
     @Inject(CLOUD_AGENT_RUN_ARCHIVE_STORE) private readonly archives: CloudAgentRunArchiveStore,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
+    @Optional() @Inject(CLOUD_AGENT_RUN_REPORT_CAPS) private readonly caps: ReportCaps = DEFAULT_REPORT_CAPS,
   ) {}
 
   /**
@@ -128,6 +140,7 @@ export class CloudAgentTurnService {
     for (let attempt = 0; attempt < MAX_CLAIM_ATTEMPTS && !assignment; attempt += 1) {
       const claimed = await this.claimNext(runner, request);
       if (!claimed) break;
+      if (claimed === 'refused') continue;
       assignment = await this.withRunChecks(claimed);
     }
     await this.recordSeen(runner, 'claim', request.protocolVersion, request.versions, null);
@@ -145,6 +158,9 @@ export class CloudAgentTurnService {
     try {
       if (assignment.turn.kind === RunPhase.Delivery)
         return { ...assignment, ...(await this.delivery.assignment(run)) };
+      await checkRunOwnerAndConnectors(this.prisma, run);
+      // A scope turn reads the issue for its PRD below; an implement turn only checks it is still readable.
+      if (assignment.turn.kind === RunPhase.Implement) await this.jira.resolveIssue(run.workspaceId, run.jiraIssueId);
       const repositories = await this.implement.repositoriesFor(run, assignment.turn.kind);
       if (assignment.turn.kind === RunPhase.Implement) {
         return { ...assignment, repositories, acceptedSpec: await this.implement.acceptedSpec(run) };
@@ -176,7 +192,8 @@ export class CloudAgentTurnService {
     }
   }
 
-  private async claimNext(runner: RunnerPrincipal, request: ClaimRequest): Promise<ClaimedTurn | null> {
+  /** The next claimable turn; `refused` when its run failed a check under the claim and another may be tried. */
+  private async claimNext(runner: RunnerPrincipal, request: ClaimRequest): Promise<ClaimedTurn | 'refused' | null> {
     const at = this.now();
     return this.prisma.$transaction(async (tx) => {
       // One statement: a skip-locked pick plus the lease, so two runners never
@@ -208,9 +225,13 @@ export class CloudAgentTurnService {
       const claimed = rows[0];
       if (!claimed) return null;
 
-      const run = await tx.cloudAgentRun.findFirstOrThrow({
-        where: { id: claimed.run_id, workspaceId: runner.workspaceId },
-      });
+      const run = (await lockRun(tx, runner.workspaceId, claimed.run_id))!;
+      // No agent session starts without spend left to bound it.
+      const overBudget = claimed.kind === RunPhase.Delivery ? null : spendBudgetFailure(run);
+      if (overBudget) {
+        await failRun(tx, run, RunFailureCode.BudgetExhausted, overBudget, at);
+        return 'refused' as const;
+      }
       const mcpToken =
         claimed.kind === RunPhase.Delivery ? null : await this.mintMcpToken(tx, run, claimed.id, claimed.kind, at);
       // The pinned SDK reports a resumed session's cost cumulatively; the
@@ -260,6 +281,7 @@ export class CloudAgentTurnService {
         mcp: mcpToken ? { token: mcpToken, path: `/api/v1/workspaces/${run.workspaceId}/mcp` } : null,
         hasStateArchive: run.stateArchiveKey !== null,
         answer: await answerForTurn(tx, run.workspaceId, claimed.id),
+        repositoryDecision: await repositoryDecisionForTurn(tx, run.workspaceId, claimed.id),
       };
       return { assignment, run };
     });
@@ -321,6 +343,9 @@ export class CloudAgentTurnService {
     return this.prisma.$transaction(async (tx) => {
       const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
       if (standing === 'completed') throw leaseLost();
+      const eventBytes = batch.events.reduce((sum, event) => sum + Buffer.byteLength(JSON.stringify(event)), 0);
+      const report = { events: batch.events.length, eventBytes };
+      if (await chargeReport(tx, turn, report, this.caps, this.now())) return { seqs: [], stop: true };
       // Events are the turn's own facts, so a stopped turn still records them.
       const seqs = await appendRunEvents(
         tx,
@@ -351,6 +376,9 @@ export class CloudAgentTurnService {
       const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { kind: true } });
       if (row.kind !== RunPhase.Scope) {
         return { accepted: false, errors: ['propose_scope is available only while scoping.'], stop: false };
+      }
+      if (await chargeReport(tx, turn, { proposals: 1 }, this.caps, this.now())) {
+        return { accepted: false, errors: ['This turn sent too many proposals; the run has ended.'], stop: true };
       }
       // The fenced turn's own run, in the runner's workspace: a draft is never written for another run.
       const run = await tx.cloudAgentRun.findFirstOrThrow({
@@ -393,6 +421,32 @@ export class CloudAgentTurnService {
       if (errors.length) return { accepted: false, errors, stop: false };
       await this.implement.saveResult(tx, turn.id, result);
       return { accepted: true, stop: false };
+    });
+  }
+
+  /**
+   * `request_repo`: a repository the accepted scope left out. Appended at
+   * once under automatic acceptance (the turn continues); stored for a
+   * person's decision under required acceptance (the turn ends). Broken
+   * rules go back to the agent as a tool error.
+   */
+  async requestRepo(
+    runner: RunnerPrincipal,
+    turnId: string,
+    leaseToken: string,
+    request: RequestRepo,
+  ): Promise<RequestRepoResponse> {
+    const eligibility = await this.scope.eligibility(runner.workspaceId);
+    return this.prisma.$transaction(async (tx) => {
+      const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
+      if (standing === 'completed') throw leaseLost();
+      if (standing === 'stopped') return { state: 'rejected', errors: ['The run has ended; stop.'], stop: true };
+      const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { kind: true } });
+      if (row.kind !== RunPhase.Implement) {
+        return { state: 'rejected', errors: ['request_repo is available only while implementing.'], stop: false };
+      }
+      const run = (await lockRun(tx, runner.workspaceId, turn.run_id))!;
+      return this.repositoryRequests.request(tx, run, turn.id, request, eligibility, this.now());
     });
   }
 
@@ -442,6 +496,9 @@ export class CloudAgentTurnService {
       const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { kind: true } });
       if (row.kind !== RunPhase.Scope && row.kind !== RunPhase.Implement) {
         return { state: 'refused', reason: 'Questions are asked only while scoping or implementing.', stop: false };
+      }
+      if (await chargeReport(tx, turn, { questions: 1 }, this.caps, this.now())) {
+        return { state: 'refused', reason: 'This turn asked too many questions; the run has ended.', stop: true };
       }
       const run = (await lockRun(tx, runner.workspaceId, turn.run_id))!;
       return recordQuestion(tx, run, turn.id, report, this.now());
@@ -560,7 +617,9 @@ export class CloudAgentTurnService {
         data: {
           ...(spend
             ? { spendUsd: { increment: spend.costUsd }, agentTurns: { increment: spend.sdkTurns ?? 0 } }
-            : { unknownSpendTurns: { increment: 1 } }),
+            : row.kind === RunPhase.Delivery
+              ? {}
+              : { unknownSpendTurns: { increment: 1 } }),
           ...(adoptArchive ? { stateArchiveKey: row.stateArchiveKey } : {}),
           lastTurnEndedAt: at,
         },
@@ -578,7 +637,9 @@ export class CloudAgentTurnService {
         await failRun(tx, updated, request.outcome.code, request.outcome.reason || null, at);
       } else if (live && (row.kind === RunPhase.Scope || row.kind === RunPhase.Implement)) {
         outcome = await this.advanceAfterAgentTurn(tx, updated, row.kind, turn.id, request, eligibility, at);
+        await failIfBudgetSpent(tx, await tx.cloudAgentRun.findUniqueOrThrow({ where: { id: run.id } }), at);
       } else if (live && row.kind === RunPhase.Delivery) {
+        // No agent ran, so no spend check: delivery is exempt.
         outcome = await this.delivery.settle(tx, updated, delivered, at);
       }
 
@@ -621,6 +682,9 @@ export class CloudAgentTurnService {
     if (await settleTurnQuestions(tx, run, turnId, at)) return TurnOutcome.QuestionAsked;
     if (kind === RunPhase.Scope && (await this.scope.publishDraft(tx, run, turnId, eligibility, at))) {
       return TurnOutcome.ScopeProposed;
+    }
+    if (kind === RunPhase.Implement && (await openRepositoryRequest(tx, run, turnId, at))) {
+      return TurnOutcome.RepositoryRequested;
     }
     if (kind === RunPhase.Implement) {
       const settled = await this.implement.settleResult(tx, run, turnId, at);

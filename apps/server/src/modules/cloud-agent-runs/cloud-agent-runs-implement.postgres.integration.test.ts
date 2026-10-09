@@ -69,7 +69,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
   let previousEncryptionKey: string | undefined;
   let app: INestApplication;
   let workspaceId: string;
-  let githubConnectorId: string;
   let runnerToken: string;
   let issueSeed = 0;
   const jira = new FakeJira();
@@ -105,7 +104,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
         config: { projects: ['PROJ'] },
       },
     });
-    const github = await prisma.deliveryConnector.create({
+    await prisma.deliveryConnector.create({
       data: {
         workspaceId,
         provider: 'github',
@@ -114,7 +113,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
         config: { repos: [] },
       },
     });
-    githubConnectorId = github.id;
     await prisma.workspaceRepo.createMany({
       data: ['orders-api', 'billing-api'].map((key) => ({
         workspaceId,
@@ -478,11 +476,19 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
   it('an implement turn whose repository is no longer eligible fails the run at claim', async () => {
     const { runId, turn } = await implementing();
     await complete(turn, { kind: 'checkpoint' }).expect(200);
-    await prisma.deliveryConnector.update({ where: { id: githubConnectorId }, data: { status: 'paused' } });
+    // A remote outside the GitHub connector; a paused connector fails the run with connector_inactive instead.
+    const moved = { workspaceId, repoName: 'orders-api' };
+    await prisma.workspaceRepo.updateMany({
+      where: moved,
+      data: { normalizedGitRemote: 'gitlab.com/example-org/orders-api' },
+    });
     try {
       await claim().expect(204);
     } finally {
-      await prisma.deliveryConnector.update({ where: { id: githubConnectorId }, data: { status: 'active' } });
+      await prisma.workspaceRepo.updateMany({
+        where: moved,
+        data: { normalizedGitRemote: 'github.com/example-org/orders-api' },
+      });
     }
     expect(await detail(runId)).toMatchObject({ status: 'failed', failureCode: 'repository_not_eligible' });
   });

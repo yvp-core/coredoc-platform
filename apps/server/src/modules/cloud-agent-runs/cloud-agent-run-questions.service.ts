@@ -2,6 +2,11 @@ import { BadRequestException, HttpStatus, Inject, Injectable, Optional } from '@
 import type { AskedQuestion, ReportQuestion, ReportQuestionResponse } from '@coredoc/core/agent-runner';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { CloudAgentRun, CloudAgentRunQuestion, Prisma } from '../../generated/prisma/client.js';
+import {
+  applyRepositoryDecision,
+  repositoryAnswerProblem,
+  repositoryDecisionText,
+} from './cloud-agent-run-repository-requests.service.js';
 import type { QuestionAnswer } from './cloud-agent-runs.contract.js';
 import {
   CloudAgentRunErrorCode,
@@ -41,6 +46,7 @@ export function sdkAnswers(row: CloudAgentRunQuestion): Record<string, string> {
 
 /** The resume turn's input: the answers again, in case the deferred call is not re-run. */
 function resumeText(row: CloudAgentRunQuestion): string {
+  if (row.kind === QuestionKind.RepositoryRequest) return repositoryDecisionText(row);
   const lines = Object.entries(sdkAnswers(row)).map(([question, answer]) => `- ${question} ${answer}`);
   return ['A person answered your question in Coredoc:', ...lines, '', 'Continue where you stopped.'].join('\n');
 }
@@ -131,7 +137,7 @@ async function queueResumeTurn(tx: Tx, run: CloudAgentRun, row: CloudAgentRunQue
 /** The answered question a resume turn delivers, for its assignment. */
 export async function answerForTurn(tx: Tx, workspaceId: string, turnId: string) {
   const row = await tx.cloudAgentRunQuestion.findFirst({
-    where: { workspaceId, resumeTurnId: turnId, state: QuestionState.Answered },
+    where: { workspaceId, resumeTurnId: turnId, kind: QuestionKind.Clarification, state: QuestionState.Answered },
   });
   return row ? { requestId: row.requestId, toolUseId: row.toolUseId ?? '', answers: sdkAnswers(row) } : null;
 }
@@ -190,7 +196,10 @@ export class CloudAgentRunQuestionService {
         throw cloudAgentRunError(CloudAgentRunErrorCode.RunTerminal, 'The run has already ended');
       }
       if (row.state !== QuestionState.Open) throw alreadyAnswered();
-      const problem = answerProblem(asQuestions(row), answers);
+      const problem =
+        row.kind === QuestionKind.RepositoryRequest
+          ? repositoryAnswerProblem(answers)
+          : answerProblem(asQuestions(row), answers);
       if (problem) throw new BadRequestException(problem);
 
       const at = this.now();
@@ -212,6 +221,7 @@ export class CloudAgentRunQuestionService {
           payload: { requestId, state: QuestionState.Answered, answeredBy: actorId },
         },
       ]);
+      if (row.kind === QuestionKind.RepositoryRequest) await applyRepositoryDecision(tx, resumed, answered, at);
       // While the asking turn is still completing, its completion queues the resume turn instead.
       await queueResumeTurn(tx, resumed, answered, at);
     });

@@ -9,7 +9,8 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { ClaudeExecutor } from './claude/claude-executor.js';
-import { checkClaudeStartup } from './claude/startup-check.js';
+import { checkRunnerStartup } from './claude/startup-check.js';
+import { GithubApi } from './github/github-api.js';
 import { RunnerApiClient } from './runner-api.js';
 import { Runner } from './runner.js';
 
@@ -37,6 +38,9 @@ const versions = {
 
 const scratchRoot = process.env.COREDOC_RUNNER_SCRATCH?.trim() || '/scratch';
 const pluginPath = process.env.COREDOC_WORKFLOWS_PLUGIN_PATH?.trim() || '/opt/coredoc-workflows';
+const botToken = required('COREDOC_GITHUB_TOKEN');
+// The GitHub REST API the bot account is checked against at start-up; a GitHub Enterprise Server's is `https://<host>/api/v3`.
+const githubApiUrl = process.env.COREDOC_GITHUB_API_URL?.trim() || 'https://api.github.com';
 const api = new RunnerApiClient({
   baseUrl: required('COREDOC_API_URL'),
   workspaceId: required('COREDOC_WORKSPACE_ID'),
@@ -53,7 +57,7 @@ const runner = new Runner({
     modelBaseUrl: process.env.ANTHROPIC_BASE_URL?.trim() || undefined,
     // The bot account: its fine-grained token (Write role only) and the commit identity, its no-reply address.
     bot: {
-      token: required('COREDOC_GITHUB_TOKEN'),
+      token: botToken,
       name: process.env.COREDOC_GIT_AUTHOR_NAME?.trim() || 'Coredoc agent',
       email: required('COREDOC_GIT_AUTHOR_EMAIL'),
     },
@@ -61,14 +65,22 @@ const runner = new Runner({
     log,
   }),
   versions,
-  startupCheck: () => checkClaudeStartup({ query, pluginPath, scratchRoot, versions }),
+  startupCheck: () =>
+    checkRunnerStartup({
+      query,
+      pluginPath,
+      scratchRoot,
+      versions,
+      github: new GithubApi({ token: botToken }),
+      githubApiUrl,
+    }),
   log,
 });
 
 const shutdown = new AbortController();
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
-    log(`${signal} received; stopping after the current turn`);
+    log(`${signal} received; stopping the current turn without pushing or completing it`);
     shutdown.abort();
   });
 }

@@ -188,6 +188,12 @@ export const TurnAssignmentSchema = z.object({
       answers: z.record(z.string(), z.string()),
     })
     .nullable(),
+  /**
+   * On the turn that resumes after a person decided a repository request:
+   * the repository and whether it was added. An added repository is among
+   * `repositories`, and the runner tells the session where it is cloned.
+   */
+  repositoryDecision: z.object({ key: z.string(), added: z.boolean() }).nullable(),
 });
 export type TurnAssignment = z.infer<typeof TurnAssignmentSchema>;
 
@@ -445,6 +451,31 @@ export const SubmitResultResponseSchema = z.discriminatedUnion('accepted', [
   z.object({ accepted: z.literal(false), errors: z.array(z.string()).min(1), stop: z.boolean() }),
 ]);
 export type SubmitResultResponse = z.infer<typeof SubmitResultResponseSchema>;
+
+/**
+ * `request_repo`: the implement phase asks for a repository the accepted
+ * scope left out. Validated like proposal repositories and against the cap.
+ */
+export const RequestRepoRequestSchema = z.object({
+  key: z.string().trim().min(1).max(255),
+  reason: shortText,
+});
+export type RequestRepoRequest = z.input<typeof RequestRepoRequestSchema>;
+export type RequestRepo = z.output<typeof RequestRepoRequestSchema>;
+
+export const RequestRepoResponseSchema = z.discriminatedUnion('state', [
+  /**
+   * The repository is in the run: appended now under automatic acceptance,
+   * or already there. Clone it unless this turn already has, and give the
+   * agent its path; the turn continues.
+   */
+  z.object({ state: z.literal('added'), repository: AssignedRepositorySchema, stop: z.boolean() }),
+  /** Required acceptance: a person decides when the turn ends, so end it. */
+  z.object({ state: z.literal('requested'), stop: z.boolean() }),
+  /** Rules the request broke, for the agent; nothing was recorded. */
+  z.object({ state: z.literal('rejected'), errors: z.array(z.string()).min(1), stop: z.boolean() }),
+]);
+export type RequestRepoResponse = z.infer<typeof RequestRepoResponseSchema>;
 
 /** Sent before the runner's first push of the run branch to a repository. */
 export const ReserveBranchRequestSchema = z.object({

@@ -3,6 +3,7 @@
  * the creation lock, timeline appends and the injected clock.
  */
 import type { Prisma } from '../../generated/prisma/client.js';
+import { redactPayload } from './redact-secrets.js';
 
 /** Injected `() => Date`, so lease expiry and time limits are testable without real time. */
 export const CLOUD_AGENT_RUNS_CLOCK = Symbol('CLOUD_AGENT_RUNS_CLOCK');
@@ -45,7 +46,8 @@ function boundedPayload(
 }
 
 /**
- * Append events to a run's timeline with the next sequence numbers. The
+ * Append events to a run's timeline with the next sequence numbers, redacted
+ * and size-capped. The
  * counter lives on the run row, so concurrent appends to one run serialise on
  * that row and sequences never collide.
  */
@@ -70,7 +72,8 @@ export async function appendRunEvents(
       turnId: run.turnId ?? null,
       seq: seqs[index]!,
       type: event.type,
-      ...boundedPayload(event.payload, event.maxPayloadBytes),
+      // Redacted before the cap, so a cut never splits a secret past its pattern.
+      ...boundedPayload(redactPayload(event.payload), event.maxPayloadBytes),
       createdAt: at,
     })),
   });

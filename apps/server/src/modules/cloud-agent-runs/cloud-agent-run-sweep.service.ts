@@ -1,5 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { WORKERS_CONFIG, type WorkersConfig, workersConfigFromEnv } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { parseRetentionFlag } from '../../libs/retention.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE, type CloudAgentRunArchiveStore } from './cloud-agent-run-archive.store.js';
 import { CloudAgentRunJiraOutcomes } from './cloud-agent-run-jira-outcomes.service.js';
 import { settleTurnQuestions } from './cloud-agent-run-questions.service.js';
@@ -13,6 +15,8 @@ import {
   TurnState,
 } from './run-states.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock } from './run-store.js';
+import { expireActiveTime, expireLeases, type SweepDeps } from './run-limits.sweep.js';
+import { pruneEndedRuns } from './run-retention.sweep.js';
 import { deleteTurnTokens, failRun, lockRun } from './run-transitions.js';
 
 /** Rows handled per job and tick; the next tick takes the rest. */
@@ -35,21 +39,31 @@ export class CloudAgentRunSweep {
     @Inject(CLOUD_AGENT_RUN_ARCHIVE_STORE) private readonly archives: CloudAgentRunArchiveStore,
     private readonly jiraOutcomes: CloudAgentRunJiraOutcomes,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
+    @Optional() @Inject(WORKERS_CONFIG) private readonly workers: WorkersConfig = workersConfigFromEnv(),
   ) {}
 
   async tick(): Promise<void> {
     await this.completeParkedTurns();
+    await expireLeases(this.deps);
     await this.expireWaiting();
+    await expireActiveTime(this.deps);
     // After the jobs that fail runs, so a run failed in this tick gets its comment in it.
     await this.jiraOutcomes.postDoneComments();
     await this.jiraOutcomes.postFailureComments();
+    if (parseRetentionFlag(this.workers.retention.agentRunsEnabled, { defaultEnabled: true })) {
+      await pruneEndedRuns(this.deps);
+    }
+  }
+
+  private get deps(): SweepDeps {
+    return { prisma: this.prisma, archives: this.archives, now: this.now, logger: this.logger };
   }
 
   /**
    * A claimed turn whose lease expired after it parked a question is completed
    * as paused instead of re-queued: the session already ended with the
    * question, and the answer queues the next turn. Other expired leases are
-   * left to the general lease-expiry job.
+   * left to the lease-expiry job (run-limits.sweep.ts).
    */
   async completeParkedTurns(): Promise<void> {
     const at = this.now();

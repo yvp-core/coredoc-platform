@@ -80,6 +80,41 @@ export async function failRun(
   reason: string | null,
   at: Date,
 ): Promise<void> {
+  await endRun(tx, run, RunStatus.Failed, at, {
+    failureCode: code,
+    failureReason: (reason ?? FAILURE_MESSAGES[code]).slice(0, 2_000),
+  });
+}
+
+/** A member cancels: like a failure, without a code. The runner hears `stop` at its next heartbeat. */
+export async function cancelRun(tx: Tx, run: CloudAgentRun, at: Date): Promise<void> {
+  await endRun(tx, run, RunStatus.Cancelled, at, {});
+}
+
+/** Delivery finished: the done comment and the transition outcome are recorded. */
+export async function markRunDone(
+  tx: Tx,
+  run: CloudAgentRun,
+  at: Date,
+  data: Record<string, unknown>,
+  events: NewRunEvent[],
+): Promise<void> {
+  await endRun(tx, run, RunStatus.Done, at, data, events);
+}
+
+/**
+ * Every transition to a terminal status: abandon the queued or claimed turn
+ * and delete its MCP token in the same transaction, so neither claim nor lease
+ * expiry ever hands the run new work; cancel its open questions.
+ */
+async function endRun(
+  tx: Tx,
+  run: CloudAgentRun,
+  to: RunStatus,
+  at: Date,
+  data: Record<string, unknown>,
+  events: NewRunEvent[] = [],
+): Promise<void> {
   if (isTerminalRunStatus(run.status)) return;
   const pending = await tx.cloudAgentRunTurn.findMany({
     where: { runId: run.id, state: { in: [TurnState.Queued, TurnState.Claimed] } },
@@ -94,10 +129,7 @@ export async function failRun(
     pending.map((turn) => turn.id),
   );
   await cancelOpenQuestions(tx, run, at);
-  await setRunStatus(tx, run, RunStatus.Failed, at, {
-    failureCode: code,
-    failureReason: (reason ?? FAILURE_MESSAGES[code]).slice(0, 2_000),
-  });
+  await setRunStatus(tx, run, to, at, data, events);
 }
 
 /** Questions still open when a run ends are cancelled, with a timeline entry each. */

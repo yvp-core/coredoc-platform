@@ -28,7 +28,10 @@ import { failRun, queueTurn, setRunStatus } from './run-transitions.js';
 /** A run-level condition a claim re-checks; the run fails with the code instead of getting the turn. */
 export class RunCheckFailure extends Error {
   constructor(
-    readonly code: typeof RunFailureCode.RepositoryNotEligible,
+    readonly code:
+      | typeof RunFailureCode.RepositoryNotEligible
+      | typeof RunFailureCode.RunOwnerRemoved
+      | typeof RunFailureCode.ConnectorInactive,
     reason: string,
   ) {
     super(reason);
@@ -281,10 +284,8 @@ export class CloudAgentRunImplementService {
     return TurnOutcome.ResultSubmitted;
   }
 
-  private async resolve(
-    workspaceId: string,
-    key: string,
-  ): Promise<Pick<AssignedRepository, 'cloneUrl' | 'github'> | string> {
+  /** A repository key through the shared resolver: its clone URL and API coordinates, or why it does not resolve. */
+  async resolve(workspaceId: string, key: string): Promise<Pick<AssignedRepository, 'cloneUrl' | 'github'> | string> {
     try {
       const resolved = await this.resolver.resolve(workspaceId, key);
       return {

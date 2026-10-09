@@ -10,6 +10,8 @@ import {
   type RepositoryReport,
   type ReportQuestionRequest,
   type ReportQuestionResponse,
+  type RequestRepoRequest,
+  type RequestRepoResponse,
   RUNNER_PROTOCOL_VERSION,
   type RunnerEvent,
   type RunnerVersions,
@@ -29,6 +31,8 @@ export interface TurnIO {
   proposeScope(proposal: ProposeScopeRequest): Promise<ProposeScopeResponse>;
   /** Implement turns' result; validation errors come back for the agent to fix. */
   submitResult(result: SubmitResultRequest): Promise<SubmitResultResponse>;
+  /** `request_repo`; the server appends the repository, parks the request for a person, or rejects it. */
+  requestRepo(request: RequestRepoRequest): Promise<RequestRepoResponse>;
   /** Records that this run creates the run branch in a repository; called before its first push there. */
   reserveBranch(repository: string): Promise<void>;
   /** Report an AskUserQuestion call; the server answers by the run's questions policy. */
@@ -62,7 +66,7 @@ export interface StartupReport {
   problem: string | null;
 }
 
-export type TurnEnd = 'idle' | 'completed' | 'stopped' | 'lease_lost';
+export type TurnEnd = 'idle' | 'completed' | 'stopped' | 'lease_lost' | 'shutdown';
 
 export interface RunnerOptions {
   api: RunnerApiClient;
@@ -99,8 +103,12 @@ export class Runner {
     this.log = options.log ?? (() => undefined);
   }
 
-  /** Claim and run at most one turn. */
-  async runOnce(): Promise<TurnEnd> {
+  /**
+   * Claim and run at most one turn. When `shutdown` aborts, the session stops,
+   * pushes are skipped and the turn is not completed: its lease expires and
+   * the turn is redone.
+   */
+  async runOnce(shutdown?: AbortSignal): Promise<TurnEnd> {
     const turn = await this.options.api.claim({
       protocolVersion: RUNNER_PROTOCOL_VERSION,
       versions: this.versions,
@@ -109,7 +117,7 @@ export class Runner {
     this.log(
       `claimed ${turn.turn.kind} turn ${turn.turn.ordinal} of ${turn.run.issueKey} (attempt ${turn.turn.attempt})`,
     );
-    return this.execute(turn);
+    return this.execute(turn, shutdown);
   }
 
   /**
@@ -141,7 +149,7 @@ export class Runner {
     while (!signal.aborted) {
       let end: TurnEnd;
       try {
-        end = await this.runOnce();
+        end = await this.runOnce(signal);
       } catch (error) {
         this.log(`runner API error: ${error instanceof Error ? error.message : String(error)}`);
         await sleep(ERROR_BACKOFF_MS, signal);
@@ -152,7 +160,7 @@ export class Runner {
     }
   }
 
-  private async execute(assignment: TurnAssignment): Promise<TurnEnd> {
+  private async execute(assignment: TurnAssignment, shutdown?: AbortSignal): Promise<TurnEnd> {
     const ref: TurnRef = { turnId: assignment.turn.id, leaseToken: assignment.lease.token };
     const session = new AbortController();
     let end: TurnEnd | null = null;
@@ -160,6 +168,9 @@ export class Runner {
       end ??= reason;
       session.abort();
     };
+    const onShutdown = () => stop('shutdown');
+    if (shutdown?.aborted) onShutdown();
+    shutdown?.addEventListener('abort', onShutdown, { once: true });
 
     const heartbeat = setInterval(() => {
       this.options.api.heartbeat(ref, this.versions).then(
@@ -189,6 +200,11 @@ export class Runner {
         },
         proposeScope: (proposal) => this.options.api.proposeScope(ref, proposal),
         submitResult: (submitted) => this.options.api.submitResult(ref, submitted),
+        requestRepo: async (requested) => {
+          const answer = await this.options.api.requestRepo(ref, requested);
+          if (answer.stop) stop('stopped');
+          return answer;
+        },
         reserveBranch: async (repository) => {
           await this.options.api.reserveBranch(ref, { repository });
         },
@@ -220,6 +236,7 @@ export class Runner {
       throw error;
     } finally {
       clearInterval(heartbeat);
+      shutdown?.removeEventListener('abort', onShutdown);
       session.abort();
     }
   }

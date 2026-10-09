@@ -183,6 +183,10 @@ beforeEach(() => {
           }
           return new Response(JSON.stringify(detail));
         }
+        if (path.endsWith('/cancel')) {
+          detail = { ...detail, status: 'cancelled', currentTurn: null };
+          return new Response(JSON.stringify(detail));
+        }
         if (path.endsWith('/rerun')) {
           return new Response(JSON.stringify(run({ id: RERUN_ID, trigger: 'rerun', previousRunId: RUN_ID })), {
             status: 201,
@@ -306,6 +310,30 @@ describe('agent runs routes', () => {
     expect(screen.queryByRole('button', { name: 'Re-run' })).toBeNull();
   });
 
+  it('cancels an active run once the member confirms, and then offers a re-run', async () => {
+    mount(`/w/acme/agent-runs/${RUN_ID}`);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel run' }));
+    expect(posts).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Keep running' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel run' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm cancel' }));
+
+    await waitFor(() =>
+      expect(posts).toEqual([{ path: `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/cancel`, body: undefined }]),
+    );
+    expect(await screen.findByRole('button', { name: 'Re-run' })).toBeInTheDocument();
+    expect(screen.getAllByText('Cancelled').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Cancel run' })).toBeNull();
+  });
+
+  it('offers no cancel once the run has ended', async () => {
+    detail = run({ status: 'done', currentTurn: null });
+    mount(`/w/acme/agent-runs/${RUN_ID}`);
+    expect(await screen.findByRole('button', { name: 'Re-run' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel run' })).toBeNull();
+  });
+
   describe('questions', () => {
     beforeEach(() => {
       detail = run({
@@ -370,6 +398,35 @@ describe('agent runs routes', () => {
       await waitFor(() =>
         expect(posts[0]?.body).toEqual({ answers: [{ labels: [], other: 'Brand green' }, { labels: ['JSON'] }] }),
       );
+    });
+
+    it('a repository request offers only "Add" and "Don\'t add", with no free text', async () => {
+      const request = {
+        ...openQuestion(),
+        kind: 'repository_request',
+        phase: 'implement',
+        questions: [
+          {
+            question: 'The agent asks to add repository `search-api` to this run. Add it?',
+            header: 'Repository',
+            options: [
+              { label: 'Add', description: "Clone it into the run. The agent's reason: Owns the search index" },
+              { label: "Don't add", description: 'The agent continues without it.' },
+            ],
+            multiSelect: false,
+          },
+        ],
+      };
+      detail = run({ status: 'awaiting_answer', currentTurn: null, openQuestion: request, questions: [request] });
+      mount(`/w/acme/agent-runs/${RUN_ID}`);
+      const card = await screen.findByRole('region', { name: 'Repository request from the agent' });
+      expect(within(card).getByText(/Owns the search index/)).toBeInTheDocument();
+      expect(within(card).getAllByRole('radio')).toHaveLength(2);
+      expect(within(card).queryByLabelText('Other answer')).toBeNull();
+
+      fireEvent.click(within(card).getByRole('radio', { name: /Don't add/ }));
+      fireEvent.click(within(card).getByRole('button', { name: 'Send decision' }));
+      await waitFor(() => expect(posts[0]?.body).toEqual({ answers: [{ labels: ["Don't add"] }] }));
     });
 
     it('says so when someone else answered first', async () => {

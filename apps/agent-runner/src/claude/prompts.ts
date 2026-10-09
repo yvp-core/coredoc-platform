@@ -7,6 +7,7 @@ import type { TurnAssignment } from '@coredoc/core/agent-runner';
 
 export const PROPOSE_SCOPE_TOOL = 'mcp__agent_run__propose_scope';
 export const SUBMIT_RESULT_TOOL = 'mcp__agent_run__submit_result';
+export const REQUEST_REPO_TOOL = 'mcp__agent_run__request_repo';
 
 export function runPreamble(turn: TurnAssignment): string {
   const { run } = turn;
@@ -23,6 +24,13 @@ export function runPreamble(turn: TurnAssignment): string {
       : '- No one answers questions during this run: an AskUserQuestion call is answered at once, and you decide on stated assumptions that you list in your run-control call.',
     '',
     'Run-control tools of this phase:',
+    ...(turn.turn.kind === 'implement'
+      ? [
+          run.scopeAcceptancePolicy === 'automatic'
+            ? `- ${REQUEST_REPO_TOOL}: ask for a repository the accepted scope left out, by its durable repository key, with the reason. A repository that passes the checks is added and cloned at once, and the tool answers with its path.`
+            : `- ${REQUEST_REPO_TOOL}: ask for a repository the accepted scope left out, by its durable repository key, with the reason. A person decides whether to add it, so the request ends your turn; the decision arrives when your session resumes.`,
+        ]
+      : []),
     turn.turn.kind === 'implement'
       ? `- ${SUBMIT_RESULT_TOOL}: finish the implementation — a summary, what changed in each repository (by repository key), assumptions, the repositories you could not build or test here with the reason, and notes. It answers with errors when a rule is broken; fix them and call it again. A recorded result ends your turn; the runner then commits and pushes your changes.`
       : `- ${PROPOSE_SCOPE_TOOL}: propose the scope — the specification markdown, a title and summary, every affected repository by its durable repository key with the reason and what changes there, the merge order, risks, intent references, assumptions, seed repositories you leave out with a reason, and candidates for the PRD (each open product question with what it blocks). It answers with errors when a rule is broken; fix them and call it again. A recorded proposal is published to reviewers when your turn ends.`,
@@ -53,7 +61,8 @@ export function implementPrompt(turn: TurnAssignment, specPath: string, clones: 
     '1. Before changing a repository, read its agent instruction files (AGENTS.md, CLAUDE.md and similar) and set it up from its own instructions, lockfile and package scripts.',
     "2. Register every clone with the plugin's repository tracking, run the coredoc-workflows implement route with the approval record above, and run review per repository.",
     '3. Never write the specification into a repository. Never commit, push or open pull requests: the runner commits and pushes after your turn.',
-    `4. End with ${SUBMIT_RESULT_TOOL}, listing any repository you could not build or test in the runner and why.`,
+    `4. If the change needs a repository that is not listed here, ask for it with ${REQUEST_REPO_TOOL} instead of working around it.`,
+    `5. End with ${SUBMIT_RESULT_TOOL}, listing any repository you could not build or test in the runner and why.`,
     ...(withheld.length
       ? [
           '',

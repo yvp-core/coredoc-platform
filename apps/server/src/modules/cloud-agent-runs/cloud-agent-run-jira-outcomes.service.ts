@@ -21,7 +21,7 @@ import { CLOUD_AGENT_RUNS_RETRY_DELAY, defaultRetryDelay, type RetryDelay, withR
 import { runPageUrl } from './run-links.js';
 import { RunEventCode, RunFailureCode, RunStatus, ServerEventType } from './run-states.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, type NewRunEvent, systemClock } from './run-store.js';
-import { failRun, lockRun, setRunStatus } from './run-transitions.js';
+import { failRun, lockRun, markRunDone } from './run-transitions.js';
 
 /** Rows claimed per job and tick. */
 const BATCH = 20;
@@ -301,14 +301,7 @@ export class CloudAgentRunJiraOutcomes {
         done: { ...current.done, ...done, nextAttemptAt: null },
         transition,
       };
-      await setRunStatus(
-        tx,
-        locked,
-        RunStatus.Done,
-        at,
-        { jiraOutcome: jiraOutcome as unknown as Prisma.InputJsonObject },
-        events,
-      );
+      await markRunDone(tx, locked, at, { jiraOutcome: jiraOutcome as unknown as Prisma.InputJsonObject }, events);
     });
   }
 

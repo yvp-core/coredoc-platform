@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { RunnerVersions } from '@coredoc/core/agent-runner';
+import type { GithubApi } from '../github/github-api.js';
 import type { StartupReport } from '../runner.js';
 import { pluginProblem } from './claude-executor.js';
 
@@ -77,4 +78,16 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
     await rm(dir, { recursive: true, force: true });
   }
   return { versions, problem };
+}
+
+/**
+ * Every start-up check: Claude Code and the plugin, then the bot account,
+ * which must not be an admin or maintainer of any repository it can see.
+ */
+export async function checkRunnerStartup(
+  options: StartupCheckOptions & { github: GithubApi; githubApiUrl: string },
+): Promise<StartupReport> {
+  const report = await checkClaudeStartup(options);
+  if (report.problem) return report;
+  return { ...report, problem: await options.github.botAccountProblem(options.githubApiUrl) };
 }
