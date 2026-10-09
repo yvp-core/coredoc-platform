@@ -17,6 +17,9 @@ import {
   ReserveBranchRequestSchema,
   type ReportQuestion,
   ReportQuestionRequestSchema,
+  type RequestRepo,
+  RequestRepoRequestSchema,
+  type RequestRepoResponse,
   RUNNER_LEASE_HEADER,
   type RunnerEvent,
   type SubmitResult,
@@ -50,6 +53,7 @@ export function assignment(overrides: Partial<TurnAssignment> = {}): TurnAssignm
     mcp: { token: 'cdt_turn_token', path: `/api/v1/workspaces/${WORKSPACE}/mcp` },
     hasStateArchive: false,
     answer: null,
+    repositoryDecision: null,
     ...overrides,
   };
 }
@@ -76,6 +80,12 @@ export class FakeCoredocApi {
   questionState: 'open' | 'auto_answered' | 'refused' = 'open';
   /** Errors the next proposal gets back, once. */
   proposalErrors: string[] = [];
+  readonly repoRequests: RequestRepo[] = [];
+  /** How the server answers `request_repo`; refuses by default. */
+  repoAnswer: (request: RequestRepo) => Omit<RequestRepoResponse, 'stop'> = () => ({
+    state: 'rejected',
+    errors: ['No repository answer scripted.'],
+  });
   private readonly leases = new Map<string, string>();
   private server!: Server;
   baseUrl = '';
@@ -117,7 +127,7 @@ export class FakeCoredocApi {
 
     const match = path.match(
       new RegExp(
-        `^${prefix}/turns/([^/]+)/(heartbeat|events|complete|propose-scope|submit-result|branches|questions|archive)$`,
+        `^${prefix}/turns/([^/]+)/(heartbeat|events|complete|propose-scope|submit-result|request-repo|branches|questions|archive)$`,
       ),
     );
     if (!match) return reply(404, { message: 'not found' });
@@ -162,6 +172,11 @@ export class FakeCoredocApi {
         }
         this.results.push(result);
         return reply(200, { accepted: true, stop: false });
+      }
+      case 'request-repo': {
+        const request = RequestRepoRequestSchema.parse(body);
+        this.repoRequests.push(request);
+        return reply(200, { ...this.repoAnswer(request), stop: false });
       }
       case 'branches': {
         const { repository } = ReserveBranchRequestSchema.parse(body);
