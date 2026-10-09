@@ -42,7 +42,7 @@ import { WorkspaceRole } from '../../auth/decorators/workspace-role.decorator.js
 import { PermissionsGuard, TokenPermission } from '../../auth/permissions.guard.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
-import { CloudAgentTurnService, type RunnerPrincipal } from './cloud-agent-turn.service.js';
+import { CloudAgentTurnService, type RunnerPrincipal, type TurnLease } from './cloud-agent-turn.service.js';
 import { RunnerRateLimitGuard } from './runner-rate-limit.guard.js';
 
 type RunnerRequest = Request & { serviceTokenId?: string; serviceTokenWorkspaceId?: string };
@@ -50,6 +50,10 @@ type RunnerRequest = Request & { serviceTokenId?: string; serviceTokenWorkspaceI
 function principal(request: RunnerRequest): RunnerPrincipal {
   // AgentRunnerTokenGuard guarantees a runner token bound to the path's workspace.
   return { workspaceId: request.serviceTokenWorkspaceId!, tokenId: request.serviceTokenId! };
+}
+
+function turnLease(request: RunnerRequest, turnId: string, token: string | undefined): TurnLease {
+  return { runner: principal(request), turnId, token: token ?? '' };
 }
 
 /**
@@ -89,7 +93,7 @@ export class CloudAgentRunnerController {
     @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
     @Body(new ZodValidationPipe(HeartbeatRequestSchema)) body: HeartbeatRequest,
   ) {
-    return this.turns.heartbeat(principal(request), turnId, lease ?? '', body.versions);
+    return this.turns.heartbeat(turnLease(request, turnId, lease), body.versions);
   }
 
   @Post('turns/:turnId/events')
@@ -102,7 +106,7 @@ export class CloudAgentRunnerController {
     @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
     @Body(new ZodValidationPipe(EventBatchSchema)) body: EventBatch,
   ) {
-    return this.turns.recordEvents(principal(request), turnId, lease ?? '', body);
+    return this.turns.recordEvents(turnLease(request, turnId, lease), body);
   }
 
   /** Validation errors come back in the body (`accepted: false`) for the agent to fix. */
@@ -116,7 +120,7 @@ export class CloudAgentRunnerController {
     @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
     @Body(new ZodValidationPipe(ProposeScopeRequestSchema)) body: ProposeScope,
   ) {
-    return this.turns.proposeScope(principal(request), turnId, lease ?? '', body);
+    return this.turns.proposeScope(turnLease(request, turnId, lease), body);
   }
 
   /** An AskUserQuestion call; the answer says whether it is parked, answered at once or refused. */
@@ -130,7 +134,7 @@ export class CloudAgentRunnerController {
     @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
     @Body(new ZodValidationPipe(ReportQuestionRequestSchema)) body: ReportQuestion,
   ) {
-    return this.turns.reportQuestion(principal(request), turnId, lease ?? '', body);
+    return this.turns.reportQuestion(turnLease(request, turnId, lease), body);
   }
 
   /** Validation errors come back in the body (`accepted: false`) for the agent to fix. */
@@ -144,7 +148,7 @@ export class CloudAgentRunnerController {
     @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
     @Body(new ZodValidationPipe(SubmitResultRequestSchema)) body: SubmitResult,
   ) {
-    return this.turns.submitResult(principal(request), turnId, lease ?? '', body);
+    return this.turns.submitResult(turnLease(request, turnId, lease), body);
   }
 
   /** Validation errors come back in the body (`state: rejected`) for the agent to fix. */
@@ -158,7 +162,7 @@ export class CloudAgentRunnerController {
     @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
     @Body(new ZodValidationPipe(RequestRepoRequestSchema)) body: RequestRepo,
   ) {
-    return this.turns.requestRepo(principal(request), turnId, lease ?? '', body);
+    return this.turns.requestRepo(turnLease(request, turnId, lease), body);
   }
 
   /** Before the runner's first push of the run branch to a repository. */
@@ -172,7 +176,7 @@ export class CloudAgentRunnerController {
     @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
     @Body(new ZodValidationPipe(ReserveBranchRequestSchema)) body: ReserveBranchRequest,
   ) {
-    return this.turns.reserveBranch(principal(request), turnId, lease ?? '', body.repository);
+    return this.turns.reserveBranch(turnLease(request, turnId, lease), body.repository);
   }
 
   /** The previous state archive, streamed only to the turn's live lease. */
@@ -185,7 +189,7 @@ export class CloudAgentRunnerController {
     @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
     @Res() response: Response,
   ) {
-    const archive = await this.turns.downloadArchive(principal(request), turnId, lease ?? '');
+    const archive = await this.turns.downloadArchive(turnLease(request, turnId, lease));
     response.set('Content-Type', 'application/gzip');
     response.send(archive);
   }
@@ -202,7 +206,7 @@ export class CloudAgentRunnerController {
   ) {
     const body = Buffer.isBuffer(request.body) ? request.body : (request.rawBody ?? Buffer.alloc(0));
     if (body.length === 0) throw new BadRequestException('Send the state archive as an application/octet-stream body');
-    return this.turns.uploadArchive(principal(request), turnId, lease ?? '', body);
+    return this.turns.uploadArchive(turnLease(request, turnId, lease), body);
   }
 
   @Post('turns/:turnId/complete')
@@ -215,6 +219,6 @@ export class CloudAgentRunnerController {
     @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
     @Body(new ZodValidationPipe(CompleteTurnRequestSchema)) body: CompleteTurn,
   ) {
-    return this.turns.complete(principal(request), turnId, lease ?? '', body);
+    return this.turns.complete(turnLease(request, turnId, lease), body);
   }
 }

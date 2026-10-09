@@ -69,6 +69,13 @@ export interface RunnerPrincipal {
   tokenId: string;
 }
 
+/** A runner request about one turn, fenced on the lease token it presents. */
+export interface TurnLease {
+  runner: RunnerPrincipal;
+  turnId: string;
+  token: string;
+}
+
 interface ClaimedRow {
   id: string;
   run_id: string;
@@ -84,6 +91,7 @@ interface FencedTurn {
   id: string;
   run_id: string;
   workspace_id: string;
+  kind: string;
   state: string;
   lease_token: string | null;
   lease_expires_at: Date | null;
@@ -317,14 +325,9 @@ export class CloudAgentTurnService {
     return plaintext;
   }
 
-  async heartbeat(
-    runner: RunnerPrincipal,
-    turnId: string,
-    leaseToken: string,
-    versions: RunnerVersions,
-  ): Promise<HeartbeatResponse> {
+  async heartbeat(lease: TurnLease, versions: RunnerVersions): Promise<HeartbeatResponse> {
     const result = await this.prisma.$transaction(async (tx) => {
-      const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
+      const { turn, standing } = await this.fence(tx, lease);
       if (standing !== 'live') {
         return { stop: true, leaseExpiresAt: (turn.lease_expires_at ?? this.now()).toISOString() };
       }
@@ -332,30 +335,24 @@ export class CloudAgentTurnService {
       await tx.cloudAgentRunTurn.update({ where: { id: turn.id }, data: { leaseExpiresAt: expiresAt } });
       return { stop: false, leaseExpiresAt: expiresAt.toISOString() };
     });
-    if (!result.stop) await this.recordSeen(runner, 'heartbeat', null, versions, null);
+    if (!result.stop) await this.recordSeen(lease.runner, 'heartbeat', null, versions, null);
     return result;
   }
 
-  async recordEvents(
-    runner: RunnerPrincipal,
-    turnId: string,
-    leaseToken: string,
-    batch: EventBatch,
-  ): Promise<EventBatchResponse> {
+  async recordEvents(lease: TurnLease, batch: EventBatch): Promise<EventBatchResponse> {
     return this.prisma.$transaction(async (tx) => {
-      const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
-      if (standing === 'completed') throw leaseLost();
+      const { turn, stopped } = await this.fenceOpen(tx, lease);
       const eventBytes = batch.events.reduce((sum, event) => sum + Buffer.byteLength(JSON.stringify(event)), 0);
       const report = { events: batch.events.length, eventBytes };
       if (await chargeReport(tx, turn, report, this.caps, this.now())) return { seqs: [], stop: true };
       // Events are the turn's own facts, so a stopped turn still records them.
       const seqs = await appendRunEvents(
         tx,
-        { workspaceId: runner.workspaceId, runId: turn.run_id, turnId: turn.id },
+        { workspaceId: lease.runner.workspaceId, runId: turn.run_id, turnId: turn.id },
         batch.events.map(({ type, ...payload }) => ({ type, payload })),
         this.now(),
       );
-      return { seqs, stop: standing === 'stopped' };
+      return { seqs, stop: stopped };
     });
   }
 
@@ -364,19 +361,12 @@ export class CloudAgentTurnService {
    * turn's draft version, published when the turn completes. Broken rules go
    * back to the agent as a tool error.
    */
-  async proposeScope(
-    runner: RunnerPrincipal,
-    turnId: string,
-    leaseToken: string,
-    proposal: ProposeScope,
-  ): Promise<ProposeScopeResponse> {
-    const eligibility = await this.scope.eligibility(runner.workspaceId);
+  async proposeScope(lease: TurnLease, proposal: ProposeScope): Promise<ProposeScopeResponse> {
+    const eligibility = await this.scope.eligibility(lease.runner.workspaceId);
     return this.prisma.$transaction(async (tx) => {
-      const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
-      if (standing === 'completed') throw leaseLost();
-      if (standing === 'stopped') return { accepted: false, errors: ['The run has ended; stop.'], stop: true };
-      const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { kind: true } });
-      if (row.kind !== RunPhase.Scope) {
+      const { turn, stopped } = await this.fenceOpen(tx, lease);
+      if (stopped) return { accepted: false, errors: ['The run has ended; stop.'], stop: true };
+      if (turn.kind !== RunPhase.Scope) {
         return { accepted: false, errors: ['propose_scope is available only while scoping.'], stop: false };
       }
       if (await chargeReport(tx, turn, { proposals: 1 }, this.caps, this.now())) {
@@ -384,7 +374,7 @@ export class CloudAgentTurnService {
       }
       // The fenced turn's own run, in the runner's workspace: a draft is never written for another run.
       const run = await tx.cloudAgentRun.findFirstOrThrow({
-        where: { id: turn.run_id, workspaceId: runner.workspaceId },
+        where: { id: turn.run_id, workspaceId: lease.runner.workspaceId },
       });
       const errors = this.scope.validate(proposal, {
         eligibility,
@@ -402,22 +392,15 @@ export class CloudAgentTurnService {
    * the turn and adopted when the turn completes. Broken rules go back to
    * the agent as a tool error.
    */
-  async submitResult(
-    runner: RunnerPrincipal,
-    turnId: string,
-    leaseToken: string,
-    result: SubmitResult,
-  ): Promise<SubmitResultResponse> {
+  async submitResult(lease: TurnLease, result: SubmitResult): Promise<SubmitResultResponse> {
     return this.prisma.$transaction(async (tx) => {
-      const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
-      if (standing === 'completed') throw leaseLost();
-      if (standing === 'stopped') return { accepted: false, errors: ['The run has ended; stop.'], stop: true };
-      const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { kind: true } });
-      if (row.kind !== RunPhase.Implement) {
+      const { turn, stopped } = await this.fenceOpen(tx, lease);
+      if (stopped) return { accepted: false, errors: ['The run has ended; stop.'], stop: true };
+      if (turn.kind !== RunPhase.Implement) {
         return { accepted: false, errors: ['submit_result is available only while implementing.'], stop: false };
       }
       const run = await tx.cloudAgentRun.findFirstOrThrow({
-        where: { id: turn.run_id, workspaceId: runner.workspaceId },
+        where: { id: turn.run_id, workspaceId: lease.runner.workspaceId },
       });
       const errors = this.implement.validateResult(run, result);
       if (errors.length) return { accepted: false, errors, stop: false };
@@ -432,22 +415,15 @@ export class CloudAgentTurnService {
    * person's decision under required acceptance (the turn ends). Broken
    * rules go back to the agent as a tool error.
    */
-  async requestRepo(
-    runner: RunnerPrincipal,
-    turnId: string,
-    leaseToken: string,
-    request: RequestRepo,
-  ): Promise<RequestRepoResponse> {
-    const eligibility = await this.scope.eligibility(runner.workspaceId);
+  async requestRepo(lease: TurnLease, request: RequestRepo): Promise<RequestRepoResponse> {
+    const eligibility = await this.scope.eligibility(lease.runner.workspaceId);
     return this.prisma.$transaction(async (tx) => {
-      const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
-      if (standing === 'completed') throw leaseLost();
-      if (standing === 'stopped') return { state: 'rejected', errors: ['The run has ended; stop.'], stop: true };
-      const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { kind: true } });
-      if (row.kind !== RunPhase.Implement) {
+      const { turn, stopped } = await this.fenceOpen(tx, lease);
+      if (stopped) return { state: 'rejected', errors: ['The run has ended; stop.'], stop: true };
+      if (turn.kind !== RunPhase.Implement) {
         return { state: 'rejected', errors: ['request_repo is available only while implementing.'], stop: false };
       }
-      const run = (await lockRun(tx, runner.workspaceId, turn.run_id))!;
+      const run = (await lockRun(tx, lease.runner.workspaceId, turn.run_id))!;
       return this.repositoryRequests.request(tx, run, turn.id, request, eligibility, this.now());
     });
   }
@@ -457,24 +433,18 @@ export class CloudAgentTurnService {
    * that this run created it there, so a retried attempt that finds the
    * branch on the remote continues on it.
    */
-  async reserveBranch(
-    runner: RunnerPrincipal,
-    turnId: string,
-    leaseToken: string,
-    repository: string,
-  ): Promise<ReserveBranchResponse> {
+  async reserveBranch(lease: TurnLease, repository: string): Promise<ReserveBranchResponse> {
     return this.prisma.$transaction(async (tx) => {
-      const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
+      const { turn, standing } = await this.fence(tx, lease);
       if (standing !== 'live') throw leaseLost();
-      const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { kind: true } });
-      if (row.kind !== RunPhase.Implement) {
+      if (turn.kind !== RunPhase.Implement) {
         throw cloudAgentRunError(
           CloudAgentRunErrorCode.RunStateConflict,
           'Run branches are reserved only in implement turns',
           HttpStatus.CONFLICT,
         );
       }
-      const run = (await lockRun(tx, runner.workspaceId, turn.run_id))!;
+      const run = (await lockRun(tx, lease.runner.workspaceId, turn.run_id))!;
       await this.implement.reserveBranch(tx, run, repository);
       return { reserved: true, branch: run.branch };
     });
@@ -485,24 +455,17 @@ export class CloudAgentTurnService {
    * assume policy, parked for a person under pause (the run moves to
    * `awaiting_answer` and the runner ends the session).
    */
-  async reportQuestion(
-    runner: RunnerPrincipal,
-    turnId: string,
-    leaseToken: string,
-    report: ReportQuestion,
-  ): Promise<ReportQuestionResponse> {
+  async reportQuestion(lease: TurnLease, report: ReportQuestion): Promise<ReportQuestionResponse> {
     return this.prisma.$transaction(async (tx) => {
-      const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
-      if (standing === 'completed') throw leaseLost();
-      if (standing === 'stopped') return { state: 'refused', reason: 'The run has ended; stop.', stop: true };
-      const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { kind: true } });
-      if (row.kind !== RunPhase.Scope && row.kind !== RunPhase.Implement) {
+      const { turn, stopped } = await this.fenceOpen(tx, lease);
+      if (stopped) return { state: 'refused', reason: 'The run has ended; stop.', stop: true };
+      if (turn.kind !== RunPhase.Scope && turn.kind !== RunPhase.Implement) {
         return { state: 'refused', reason: 'Questions are asked only while scoping or implementing.', stop: false };
       }
       if (await chargeReport(tx, turn, { questions: 1 }, this.caps, this.now())) {
         return { state: 'refused', reason: 'This turn asked too many questions; the run has ended.', stop: true };
       }
-      const run = (await lockRun(tx, runner.workspaceId, turn.run_id))!;
+      const run = (await lockRun(tx, lease.runner.workspaceId, turn.run_id))!;
       return recordQuestion(tx, run, turn.id, report, this.now());
     });
   }
@@ -511,16 +474,11 @@ export class CloudAgentTurnService {
    * Stores the turn's state archive under a new key, create-only; the run
    * adopts it when the turn completes. An archive over the cap fails the run.
    */
-  async uploadArchive(
-    runner: RunnerPrincipal,
-    turnId: string,
-    leaseToken: string,
-    body: Buffer,
-  ): Promise<{ stored: true }> {
+  async uploadArchive(lease: TurnLease, body: Buffer): Promise<{ stored: true }> {
     if (body.length > MAX_STATE_ARCHIVE_BYTES) {
       await this.prisma.$transaction(async (tx) => {
-        const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
-        const run = standing === 'live' ? await lockRun(tx, runner.workspaceId, turn.run_id) : null;
+        const { turn, standing } = await this.fence(tx, lease);
+        const run = standing === 'live' ? await lockRun(tx, lease.runner.workspaceId, turn.run_id) : null;
         if (run) await failRun(tx, run, RunFailureCode.ArchiveTooLarge, null, this.now());
       });
       throw cloudAgentRunError(
@@ -529,13 +487,13 @@ export class CloudAgentTurnService {
         HttpStatus.PAYLOAD_TOO_LARGE,
       );
     }
-    const turn = await this.liveTurn(runner, turnId, leaseToken);
-    const key = stateArchiveKey(runner.workspaceId, turn.run_id, turn.id, randomUUID());
+    const turn = await this.liveTurn(lease);
+    const key = stateArchiveKey(lease.runner.workspaceId, turn.run_id, turn.id, randomUUID());
     await this.archives.put(key, body);
     let replaced: string | null;
     try {
       replaced = await this.prisma.$transaction(async (tx) => {
-        const fenced = await this.fence(tx, runner, turnId, leaseToken);
+        const fenced = await this.fence(tx, lease);
         if (fenced.standing !== 'live') throw leaseLost();
         const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({
           where: { id: turn.id },
@@ -554,10 +512,10 @@ export class CloudAgentTurnService {
   }
 
   /** The run's latest state archive, for the live lease only. */
-  async downloadArchive(runner: RunnerPrincipal, turnId: string, leaseToken: string): Promise<Buffer> {
-    const turn = await this.liveTurn(runner, turnId, leaseToken);
+  async downloadArchive(lease: TurnLease): Promise<Buffer> {
+    const turn = await this.liveTurn(lease);
     const run = await this.prisma.cloudAgentRun.findFirstOrThrow({
-      where: { id: turn.run_id, workspaceId: runner.workspaceId },
+      where: { id: turn.run_id, workspaceId: lease.runner.workspaceId },
       select: { stateArchiveKey: true },
     });
     const archive = run.stateArchiveKey ? await this.archives.get(run.stateArchiveKey) : null;
@@ -577,23 +535,18 @@ export class CloudAgentTurnService {
    * what the turn reported. A failure outcome fails the run; a scope turn
    * publishes its draft proposal. A repeated completion is a no-op.
    */
-  async complete(
-    runner: RunnerPrincipal,
-    turnId: string,
-    leaseToken: string,
-    request: CompleteTurn,
-  ): Promise<CompleteTurnResponse> {
-    const eligibility = await this.scope.eligibility(runner.workspaceId);
+  async complete(lease: TurnLease, request: CompleteTurn): Promise<CompleteTurnResponse> {
+    const eligibility = await this.scope.eligibility(lease.runner.workspaceId);
     // Delivery turns: reported pull requests are read back from GitHub before the transaction.
-    const delivered = await this.delivery.verify(runner.workspaceId, turnId, request.deliveries);
+    const delivered = await this.delivery.verify(lease.runner.workspaceId, lease.turnId, request.deliveries);
     const replacedArchive = await this.prisma.$transaction(async (tx) => {
-      const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
+      const { turn, standing } = await this.fence(tx, lease);
       if (standing === 'completed') return null;
 
       const at = this.now();
       const spend = request.spend;
       const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id } });
-      const run = (await lockRun(tx, runner.workspaceId, turn.run_id))!;
+      const run = (await lockRun(tx, lease.runner.workspaceId, turn.run_id))!;
       const live = standing === 'live';
       // Untrusted: refused before anything is written, so the runner can correct and complete again.
       if (row.kind === RunPhase.Implement) this.implement.validateReports(run, request.repositories);
@@ -648,7 +601,7 @@ export class CloudAgentTurnService {
       await tx.cloudAgentRunTurn.update({ where: { id: turn.id }, data: { outcome } });
       await appendRunEvents(
         tx,
-        { workspaceId: runner.workspaceId, runId: run.id, turnId: turn.id },
+        { workspaceId: lease.runner.workspaceId, runId: run.id, turnId: turn.id },
         [{ type: ServerEventType.TurnEnded, payload: { outcome, spendUsd: spend?.costUsd ?? null } }],
         at,
       );
@@ -707,9 +660,9 @@ export class CloudAgentTurnService {
     return TurnOutcome.NoOutcome;
   }
 
-  private async liveTurn(runner: RunnerPrincipal, turnId: string, leaseToken: string): Promise<FencedTurn> {
+  private async liveTurn(lease: TurnLease): Promise<FencedTurn> {
     return this.prisma.$transaction(async (tx) => {
-      const { turn, standing } = await this.fence(tx, runner, turnId, leaseToken);
+      const { turn, standing } = await this.fence(tx, lease);
       if (standing !== 'live') throw leaseLost();
       return turn;
     });
@@ -720,16 +673,16 @@ export class CloudAgentTurnService {
    * for update: unknown turn, another lease, an expired lease or a re-queued
    * turn all get `LEASE_LOST`.
    */
-  private async fence(tx: Tx, runner: RunnerPrincipal, turnId: string, leaseToken: string): Promise<FenceResult> {
+  private async fence(tx: Tx, { runner, turnId, token }: TurnLease): Promise<FenceResult> {
     const rows = await tx.$queryRaw<FencedTurn[]>`
-      SELECT t.id, t.run_id, t.workspace_id, t.state, t.lease_token::text AS lease_token, t.lease_expires_at,
+      SELECT t.id, t.run_id, t.workspace_id, t.kind, t.state, t.lease_token::text AS lease_token, t.lease_expires_at,
              t.completed_at, r.status AS run_status
       FROM cloud_agent_run_turns t
       JOIN cloud_agent_runs r ON r.id = t.run_id
       WHERE t.id = ${turnId}::uuid AND t.workspace_id = ${runner.workspaceId}::uuid
       FOR UPDATE OF t`;
     const turn = rows[0];
-    if (!turn || turn.lease_token !== leaseToken) throw leaseLost();
+    if (!turn || turn.lease_token !== token) throw leaseLost();
     if (turn.state === TurnState.Completed || turn.completed_at) return { turn, standing: 'completed' };
     if (turn.state === TurnState.Abandoned || isTerminalRunStatus(turn.run_status)) {
       return { turn, standing: 'stopped' };
@@ -738,6 +691,16 @@ export class CloudAgentTurnService {
       throw leaseLost();
     }
     return { turn, standing: 'live' };
+  }
+
+  /**
+   * The fenced turn of a report made during the turn: a completed turn's lease
+   * is lost; `stopped` means its run has ended and the runner should stop.
+   */
+  private async fenceOpen(tx: Tx, lease: TurnLease): Promise<{ turn: FencedTurn; stopped: boolean }> {
+    const { turn, standing } = await this.fence(tx, lease);
+    if (standing === 'completed') throw leaseLost();
+    return { turn, stopped: standing === 'stopped' };
   }
 
   /**
