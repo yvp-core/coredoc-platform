@@ -7,7 +7,8 @@ export type { ResolvedIssue } from './cloud-agent-run-issue-reader.js';
 /**
  * Maps a manual start's issue key to the Jira issue identity through the
  * workspace's Jira connector. An issue that is missing, invisible to the
- * connector or outside its configured projects is `ISSUE_NOT_READABLE`.
+ * connector or outside its configured projects is `ISSUE_NOT_READABLE`; a
+ * Jira that kept failing is `JIRA_UNAVAILABLE`.
  */
 @Injectable()
 export class CloudAgentRunIssueResolver {
@@ -20,7 +21,7 @@ export class CloudAgentRunIssueResolver {
       if (!(error instanceof JiraReadFailure)) throw error;
       if (error.code === RunFailureCode.JiraError) {
         throw cloudAgentRunError(
-          CloudAgentRunErrorCode.IssueNotReadable,
+          CloudAgentRunErrorCode.JiraUnavailable,
           'Jira kept failing; try again shortly',
           HttpStatus.SERVICE_UNAVAILABLE,
         );

@@ -305,12 +305,27 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
     expect(turn.body.prd.markdown).not.toContain('Foreign text.');
   });
 
-  it('a manual start for a missing issue or one outside the configured projects is refused', async () => {
+  it('a manual start for a missing, forbidden or out-of-project issue is refused', async () => {
     jira.add({ key: 'OTHER-7', summary: 'Elsewhere', project: 'OTHER' });
-    for (const issueKey of ['OTHER-7', 'PROJ-404404']) {
+    jira.add({ key: 'PROJ-403', summary: 'Hidden', project: 'PROJ' });
+    jira.forbidden.add('PROJ-403');
+    for (const issueKey of ['OTHER-7', 'PROJ-404404', 'PROJ-403']) {
       const res = await api().post(runsBase()).set('Authorization', human(MEMBER)).send({ issueKey }).expect(400);
       expect(res.body.code).toBe('ISSUE_NOT_READABLE');
     }
+  });
+
+  it('a manual start while Jira keeps failing is refused as unavailable, and creates no run', async () => {
+    const issue = jira.add({ key: 'PROJ-503', summary: 'Flaky', project: 'PROJ' });
+    jira.rateLimitedReads = 10;
+    const res = await api()
+      .post(runsBase())
+      .set('Authorization', human(MEMBER))
+      .send({ issueKey: issue.key })
+      .expect(503);
+    jira.rateLimitedReads = 0;
+    expect(res.body.code).toBe('JIRA_UNAVAILABLE');
+    expect(await prisma.cloudAgentRun.count({ where: { workspaceId, issueKey: issue.key } })).toBe(0);
   });
 
   it('an issue that left the configured projects fails the run at claim instead of handing out the turn', async () => {

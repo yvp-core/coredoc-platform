@@ -142,6 +142,8 @@ export const CloudAgentRunErrorCode = {
   AgentRunsDisabled: 'AGENT_RUNS_DISABLED',
   AgentRunsUnavailable: 'AGENT_RUNS_UNAVAILABLE',
   IssueNotReadable: 'ISSUE_NOT_READABLE',
+  /** Jira kept failing while a manual start read the issue. */
+  JiraUnavailable: 'JIRA_UNAVAILABLE',
   UnknownRepository: 'UNKNOWN_REPOSITORY',
   TooManyRepositories: 'TOO_MANY_REPOSITORIES',
   RunNotTerminal: 'RUN_NOT_TERMINAL',
@@ -169,6 +171,7 @@ const ERROR_NAMES: Partial<Record<number, string>> = {
   409: 'Conflict',
   413: 'Payload Too Large',
   429: 'Too Many Requests',
+  503: 'Service Unavailable',
 };
 
 /** A typed refusal: `{ statusCode, error, code, message }`, the shape the web client parses. */

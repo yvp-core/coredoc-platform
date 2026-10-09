@@ -4,7 +4,7 @@
  * seams) and an in-memory state-archive store.
  */
 import type { JiraClient, JiraComment, JiraTransition } from '../delivery/jira-client.js';
-import { JiraNotFoundError, JiraRateLimitError } from '../delivery/jira-client.js';
+import { JiraAuthError, JiraNotFoundError, JiraRateLimitError } from '../delivery/jira-client.js';
 import { GithubApiError, type GithubClient } from '../../libs/github/github-client.js';
 import type { CloudAgentRunArchiveStore } from './cloud-agent-run-archive.store.js';
 
@@ -36,6 +36,8 @@ export class FakeJira {
   readonly issues = new Map<string, FakeJiraIssue>();
   /** The next N reads fail with a rate limit, to exercise in-process retries. */
   rateLimitedReads = 0;
+  /** Issue keys the connector's account may not see: Jira answers 403. */
+  readonly forbidden = new Set<string>();
   reads = 0;
   /** Comments by issue id, oldest first. */
   readonly comments = new Map<string, JiraComment[]>();
@@ -103,6 +105,7 @@ export class FakeJira {
         }
         const issue = this.find(idOrKey);
         if (!issue) throw new JiraNotFoundError(`Jira API 404 for /issue/${idOrKey}`);
+        if (this.forbidden.has(issue.key)) throw new JiraAuthError(`Jira auth/permission failure (403)`);
         return this.wire(issue);
       },
       searchIssues: async (jql: string) => {
