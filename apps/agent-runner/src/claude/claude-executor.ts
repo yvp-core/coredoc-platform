@@ -8,11 +8,7 @@
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { HookCallback, Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import {
-  MAX_STATE_ARCHIVE_BYTES,
-  type TurnAssignment,
-  type TurnOutcome,
-} from '@coredoc/core/agent-runner';
+import { MAX_STATE_ARCHIVE_BYTES, type TurnAssignment, type TurnOutcome } from '@coredoc/core/agent-runner';
 import { Git, gitEnvironment } from '../git/git.js';
 import { SecretScanner } from '../git/secret-scan.js';
 import { type Clone, TurnGit } from '../git/turn-git.js';
