@@ -27,7 +27,8 @@ export type TurnOutcome =
   | 'result_submitted'
   | 'delivered'
   | 'repository_requested'
-  | 'runner_lost';
+  | 'runner_lost'
+  | 'model_unavailable';
 export type TurnState = 'queued' | 'claimed' | 'completed' | 'abandoned';
 
 export interface AgentRunTurn {

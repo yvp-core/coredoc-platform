@@ -43,6 +43,7 @@ import {
   CloudAgentRunErrorCode,
   cloudAgentRunError,
   isTerminalRunStatus,
+  MAX_TURN_ATTEMPTS,
   RunFailureCode,
   RunPhase,
   ServerEventType,
@@ -532,8 +533,9 @@ export class CloudAgentTurnService {
   /**
    * The completion transaction: records the turn's facts (spend, versions,
    * the uploaded archive), deletes its MCP token and advances the run from
-   * what the turn reported. A failure outcome fails the run; a scope turn
-   * publishes its draft proposal. A repeated completion is a no-op.
+   * what the turn reported. A failure outcome fails the run; a transient one
+   * re-queues the turn until its last attempt; a scope turn publishes its
+   * draft proposal. A repeated completion is a no-op.
    */
   async complete(lease: TurnLease, request: CompleteTurn): Promise<CompleteTurnResponse> {
     const eligibility = await this.scope.eligibility(lease.runner.workspaceId);
@@ -551,22 +553,39 @@ export class CloudAgentTurnService {
       // Untrusted: refused before anything is written, so the runner can correct and complete again.
       if (row.kind === RunPhase.Implement) this.implement.validateReports(run, request.repositories);
 
+      // The model was unavailable: like a lost lease, the turn goes back to the queue unless this was its last attempt.
+      const requeue = live && request.outcome.kind === 'transient' && row.attempts < MAX_TURN_ATTEMPTS;
+
       let outcome: string = TurnOutcome.NoOutcome;
       if (request.outcome.kind === 'failed') outcome = request.outcome.code;
+      if (request.outcome.kind === 'transient') {
+        outcome = requeue ? TurnOutcome.ModelUnavailable : RunFailureCode.AgentError;
+      }
 
       // The turn is completed before any next turn is queued (one pending turn per run).
       await tx.cloudAgentRunTurn.update({
         where: { id: turn.id },
-        data: {
-          // A stopped (abandoned) turn keeps its state; it only gains its facts.
-          ...(live ? { state: TurnState.Completed } : {}),
-          spendUsd: spend?.costUsd ?? null,
-          runnerVersions: request.versions as Prisma.InputJsonObject,
-          completedAt: at,
-        },
+        data: requeue
+          ? // A new lease token, so the attempt's runner gets LEASE_LOST. Its spend is charged to the run
+            // below; the turn records the spend of the attempt that completes it, which is what the
+            // session's cumulative total builds on (this attempt's session state is not kept).
+            {
+              state: TurnState.Queued,
+              leaseToken: randomUUID(),
+              leaseExpiresAt: null,
+              stateArchiveKey: null,
+              runnerVersions: request.versions as Prisma.InputJsonObject,
+            }
+          : {
+              // A stopped (abandoned) turn keeps its state; it only gains its facts.
+              ...(live ? { state: TurnState.Completed } : {}),
+              spendUsd: spend?.costUsd ?? null,
+              runnerVersions: request.versions as Prisma.InputJsonObject,
+              completedAt: at,
+            },
       });
       await deleteTurnTokens(tx, [turn.id]);
-      const adoptArchive = live && row.stateArchiveKey !== null;
+      const adoptArchive = live && !requeue && row.stateArchiveKey !== null;
       const charged = await tx.cloudAgentRun.update({
         where: { id: run.id },
         data: {
@@ -590,6 +609,8 @@ export class CloudAgentTurnService {
 
       if (live && request.outcome.kind === 'failed') {
         await failRun(tx, updated, request.outcome.code, request.outcome.reason || null, at);
+      } else if (live && request.outcome.kind === 'transient') {
+        if (!requeue) await failRun(tx, updated, RunFailureCode.AgentError, request.outcome.reason || null, at);
       } else if (live && (row.kind === RunPhase.Scope || row.kind === RunPhase.Implement)) {
         outcome = await this.advanceAfterAgentTurn(tx, updated, row.kind, turn.id, request, eligibility, at);
         await failIfBudgetSpent(tx, await tx.cloudAgentRun.findUniqueOrThrow({ where: { id: run.id } }), at);
@@ -598,13 +619,16 @@ export class CloudAgentTurnService {
         outcome = await this.delivery.settle(tx, updated, delivered, at);
       }
 
-      await tx.cloudAgentRunTurn.update({ where: { id: turn.id }, data: { outcome } });
+      // A re-queued turn has no outcome yet; the event records this attempt's.
+      if (!requeue) await tx.cloudAgentRunTurn.update({ where: { id: turn.id }, data: { outcome } });
       await appendRunEvents(
         tx,
         { workspaceId: lease.runner.workspaceId, runId: run.id, turnId: turn.id },
         [{ type: ServerEventType.TurnEnded, payload: { outcome, spendUsd: spend?.costUsd ?? null } }],
         at,
       );
+      // The run never adopts a re-queued attempt's archive; the next attempt starts from the previous one.
+      if (requeue) return row.stateArchiveKey;
       return adoptArchive && run.stateArchiveKey && run.stateArchiveKey !== row.stateArchiveKey
         ? run.stateArchiveKey
         : null;
