@@ -66,6 +66,8 @@ export async function handleSearchSymbols(
   // filePath equals or ends with the given path segment.
   const exact = args.exact === true;
   const pathFilter = ((args.path as string | undefined) ?? '').trim();
+  const matchesPath = (row: { filePath: string }) =>
+    !pathFilter || row.filePath === pathFilter || row.filePath.endsWith(`/${pathFilter}`);
 
   // Map CodeElementType to NodeType[]. 'interface' deliberately also includes
   // type_alias: the two are interchangeable in many TS APIs and callers asking
@@ -130,7 +132,10 @@ export async function handleSearchSymbols(
   //      `AnalyzeApplyTemplateRequestDto`.
   const tokens = query.includes('*') || query.includes('?') ? null : query.trim().split(/\s+/).filter(Boolean);
   let findCodePattern: string;
-  if (!tokens) {
+  let exactName = exact && tokens?.length === 1 ? tokens[0]! : undefined;
+  if (exactName) {
+    findCodePattern = exactName;
+  } else if (!tokens) {
     findCodePattern = query;
   } else if (tokens.length === 1) {
     findCodePattern = `*${tokens[0]}*`;
@@ -142,7 +147,10 @@ export async function handleSearchSymbols(
   }
   // Multi-token queries may need a larger pre-filter pool since the post-
   // filter discards rows that lack one of the other tokens.
-  const dbFetchLimit = tokens && tokens.length > 1 ? Math.max(fetchLimit * 4, 50) : fetchLimit;
+  // A path filter is applied after the fetch, so an exact lookup must read every
+  // same-named member before narrowing.
+  const dbFetchLimit =
+    exactName && pathFilter ? 1000 : tokens && tokens.length > 1 ? Math.max(fetchLimit * 4, 50) : fetchLimit;
 
   const applyTokenFilter = (rows: typeof rawResults) =>
     tokens && tokens.length > 1
@@ -152,10 +160,21 @@ export async function handleSearchSymbols(
         })
       : rows;
 
-  const rawResults = await repository.findCode(
+  let rawResults = await repository.findCode(
     { pattern: findCodePattern, types, limit: dbFetchLimit, exportedVariablesOnly, includeSource },
     scope.repoHashes,
   );
+  // Filenames and C# declarations retain dots; only retry a missing qualified
+  // method as a bare name after checking the literal name in the requested file.
+  const bareName = exactName?.split('.').pop();
+  if (type !== 'file' && bareName && bareName !== exactName && !rawResults.some(matchesPath)) {
+    exactName = bareName;
+    findCodePattern = bareName;
+    rawResults = await repository.findCode(
+      { pattern: findCodePattern, types, limit: dbFetchLimit, exportedVariablesOnly, includeSource },
+      scope.repoHashes,
+    );
+  }
   const results = dedupeStateStoreOverVariable(applyTokenFilter(rawResults));
 
   // Honor the requested type even when empty. An agent may deliberately be
@@ -211,13 +230,11 @@ export async function handleSearchSymbols(
   // Both are post-filters so they constrain symbol AND external-call rows.
   let resolvedCodeElements = dedupeParserDuplicates(codeElements);
   if (exact) {
-    const lowerQuery = query.trim().toLowerCase();
+    const lowerQuery = (exactName ?? query.trim()).toLowerCase();
     resolvedCodeElements = resolvedCodeElements.filter((c) => c.name.toLowerCase() === lowerQuery);
   }
   if (pathFilter) {
-    resolvedCodeElements = resolvedCodeElements.filter(
-      (c) => c.filePath === pathFilter || c.filePath.endsWith(`/${pathFilter}`),
-    );
+    resolvedCodeElements = resolvedCodeElements.filter(matchesPath);
   }
 
   // Sort by relevance (exact match first, then vantage repo, then by name).
@@ -228,8 +245,9 @@ export async function handleSearchSymbols(
   // original relevance+name ordering is preserved exactly.
   const vantagePrefix = scope.currentRepoHash ? `${scope.currentRepoHash}:` : undefined;
   resolvedCodeElements.sort((a, b) => {
-    const aExact = a.name.toLowerCase() === query.toLowerCase() ? 0 : 1;
-    const bExact = b.name.toLowerCase() === query.toLowerCase() ? 0 : 1;
+    const rankName = (exactName ?? query).toLowerCase();
+    const aExact = a.name.toLowerCase() === rankName ? 0 : 1;
+    const bExact = b.name.toLowerCase() === rankName ? 0 : 1;
     if (aExact !== bExact) return aExact - bExact;
     if (vantagePrefix) {
       const aVantage = a.id.startsWith(vantagePrefix) ? 0 : 1;
@@ -308,7 +326,7 @@ export async function handleSearchSymbols(
   // service-scoped search legitimately cannot see). The data is one query away,
   // so name the repos instead of stopping at zero.
   if (totalBeforePagination === 0) {
-    const lowerQuery = query.trim().toLowerCase();
+    const lowerQuery = (exactName ?? query.trim()).toLowerCase();
     const requiredTokens = tokens && tokens.length > 1 ? tokens.map((t) => t.toLowerCase()) : null;
     const acceptName = (name: string): boolean => {
       const lower = name.toLowerCase();

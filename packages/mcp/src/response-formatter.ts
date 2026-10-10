@@ -244,18 +244,53 @@ function repoTag(id: string | undefined, resolve: RepoResolver | null): string {
  * per repo, no warning sentence. `commit unknown` drops the `@<hash>`
  * segment entirely rather than rendering a placeholder.
  */
+function shortParseDate(parsedAt: string): string {
+  if (parsedAt === 'unknown') return parsedAt;
+  const parsed = new Date(parsedAt);
+  // Malformed parsedAt must not throw and fail the whole tool response —
+  // fall back to the raw string.
+  return Number.isNaN(parsed.getTime()) ? parsedAt : parsed.toISOString().slice(0, 10);
+}
+
+function compactStalenessLine(repo: NonNullable<StalenessInfo['repositories']>[number]): string {
+  const commit = repo.parsedCommit ? `@${repo.parsedCommit.slice(0, 7)}` : '';
+  return `> snapshot ${repo.name}${commit} · ${shortParseDate(repo.parsedAt)}`;
+}
+
 function formatCompactStalenessBanner(repositories: NonNullable<StalenessInfo['repositories']>): string {
-  const lines = repositories.map((repo) => {
-    const commit = repo.parsedCommit ? `@${repo.parsedCommit.slice(0, 7)}` : '';
-    let date = repo.parsedAt;
-    if (repo.parsedAt !== 'unknown') {
-      const parsed = new Date(repo.parsedAt);
-      // Malformed parsedAt must not throw and fail the whole tool response —
-      // fall back to the raw string.
-      date = Number.isNaN(parsed.getTime()) ? repo.parsedAt : parsed.toISOString().slice(0, 10);
-    }
-    return `> snapshot ${repo.name}${commit} · ${date}`;
-  });
+  return `${repositories.map(compactStalenessLine).join('\n')}\n`;
+}
+
+/**
+ * Multi-repo header for an answer whose contributing repos are known: one
+ * compact line per repo that contributed a result, and every other repo in
+ * scope collapsed into a single line (count + parse-date range, no names).
+ * Zero contributing repos yields the collapsed line alone.
+ */
+function formatContributingStalenessBanner(
+  repositories: NonNullable<StalenessInfo['repositories']>,
+  contributing: ReadonlySet<string>,
+): string {
+  const shown = repositories.filter((repo) => contributing.has(repo.name));
+  const others = repositories.filter((repo) => !contributing.has(repo.name));
+  const lines = shown.map(compactStalenessLine);
+  if (others.length > 0) {
+    const dates = others
+      .map((repo) => new Date(repo.parsedAt))
+      .filter((d) => !Number.isNaN(d.getTime()))
+      .map((d) => d.getTime())
+      .sort((a, b) => a - b);
+    const range =
+      dates.length === 0
+        ? 'unknown'
+        : [dates[0]!, dates[dates.length - 1]!]
+            .map((t) => new Date(t).toISOString().slice(0, 10))
+            .filter((d, i, all) => i === 0 || d !== all[0])
+            .join('–');
+    lines.push(
+      `> ${others.length} other repo${others.length === 1 ? '' : 's'} in scope · parsed ${range} · see describe_repository`,
+    );
+  }
   return `${lines.join('\n')}\n`;
 }
 
@@ -270,7 +305,14 @@ function formatCompactStalenessBanner(repositories: NonNullable<StalenessInfo['r
  * Undefined `sessionKey`, or a staleness shape with no named repositories
  * (nothing to key dedupe on), always renders full.
  */
-export function formatStalenessHeader(staleness: StalenessInfo, sessionKey?: string): string {
+export function formatStalenessHeader(
+  staleness: StalenessInfo,
+  sessionKey?: string,
+  contributingRepos?: ReadonlySet<string>,
+): string {
+  if (contributingRepos && staleness.repositories && staleness.repositories.length > 1) {
+    return formatContributingStalenessBanner(staleness.repositories, contributingRepos);
+  }
   if (staleness.repositories?.length) {
     const full = shouldRenderFullBanner(
       sessionKey,
@@ -320,9 +362,16 @@ function pushDetailFooter(lines: string[], metadata: McpResponseMetadata): void 
   }
 }
 
-function formatHeaderBanners(metadata: McpResponseMetadata): string {
+function formatHeaderBanners(metadata: McpResponseMetadata, items?: Array<{ id?: string }>): string {
   const warnings = (metadata.warnings ?? []).map((warning) => `> ${warning}\n`).join('');
-  const staleness = formatStalenessHeader(metadata.staleness, metadata.scope?.sessionKey);
+  // When the caller hands over its result rows, the multi-repo header shrinks to the
+  // repos those rows came from. Without a resolver (single-repo scope) it is moot.
+  const resolve = items ? buildRepoResolver(metadata.scope) : null;
+  const contributing =
+    items && resolve
+      ? new Set(items.map((item) => resolve(item.id)).filter((name): name is string => name !== undefined))
+      : undefined;
+  const staleness = formatStalenessHeader(metadata.staleness, metadata.scope?.sessionKey, contributing);
   const ambiguity = metadata.ambiguity ? `> ⚠ ${metadata.ambiguity.hint}\n` : '';
   return `${warnings}${staleness}${ambiguity}`;
 }
@@ -1144,7 +1193,7 @@ export function formatCodeElementList(
 
   const offset = skip ?? 0;
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, elements));
   // Suppress the "(showing 0 of 0)" suffix on empty results — it carries no
   // information and reads as noise next to a not-found / corrective-hint title
   // (which already explains the zero). Keep the count whenever there's anything
