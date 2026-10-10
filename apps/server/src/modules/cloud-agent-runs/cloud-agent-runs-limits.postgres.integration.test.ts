@@ -48,7 +48,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
   let issueSeed = 0;
   const jira = new FakeJira();
   const archives = new InMemoryArchiveStore();
-  let now = new Date('2026-10-10T09:00:00.000Z');
+  let now = new Date();
 
   beforeAll(async () => {
     previousDatabaseUrl = process.env.DATABASE_URL;

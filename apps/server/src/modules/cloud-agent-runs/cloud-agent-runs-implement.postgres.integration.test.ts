@@ -68,7 +68,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
   let issueSeed = 0;
   const jira = new FakeJira();
   const archives = new InMemoryArchiveStore();
-  const now = new Date('2026-10-10T09:00:00.000Z');
+  const now = new Date();
 
   beforeAll(async () => {
     previousDatabaseUrl = process.env.DATABASE_URL;

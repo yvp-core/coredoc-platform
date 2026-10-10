@@ -84,7 +84,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
   const jira = new FakeJira();
   const github = new FakeGithubPulls();
   const archives = new InMemoryArchiveStore();
-  let now = new Date('2026-10-10T09:00:00.000Z');
+  let now = new Date();
   const later = (minutes: number) => {
     now = new Date(now.getTime() + minutes * 60_000);
   };
