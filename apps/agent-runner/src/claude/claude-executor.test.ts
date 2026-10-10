@@ -503,6 +503,7 @@ describe('Claude executor in the runner loop', () => {
     const hostile = { ...turn, run: { ...turn.run, ...overrides } } as unknown as TurnAssignment;
     const io = {
       signal: new AbortController().signal,
+      checkpoint: new AbortController().signal,
       emit: async () => undefined,
       proposeScope: async () => {
         throw new Error('no session may run');

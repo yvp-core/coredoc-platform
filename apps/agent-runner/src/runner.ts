@@ -25,6 +25,12 @@ export interface TurnIO {
   emit(events: RunnerEvent[]): Promise<void>;
   /** Aborted when the server answers `stop` or the lease is lost: end the session at once. */
   signal: AbortSignal;
+  /**
+   * Aborted when the runner is shutting down: wind the session down and finish the turn as a
+   * checkpoint (work pushed, state archived) within the shutdown grace. Before a session has
+   * started, throw `TurnAbandoned` instead.
+   */
+  checkpoint: AbortSignal;
   proposeScope(proposal: ProposeScopeRequest): Promise<ProposeScopeResponse>;
   submitResult(result: SubmitResultRequest): Promise<SubmitResultResponse>;
   requestRepo(request: RequestRepoRequest): Promise<RequestRepoResponse>;
@@ -74,6 +80,8 @@ export interface RunnerOptions {
   startupRetryMs?: number;
   /** Masked, with the turn's MCP token, in everything a turn sends. */
   secrets?: string[];
+  /** How long a turn may take to reach its checkpoint after a shutdown; the platform's stop timeout must exceed it. */
+  shutdownGraceMs?: number;
   log?: (message: string) => void;
 }
 
@@ -81,6 +89,16 @@ const HEARTBEAT_INTERVAL_MS = 20_000;
 const IDLE_POLL_MS = 5_000;
 const ERROR_BACKOFF_MS = 30_000;
 const STARTUP_RETRY_MS = 60_000;
+/** Inside Fargate's 120-second maximum stop timeout and the chart's 180-second termination grace. */
+const SHUTDOWN_GRACE_MS = 100_000;
+
+/** A shutdown came before the turn's session started: nothing to save, so the turn is left to be redone. */
+export class TurnAbandoned extends Error {
+  constructor() {
+    super('The runner is shutting down before the session started.');
+    this.name = 'TurnAbandoned';
+  }
+}
 
 export class Runner {
   private readonly heartbeatIntervalMs: number;
@@ -95,7 +113,11 @@ export class Runner {
     this.log = options.log ?? (() => undefined);
   }
 
-  /** When `shutdown` aborts, pushes are skipped and the turn is not completed: its lease expires and it is redone. */
+  /**
+   * When `shutdown` aborts, the turn winds down to a checkpoint and completes. If that takes longer
+   * than the shutdown grace, or no session had started, pushes are skipped and the turn is not
+   * completed: its lease expires and it is redone.
+   */
   async runOnce(shutdown?: AbortSignal): Promise<TurnEnd> {
     const turn = await this.options.api.claim({
       protocolVersion: RUNNER_PROTOCOL_VERSION,
@@ -175,7 +197,12 @@ export class Runner {
       end ??= reason;
       session.abort();
     };
-    const onShutdown = () => stop('shutdown');
+    const checkpoint = new AbortController();
+    let hardStop: NodeJS.Timeout | undefined;
+    const onShutdown = () => {
+      checkpoint.abort();
+      hardStop = setTimeout(() => stop('shutdown'), this.options.shutdownGraceMs ?? SHUTDOWN_GRACE_MS);
+    };
     if (shutdown?.aborted) onShutdown();
     shutdown?.addEventListener('abort', onShutdown, { once: true });
 
@@ -197,6 +224,7 @@ export class Runner {
     try {
       const io: TurnIO = {
         signal: session.signal,
+        checkpoint: checkpoint.signal,
         emit: async (events) => {
           if (events.length === 0 || session.signal.aborted) return;
           try {
@@ -244,10 +272,12 @@ export class Runner {
       return stoppedDelivery ? 'stopped' : 'completed';
     } catch (error) {
       if (error instanceof LeaseLostError) return 'lease_lost';
+      if (error instanceof TurnAbandoned) return 'shutdown';
       if (end) return end;
       throw error;
     } finally {
       clearInterval(heartbeat);
+      clearTimeout(hardStop);
       shutdown?.removeEventListener('abort', onShutdown);
       session.abort();
     }

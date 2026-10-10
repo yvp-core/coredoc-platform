@@ -63,7 +63,7 @@ describe('implement turns in the runner loop', () => {
     return { bare, repo: repository(bare, github, 'orders-api', overrides) };
   }
 
-  function runTurn(turn: TurnAssignment, steps: SessionStep[], heartbeatIntervalMs = 60_000) {
+  function runTurn(turn: TurnAssignment, steps: SessionStep[], heartbeatIntervalMs = 60_000, shutdown?: AbortSignal) {
     const seen: SeenSession[] = [];
     api.queue.push(turn);
     const client = new RunnerApiClient({ baseUrl: api.baseUrl, workspaceId: WORKSPACE, token: TOKEN });
@@ -82,7 +82,7 @@ describe('implement turns in the runner loop', () => {
         retryDelay: () => 0,
       }),
     });
-    return { done: runner.runOnce(), seen };
+    return { done: runner.runOnce(shutdown), seen };
   }
 
   it('clones over HTTPS, works on the run branch, then commits and pushes the turn after the session', async () => {
@@ -676,6 +676,37 @@ describe('implement turns in the runner loop', () => {
       expect(remoteHead(bare, BRANCH)).not.toBeNull();
       // The session ended by itself, so its spend is known.
       expect(api.completions[0]!.body).toMatchObject({ outcome: { kind: 'checkpoint' }, spend: { costUsd: 1.5 } });
+    });
+
+    it('a shutdown tells the session to stop, then pushes the work, saves its state and reports a checkpoint', async () => {
+      const { bare, repo } = await orders();
+      const shutdown = new AbortController();
+      const act = async (cwd: string) => {
+        await edit(cwd);
+        shutdown.abort();
+      };
+      const { done, seen } = runTurn(
+        implementAssignment([repo]),
+        [{ act, untilStopped: true }],
+        60_000,
+        shutdown.signal,
+      );
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.denials.join()).toMatch(/shutting down/);
+      expect(remoteHead(bare, BRANCH)).not.toBeNull();
+      expect(api.uploads).toBe(1);
+      expect(api.completions[0]!.body).toMatchObject({ outcome: { kind: 'checkpoint' }, spend: { costUsd: 1.5 } });
+    });
+
+    it('a shutdown before the session starts leaves the turn to be redone', async () => {
+      const { bare, repo } = await orders();
+      const shutdown = new AbortController();
+      shutdown.abort();
+      const { done, seen } = runTurn(implementAssignment([repo]), [{ act: edit }], 60_000, shutdown.signal);
+      await expect(done).resolves.toBe('shutdown');
+      expect(seen).toEqual([]);
+      expect(remoteHead(bare, BRANCH)).toBeNull();
+      expect(api.completions).toEqual([]);
     });
   });
 });

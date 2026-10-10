@@ -17,8 +17,8 @@ export interface RunControlState {
   repositoryRequested?: boolean;
   /** Implement turns only; throws when the repository cannot be used, which fails the turn. */
   cloneRepository?: (repository: AssignedRepository) => Promise<string>;
-  /** Further tool calls are refused with the reason; a session that does not then end itself is stopped. */
-  endTurn?: (reason: string) => void;
+  /** Further tool calls are refused with the reason; a session that does not end itself within `graceMs` is stopped. */
+  endTurn?: (reason: string, graceMs?: number) => void;
 }
 
 export const TURN_OVER_AFTER_RESULT =

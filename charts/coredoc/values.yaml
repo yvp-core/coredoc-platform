@@ -289,8 +289,9 @@ agentRunner:
     sizeLimit: 16Gi
     # "" (node disk) or "Memory" (tmpfs, counted against the memory limit).
     medium: ""
-  # Covers stopping a session on SIGTERM, including its session-end hook
-  # (up to 2 minutes). A rollout still discards in-flight turns, which rerun.
+  # On SIGTERM the runner has 100 s to wind its turn down to a checkpoint
+  # (work pushed, state archived); past that the turn is discarded and reruns.
+  # Keep this above 100.
   terminationGracePeriodSeconds: 180
   # The image and the plugin's bundled runtime are linux/amd64 only.
   nodeSelector:

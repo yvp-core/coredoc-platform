@@ -55,6 +55,7 @@ describe('runner loop', () => {
       versions: VERSIONS,
       heartbeatIntervalMs,
       idlePollMs: 5,
+      shutdownGraceMs: 200,
     });
   }
 
@@ -88,8 +89,35 @@ describe('runner loop', () => {
     expect(api.completions).toEqual([]);
   });
 
-  it('a shutdown ends the session, does not complete the turn and claims nothing more', async () => {
+  it('a shutdown asks the turn to wind down, completes it as a checkpoint and claims nothing more', async () => {
+    const turn = assignment();
+    api.queue.push(turn);
     api.queue.push(assignment());
+    const executor: TurnExecutor = {
+      async run(_turn, io) {
+        await new Promise<void>((resolve) => {
+          if (io.checkpoint.aborted) resolve();
+          else io.checkpoint.addEventListener('abort', () => resolve(), { once: true });
+        });
+        return { spend: { costUsd: 0.5 }, outcome: { kind: 'checkpoint' } };
+      },
+    };
+    const shutdown = new AbortController();
+    const stopped = runner(executor).start(shutdown.signal);
+    await waitFor(() => api.heartbeats >= 1);
+
+    shutdown.abort();
+    await stopped;
+    expect(api.completions).toEqual([
+      {
+        turnId: turn.turn.id,
+        body: { outcome: { kind: 'checkpoint' }, spend: { costUsd: 0.5 }, versions: VERSIONS },
+      },
+    ]);
+    expect(api.claims).toHaveLength(1);
+  });
+
+  it('a turn that does not wind down within the shutdown grace is stopped and not completed', async () => {
     api.queue.push(assignment());
     const executor = blockingExecutor();
     const shutdown = new AbortController();
@@ -100,7 +128,6 @@ describe('runner loop', () => {
     await stopped;
     expect(executor.aborted).toBe(true);
     expect(api.completions).toEqual([]);
-    expect(api.claims).toHaveLength(1);
   });
 
   it('masks the credentials it holds in every event and report it sends', async () => {

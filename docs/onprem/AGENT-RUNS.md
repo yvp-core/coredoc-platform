@@ -270,7 +270,7 @@ agentRunner:
 | `agentRunner.proxy.httpsProxy` / `httpProxy` / `noProxy` | Outbound proxy for the runner, Claude Code, git and package managers. |
 | `agentRunner.caBundle.configMap` / `key` | Extra PEM bundle for a TLS-inspecting proxy or internal registry. Node and Claude Code add it to their defaults; **git uses it instead of the system bundle**, so include the public roots unless all traffic goes through the inspecting proxy. |
 | `agentRunner.scratch.sizeLimit` / `medium` | The only writable volume, wiped after every turn. Default `16Gi` on node disk (§10). |
-| `agentRunner.terminationGracePeriodSeconds` | Default `180`: covers stopping a session, including its session-end hook. |
+| `agentRunner.terminationGracePeriodSeconds` | Default `180`. On SIGTERM the runner has 100 s to wind its turn down to a checkpoint (work pushed, state archived) so the next turn continues it; past that the turn is discarded and reruns. Keep it above 100. |
 | `agentRunner.nodeSelector` / `tolerations` / `affinity` | Default node selector `kubernetes.io/arch: amd64`. |
 | `agentRunner.env` | Escape hatch: extra plain variables on the runner container. |
 | `agentRunner.networkPolicy.enabled` / `egress` / `dns` | Optional NetworkPolicy (§7). |

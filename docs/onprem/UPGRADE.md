@@ -83,10 +83,12 @@ Only if you enabled `agentRunner` ([AGENT-RUNS.md](AGENT-RUNS.md)):
 - **Upgrade the server first, then the runner.** A runner whose protocol
   version the server does not support claims nothing; settings show
   *Refused: this runner version is not supported*.
-- **A rollout discards in-flight turns.** The stopped runner skips its pushes
-  and does not complete the turn; the turn runs again from its last state
-  archive once its lease expires, and **its model spend is repeated**. Roll
-  the runner while no turn is in progress if that matters.
+- **A rollout checkpoints in-flight turns.** On SIGTERM the runner tells the
+  session to stop, pushes the work, archives its state and completes the turn
+  as a checkpoint; the next turn continues it. If that takes longer than 100 s,
+  or the session had not started, the turn is discarded and runs again from
+  its last state archive once its lease expires, and **that attempt's model
+  spend is repeated**.
 
 ## Air-gapped upgrades
 
