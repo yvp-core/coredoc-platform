@@ -4,6 +4,7 @@ import { AuthGuard } from './auth.guard.js';
 import { WorkspaceRoleGuard } from './workspace-role.guard.js';
 import { PermissionsGuard } from './permissions.guard.js';
 import { ExactTelemetryTokenGuard } from './exact-telemetry-token.guard.js';
+import { AgentRunnerTokenGuard } from './agent-runner-token.guard.js';
 import { DatabaseModule } from '../database/database.module.js';
 import { WorkOSInvitationsService } from './workos-invitations.service.js';
 
@@ -15,6 +16,7 @@ import { WorkOSInvitationsService } from './workos-invitations.service.js';
     WorkspaceRoleGuard,
     PermissionsGuard,
     ExactTelemetryTokenGuard,
+    AgentRunnerTokenGuard,
     WorkOSInvitationsService,
   ],
   exports: [
@@ -23,6 +25,7 @@ import { WorkOSInvitationsService } from './workos-invitations.service.js';
     WorkspaceRoleGuard,
     PermissionsGuard,
     ExactTelemetryTokenGuard,
+    AgentRunnerTokenGuard,
     WorkOSInvitationsService,
   ],
 })

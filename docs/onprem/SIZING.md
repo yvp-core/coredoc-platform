@@ -11,6 +11,7 @@ observed usage.
 | **coredoc-server** | 100m request / 400m limit | 256Mi request / 512Mi limit | — (stateless) | Single replica is fine to start; the server is stateless apart from its backends, so scale replicas horizontally behind the ingress if needed. |
 | **Neo4j** (in-cluster subchart) | 2 CPU | 6Gi container / 2–4G JVM heap | PV via `defaultStorageClass`; grows with graph size | Chart defaults: `NEO4J_server_memory_heap_initial__size: 2G`, `..._max__size: 4G`. |
 | **Postgres** (external) | small | small | small | Control plane only (workspaces, members, tokens, push jobs) — no graph data. Any modest managed instance works; prioritize backups/PITR over size. |
+| **agent runner** (optional) | 1 CPU request / 4 limit | 2Gi request / 8Gi limit | 16Gi scratch `emptyDir` per replica | One turn per replica. Only with `agentRunner.enabled` — see below. |
 
 ## Neo4j scales with the graph
 
@@ -50,6 +51,25 @@ pushes is not kept — the graph reflects current state, so growth tracks
 codebase size and repo count). Start at 10–20Gi with a storage class that
 supports volume expansion.
 
+## Agent runner (cloud agent runs)
+
+Only when `agentRunner.enabled` ([AGENT-RUNS.md](AGENT-RUNS.md)).
+
+- **One turn per replica**, deliveries included. A run's turns are serial, so
+  replicas set how many runs progress at once; add replicas for throughput.
+- **Scratch: 16Gi per replica** by default (`agentRunner.scratch.sizeLimit`).
+  It holds one turn's clones (up to five repositories), installed dependencies
+  and package caches, and is wiped after every turn. Measured: about 6 GiB for
+  five large backend services, about 12 GiB for five large web apps. On node
+  disk it counts against the node's ephemeral storage; as `Memory` it counts
+  against the memory limit.
+- **CPU and memory** default to 1 CPU / 2Gi requested and 4 CPU / 8Gi limit.
+  Builds and tests run inside the pod, so raise them with your toolchains.
+- **Images**: the base runner image is about 700 MB; a derived image with five
+  Node majors and Go measured about 1.9 GB.
+- **Object storage**: one state archive per run, capped at 128 MiB (measured
+  median 2.3 MiB), deleted with the run's events 30 days after it ends.
+
 ## When to scale what
 
 | Symptom | Scale |
@@ -58,3 +78,5 @@ supports volume expansion.
 | Slow MCP/graph queries across many repos | Neo4j CPU, then memory (page cache) |
 | API latency under many concurrent MCP clients | `server.replicas` |
 | Neo4j pod evicted / PV full | Neo4j volume size |
+| Agent runs wait long for a runner | `agentRunner.replicas` |
+| Runner pod evicted for ephemeral storage | `agentRunner.scratch.sizeLimit` (and node disk) |

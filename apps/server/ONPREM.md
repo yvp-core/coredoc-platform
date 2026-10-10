@@ -41,6 +41,7 @@ plane, and an S3-compatible object store (e.g. Google Cloud Storage) for artifac
 | **Data plane** (code graph) | **Neo4j** | One shared graph. Selected by `COREDOC_DB_BACKEND=neo4j`. Replaces Turso(sqlite). |
 | **Artifacts** (parsed blobs, parsers, mapper.json) | **GCS** (S3-compatible) | Or any S3 endpoint. Falls back to local disk if unset (single-node only). |
 | **Auth** | **Self-hosted OAuth server (GitHub upstream)** | The NestJS app *is* the OAuth 2.1 authorization server (no auth SaaS). It needs outbound HTTPS to `github.com` + `api.github.com` for the login dance. Not air-gappable (uses GitHub.com). |
+| **Cloud agent runs** (optional) | **Agent runner** (separate container) | Claims turns from this server over HTTPS and runs Claude Code against your repositories with its own model key and bot token; it receives none of the server's configuration. Helm only (`agentRunner`), not in the Compose topology. See [`docs/onprem/AGENT-RUNS.md`](../../docs/onprem/AGENT-RUNS.md). |
 
 > **It's two databases, not one.** Neo4j replaces *Turso* (the data plane), **not**
 > Postgres. Both are required.
@@ -240,6 +241,7 @@ MCP clients discover `/authorize`, `/token`, and `/register` from it.
 | `OAUTH_ACCESS_TTL` | `1d` | Issued access-token lifetime. |
 | `OAUTH_REFRESH_TTL` | `30d` | Issued refresh-token lifetime. |
 | `COREDOC_POSTHOG_KEY` / `COREDOC_POSTHOG_HOST` | — | Telemetry. Leave unset for an on-prem privacy posture. |
+| `AGENT_RUN_RETENTION_ENABLED` | `true` | Cloud agent runs: the retention sweep that deletes run events, turn rows and state archives 30 days after a run ends, in bounded batches. Only `false` turns it off. Runs, specs, questions and answers, acceptances and change requests are never deleted automatically. The agent runner's own variables are in [`docs/onprem/AGENT-RUNS.md`](../../docs/onprem/AGENT-RUNS.md) §8. |
 | `COREDOC_LICENSE_FILE` | — | Path to the signed offline license we issue you (Helm mounts it at `/etc/coredoc/license.json`). **Unset = no licensing at all** — the guard is inert. Set and valid → normal operation; set and unreadable/forged → **boot fails** naming the file and the reason; set and expired past its grace window → mutating `/api/v1` requests return 403 `LICENSE_EXPIRED` while reads, MCP, OAuth, and the health probes keep working. Verified offline (Ed25519, no network) at boot and hourly thereafter — including in the `worker` role, which additionally stops enqueueing connector syncs and narrows its job claim to `renormalize` while expired. Current state at `GET /api/v1/license` and in the `/api/v1/health` payload. |
 
 **What an expired license (past its grace window) stops, and what it does not.**

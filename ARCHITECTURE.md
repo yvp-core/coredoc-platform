@@ -36,6 +36,7 @@ flowchart LR
 | `apps/desktop` | Electron main/preload, React UI, local and cloud workspace experience | `src/main/`, `src/preload/`, `src/renderer/` |
 | `apps/web` | Cloud web UI: React SPA built separately and served by `apps/server` | `src/features/`, `src/routes/` |
 | `apps/server` | NestJS API, WorkOS auth, workspace control plane, publication jobs, cloud MCP and intent | `src/modules/`, `src/auth/`, `prisma/` |
+| `apps/agent-runner` | Customer-run runner for cloud agent runs: claims turns over the runner API and runs Claude Code with the pinned plugin; holds the model key and bot token, nothing of the server's | `src/runner.ts`, `src/claude/`, `Dockerfile`; contract in `packages/core/src/agent-runner/` |
 
 Cross-package imports use established `@coredoc/<package>` exports. Follow the
 nearest implementation before adding a new layer. Tree-sitter/SCIP runtime belongs

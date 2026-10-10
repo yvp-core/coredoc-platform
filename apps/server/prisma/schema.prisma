@@ -78,6 +78,14 @@ model Workspace {
   intentAuditEvents      IntentAuditEvent[]
   intentMutationRequests IntentMutationRequest[]
 
+  cloudAgentRuns         CloudAgentRun[]
+  cloudAgentRunTurns     CloudAgentRunTurn[]
+  cloudAgentRunEvents    CloudAgentRunEvent[]
+  cloudAgentRunSpecs     CloudAgentRunSpecVersion[]
+  cloudAgentRunQuestions CloudAgentRunQuestion[]
+  agentRunSettings       AgentRunSettings?
+  agentRunnersSeen       AgentRunnerSeen[]
+
   @@map("workspaces")
 }
 
@@ -237,10 +245,17 @@ model ServiceToken {
   createdBy      String    @map("created_by")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
   lastUsedAt     DateTime? @map("last_used_at") @db.Timestamptz
+  /// Set only on a cloud agent run's per-turn MCP token: MCP-only, hash-only,
+  /// hidden from the token list, deleted with its turn.
+  owningTurnId   String?   @map("owning_turn_id") @db.Uuid
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace    Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owningTurn   CloudAgentRunTurn?  @relation("ServiceTokenOwningTurn", fields: [workspaceId, owningTurnId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
+  claimedTurns CloudAgentRunTurn[] @relation("CloudAgentRunTurnClaimedBy")
+  runnerSeen   AgentRunnerSeen?
 
   @@unique([workspaceId, name])
+  @@index([owningTurnId])
   @@map("service_tokens")
 }
 
@@ -1621,4 +1636,272 @@ model IntentHandoff {
   @@unique([workspaceId, repoKey, prNumber])
   @@index([nextAttemptAt])
   @@map("intent_handoffs")
+}
+
+// ---------------------------------------------------------------------------
+// Cloud agent runs: Jira issue to draft pull requests, executed by a
+// customer-run agent runner over the runner API. Not the desktop telemetry
+// `DesktopAgentRun`. Status and state columns are VarChar with code constants
+// (modules/cloud-agent-runs/run-states.ts), so a new value never needs ALTER TYPE.
+//
+// HAND-WRITTEN PARTIAL INDEXES — NOT REPRESENTABLE IN THIS SCHEMA.
+// Migration 20261010120000 creates
+//   `cloud_agent_runs_one_open_run_per_issue` (UNIQUE ON (workspace_id,
+//   jira_issue_id) WHERE status NOT IN ('done','failed','cancelled')), and
+//   `cloud_agent_run_turns_one_pending_turn_per_run` (UNIQUE ON (run_id)
+//   WHERE state IN ('queued','claimed')).
+// Migration 20261013120000 creates
+//   `cloud_agent_run_questions_one_open_per_run` (UNIQUE ON (run_id)
+//   WHERE state = 'open').
+// Run creation (ACTIVE_RUN_EXISTS), turn queueing and parking a question depend on them. `prisma
+// migrate dev` will propose DROP INDEX for both — NEVER accept that drop;
+// migration-invariants.test.ts fails if a migration drops them.
+// ---------------------------------------------------------------------------
+
+model CloudAgentRun {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId            String    @map("workspace_id") @db.Uuid
+  /// The immutable Jira issue id is the identity; the key changes when an issue moves.
+  jiraIssueId            String    @map("jira_issue_id") @db.VarChar(64)
+  issueKey               String    @map("issue_key") @db.VarChar(64)
+  /// Plain column: connectors can be deleted, runs are never-deleted human records.
+  jiraConnectorId        String?   @map("jira_connector_id") @db.Uuid
+  /// `jira_label`, `manual` or `rerun`.
+  trigger                String    @db.VarChar(16)
+  startedBy              String?   @map("started_by") @db.VarChar(256)
+  previousRunId          String?   @map("previous_run_id") @db.Uuid
+  /// The member the run acts as; removal is detected at runtime (`run_owner_removed`).
+  runOwnerId             String    @map("run_owner_id") @db.VarChar(256)
+  status                 String    @db.VarChar(32)
+  phase                  String    @db.VarChar(16)
+  failureCode            String?   @map("failure_code") @db.VarChar(64)
+  failureReason          String?   @map("failure_reason") @db.VarChar(2000)
+  questionsPolicy        String    @map("questions_policy") @db.VarChar(16)
+  scopeAcceptancePolicy  String    @map("scope_acceptance_policy") @db.VarChar(16)
+  /// Null means Claude Code's default model.
+  model                  String?   @db.VarChar(128)
+  repositories           Json      @default("[]") @db.JsonB
+  seeds                  String[]  @default([])
+  droppedSeeds           Json      @default("[]") @map("dropped_seeds") @db.JsonB
+  runOrdinal             Int       @map("run_ordinal")
+  branch                 String    @db.VarChar(255)
+  scopeSessionId         String    @map("scope_session_id") @db.Uuid
+  implementSessionId     String    @map("implement_session_id") @db.Uuid
+  stateArchiveKey        String?   @map("state_archive_key") @db.VarChar(1024)
+  spendUsd               Float     @default(0) @map("spend_usd") @db.DoublePrecision
+  agentTurns             Int       @default(0) @map("agent_turns")
+  unknownSpendTurns      Int       @default(0) @map("unknown_spend_turns")
+  maxSpendUsd            Float     @map("max_spend_usd") @db.DoublePrecision
+  maxActiveSeconds       Int       @map("max_active_seconds")
+  waitingLimitSeconds    Int       @map("waiting_limit_seconds")
+  maxTurnDurationSeconds Int       @map("max_turn_duration_seconds")
+  maxRepositories        Int       @map("max_repositories")
+  activeSeconds          Int       @default(0) @map("active_seconds")
+  activeSince            DateTime? @map("active_since") @db.Timestamptz
+  waitingSince           DateTime? @map("waiting_since") @db.Timestamptz
+  pullRequests           Json      @default("[]") @map("pull_requests") @db.JsonB
+  jiraOutcome            Json      @default("{}") @map("jira_outcome") @db.JsonB
+  assumptions            Json      @default("[]") @db.JsonB
+  outcomeLessCount       Int       @default(0) @map("outcome_less_count")
+  /// The implement phase's adopted `submit_result`: summary, per-repository summaries, notes.
+  result                 Json?     @db.JsonB
+  /// Last timeline sequence number handed out; the run row serialises numbering.
+  lastEventSeq           Int       @default(0) @map("last_event_seq")
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  startedAt              DateTime? @map("started_at") @db.Timestamptz
+  finishedAt             DateTime? @map("finished_at") @db.Timestamptz
+  lastTurnEndedAt        DateTime? @map("last_turn_ended_at") @db.Timestamptz
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  workspace   Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  previousRun CloudAgentRun?             @relation("CloudAgentRunPrevious", fields: [workspaceId, previousRunId], references: [workspaceId, id], onDelete: NoAction, onUpdate: Cascade)
+  reruns      CloudAgentRun[]            @relation("CloudAgentRunPrevious")
+  turns       CloudAgentRunTurn[]
+  events      CloudAgentRunEvent[]
+  specs       CloudAgentRunSpecVersion[]
+  questions   CloudAgentRunQuestion[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, jiraIssueId])
+  @@map("cloud_agent_runs")
+}
+
+model CloudAgentRunTurn {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId      String    @map("workspace_id") @db.Uuid
+  runId            String    @map("run_id") @db.Uuid
+  ordinal          Int
+  /// `scope`, `implement` or `delivery`.
+  kind             String    @db.VarChar(16)
+  inputText        String?   @map("input_text") @db.Text
+  /// `queued`, `claimed`, `completed` or `abandoned`.
+  state            String    @default("queued") @db.VarChar(16)
+  attempts         Int       @default(0)
+  leaseToken       String?   @map("lease_token") @db.Uuid
+  leaseExpiresAt   DateTime? @map("lease_expires_at") @db.Timestamptz
+  claimedByTokenId String?   @map("claimed_by_token_id") @db.Uuid
+  claimedAt        DateTime? @map("claimed_at") @db.Timestamptz
+  outcome          String?   @db.VarChar(32)
+  spendUsd         Float?    @map("spend_usd") @db.DoublePrecision
+  runnerVersions   Json?     @map("runner_versions") @db.JsonB
+  /// The state archive this turn uploaded; becomes the run's archive when the turn completes.
+  stateArchiveKey  String?   @map("state_archive_key") @db.VarChar(1024)
+  /// This turn's `submit_result`; the completion transaction adopts it.
+  result           Json?     @db.JsonB
+  /// This turn's `request_repo` under required acceptance (key, reason); completion opens its question.
+  repoRequest      Json?     @map("repository_request") @db.JsonB
+  /// What the runner reported during this turn, counted against the per-turn report caps.
+  reportedEvents     Int     @default(0) @map("reported_events")
+  reportedEventBytes Int     @default(0) @map("reported_event_bytes")
+  reportedProposals  Int     @default(0) @map("reported_proposals")
+  reportedQuestions  Int     @default(0) @map("reported_questions")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  completedAt      DateTime? @map("completed_at") @db.Timestamptz
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  run       CloudAgentRun  @relation(fields: [workspaceId, runId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+  claimedBy ServiceToken?  @relation("CloudAgentRunTurnClaimedBy", fields: [claimedByTokenId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  mcpTokens ServiceToken[] @relation("ServiceTokenOwningTurn")
+
+  @@unique([workspaceId, id])
+  @@unique([runId, ordinal])
+  @@index([workspaceId, state, createdAt])
+  @@map("cloud_agent_run_turns")
+}
+
+model CloudAgentRunEvent {
+  id          BigInt   @id @default(autoincrement())
+  workspaceId String   @map("workspace_id") @db.Uuid
+  runId       String   @map("run_id") @db.Uuid
+  turnId      String?  @map("turn_id") @db.Uuid
+  seq         Int
+  type        String   @db.VarChar(32)
+  /// Size-capped at 16 KiB; `truncated` marks a payload that was cut.
+  payload     Json     @db.JsonB
+  truncated   Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  run       CloudAgentRun @relation(fields: [workspaceId, runId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([runId, seq])
+  @@map("cloud_agent_run_events")
+}
+
+/// A scope proposal. `draft` while its turn runs (hidden from people), then
+/// `proposed`, and finally `accepted`, `changes_requested` or `superseded`.
+/// A human record: never deleted by retention.
+model CloudAgentRunSpecVersion {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId  String    @map("workspace_id") @db.Uuid
+  runId        String    @map("run_id") @db.Uuid
+  version      Int
+  status       String    @db.VarChar(32)
+  /// The turn whose `propose_scope` call wrote it; plain column, turns are pruned.
+  turnId       String?   @map("turn_id") @db.Uuid
+  title        String    @db.VarChar(200)
+  summary      String    @db.Text
+  /// Size-capped at 256 KiB.
+  markdown     String    @db.Text
+  /// Repositories (reasons, changes, merge order, eligibility), risks, intent
+  /// references, assumptions, dropped seeds and candidates for the PRD.
+  content      Json      @db.JsonB
+  proposedAt   DateTime  @map("proposed_at") @db.Timestamptz
+  reviewedBy   String?   @map("reviewed_by") @db.VarChar(256)
+  reviewedAt   DateTime? @map("reviewed_at") @db.Timestamptz
+  reviewText   String?   @map("review_text") @db.Text
+  autoAccepted Boolean   @default(false) @map("auto_accepted")
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  run       CloudAgentRun @relation(fields: [workspaceId, runId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([runId, version])
+  @@map("cloud_agent_run_spec_versions")
+}
+
+/// A question the agent asked: a clarification in AskUserQuestion's shape
+/// (or, later, a repository request). A human record: retention never deletes it.
+model CloudAgentRunQuestion {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId   String    @map("workspace_id") @db.Uuid
+  runId         String    @map("run_id") @db.Uuid
+  /// Globally unique; the human API addresses a question by it.
+  requestId     String    @unique @default(dbgenerated("gen_random_uuid()")) @map("request_id") @db.Uuid
+  /// `clarification` or `repository_request`.
+  kind          String    @db.VarChar(32)
+  phase         String    @db.VarChar(16)
+  /// `open`, `answered`, `auto_answered` or `cancelled`.
+  state         String    @db.VarChar(16)
+  /// The AskUserQuestion call; the resume turn re-runs it with the answers.
+  toolUseId     String?   @map("tool_use_id") @db.VarChar(255)
+  /// The repository a `repository_request` question decides; null for clarifications.
+  repositoryKey String?   @map("repository_key") @db.VarChar(255)
+  questions     Json      @db.JsonB
+  /// Per question: the chosen labels and any free text.
+  answers       Json?     @db.JsonB
+  /// The turn that asked; plain column, turns are pruned.
+  askedInTurnId String?   @map("asked_in_turn_id") @db.Uuid
+  /// The turn queued to deliver the answer; plain column, turns are pruned.
+  resumeTurnId  String?   @map("resume_turn_id") @db.Uuid
+  askedAt       DateTime  @map("asked_at") @db.Timestamptz
+  answeredAt    DateTime? @map("answered_at") @db.Timestamptz
+  /// Null when answered automatically.
+  answeredBy    String?   @map("answered_by") @db.VarChar(256)
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  run       CloudAgentRun @relation(fields: [workspaceId, runId], references: [workspaceId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([runId, askedAt])
+  @@index([askedInTurnId])
+  @@map("cloud_agent_run_questions")
+}
+
+/// One per workspace: no workspace settings store exists and the feature has more than ten fields.
+model AgentRunSettings {
+  workspaceId            String   @id @map("workspace_id") @db.Uuid
+  enabled                Boolean  @default(false)
+  /// Recorded when agent runs are switched on, or on an explicit takeover; never by other saves.
+  runOwnerId             String?  @map("run_owner_id") @db.VarChar(256)
+  triggerLabel           String   @default("coredoc-agent") @map("trigger_label") @db.VarChar(255)
+  /// Jira statuses the run sweep moves the issue to, matched by name; null leaves Jira alone.
+  startedStatus          String?  @map("started_status") @db.VarChar(255)
+  doneStatus             String?  @map("done_status") @db.VarChar(255)
+  failedStatus           String?  @map("failed_status") @db.VarChar(255)
+  cancelledStatus        String?  @map("cancelled_status") @db.VarChar(255)
+  questionsPolicy        String   @default("pause") @map("questions_policy") @db.VarChar(16)
+  scopeAcceptancePolicy  String   @default("required") @map("scope_acceptance_policy") @db.VarChar(16)
+  maxSpendUsd            Float    @default(25) @map("max_spend_usd") @db.DoublePrecision
+  maxTurnDurationSeconds Int      @default(10800) @map("max_turn_duration_seconds")
+  maxActiveSeconds       Int      @default(86400) @map("max_active_seconds")
+  waitingLimitSeconds    Int      @default(604800) @map("waiting_limit_seconds")
+  maxStartedRuns         Int      @default(2) @map("max_started_runs")
+  maxRepositories        Int      @default(5) @map("max_repositories")
+  model                  String?  @db.VarChar(128)
+  updatedBy              String?  @map("updated_by") @db.VarChar(256)
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("agent_run_settings")
+}
+
+/// Last successful claim or heartbeat per runner token. The token's own
+/// `last_used_at` is stamped before guards run, so it cannot say this.
+model AgentRunnerSeen {
+  serviceTokenId  String   @id @map("service_token_id") @db.Uuid
+  workspaceId     String   @map("workspace_id") @db.Uuid
+  lastSeenAt      DateTime @map("last_seen_at") @db.Timestamptz
+  /// `claim`, `heartbeat` or `startup_check` (a failed start-up check; claims nothing).
+  lastAction      String   @map("last_action") @db.VarChar(16)
+  protocolVersion Int      @map("protocol_version")
+  versions        Json     @db.JsonB
+  /// Set when the server refused the runner (an unsupported protocol version) or its start-up check failed.
+  refusedReason   String?  @map("refused_reason") @db.VarChar(200)
+
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  serviceToken ServiceToken @relation(fields: [serviceTokenId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([workspaceId])
+  @@map("agent_runner_seen")
 }

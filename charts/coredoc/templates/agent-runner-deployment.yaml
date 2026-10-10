@@ -1,0 +1,143 @@
+{{- if .Values.agentRunner.enabled }}
+{{- $runner := .Values.agentRunner }}
+# The agent runner: claims turns from the Coredoc API and runs Claude Code
+# against the workspace's repositories. It gets its own Secret and nothing of
+# the server's (no database, storage, Neo4j, encryption, OAuth or license
+# configuration): an agent next to those could write its own approvals.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "coredoc.agentRunner.fullname" . }}
+  labels:
+    {{- include "coredoc.agentRunner.labels" . | nindent 4 }}
+spec:
+  replicas: {{ $runner.replicas }}
+  selector:
+    matchLabels:
+      {{- include "coredoc.agentRunner.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "coredoc.agentRunner.selectorLabels" . | nindent 8 }}
+    spec:
+      # The runner never talks to the Kubernetes API.
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ $runner.terminationGracePeriodSeconds }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with $runner.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $runner.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $runner.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: agent-runner
+          image: {{ include "coredoc.agentRunner.image" . }}
+          imagePullPolicy: {{ $runner.image.pullPolicy }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: COREDOC_API_URL
+              value: {{ default (printf "http://%s:3000" (include "coredoc.fullname" .)) $runner.apiUrl | quote }}
+            - name: COREDOC_WORKSPACE_ID
+              value: {{ required "agentRunner.workspaceId is required when agentRunner.enabled" $runner.workspaceId | quote }}
+            - name: COREDOC_GIT_AUTHOR_EMAIL
+              value: {{ required "agentRunner.gitAuthor.email is required when agentRunner.enabled (the bot account's no-reply address)" $runner.gitAuthor.email | quote }}
+            {{- with $runner.gitAuthor.name }}
+            - name: COREDOC_GIT_AUTHOR_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $runner.githubApiUrl }}
+            - name: COREDOC_GITHUB_API_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $runner.modelBaseUrl }}
+            - name: ANTHROPIC_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $runner.packageRegistries }}
+            - name: COREDOC_PACKAGE_REGISTRIES
+              value: {{ toJson . | quote }}
+            {{- end }}
+            {{- with $runner.proxy.httpsProxy }}
+            - name: HTTPS_PROXY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $runner.proxy.httpProxy }}
+            - name: HTTP_PROXY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $runner.proxy.noProxy }}
+            - name: NO_PROXY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if or $runner.proxy.httpsProxy $runner.proxy.httpProxy }}
+            # The runner's own fetch (Coredoc API, GitHub) honours the proxy
+            # variables only with this; Claude Code and git read them anyway.
+            - name: NODE_USE_ENV_PROXY
+              value: "1"
+            {{- end }}
+            {{- if $runner.caBundle.configMap }}
+            # Node and Claude Code add it to their defaults; git reads it as its CA file.
+            - name: NODE_EXTRA_CA_CERTS
+              value: /etc/coredoc-agent-runner/ca/ca.crt
+            - name: GIT_SSL_CAINFO
+              value: /etc/coredoc-agent-runner/ca/ca.crt
+            {{- end }}
+            {{- range $name, $value := $runner.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          envFrom:
+            # ANTHROPIC_API_KEY, COREDOC_GITHUB_TOKEN, COREDOC_RUNNER_TOKEN and
+            # any registry credential variables.
+            - secretRef:
+                name: {{ required "agentRunner.existingSecret is required when agentRunner.enabled" $runner.existingSecret }}
+          volumeMounts:
+            # The only writable path: wiped after every turn.
+            - name: scratch
+              mountPath: /scratch
+            {{- if $runner.caBundle.configMap }}
+            - name: ca-bundle
+              mountPath: /etc/coredoc-agent-runner/ca
+              readOnly: true
+            {{- end }}
+          resources:
+            {{- toYaml $runner.resources | nindent 12 }}
+      volumes:
+        - name: scratch
+          emptyDir:
+            {{- with $runner.scratch.medium }}
+            medium: {{ . }}
+            {{- end }}
+            sizeLimit: {{ $runner.scratch.sizeLimit }}
+        {{- if $runner.caBundle.configMap }}
+        - name: ca-bundle
+          configMap:
+            name: {{ $runner.caBundle.configMap }}
+            items:
+              - key: {{ $runner.caBundle.key }}
+                path: ca.crt
+        {{- end }}
+{{- end }}

@@ -16,10 +16,7 @@ import { IntentReadService } from './intent-read.service.js';
 import { IntentTreeService } from './intent-tree.service.js';
 import { IntentController } from './intent.controller.js';
 
-/**
- * Comment threads against real PostgreSQL. Only `AuthGuard` is stubbed; the role,
- * permission and user-session guards are the real ones.
- */
+/** Only `AuthGuard` is stubbed; the role, permission and user-session guards are real. */
 const TEST_DATABASE_URL = process.env.INTENT_COMMENT_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 

@@ -134,6 +134,7 @@ const RawEnvSchema = z.object({
   INTENT_MUTATION_RETENTION_DAYS: optionalString,
   DELIVERY_SYNC_ENABLED: optionalString,
   DELIVERY_RAW_RETENTION_DAYS: optionalString,
+  AGENT_RUN_RETENTION_ENABLED: optionalString,
 
   // delivery connectors
   GITHUB_TOKEN: optionalString,
@@ -151,6 +152,7 @@ const RawEnvSchema = z.object({
   PROCESS_ROLE: optionalString,
   DATABASE_URL: optionalString,
   NODE_ENV: optionalString,
+  PRISMA_QUERY_LOG: optionalString,
   ENVIRONMENT: optionalString,
   PORT: optionalString,
   WEB_DIST_PATH: optionalString,
@@ -283,7 +285,7 @@ function toAuth(raw: z.infer<typeof RawEnvSchema>): AuthConfig {
 }
 
 /**
- * The four daily sweeps' kill-switches and windows, RAW.
+ * The retention sweeps' kill-switches and windows, RAW.
  *
  * `libs/retention.ts` owns the vocabulary and states why it is exact — a
  * deployment carrying `MCP_METRICS_RETENTION_ENABLED=0` must keep meaning
@@ -299,6 +301,8 @@ export interface RetentionConfig {
   intentMutationDays?: string;
   deliverySyncEnabled?: string;
   deliveryRawDays?: string;
+  /** Cloud agent runs' machine-derived data (events, turns, state archives); default on. */
+  agentRunsEnabled?: string;
 }
 
 export interface WorkersConfig {
@@ -337,6 +341,8 @@ export interface MiscConfig {
   databaseUrl?: string;
   /** Raw; compared to the literal 'development' / 'production'. */
   nodeEnv?: string;
+  /** Exact literal: only `'false'` silences per-query logging in development. */
+  prismaQueryLog: boolean;
   /** Raw; compared to the literal 'development' / 'production'. */
   environment?: string;
   /** Raw; `main.ts` and `web-auth.service.ts` keep their 3000 fallback. */
@@ -388,6 +394,7 @@ function toMisc(raw: z.infer<typeof RawEnvSchema>): MiscConfig {
     processRole: raw.PROCESS_ROLE,
     databaseUrl: raw.DATABASE_URL,
     nodeEnv: raw.NODE_ENV,
+    prismaQueryLog: raw.PRISMA_QUERY_LOG !== 'false',
     environment: raw.ENVIRONMENT,
     port: raw.PORT,
     webDistPath: raw.WEB_DIST_PATH,
@@ -411,6 +418,7 @@ function toWorkers(raw: z.infer<typeof RawEnvSchema>): WorkersConfig {
       intentMutationDays: raw.INTENT_MUTATION_RETENTION_DAYS,
       deliverySyncEnabled: raw.DELIVERY_SYNC_ENABLED,
       deliveryRawDays: raw.DELIVERY_RAW_RETENTION_DAYS,
+      agentRunsEnabled: raw.AGENT_RUN_RETENTION_ENABLED,
     },
   };
 }

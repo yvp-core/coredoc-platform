@@ -67,3 +67,38 @@ pinned via neo4j.fullnameOverride (default "neo4j").
 {{- define "coredoc.neo4jUri" -}}
 {{- printf "bolt://%s:7687" (default "neo4j" .Values.neo4j.fullnameOverride) }}
 {{- end }}
+
+{{/*
+Agent runner names and labels. The runner's selector labels must never match
+the server Service's selector (name + instance), or the Service would route
+API traffic to runner pods.
+*/}}
+{{- define "coredoc.agentRunner.fullname" -}}
+{{- printf "%s-agent-runner" (include "coredoc.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "coredoc.agentRunner.selectorLabels" -}}
+app.kubernetes.io/name: {{ printf "%s-agent-runner" (include "coredoc.name" .) | trunc 63 | trimSuffix "-" }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: agent-runner
+{{- end }}
+
+{{- define "coredoc.agentRunner.labels" -}}
+helm.sh/chart: {{ include "coredoc.chart" . }}
+{{ include "coredoc.agentRunner.selectorLabels" . }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Agent runner image: its own reference, never the server's. A digest wins over
+the tag; the tag defaults to the chart appVersion.
+*/}}
+{{- define "coredoc.agentRunner.image" -}}
+{{- $image := .Values.agentRunner.image -}}
+{{- if $image.digest -}}
+{{- printf "%s@%s" $image.repository $image.digest }}
+{{- else -}}
+{{- printf "%s:%s" $image.repository (default .Chart.AppVersion $image.tag) }}
+{{- end -}}
+{{- end }}

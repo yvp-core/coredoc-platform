@@ -78,5 +78,19 @@ read [DESIGN.md](DESIGN.md) and [the design workflow](docs/agents/design-system.
   for product questions, `get_intent_context` for the rules that apply to code.
 - Use the intent-capture workflow when asked to record a reviewed product decision.
   Code, comments, and matched anchors do not establish accepted product intent.
-- Keep the implementation plan inside the spec, not in per-ticket files. Create an artifact
-  only when the task needs it, and follow an explicitly named external task source.
+- Create an artifact only when the task needs it, and follow an explicitly named
+  external task source.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are local markdown files under `.scratch/<feature-slug>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), recorded as `Status:` lines. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `CONTEXT.md` plus `docs/adr/`. See `docs/agents/domain.md`.

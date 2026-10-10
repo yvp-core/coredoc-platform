@@ -26,6 +26,8 @@ export interface Workspace {
   slug: string;
   role: string;
   intentEnabled: boolean;
+  /** Agent runs are enabled, or the workspace already has runs; gates the nav entry. */
+  agentRunsEnabled: boolean;
 }
 
 export interface MeResponse {

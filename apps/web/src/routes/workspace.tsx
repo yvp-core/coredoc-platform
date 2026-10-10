@@ -4,6 +4,7 @@ import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import {
   BookMarked,
   BookOpen,
+  Bot,
   ChartColumn,
   LayoutGrid,
   LogOut,
@@ -108,6 +109,7 @@ const NAV: NavItem[] = [
   { to: '/w/$slug/teams', label: 'Teams', icon: Users, badge: 'members' },
   { to: '/w/$slug/analytics', label: 'Analytics', icon: ChartColumn },
   { to: '/w/$slug/intent', label: 'Intent', icon: BookOpen, gate: (w) => w.intentEnabled },
+  { to: '/w/$slug/agent-runs', label: 'Agent runs', icon: Bot, gate: (w) => w.agentRunsEnabled },
   { to: '/w/$slug/settings', label: 'Settings', icon: Settings },
 ];
 

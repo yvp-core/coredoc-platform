@@ -135,10 +135,22 @@ export class ControlPlaneService {
   async listWorkspacesForUser(userId: string) {
     const members = await this.prisma.workspaceMember.findMany({
       where: { userId },
-      include: { workspace: true },
+      include: {
+        workspace: {
+          include: {
+            agentRunSettings: { select: { enabled: true } },
+            _count: { select: { cloudAgentRuns: true } },
+          },
+        },
+      },
       orderBy: { workspace: { name: 'asc' } },
     });
-    return members.map((m) => ({ ...m.workspace, role: m.role }));
+    return members.map(({ workspace: { agentRunSettings, _count, ...workspace }, role }) => ({
+      ...workspace,
+      role,
+      // Stable navigation flag: switching agent runs off keeps existing runs reachable.
+      agentRunsEnabled: Boolean(agentRunSettings?.enabled) || _count.cloudAgentRuns > 0,
+    }));
   }
 
   // ===========================================================================
@@ -486,7 +498,8 @@ export class ControlPlaneService {
 
   async listServiceTokens(workspaceId: string) {
     return this.prisma.serviceToken.findMany({
-      where: { workspaceId },
+      // Per-turn MCP tokens belong to their run turn: never listed, never revealed.
+      where: { workspaceId, owningTurnId: null },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,
@@ -503,7 +516,7 @@ export class ControlPlaneService {
 
   async deleteServiceToken(workspaceId: string, tokenId: string) {
     await this.prisma.serviceToken.deleteMany({
-      where: { id: tokenId, workspaceId },
+      where: { id: tokenId, workspaceId, owningTurnId: null },
     });
   }
 

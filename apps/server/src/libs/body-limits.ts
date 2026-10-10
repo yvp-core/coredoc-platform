@@ -10,6 +10,8 @@
  * Matched against `req.url`, which includes the /api/v1 prefix at the Express layer.
  */
 
+import { MAX_STATE_ARCHIVE_BYTES } from '@coredoc/core/agent-runner';
+
 const OneMB = 1024 * 1024;
 
 /** Default ceiling for ordinary JSON API requests (auth, tokens, members, …). */
@@ -39,8 +41,19 @@ export const OTLP_BODY_LIMIT = 25 * OneMB;
  */
 export const INTENT_IMPORT_BODY_LIMIT = 6 * OneMB;
 
+/**
+ * Agent runner state archive PUT. Headroom over the archive cap lets the service, not the
+ * body parser, reject an over-cap archive, so the run fails with `archive_too_large`.
+ */
+export const AGENT_STATE_ARCHIVE_BODY_LIMIT = MAX_STATE_ARCHIVE_BYTES + OneMB;
+
 // First match wins; unmatched routes get DEFAULT_BODY_LIMIT.
 const BODY_LIMITS: ReadonlyArray<{ re: RegExp; limit: number; method?: string }> = [
+  {
+    re: /^\/api\/v1\/workspaces\/[^/]+\/agent-runner\/turns\/[^/]+\/archive\/?(?:\?.*)?$/,
+    limit: AGENT_STATE_ARCHIVE_BODY_LIMIT,
+    method: 'PUT',
+  },
   {
     re: /^\/api\/v1\/workspaces\/[^/]+\/delivery\/v2\/artifacts\/[^/]+\/revisions\/?(?:\?.*)?$/,
     limit: ARTIFACT_REVISION_BODY_LIMIT,

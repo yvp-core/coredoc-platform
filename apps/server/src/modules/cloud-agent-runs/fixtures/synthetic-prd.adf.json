@@ -1,0 +1,104 @@
+{
+  "type": "doc",
+  "version": 1,
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 2 },
+      "content": [
+        { "type": "text", "text": "Problem " },
+        { "type": "inlineCard", "attrs": { "url": "https://example.com/wiki/context" } }
+      ]
+    },
+    {
+      "type": "panel",
+      "attrs": { "panelType": "info" },
+      "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Teams lose track of exports." }] }]
+    },
+    {
+      "type": "panel",
+      "attrs": { "panelType": "note" },
+      "content": [
+        { "type": "paragraph", "content": [{ "type": "text", "text": "Decision: exports stay asynchronous." }] }
+      ]
+    },
+    {
+      "type": "panel",
+      "attrs": { "panelType": "warning" },
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [{ "type": "text", "text": "[unverified] exports finish within 10 minutes" }]
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": { "level": 2 },
+      "content": [{ "type": "text", "text": "Flow" }]
+    },
+    {
+      "type": "orderedList",
+      "attrs": { "order": 1 },
+      "content": [
+        {
+          "type": "listItem",
+          "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Request an export" }] }]
+        },
+        {
+          "type": "listItem",
+          "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Download the file" }] }]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        { "type": "text", "text": "The " },
+        { "type": "text", "text": "ExportJob", "marks": [{ "type": "code" }] },
+        { "type": "text", "text": " record tracks progress." }
+      ]
+    },
+    {
+      "type": "extension",
+      "attrs": {
+        "extensionType": "com.atlassian.confluence.macro.core",
+        "extensionKey": "legacy-content",
+        "parameters": {
+          "adf": "{\"type\":\"doc\",\"version\":1,\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Shared acceptance criteria from the legacy macro\"}]}]}"
+        }
+      }
+    },
+    {
+      "type": "table",
+      "content": [
+        {
+          "type": "tableRow",
+          "content": [
+            {
+              "type": "tableHeader",
+              "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Limit" }] }]
+            },
+            {
+              "type": "tableHeader",
+              "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Value" }] }]
+            }
+          ]
+        },
+        {
+          "type": "tableRow",
+          "content": [
+            {
+              "type": "tableCell",
+              "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Rows per export" }] }]
+            },
+            {
+              "type": "tableCell",
+              "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "100000" }] }]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
