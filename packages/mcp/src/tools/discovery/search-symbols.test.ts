@@ -1618,12 +1618,13 @@ describe('find_code Tool Handler', () => {
     });
 
     it('exact resolves a common method name by equality, with bare or qualified query', async () => {
-      const findCode = vi.fn().mockResolvedValue([
+      const rows = [
         createMockCodeElement({ id: 'a', name: 'get', type: 'function', filePath: 'src/handler.ts' }),
-        createMockCodeElement({ id: 'b', name: 'get', type: 'function', filePath: 'src/handler.ts' }),
+        createMockCodeElement({ id: 'b', name: 'get', type: 'function', filePath: 'src/handler.ts', startLine: 30 }),
         createMockCodeElement({ id: 'c', name: 'getUser', type: 'function', filePath: 'src/handler.ts' }),
         createMockCodeElement({ id: 'd', name: 'get', type: 'function', filePath: 'src/other.ts' }),
-      ]);
+      ];
+      const findCode = vi.fn(async ({ pattern }: { pattern: string }) => rows.filter((row) => row.name === pattern));
       const mockRepo = createMockRepository({ findCode });
       getRepository.mockResolvedValue(mockRepo);
 
@@ -1640,6 +1641,43 @@ describe('find_code Tool Handler', () => {
         // Equality lookup on the bare name, not a `*get*` substring scan.
         expect(findCode.mock.calls.at(-1)?.[0]).toMatchObject({ pattern: 'get', limit: 1000 });
       }
+    });
+
+    it.each([
+      { query: 'server.ts', type: 'file', bareName: 'ts', path: 'src/server.ts' },
+      { query: 'Handler.Get()', type: 'function', bareName: 'Get()', path: 'src/Handler.cs' },
+    ])('preserves the declared name $query before trying a bare member', async ({ query, type, bareName, path }) => {
+      const rows = [
+        createMockCodeElement({ id: 'literal', name: query, type: type as NodeType, filePath: path }),
+        createMockCodeElement({ id: 'bare', name: bareName, type: type as NodeType, filePath: path, startLine: 30 }),
+      ];
+      const findCode = vi.fn(async ({ pattern }: { pattern: string }) => rows.filter((row) => row.name === pattern));
+      const result = await handleSearchSymbols(
+        { query, type, exact: true, path },
+        mockScope,
+        'raw',
+        defaultDetailLevel,
+        defaultDetailConfig,
+        createMockRepository({ findCode }),
+      );
+      expect((result.data as CodeElementInfo[]).map((row) => row.id)).toEqual(['literal']);
+    });
+
+    it('falls back to a bare member when the literal name only exists in another file', async () => {
+      const rows = [
+        createMockCodeElement({ id: 'literal', name: 'Handler.get', filePath: 'src/other.ts' }),
+        createMockCodeElement({ id: 'bare', name: 'get', filePath: 'src/handler.ts' }),
+      ];
+      const findCode = vi.fn(async ({ pattern }: { pattern: string }) => rows.filter((row) => row.name === pattern));
+      const result = await handleSearchSymbols(
+        { query: 'Handler.get', exact: true, path: 'handler.ts' },
+        mockScope,
+        'raw',
+        defaultDetailLevel,
+        defaultDetailConfig,
+        createMockRepository({ findCode }),
+      );
+      expect((result.data as CodeElementInfo[]).map((row) => row.id)).toEqual(['bare']);
     });
 
     it('exact match is case-insensitive', async () => {
