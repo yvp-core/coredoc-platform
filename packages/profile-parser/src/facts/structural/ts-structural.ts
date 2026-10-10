@@ -292,40 +292,23 @@ export interface StructuralFile {
   language: 'typescript' | 'javascript';
   classes: StructuralClass[];
   functions: StructuralFunction[];
-  // Optional so hand-built fixtures/callers that predate type-symbol capture stay valid;
-  // parseTsStructural always initializes these to [], so live parse results are never undefined.
-  interfaces?: StructuralInterface[];
-  typeAliases?: StructuralTypeAlias[];
-  enums?: StructuralEnum[];
-  variables?: StructuralVariable[];
-  /**
-   * Function/block-scoped bindings. Optional for the same fixture-compatibility reason as the
-   * fields above; parseTsStructural always initializes it to [].
-   */
-  localBindings?: StructuralLocalBinding[];
+  interfaces: StructuralInterface[];
+  typeAliases: StructuralTypeAlias[];
+  enums: StructuralEnum[];
+  variables: StructuralVariable[];
+  /** Function/block-scoped bindings. */
+  localBindings: StructuralLocalBinding[];
   imports: StructuralImport[];
-  /**
-   * Destructured dynamic imports. Optional for the same fixture-compatibility reason as the
-   * fields above; parseTsStructural always initializes it to [].
-   */
-  dynamicImports?: StructuralDynamicImport[];
+  /** Destructured dynamic imports. */
+  dynamicImports: StructuralDynamicImport[];
   calls: StructuralCall[];
-  /**
-   * Value-position enum-member accesses. Optional for the same fixture-compatibility reason as the
-   * fields above; parseTsStructural always initializes it to [].
-   */
-  enumMemberRefs?: StructuralEnumMemberRef[];
-  /**
-   * Construction and import references to class-shaped names. Optional for the same
-   * fixture-compatibility reason as the fields above; parseTsStructural always initializes it to [].
-   */
-  classRefs?: StructuralClassRef[];
-  // Optional so hand-built fixtures/callers that predate value-binding capture stay valid;
-  // parseTsStructural always initializes it to [], so live parse results are never undefined.
-  valueBindings?: ValueBinding[];
-  // Optional for the same reason — read only via resolverFromStructuralFiles; parseTsStructural
-  // always initializes it to [], so live parse results are never undefined.
-  reExports?: ReExport[];
+  /** Value-position enum-member accesses. */
+  enumMemberRefs: StructuralEnumMemberRef[];
+  /** Construction and import references to class-shaped names. */
+  classRefs: StructuralClassRef[];
+  valueBindings: ValueBinding[];
+  /** Read only via resolverFromStructuralFiles. */
+  reExports: ReExport[];
 }
 
 function text(n: TsNode | null | undefined): string {
@@ -373,10 +356,6 @@ export async function parseTsStructural(
   const tree = parser.parse(source);
   const root = tree.rootNode;
 
-  // Local non-optional handles: StructuralFile.valueBindings / .reExports are optional (for legacy
-  // callers), but parse results always populate them. Push to these arrays, which `file` aliases.
-  const valueBindings: ValueBinding[] = [];
-  const reExports: ReExport[] = [];
   const file: StructuralFile = {
     path,
     language,
@@ -392,16 +371,10 @@ export async function parseTsStructural(
     calls: [],
     enumMemberRefs: [],
     classRefs: [],
-    valueBindings,
-    reExports,
+    valueBindings: [],
+    reExports: [],
   };
-  // Non-optional handles for the type-symbol arrays (declared optional on the interface for legacy
-  // fixtures); parse results always populate them — push to these, which `file` aliases.
-  const interfaces = file.interfaces as StructuralInterface[];
-  const typeAliases = file.typeAliases as StructuralTypeAlias[];
-  const enums = file.enums as StructuralEnum[];
-  const variables = file.variables as StructuralVariable[];
-  const localBindings = file.localBindings as StructuralLocalBinding[];
+  const { interfaces, typeAliases, enums, variables, localBindings, valueBindings, reExports } = file;
   /** Names assigned to after declaration anywhere in this file (`x = …`, `x += …`, `x++`). */
   const assignedNames = new Set<string>();
 
@@ -965,7 +938,7 @@ export async function parseTsStructural(
                   }
                 }
                 if (dynBindings.length)
-                  file.dynamicImports?.push({
+                  file.dynamicImports.push({
                     moduleSpecifier: unquote(text(strArg)),
                     bindings: dynBindings,
                     startLine: lineOf(n),

@@ -15,7 +15,7 @@ import {
 import { invitationExpiresAt, isInvitationLive } from '../../auth/oauth/invitation-eligibility.js';
 import { emailDomain, parseCsv } from '../../auth/oauth/provider-utils.js';
 import { serverUrl } from '../../auth/oauth/server-url.js';
-import { authConfigFromEnv } from '../../config/app-config.js';
+import { configFromEnv } from '../../config/app-config.js';
 import { ControlPlaneService } from '../../database/control-plane.service.js';
 import { WorkspaceMemberRole } from './dto/workspace-role.enum.js';
 
@@ -344,7 +344,7 @@ export class MembersService {
   }
 
   private assertAllowedEmail(email: string): void {
-    const allowedDomains = parseCsv(authConfigFromEnv().allowedEmailDomains);
+    const allowedDomains = parseCsv(configFromEnv().auth.allowedEmailDomains);
     if (allowedDomains.length > 0 && !allowedDomains.includes(emailDomain(email))) {
       throw new BadRequestException('The invited email cannot authenticate with the configured email-domain policy');
     }

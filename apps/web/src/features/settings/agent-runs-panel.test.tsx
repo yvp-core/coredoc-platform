@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentRunsPanel } from './AgentRunsPanel';
 
@@ -86,9 +87,7 @@ afterEach(() => {
 });
 
 async function choose(select: string, option: string) {
-  const trigger = await screen.findByRole('combobox', { name: select });
-  fireEvent.keyDown(trigger, { key: 'ArrowDown' });
-  fireEvent.click(await screen.findByRole('option', { name: option }));
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: select }), option);
 }
 
 function mount() {
@@ -242,15 +241,13 @@ describe('AgentRunsPanel', () => {
     mount();
 
     const started = await screen.findByRole('combobox', { name: 'Started status' });
-    expect(started).toHaveTextContent('No change');
-    fireEvent.keyDown(started, { key: 'ArrowDown' });
-    expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual([
-      'No change',
-      'Done',
-      'In Progress',
-      'To Do',
-    ]);
-    fireEvent.click(screen.getByRole('option', { name: 'In Progress' }));
+    expect(started).toHaveDisplayValue('No change');
+    expect(
+      within(started)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['No change', 'Done', 'In Progress', 'To Do']);
+    await userEvent.selectOptions(started, 'In Progress');
     await choose('Done status', 'Done');
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
 
@@ -267,7 +264,7 @@ describe('AgentRunsPanel', () => {
     settings = { ...settings, enabled: true, failedStatus: 'Blocked', cancelledStatus: 'To Do' };
     mount();
 
-    expect(await screen.findByRole('combobox', { name: 'Failed status' })).toHaveTextContent('Blocked');
+    expect(await screen.findByRole('combobox', { name: 'Failed status' })).toHaveDisplayValue('Blocked');
     await choose('Failed status', 'No change');
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
 

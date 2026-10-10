@@ -77,11 +77,6 @@ export interface SourceLocation {
   endColumn?: number;
 }
 
-export interface SourceRange {
-  start: { line: number; column: number };
-  end: { line: number; column: number };
-}
-
 // =============================================================================
 // Git Version Info
 // =============================================================================
@@ -224,34 +219,6 @@ export interface FunctionNode extends BaseNode {
   accessor?: 'get' | 'set';
   /** Overrides method from parent (methods only) */
   overrides?: string;
-}
-
-/**
- * @deprecated Use FunctionNode with kind: 'method' instead
- */
-export type MethodNode = FunctionNode & { kind: 'method' };
-
-/**
- * Type guard to check if a FunctionNode is a method
- */
-export function isMethod(node: FunctionNode): node is FunctionNode & {
-  kind: 'method';
-  classId: string;
-  visibility: Visibility;
-  isStatic: boolean;
-  isAbstract: boolean;
-} {
-  return node.kind === 'method';
-}
-
-/**
- * Type guard to check if a FunctionNode is a standalone function
- */
-export function isStandaloneFunction(node: FunctionNode): node is FunctionNode & {
-  kind: 'function';
-  isExported: boolean;
-} {
-  return node.kind === 'function';
 }
 
 export interface ClassNode extends BaseNode {
@@ -1686,32 +1653,4 @@ export interface ParseError {
   line?: number;
   message: string;
   severity: 'error' | 'warning';
-}
-
-// =============================================================================
-// Incremental Parse State
-// =============================================================================
-
-export interface IncrementalState {
-  /** Repo ID */
-  repoId: string;
-  /** Last full parse timestamp */
-  lastFullParse: string;
-  /** Last incremental parse timestamp */
-  lastIncrementalParse?: string;
-  /** File checksums from last parse */
-  fileChecksums: Record<string, string>;
-  /** Versioned IDs from last parse */
-  versionedIds: Record<string, string>;
-}
-
-export interface IncrementalDiff {
-  /** Files added since last parse */
-  addedFiles: string[];
-  /** Files modified since last parse */
-  modifiedFiles: string[];
-  /** Files deleted since last parse */
-  deletedFiles: string[];
-  /** Elements that need re-parsing */
-  affectedElementIds: string[];
 }

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { topologicalSort, groupByDepth, getMaxDepth, SortedFunction } from './topological-sort';
+import { topologicalSort } from './topological-sort';
 import { FunctionNode, CallEdge, SourceLocation } from '@coredoc/core/types';
 
 // Helper to create test fixtures
@@ -231,46 +231,5 @@ describe('topologicalSort', () => {
       const fnC = result.sorted.find((s) => s.function.name === 'fnC');
       expect(fnC?.calleeIds).toHaveLength(0);
     });
-  });
-});
-
-describe('groupByDepth', () => {
-  it('should group items by depth', () => {
-    const fns = [createFn('fn:a', 'fnA'), createFn('fn:b', 'fnB'), createFn('fn:c', 'fnC'), createFn('fn:d', 'fnD')];
-
-    const calls = [
-      createCall('fn:a', 'fn:b'),
-      createCall('fn:a', 'fn:c'),
-      createCall('fn:b', 'fn:d'),
-      createCall('fn:c', 'fn:d'),
-    ];
-
-    const { sorted } = topologicalSort(fns, calls);
-    const groups = groupByDepth(sorted);
-
-    expect(groups.get(0)?.map((s) => s.function.name)).toEqual(['fnD']);
-    expect(
-      groups
-        .get(1)
-        ?.map((s) => s.function.name)
-        .sort(),
-    ).toEqual(['fnB', 'fnC']);
-    expect(groups.get(2)?.map((s) => s.function.name)).toEqual(['fnA']);
-  });
-});
-
-describe('getMaxDepth', () => {
-  it('should return max depth', () => {
-    const sorted: SortedFunction[] = [
-      { function: createFn('fn:a', 'a'), calleeIds: [], depth: 0 },
-      { function: createFn('fn:b', 'b'), calleeIds: [], depth: 1 },
-      { function: createFn('fn:c', 'c'), calleeIds: [], depth: 3 },
-    ];
-
-    expect(getMaxDepth(sorted)).toBe(3);
-  });
-
-  it('should return 0 for empty input', () => {
-    expect(getMaxDepth([])).toBe(0);
   });
 });

@@ -11,23 +11,20 @@ vi.mock('../utils/index.js', () => ({
   getTelemetryConfig: getTelemetryConfigMock,
 }));
 
-import { EventName, ErrorCode, StepName, SCHEMA_VERSION } from './events.js';
+import { EventName, ErrorCode, SCHEMA_VERSION } from './events.js';
 import {
   __resetTelemetryForTests,
   __setChannelsForTests,
-  clearCloudChannel,
   emitAgentRun,
   initTelemetry,
-  setCloudChannel,
   track,
   trackError,
-  withTiming,
   shutdownTelemetry,
   type AgentRunSummary,
 } from './index.js';
 
-// Structural fakes for the injection seam. Anon records capture/captureException;
-// cloud records emit. Both expose a `flush` we can override for the deadline test.
+// Structural fake for the injection seam. Records capture/captureException and
+// exposes a `flush` we can override for the deadline test.
 function makeFakeAnon() {
   const captured: Array<{ event: string; distinctId: string; props?: Record<string, unknown> }> = [];
   const capturedExceptions: Array<{ error: unknown; distinctId: string; props?: Record<string, unknown> }> = [];
@@ -40,18 +37,6 @@ function makeFakeAnon() {
     captureException(error: unknown, distinctId: string, props?: Record<string, unknown>): void {
       capturedExceptions.push({ error, distinctId, props });
     },
-    flush: vi.fn((_deadlineMs: number): Promise<void> => Promise.resolve()),
-  };
-}
-
-function makeFakeCloud() {
-  const emitted: Array<{ event: string; distinctId: string; props?: Record<string, unknown> }> = [];
-  return {
-    emitted,
-    emit: vi.fn((event: string, distinctId: string, props?: Record<string, unknown>): Promise<void> => {
-      emitted.push({ event, distinctId, props });
-      return Promise.resolve();
-    }),
     flush: vi.fn((_deadlineMs: number): Promise<void> => Promise.resolve()),
   };
 }
@@ -92,7 +77,7 @@ describe('telemetry client', () => {
 
   afterEach(() => {
     __resetTelemetryForTests();
-    vi.unstubAllGlobals(); // the freeze-regression test stubs globalThis.fetch
+    vi.unstubAllGlobals(); // the per-run cloud test stubs globalThis.fetch
     for (const key of ENV_KEYS) {
       if (savedEnv[key] === undefined) {
         delete process.env[key];
@@ -104,8 +89,7 @@ describe('telemetry client', () => {
 
   it('track() before any initTelemetry still emits (lazy auto-init) with BaseProps merged', async () => {
     const anon = makeFakeAnon();
-    const cloud = makeFakeCloud();
-    __setChannelsForTests(anon, cloud);
+    __setChannelsForTests(anon);
 
     // No initTelemetry() call — this must lazy auto-init.
     track(EventName.ParseCompleted, { files: 42 });
@@ -129,8 +113,7 @@ describe('telemetry client', () => {
   it('defaults surface to cli when neither ctx nor COREDOC_SURFACE is set', async () => {
     delete process.env.COREDOC_SURFACE;
     const anon = makeFakeAnon();
-    const cloud = makeFakeCloud();
-    __setChannelsForTests(anon, cloud);
+    __setChannelsForTests(anon);
 
     track(EventName.CommandCompleted);
     await shutdownTelemetry(500);
@@ -140,8 +123,7 @@ describe('telemetry client', () => {
 
   it('initTelemetry ctx (surface/sessionId) takes precedence over env', async () => {
     const anon = makeFakeAnon();
-    const cloud = makeFakeCloud();
-    __setChannelsForTests(anon, cloud);
+    __setChannelsForTests(anon);
 
     initTelemetry({ surface: 'ci', sessionId: 'sess-ctx' });
     track(EventName.CommandCompleted);
@@ -157,14 +139,12 @@ describe('telemetry client', () => {
       firstSeenAt: '2026-01-01T00:00:00.000Z',
     });
     const anon = makeFakeAnon();
-    const cloud = makeFakeCloud();
-    __setChannelsForTests(anon, cloud);
+    __setChannelsForTests(anon);
 
     track(EventName.ParseCompleted, { files: 42 });
     await shutdownTelemetry(500);
 
     expect(anon.captured).toHaveLength(0);
-    expect(cloud.emitted).toHaveLength(0);
   });
 
   it('re-evaluates opt-in at EMIT time — a mid-session Disable stops emits WITHOUT re-init', async () => {
@@ -172,8 +152,7 @@ describe('telemetry client', () => {
     // fresh at every emit, not latched at init. Otherwise a mid-session Disable
     // never takes effect until process restart.
     const anon = makeFakeAnon();
-    const cloud = makeFakeCloud();
-    __setChannelsForTests(anon, cloud);
+    __setChannelsForTests(anon);
 
     // Enabled at the first emit.
     track(EventName.ParseCompleted, { files: 1 });
@@ -206,15 +185,13 @@ describe('telemetry client', () => {
     });
     await shutdownTelemetry(500);
 
-    // Still only the one pre-disable capture — no anon/cloud emits after the flip.
+    // Still only the one pre-disable capture — no emits after the flip.
     expect(anon.captured).toHaveLength(1);
-    expect(cloud.emitted).toHaveLength(0);
   });
 
   it('trackError passes a scrubbed message (no home path) to the channel', async () => {
     const anon = makeFakeAnon();
-    const cloud = makeFakeCloud();
-    __setChannelsForTests(anon, cloud);
+    __setChannelsForTests(anon);
 
     const err = new Error(`Failed to read ${homedir()}/secret/x.ts while parsing`);
     err.name = 'ParseError';
@@ -253,10 +230,9 @@ describe('telemetry client', () => {
     });
   });
 
-  it('emitAgentRun routes to both channels — anon aggregate, cloud full', async () => {
+  it('emitAgentRun sends anon a coarse aggregate, never the exact summary', async () => {
     const anon = makeFakeAnon();
-    const cloud = makeFakeCloud();
-    __setChannelsForTests(anon, cloud);
+    __setChannelsForTests(anon);
 
     const summary: AgentRunSummary = {
       runId: 'run-1',
@@ -291,117 +267,15 @@ describe('telemetry client', () => {
     expect(anon.captured[0].props?.tokensOut).toBeUndefined();
     expect(anon.captured[0].props?.toolCalls).toBeUndefined();
     expect(anon.captured[0].props?.runId).toBeUndefined();
-
-    // Cloud: full summary.
-    expect(cloud.emitted).toHaveLength(1);
-    expect(cloud.emitted[0].event).toBe(EventName.AgentRun);
-    expect(cloud.emitted[0].props).toMatchObject({
-      runId: 'run-1',
-      costUsd: 0.42,
-      tokensIn: 1000,
-      tokensOut: 2000,
-    });
   });
 
-  it('setCloudChannel injects a working cloud channel even AFTER a prior emit built a config-less one (no freeze)', async () => {
-    // Reproduces the local-then-cloud freeze on the REAL client (no injected
-    // fakes): a workspaceless agent run emits first → doInit builds a config-less
-    // (no-op) CloudChannel. setCloudChannel must still swap in a configured channel
-    // afterwards so the next cloud emit is NOT silently dropped. The anon channel
-    // has no key in this env, so it stays a no-op and never touches the network —
-    // globalThis.fetch is only ever hit by the configured cloud channel.
-    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }) as unknown as Response);
-    vi.stubGlobal('fetch', fetchMock);
-
-    const run = (runId: string): AgentRunSummary => ({
-      runId,
-      kind: 'author-profile',
-      tokensIn: 10,
-      tokensOut: 20,
-      costUsd: 0.5,
-      turns: 3,
-      toolCalls: 2,
-      outcome: 'success',
-      interventions: 0,
-      durationMs: 100,
-    });
-
-    // Emit #1 BEFORE the cloud workspace is known — this is what freezes the
-    // channel today: it runs doInit and builds `new CloudChannel(undefined)`.
-    emitAgentRun(run('run-local'));
-    await shutdownTelemetry(500);
-    expect(fetchMock).not.toHaveBeenCalled(); // no config yet → no cloud POST
-
-    // Cloud workspace becomes known — swap in a configured cloud channel.
-    setCloudChannel({
-      apiBase: 'https://api.example',
-      workspaceId: 'ws-1',
-      getToken: async () => 'tok-1',
-    });
-
-    // Emit #2 AFTER — must reach the newly-configured channel (the regression:
-    // pre-fix this stayed frozen to the no-op channel and dropped every cloud run).
-    emitAgentRun(run('run-cloud'));
-    await shutdownTelemetry(500);
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe('https://api.example/api/v1/workspaces/ws-1/agent-runs');
-    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer tok-1');
-    expect(JSON.parse(init.body as string)).toMatchObject({ runId: 'run-cloud', costUsd: 0.5, turns: 3 });
-  });
-
-  it('clearCloudChannel resets to anon-only — a later local run does NOT POST to the stale workspace', async () => {
-    // Cross-workspace mis-attribution guard on the REAL client (no injected fakes)
-    // for the PROCESS-GLOBAL fallback channel: a cloud run wires ws-1 and POSTs
-    // there; clearing the channel before a following local-only run resets it to
-    // anon-only so that run never reaches the stale ws-1. (Desktop now binds cloud
-    // attribution per-run and no longer relies on this global, but clearCloudChannel
-    // remains the core affordance for callers that wire the global.) The anon channel
-    // has no key in this env, so only the configured cloud channel touches globalThis.fetch.
-    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }) as unknown as Response);
-    vi.stubGlobal('fetch', fetchMock);
-
-    const run = (runId: string): AgentRunSummary => ({
-      runId,
-      kind: 'author-profile',
-      tokensIn: 10,
-      tokensOut: 20,
-      costUsd: 0.5,
-      turns: 3,
-      toolCalls: 2,
-      outcome: 'success',
-      interventions: 0,
-      durationMs: 100,
-    });
-
-    // Cloud run A: wire ws-1, emit → POSTs to ws-1.
-    setCloudChannel({ apiBase: 'https://api.example', workspaceId: 'ws-1', getToken: async () => 'tok-1' });
-    emitAgentRun(run('run-cloud'));
-    await shutdownTelemetry(500);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe(
-      'https://api.example/api/v1/workspaces/ws-1/agent-runs',
-    );
-
-    // Local-only run B: clear the channel first, then emit → must NOT POST to ws-1.
-    clearCloudChannel();
-    emitAgentRun(run('run-local'));
-    await shutdownTelemetry(500);
-    expect(fetchMock).toHaveBeenCalledTimes(1); // still 1 — no stale ws-1 POST
-  });
-
-  it('emitAgentRun with per-run cloud config POSTs to the RUN own workspace, ignoring the process-global channel', async () => {
+  it('emitAgentRun with per-run cloud config POSTs to the RUN own workspace', async () => {
     // The concurrency guard on the REAL client (no injected fakes): desktop can run
-    // several agent-runs at once. Attribution must ride the RUN, not the process —
-    // so even with the process-global channel wired to a DIFFERENT workspace, each
-    // run's per-run config decides where its summary POSTs. The anon channel has no
-    // key in this env, so only configured cloud channels ever touch globalThis.fetch.
+    // several agent-runs at once, and each run's per-run config decides where its
+    // summary POSTs. The anon channel has no key in this env, so only configured
+    // cloud channels ever touch globalThis.fetch.
     const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }) as unknown as Response);
     vi.stubGlobal('fetch', fetchMock);
-
-    // Simulate a concurrent run having wired the process-global to the WRONG place.
-    setCloudChannel({ apiBase: 'https://api.example', workspaceId: 'ws-global', getToken: async () => 'tok-global' });
 
     const run = (runId: string): AgentRunSummary => ({
       runId,
@@ -428,14 +302,8 @@ describe('telemetry client', () => {
     const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
     const byUrl = new Map(calls.map(([url, init]) => [url, init]));
 
-    // Each run reached its OWN workspace…
-    expect(byUrl.has('https://api.example/api/v1/workspaces/ws-A/agent-runs')).toBe(true);
-    expect(byUrl.has('https://api.example/api/v1/workspaces/ws-B/agent-runs')).toBe(true);
-    // …and NEITHER leaked to the process-global ws-global (the cross-attribution bug).
-    expect(byUrl.has('https://api.example/api/v1/workspaces/ws-global/agent-runs')).toBe(false);
+    // Each run reached its OWN workspace, with matching body + auth.
     expect(fetchMock).toHaveBeenCalledTimes(2);
-
-    // Body + auth attribution matches the run, not the global.
     const initA = byUrl.get('https://api.example/api/v1/workspaces/ws-A/agent-runs')!;
     expect((initA.headers as Record<string, string>).Authorization).toBe('Bearer tok-A');
     expect(JSON.parse(initA.body as string)).toMatchObject({ runId: 'run-A' });
@@ -444,25 +312,15 @@ describe('telemetry client', () => {
     expect(JSON.parse(initB.body as string)).toMatchObject({ runId: 'run-B' });
   });
 
-  it('withTiming returns the value and an explicit durationMs (no global bag)', async () => {
-    const { result, durationMs } = await withTiming(StepName.Extract, async () => {
-      return 'ok';
-    });
-    expect(result).toBe('ok');
-    expect(typeof durationMs).toBe('number');
-    expect(durationMs).toBeGreaterThanOrEqual(0);
-  });
-
   it('shutdownTelemetry(10) resolves even when the anon flush never settles (deadline race)', async () => {
     const anon = makeFakeAnon();
-    const cloud = makeFakeCloud();
     anon.flush.mockImplementation(
       () =>
         new Promise<void>(() => {
           /* never resolves */
         }),
     );
-    __setChannelsForTests(anon, cloud);
+    __setChannelsForTests(anon);
 
     track(EventName.ParseCompleted, { files: 1 });
 
@@ -480,14 +338,12 @@ describe('telemetry client', () => {
     });
     process.env.COREDOC_TELEMETRY_DISABLED = '1';
     const anon = makeFakeAnon();
-    const cloud = makeFakeCloud();
-    __setChannelsForTests(anon, cloud);
+    __setChannelsForTests(anon);
 
     track(EventName.ParseCompleted, { files: 42 });
     await shutdownTelemetry(500);
 
     expect(anon.captured).toHaveLength(0);
-    expect(cloud.emitted).toHaveLength(0);
 
     // Clean the env var (afterEach also restores ENV_KEYS, this is belt-and-suspenders).
     delete process.env.COREDOC_TELEMETRY_DISABLED;
@@ -495,8 +351,7 @@ describe('telemetry client', () => {
 
   it('concurrent init: two track() calls before init resolves share ONE init and lose no events', async () => {
     const anon = makeFakeAnon();
-    const cloud = makeFakeCloud();
-    __setChannelsForTests(anon, cloud);
+    __setChannelsForTests(anon);
 
     // Manually-controlled deferred config so BOTH track() calls land while the
     // single shared init promise is still in-flight (the exact concurrency the

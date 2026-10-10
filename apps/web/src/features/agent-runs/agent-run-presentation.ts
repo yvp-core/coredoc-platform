@@ -4,7 +4,7 @@
  */
 import type { AgentRun, AgentRunEvent, RunnerTokenStatus, RunStatus, TurnKind } from './types.js';
 
-export const POLL_INTERVAL_MS = 3000;
+const POLL_INTERVAL_MS = 3000;
 
 const TERMINAL: readonly RunStatus[] = ['done', 'failed', 'cancelled'];
 
@@ -39,7 +39,7 @@ export function statusLabel(status: string): string {
   return STATUS_LABELS[status as RunStatus] ?? status;
 }
 
-export type StatusTone = 'ok' | 'warn' | 'err' | 'info' | 'neutral';
+type StatusTone = 'ok' | 'warn' | 'err' | 'info' | 'neutral';
 
 export function statusTone(status: RunStatus): StatusTone {
   if (status === 'done') return 'ok';
@@ -77,7 +77,7 @@ export function phaseLabel(phase: string): string {
   return PHASE_LABELS[phase as TurnKind] ?? phase;
 }
 
-export type AgentTaskStatus = 'pending' | 'in_progress' | 'completed';
+type AgentTaskStatus = 'pending' | 'in_progress' | 'completed';
 
 export interface AgentTask {
   text: string;

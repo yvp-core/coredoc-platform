@@ -224,12 +224,12 @@ export interface ExternalCallFact {
 }
 
 /**
- * Backend (code-structure) capabilities: files, classes, functions, the raw-CST call-shape
- * query, const/registry resolution, and the SCIP call graph. A backend-only language
- * substrate (Go/Java/Ruby-via-interface) implements THIS — it must not be forced to stub
- * the frontend (JSX/route/state-store) methods, which live in `FrontendSubstrate` (ISP).
+ * The substrate the `SubstrateProfileEngine` reads: backend code structure (files, classes,
+ * functions, raw-CST call shapes, const/registry resolution, the SCIP call graph), frontend
+ * (React/JSX components, routes, state stores) and Vue SFC sites. `TreeSitterScipSubstrate`
+ * is the one implementation.
  */
-export interface BackendSubstrate {
+export interface Substrate {
   /** Files already scoped to the profile include/exclude globs. */
   files(): { relativePath: string }[];
   classes(): SubstrateClass[];
@@ -277,15 +277,8 @@ export interface BackendSubstrate {
    */
   enclosingFunctionId(filePath: string, line: number): string | undefined;
   idGen: StableIdGenerator;
-}
 
-/**
- * Frontend (React/JSX) capabilities: component declarations + JSX render tags, JSX-tag
- * resolution (SCIP + import paths), React-Router route sites, and state-store factory sites.
- * Segregated from {@link BackendSubstrate} so a backend-only language substrate need not
- * stub them (ISP).
- */
-export interface FrontendSubstrate {
+  // ── frontend (React/JSX) ──────────────────────────────────────────────────
   /**
    * Frontend: RAW-CST query for React component declarations + their JSX child
    * render tags. The frontend analogue of `callShapes`.
@@ -360,23 +353,8 @@ export interface FrontendSubstrate {
    * `inPaths` and gated on the factory being imported from `fromModule`.
    */
   stateStoreSites(rule: StateStoreRule): StateStoreSite[];
-  idGen: StableIdGenerator;
-}
 
-/**
- * The full substrate — backend code structure AND frontend (JSX) extraction. A combined
- * substrate (e.g. `TreeSitterScipSubstrate` for TS/JS) implements both halves; the
- * `SubstrateProfileEngine` consumes the union because it runs both passes in one profile
- * run. Backend-only substrates implement {@link BackendSubstrate} alone.
- */
-export interface Substrate extends BackendSubstrate, FrontendSubstrate {}
-
-/**
- * Vue SFC capabilities: one component per `.vue` file plus template-tag resolution. Separate
- * from {@link FrontendSubstrate} (ISP) — the JSX walk and the template scan share nothing but
- * the emitted shape, and only a substrate that parses `.vue` script blocks can offer these.
- */
-export interface VueSubstrate {
+  // ── Vue SFC (SCIP never indexes `.vue`) ───────────────────────────────────
   /** One site per scoped `.vue` file, with its `<template>` child-component tags. */
   vueComponentSites(): ComponentSite[];
   /**

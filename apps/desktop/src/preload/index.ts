@@ -2,19 +2,34 @@ import type { IntentReleaseAction, IntentReleaseWrite } from '../shared/intent-r
 /**
  * Preload Script - Exposes secure IPC API to renderer
  *
- * Note: This runs in a sandboxed context, so we inline the channel names
- * rather than importing from shared module.
+ * Sandboxed: electron-vite bundles the shared modules into this one file, so
+ * only type imports and dependency-free value modules (including the
+ * `@coredoc/core/browser/*` subpaths) may be imported here.
  */
 
 import { contextBridge, ipcRenderer } from 'electron';
+import { IpcChannels } from '../shared/ipc-types.js';
 import type {
+  AgentRunAnswer,
+  AgentRunEventEnvelope,
   AnalyticsWindow,
   AnalysisChoice,
+  ChatContext,
+  ChatStreamDelta,
+  ChatStreamEnd,
+  ChatStreamToolUpdate,
+  CommandCompleted,
+  CommandOutput,
+  CommandProgress,
+  CommandRunOptions,
   DeliveryExternalTarget,
   DeliveryLifecycleFilter,
   FeedbackRecordsFilter,
   GraphScope,
+  PtyData,
+  PtyExit,
   SyncToCloudRepoInput,
+  UpdateStatusInfo,
 } from '../shared/ipc-types.js';
 import type {
   IntentAnchorRefreshInput,
@@ -36,227 +51,6 @@ import type {
   IntentTreeQuery,
 } from '../shared/intent-types.js';
 
-// IPC Channel names (inlined to avoid module resolution issues in preload)
-const IpcChannels = {
-  CONFIG_LOAD: 'config:load',
-  CONFIG_SAVE: 'config:save',
-  CONFIG_VALIDATE: 'config:validate',
-  CONFIG_REMOVE_REPO: 'config:removeRepo',
-  STATE_GET: 'state:get',
-  STATE_GET_ALL: 'state:getAll',
-  STATE_GET_DETAIL: 'state:getDetail',
-  STATE_GET_STATUS: 'state:getStatus',
-  STATE_REFRESH: 'state:refresh',
-  SHELL_OPEN_PATH: 'shell:openPath',
-  SHELL_SHOW_ITEM_IN_FOLDER: 'shell:showItemInFolder',
-  ANALYSIS_PROMPTS: 'analysis:prompts',
-  ANALYSIS_ANSWER: 'analysis:answer',
-  ANALYSIS_CHANGED: 'analysis:changed',
-  COMMAND_RUN: 'command:run',
-  COMMAND_CANCEL: 'command:cancel',
-  COMMAND_GET_RUNNING: 'command:getRunning',
-  COMMAND_OUTPUT: 'command:output',
-  COMMAND_PROGRESS: 'command:progress',
-  COMMAND_COMPLETED: 'command:completed',
-  MCP_GET_INFO: 'mcp:getInfo',
-  // Chat Streaming
-  CHAT_SEND: 'chat:send',
-  CHAT_CANCEL: 'chat:cancel',
-  CHAT_CLEAR: 'chat:clear',
-  CHAT_STREAM_DELTA: 'chat:stream:delta',
-  CHAT_STREAM_TOOL: 'chat:stream:tool',
-  CHAT_STREAM_END: 'chat:stream:end',
-  // Sessions
-  SESSION_LIST: 'session:list',
-  SESSION_LOAD: 'session:load',
-  SESSION_CREATE: 'session:create',
-  SESSION_SAVE: 'session:save',
-  SESSION_DELETE: 'session:delete',
-  SESSION_RENAME: 'session:rename',
-  SESSION_DELETE_PROJECT: 'session:deleteProject',
-  // PTY
-  PTY_DATA: 'pty:data',
-  PTY_EXIT: 'pty:exit',
-  PTY_WRITE: 'pty:write',
-  PTY_RESIZE: 'pty:resize',
-  // Agent runs (profile authoring)
-  AGENT_RUN_EVENT: 'agentRun:event',
-  AGENT_RUN_ANSWER: 'agentRun:answer',
-  AGENT_RUN_GET_STATE: 'agentRun:getState',
-  // Docs
-  DOCS_LIST: 'docs:list',
-  DOCS_READ: 'docs:read',
-  DOCS_PROMPTS: 'docs:prompts',
-  DOCS_DELETE: 'docs:delete',
-  // Review
-  REVIEW_GET_GRAPH_DATA: 'review:getGraphData',
-  REVIEW_APPROVE: 'review:approve',
-  REVIEW_GET_APPROVAL: 'review:getApproval',
-  // Graph explorer
-  GRAPH_NODE: 'graph:node',
-  GRAPH_NEIGHBORS: 'graph:neighbors',
-  GRAPH_SUBGRAPH: 'graph:subgraph',
-  GRAPH_SEARCH: 'graph:search',
-  GRAPH_NODES_BY_TYPE: 'graph:nodesByType',
-  GRAPH_REPOS: 'graph:repos',
-  GRAPH_OVERVIEW: 'graph:overview',
-  GRAPH_EDGES_AMONG: 'graph:edgesAmong',
-  GRAPH_CROSS_REPO: 'graph:crossRepo',
-  GRAPH_DEAD_CODE: 'graph:deadCode',
-  GRAPH_CAPABILITIES: 'graph:capabilities',
-  GRAPH_CYPHER: 'graph:cypher',
-  GRAPH_GENERATE_CYPHER: 'graph:generateCypher',
-  // Settings
-  SETTINGS_GET_HARNESS: 'settings:getHarness',
-  SETTINGS_UPDATE_HARNESS: 'settings:updateHarness',
-  // CLI alias
-  CLI_ALIAS_GET_STATUS: 'cliAlias:getStatus',
-  CLI_ALIAS_INSTALL: 'cliAlias:install',
-  CLI_ALIAS_UNINSTALL: 'cliAlias:uninstall',
-  // Telemetry
-  TELEMETRY_GET_STATUS: 'telemetry:getStatus',
-  TELEMETRY_SET_ENABLED: 'telemetry:setEnabled',
-  TELEMETRY_MARK_CONSENT_PROMPTED: 'telemetry:markConsentPrompted',
-  // Observability (cloud dashboards + Claude Code OTLP telemetry)
-  OBSERVABILITY_GET_USAGE_ANALYTICS: 'observability:getUsageAnalytics',
-  OBSERVABILITY_OPEN_DASHBOARD: 'observability:openDashboard',
-  OBSERVABILITY_GET_FEEDBACK_ROADMAP: 'observability:getFeedbackRoadmap',
-  OBSERVABILITY_GET_FEEDBACK_CORRELATION: 'observability:getFeedbackCorrelation',
-  OBSERVABILITY_GET_FEEDBACK_RECORDS: 'observability:getFeedbackRecords',
-  // Canonical Delivery
-  DELIVERY_OPEN_EXTERNAL: 'delivery:openExternal',
-  DELIVERY_GET_CANONICAL_TASKS: 'delivery:getCanonicalTasks',
-  DELIVERY_GET_CANONICAL_TASK_SUMMARIES: 'delivery:getCanonicalTaskSummaries',
-  DELIVERY_GET_CANONICAL_SUMMARY: 'delivery:getCanonicalSummary',
-  DELIVERY_GET_CANONICAL_TASK_DETAIL: 'delivery:getCanonicalTaskDetail',
-  DELIVERY_GET_CANONICAL_TASK_EXTERNAL_REFS: 'delivery:getCanonicalTaskExternalRefs',
-  DELIVERY_GET_CANONICAL_EXTERNAL_REF_STATE_HISTORY: 'delivery:getCanonicalExternalRefStateHistory',
-  DELIVERY_GET_CANONICAL_TASK_RUNS: 'delivery:getCanonicalTaskRuns',
-  DELIVERY_GET_CANONICAL_RUN_STAGE_OCCURRENCES: 'delivery:getCanonicalRunStageOccurrences',
-  DELIVERY_GET_CANONICAL_TASK_CODE_CHANGES: 'delivery:getCanonicalTaskCodeChanges',
-  DELIVERY_GET_CANONICAL_TASK_SHIP_EVIDENCE: 'delivery:getCanonicalTaskShipEvidence',
-  DELIVERY_GET_CANONICAL_TASK_REWORK_SIGNALS: 'delivery:getCanonicalTaskReworkSignals',
-  DELIVERY_GET_CANONICAL_TASK_ARTIFACTS: 'delivery:getCanonicalTaskArtifacts',
-  DELIVERY_GET_CANONICAL_ARTIFACT_REVISIONS: 'delivery:getCanonicalArtifactRevisions',
-  // Update
-  UPDATE_CHECK: 'update:check',
-  UPDATE_INSTALL: 'update:install',
-  UPDATE_STATUS: 'update:status',
-  UPDATE_GET_STATUS: 'update:getStatus',
-  UPDATE_GET_APP_VERSION: 'update:getAppVersion',
-  // Dialog
-  DIALOG_SELECT_FOLDERS: 'dialog:selectFolders',
-  DIALOG_SELECT_TEMPLATE_DAG: 'dialog:selectTemplateDag',
-  DIALOG_SELECT_TEMPLATE_FILE: 'dialog:selectTemplateFile',
-  LINKED_REPOS_GET: 'linkedRepos:get',
-  LINKED_REPOS_LINK: 'linkedRepos:link',
-  LINKED_REPOS_REMOVE: 'linkedRepos:remove',
-} as const;
-
-// Type definitions (inlined)
-interface CommandRunOptions {
-  command: string;
-  projectId: string;
-  repo?: string;
-  args?: Record<string, unknown>;
-}
-
-interface CommandOutput {
-  id: string;
-  line: string;
-  stream: 'stdout' | 'stderr';
-}
-
-interface CommandProgress {
-  id: string;
-  current: number;
-  total: number;
-  message?: string;
-}
-
-interface CommandCompleted {
-  id: string;
-  success: boolean;
-  exitCode: number;
-  error?: string;
-}
-
-// PTY types (inlined)
-interface PtyData {
-  id: string;
-  data: string;
-}
-
-interface PtyExit {
-  id: string;
-  exitCode: number;
-  signal?: number;
-}
-
-// Agent-run types (inlined; canonical definitions in ../shared/agent-run-types)
-interface AgentRunEventEnvelope {
-  id: string;
-  event: unknown;
-}
-
-interface AgentRunAnswer {
-  requestId: string;
-  answers: string[][];
-}
-
-interface AgentRunSnapshot {
-  phase: string;
-  todos: { text: string; status: string }[];
-  pendingQuestion: { requestId: string; questions: unknown[] } | null;
-  rawLog: string;
-}
-
-// Chat context type (inlined)
-interface ChatContext {
-  project?: string;
-  repo?: string;
-  cwd?: string;
-  cloudMember?: boolean;
-  workspaceId?: string;
-  cloudRepoNames?: string[];
-  linkedRepoPaths?: Record<string, string>;
-}
-
-// Chat streaming types (inlined)
-interface ChatStreamDelta {
-  sessionId: string;
-  messageId: string;
-  delta: string;
-}
-
-interface ChatStreamToolUpdate {
-  sessionId: string;
-  messageId: string;
-  toolCall: {
-    id: string;
-    name: string;
-    input: Record<string, unknown>;
-    status: 'pending' | 'running' | 'completed' | 'error';
-    output?: string;
-    error?: string;
-  };
-}
-
-interface ChatStreamEnd {
-  sessionId: string;
-  messageId: string;
-  success: boolean;
-  error?: string;
-}
-
-// Update types (inlined)
-interface UpdateStatusInfo {
-  status: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error';
-  version?: string;
-  downloadProgress?: number;
-  error?: string;
-}
-
 // Expose protected methods to the renderer process
 const electronAPI = {
   platform: process.platform,
@@ -272,8 +66,6 @@ const electronAPI = {
     ipcRenderer.invoke(IpcChannels.CONFIG_REMOVE_REPO, projectId, repoName),
 
   // State
-  getRepoState: (projectId: string, name: string) => ipcRenderer.invoke(IpcChannels.STATE_GET, projectId, name),
-
   getRepoDetailState: (projectId: string, name: string) =>
     ipcRenderer.invoke(IpcChannels.STATE_GET_DETAIL, projectId, name),
 
@@ -281,8 +73,6 @@ const electronAPI = {
     ipcRenderer.invoke(IpcChannels.STATE_GET_STATUS, projectId, name),
 
   getAllStates: () => ipcRenderer.invoke(IpcChannels.STATE_GET_ALL),
-
-  refreshState: () => ipcRenderer.invoke(IpcChannels.STATE_REFRESH),
 
   // Shell
   openPath: (filePath: string) => ipcRenderer.invoke(IpcChannels.SHELL_OPEN_PATH, filePath),
@@ -354,10 +144,6 @@ const electronAPI = {
     };
   },
 
-  writePty: (id: string, data: string) => ipcRenderer.invoke(IpcChannels.PTY_WRITE, id, data),
-
-  resizePty: (id: string, cols: number, rows: number) => ipcRenderer.invoke(IpcChannels.PTY_RESIZE, id, cols, rows),
-
   // Agent runs (profile authoring)
   onAgentRunEvent: (callback: (data: AgentRunEventEnvelope) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: AgentRunEventEnvelope) => callback(data);
@@ -368,9 +154,6 @@ const electronAPI = {
   },
 
   answerAgentRun: (id: string, answer: AgentRunAnswer) => ipcRenderer.invoke(IpcChannels.AGENT_RUN_ANSWER, id, answer),
-
-  getAgentRunState: (id: string): Promise<AgentRunSnapshot | null> =>
-    ipcRenderer.invoke(IpcChannels.AGENT_RUN_GET_STATE, id),
 
   // MCP configuration
   getMcpInfo: (projectId: string) => ipcRenderer.invoke(IpcChannels.MCP_GET_INFO, projectId),
@@ -424,13 +207,8 @@ const electronAPI = {
   deleteProjectSessions: (projectId: string) => ipcRenderer.invoke(IpcChannels.SESSION_DELETE_PROJECT, projectId),
 
   // Docs
-  listDocs: (projectId: string, repoNames: string[], dagPath?: string, workspaceId?: string) =>
-    ipcRenderer.invoke(IpcChannels.DOCS_LIST, projectId, repoNames, dagPath, workspaceId),
-  readDoc: (projectId: string, repoName: string, relativePath: string, workspaceId?: string) =>
-    ipcRenderer.invoke(IpcChannels.DOCS_READ, projectId, repoName, relativePath, workspaceId),
-  listDocsPrompts: (dagPath?: string) => ipcRenderer.invoke(IpcChannels.DOCS_PROMPTS, dagPath),
-  deleteDoc: (projectId: string, repoName: string, relativePath: string, workspaceId?: string) =>
-    ipcRenderer.invoke(IpcChannels.DOCS_DELETE, projectId, repoName, relativePath, workspaceId),
+  listDocs: (projectId: string, repoNames: string[], workspaceId?: string) =>
+    ipcRenderer.invoke(IpcChannels.DOCS_LIST, projectId, repoNames, workspaceId),
 
   // Review
   getGraphReviewData: (projectId: string, repoName: string) =>
@@ -460,10 +238,6 @@ const electronAPI = {
   graphOverview: (scope: GraphScope) => ipcRenderer.invoke(IpcChannels.GRAPH_OVERVIEW, scope),
   graphEdgesAmong: (scope: GraphScope, nodeIds: string[]) =>
     ipcRenderer.invoke(IpcChannels.GRAPH_EDGES_AMONG, scope, nodeIds),
-  graphCrossRepo: (scope: GraphScope, args: { scopeRepo?: string; limit?: number }) =>
-    ipcRenderer.invoke(IpcChannels.GRAPH_CROSS_REPO, scope, args),
-  graphDeadCode: (scope: GraphScope, args: { types?: string[]; scopeRepo?: string; limit?: number }) =>
-    ipcRenderer.invoke(IpcChannels.GRAPH_DEAD_CODE, scope, args),
   graphCapabilities: (scope: GraphScope) => ipcRenderer.invoke(IpcChannels.GRAPH_CAPABILITIES, scope),
   graphCypher: (scope: GraphScope, query: string, limit?: number) =>
     ipcRenderer.invoke(IpcChannels.GRAPH_CYPHER, scope, query, limit),
@@ -492,10 +266,6 @@ const electronAPI = {
     ipcRenderer.invoke(IpcChannels.OBSERVABILITY_OPEN_DASHBOARD, workspaceSlug),
 
   // Feedback
-  getFeedbackRoadmap: (workspaceId: string, days: number) =>
-    ipcRenderer.invoke(IpcChannels.OBSERVABILITY_GET_FEEDBACK_ROADMAP, workspaceId, days),
-  getFeedbackCorrelation: (workspaceId: string, days: number) =>
-    ipcRenderer.invoke(IpcChannels.OBSERVABILITY_GET_FEEDBACK_CORRELATION, workspaceId, days),
   getFeedbackRecords: (workspaceId: string, window: AnalyticsWindow, filter: FeedbackRecordsFilter) =>
     ipcRenderer.invoke(IpcChannels.OBSERVABILITY_GET_FEEDBACK_RECORDS, workspaceId, window, filter),
 
@@ -624,7 +394,6 @@ const electronAPI = {
     ipcRenderer.invoke('workspace:connectRepo', workspaceId, repoKey, repoName, gitUrl),
   workspaceDisconnectRepo: (workspaceId: string, repoId: string) =>
     ipcRenderer.invoke('workspace:disconnectRepo', workspaceId, repoId),
-  workspacePullConfig: (workspaceId: string) => ipcRenderer.invoke('workspace:pullConfig', workspaceId),
 
   // Cloud Sync
   workspaceEnableCloud: (workspaceId: string, opts?: { ciCdEnabled?: boolean }) =>
@@ -639,8 +408,6 @@ const electronAPI = {
     ipcRenderer.invoke('workspace:setProductionBranch', workspaceId, repoKey, branch),
   workspaceSyncToCloud: (workspaceId: string, repos: SyncToCloudRepoInput[], force?: boolean) =>
     ipcRenderer.invoke('workspace:syncToCloud', workspaceId, repos, force),
-  workspaceGetRepoState: (workspaceId: string, repoName: string) =>
-    ipcRenderer.invoke('workspace:getRepoState', workspaceId, repoName),
   workspaceCheckCloudDelta: (workspaceId: string, repos: Array<{ repoName: string; parsedRepoPath: string }>) =>
     ipcRenderer.invoke('workspace:checkCloudDelta', workspaceId, repos),
   workspaceGetMcpConfig: (workspaceId: string, tool?: string) =>
@@ -685,11 +452,8 @@ const electronAPI = {
 
   // Cloud Project
   getCloudRepoStates: (workspaceId: string) => ipcRenderer.invoke('cloud:projectStates', workspaceId),
-  generateCloudDoc: (workspaceId: string, repoName: string, promptName: string) =>
-    ipcRenderer.invoke('cloud:docsGenerate', workspaceId, repoName, promptName),
 
-  // Intent knowledge base (cloud workspaces only). Channel names are inlined
-  // like every other group in this file — preload is sandboxed.
+  // Intent knowledge base (cloud workspaces only).
   intentGetTree: (workspaceId: string, query: IntentTreeQuery) =>
     ipcRenderer.invoke('intent:getTree', workspaceId, query),
   intentListDimensions: (workspaceId: string, query: IntentDimensionsQuery) =>

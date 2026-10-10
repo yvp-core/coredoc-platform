@@ -1,7 +1,7 @@
 export class GraphFileReadOnlyError extends Error {
   readonly code = 'GRAPH_FILE_READ_ONLY' as const;
 
-  constructor(engine: 'sqlite' | 'ladybug') {
+  constructor(engine: 'ladybug') {
     super(`Cannot mutate a read-only ${engine} graph file`);
     this.name = 'GraphFileReadOnlyError';
   }

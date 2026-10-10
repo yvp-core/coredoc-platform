@@ -44,7 +44,7 @@ import { readFileSync } from 'node:fs';
 import type { EntityField, EntityNode, EntityRelation, StableIdGenerator } from '@coredoc/core';
 import { enumerateRepoFiles } from '../../facts/discovery/discover.js';
 import { singularize, snakeCase } from '../engine/text-helpers.js';
-import { globMatches } from '../glob.js';
+import { globMatches, repoDir } from '../glob.js';
 import {
   FIELD_DECLARATION,
   FIELD_DECLARATION_LIST,
@@ -195,12 +195,6 @@ function pluralize(name: string): string {
 function tableCandidates(structName: string): string[] {
   const snake = snakeCase(structName);
   return [...new Set([pluralize(snake), snake, structName.toLowerCase()])];
-}
-
-/** dirname of a repo-relative path ('' at the repo root) — a Go package IS a directory. */
-function dirOf(rel: string): string {
-  const i = rel.lastIndexOf('/');
-  return i === -1 ? '' : rel.slice(0, i);
 }
 
 /**
@@ -420,7 +414,7 @@ function firstStringLiteral(node: TsNode | undefined): TsNode | undefined {
 function tableNameMethods(files: GoFile[]): Map<string, string> {
   const out = new Map<string, string>();
   for (const file of files) {
-    const dir = dirOf(file.relPath);
+    const dir = repoDir(file.relPath);
     for (const method of (file.root?.descendantsOfType?.(METHOD_DECLARATION) ?? []) as TsNode[]) {
       if (itemName(method) !== TABLE_NAME_METHOD) continue;
       const receiver = receiverTypeName(method);
@@ -508,7 +502,7 @@ function projectStructBody(
 ): { fields: EntityField[]; relations: EntityRelation[] } {
   const fields: EntityField[] = [];
   const relations: EntityRelation[] = [];
-  const dir = dirOf(candidate.file.relPath);
+  const dir = repoDir(candidate.file.relPath);
 
   for (const fd of candidate.decls) {
     const names = fieldNames(fd);
@@ -602,7 +596,7 @@ export function extractGoEntities(files: GoFile[], cfg: GoEntityConfig): GoEntit
   const tableByType = new Map<string, string>();
 
   for (const file of files) {
-    const dir = dirOf(file.relPath);
+    const dir = repoDir(file.relPath);
     for (const spec of (file.root?.descendantsOfType?.(TYPE_SPEC) ?? []) as TsNode[]) {
       const name = itemName(spec);
       const structType = spec.childForFieldName?.('type') as TsNode | undefined;

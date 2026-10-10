@@ -62,13 +62,10 @@ wrong assumption:
 
 ## Step 1 — Implement the substrate
 
-Most languages are **backend-only** (no JSX-style component tree). Implement
-`BackendSubstrate` (already segregated at `substrate/interface.ts`); the engine runs in
-backend-only mode via a capability probe (it checks `'componentSites' in substrate`,
-**never** `language === '…'`). Implement the full `Substrate` only if your language has a
-frontend story.
+Most languages are **backend-only** (no JSX-style component tree). The engine never branches
+on `language === '…'`.
 
-The method catalog (`BackendSubstrate`), each answered from your language's AST/CST:
+The method catalog (`Substrate` in `substrate/interface.ts`), each answered from your language's AST/CST:
 
 | Method | Responsibility |
 |---|---|
@@ -129,7 +126,7 @@ export interface LanguageProvider<P extends BaseProfile = BaseProfile> {
   /** The discriminant — also the value of `profile.substrate.language`. */
   readonly language: string;
   readonly aliases?: readonly string[];
-  readonly discovery: LanguageDiscovery; // { extensions, scipPrereqs? }
+  readonly discovery: LanguageDiscovery; // { extensions }
   /** Does this exported value belong to THIS provider? */
   isProfile(v: unknown): v is P;
   /** Exact intended + intentionally excluded source sets, using the parser's effective defaults. */
@@ -167,8 +164,7 @@ Declare every primary code `extension` that `sourceFiles` can include in `discov
 the same git-aware, `.gitignore`-honoring discovery function your parser uses, including its effective
 default excludes and the profile's include/exclude policy. The whole-repo scorer uses its `included`
 paths as target ownership and its `excluded` paths as intentional exclusions; it never guesses from
-`ParsedRepo.files`. Declare `scipPrereqs` only if your language needs a semantic-index prerequisite
-(TS uses it to require `node_modules` for scip-typescript; most languages omit it).
+`ParsedRepo.files`.
 
 ## Step 5 — Register (the one wiring point)
 
@@ -244,7 +240,7 @@ Reference implementations, in increasing order of how much you'd copy:
 | Provider | Shape |
 |---|---|
 | `providers/typescript.ts` | wraps the SCIP engine (Tier-A semantic index) |
-| `providers/ruby.ts` | tree-sitter-ruby → `BackendSubstrate` |
+| `providers/ruby.ts` | tree-sitter-ruby → `Substrate` |
 | `providers/python.ts` | tree-sitter + an OPTIONAL scip-python Tier-A that degrades to Tier-B |
 | `providers/rust.ts` | tree-sitter only, no semantic indexer at all — the thinnest provider, and the one to copy if your language has no SCIP indexer (`substrate/rust/` shows the full CST substrate: crates, `mod`/`use` module graph, entrypoints, entities, db-ops, egress, Tier-B calls) |
 | `providers/go.ts` | the same tree-sitter-only shape as Rust, for a language whose compilation unit is the DIRECTORY rather than the file (`substrate/go/`: go.mod modules, the package/import table, entrypoints, entities, db-ops, egress, Tier-B calls) |

@@ -51,9 +51,8 @@ describe('zigProvider — dispatch & zero-edit wiring', () => {
     expect(zigProvider.isProfile(zigProfile)).toBe(true);
   });
 
-  it('declares .zig discovery and NO scip prereq (there is no Zig semantic indexer wired)', () => {
+  it('declares .zig discovery and no structural checks', () => {
     expect(zigProvider.discovery.extensions).toEqual(['.zig']);
-    expect(zigProvider.discovery.scipPrereqs).toBeUndefined();
     // A spurious dangling-handler red flag would make an overall PASS impossible.
     expect(zigProvider.structuralChecks).toBeUndefined();
   });

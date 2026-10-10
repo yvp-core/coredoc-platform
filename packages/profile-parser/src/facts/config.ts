@@ -62,12 +62,9 @@ export const PARSER_VERSION = '1.2.6';
  * WHO IS AFFECTED: every repo — the resolution records are new for all of them. Ruby repos also
  * gain nodes and change edge targets; repos with Kotlin sources gain a whole language.
  *
- * PROCEDURE: `coredoc parse` + `coredoc push --rebuild` per project. Note that the incremental
- * clean-skip this constant keys is NOT reachable from any shipped command today —
- * `packages/cli/src/parser-loader.ts` passes neither `incremental` nor `cacheDir`, so no warm
- * cache can serve a stale graph. The bump is contract discipline (GUARDRAILS #3) plus the
- * `parserVersion` value persisted on the repo node, which consumers gate on
- * (`packages/mcp/src/tools/cross-repo/messaging-data.ts`).
+ * PROCEDURE: `coredoc parse` + `coredoc push --rebuild` per project. The bump is contract
+ * discipline (GUARDRAILS #3) plus the `parserVersion` value persisted on the repo node, which
+ * consumers gate on (`packages/mcp/src/tools/cross-repo/messaging-data.ts`).
  *
  * ROLLBACK: revert and re-parse. Nothing here reads the old graph in place; every changed id and
  * edge is a pure function of the source.

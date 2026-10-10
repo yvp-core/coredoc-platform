@@ -20,7 +20,7 @@ import {
   stageBarEntries,
   windowLabel,
 } from './delivery-presentation';
-import { NO_DATA } from '../observability-format';
+import { NO_DATA } from '@coredoc/core/browser/format';
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;

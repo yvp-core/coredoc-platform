@@ -28,10 +28,10 @@ import { Checkbox } from '../../../components/ui/checkbox';
 import { Label } from '../../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
 import { MagnitudeBar } from '../charts/MagnitudeBar';
-import { linePath, linearScale } from '../charts/chart-geometry';
+import { linePath, linearScale } from '@coredoc/core/browser/chart-geometry';
 import { Chip } from '../delivery/Chip';
 import { memberOptions } from '../delivery/delivery-presentation';
-import { formatNumber } from '../observability-format';
+import { formatNumber } from '@coredoc/core/browser/format';
 import { feedbackRecordsQueryOptions, workspaceMembersQueryOptions } from '../observability-api';
 import { UsageCard } from './UsageCard';
 import {

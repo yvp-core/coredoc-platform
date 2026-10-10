@@ -14,7 +14,7 @@ import type { IntentReleaseTrigger } from '../features/intent/release-types.js';
 // The server's AuthUser also carries `serviceTokenTeamId?` — intentionally
 // omitted: it only exists for cdt_ service-token auth, never for browser
 // cookie sessions.
-export interface MeUser {
+interface MeUser {
   id: string;
   email: string;
   displayName?: string;
@@ -51,7 +51,7 @@ export interface WorkspaceConfigWorkspace {
   ciCdEnabled: boolean;
 }
 
-export interface WorkspaceConfigMember {
+interface WorkspaceConfigMember {
   userId: string;
   email: string;
   displayName: string | null;

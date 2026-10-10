@@ -2,7 +2,8 @@ import { StableIdGenerator } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
 import { indexRustDefs, resolveRustCalls } from './rust-callgraph.js';
 import type { RustCrate } from './rust-crates.js';
-import { type RustFile, parseRust } from './rust-cst.js';
+import { type RustFile } from './rust-cst.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 const ID = new StableIdGenerator('/demo', 'demo');
 const CRATES: RustCrate[] = [
@@ -10,7 +11,7 @@ const CRATES: RustCrate[] = [
 ];
 
 async function rf(relPath: string, source: string): Promise<RustFile> {
-  return { relPath, source, root: await parseRust(source) };
+  return { relPath, source, root: await parseSource('rust', source) };
 }
 
 /** Resolve calls over a file set and describe each edge as `provenance caller->callee`. */

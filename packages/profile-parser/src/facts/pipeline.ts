@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { StableIdGenerator } from '@coredoc/core';
 import type { ParsedRepo, TypeReference } from '@coredoc/core/types';
 import { PARSER_ID, PARSER_VERSION } from './config.js';
@@ -499,7 +499,11 @@ export function scipCoverageGaps(
   // classify against, so report the flat per-directory shape.
   if (projectOutcomes.length === 0) {
     return [
-      { file: '.', message: `${head} Top directories: ${topRoots(uncovered, (f) => dirOf(f))}`, severity: 'warning' },
+      {
+        file: '.',
+        message: `${head} Top directories: ${topRoots(uncovered, (f) => posix.dirname(f))}`,
+        severity: 'warning',
+      },
     ];
   }
 
@@ -552,11 +556,6 @@ export function scipCoverageGaps(
     );
   }
   return [{ file: '.', message: `${head} ${parts.join('. ')}`, severity: 'warning' }];
-}
-
-/** Directory of a repo-relative path (`.` for a root-level file). */
-function dirOf(path: string): string {
-  return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '.';
 }
 
 /**

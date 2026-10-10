@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ArgRef } from '../types.js';
-import { resolveQueueTopic, resolveQueueTopicReference } from './tree-sitter-scip.js';
+import { resolveQueueTopic, resolveQueueTopicReference } from './scip/url-topic-helpers.js';
 
 const noConst = () => undefined;
 

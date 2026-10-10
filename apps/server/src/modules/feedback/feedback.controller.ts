@@ -20,11 +20,7 @@ import {
   type ReviewStatus,
   type SessionIssueArea,
 } from './feedback.types.js';
-
-function parseDays(v?: string): number {
-  const n = Number(v);
-  return Number.isFinite(n) && n > 0 && n <= 365 ? Math.floor(n) : 30;
-}
+import { parseDays } from '../../libs/coerce.js';
 
 const MAX_LIMIT = 100;
 const MAX_TOOL_LENGTH = 128;

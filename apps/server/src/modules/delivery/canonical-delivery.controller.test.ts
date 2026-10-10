@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthGuard } from '../../auth/auth.guard.js';
 import { PERMISSION_KEY } from '../../auth/decorators/require-permission.decorator.js';
 import { WORKSPACE_ROLE_KEY } from '../../auth/decorators/workspace-role.decorator.js';
-import { JwtOnlyGuard } from '../../auth/jwt-only.guard.js';
+import { UserSessionGuard } from '../../auth/user-session.guard.js';
 import { PermissionsGuard } from '../../auth/permissions.guard.js';
 import { TokenPermission } from '../../auth/token-permissions.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
@@ -703,25 +703,25 @@ describe('CanonicalDeliveryController', () => {
     ]);
     expect(reflector.get(WORKSPACE_ROLE_KEY, proto.listTasks)).toBe('member');
     expect(reflector.get<TokenPermission[]>(PERMISSION_KEY, proto.listTasks)).toEqual([TokenPermission.ResultRead]);
-    expect(Reflect.getMetadata(GUARDS_METADATA, proto.listTasks)).toContain(JwtOnlyGuard);
+    expect(Reflect.getMetadata(GUARDS_METADATA, proto.listTasks)).toContain(UserSessionGuard);
     expect(reflector.get(WORKSPACE_ROLE_KEY, proto.getArtifact)).toBe('member');
     expect(reflector.get<TokenPermission[]>(PERMISSION_KEY, proto.getArtifact)).toEqual([TokenPermission.ResultRead]);
-    expect(Reflect.getMetadata(GUARDS_METADATA, proto.getArtifact)).toContain(JwtOnlyGuard);
+    expect(Reflect.getMetadata(GUARDS_METADATA, proto.getArtifact)).toContain(UserSessionGuard);
     expect(reflector.get(WORKSPACE_ROLE_KEY, proto.attachExternalRef)).toBe('admin');
     expect(reflector.get<TokenPermission[]>(PERMISSION_KEY, proto.attachExternalRef)).toEqual([
       TokenPermission.WorkspaceManage,
     ]);
-    expect(Reflect.getMetadata(GUARDS_METADATA, proto.attachExternalRef)).toContain(JwtOnlyGuard);
+    expect(Reflect.getMetadata(GUARDS_METADATA, proto.attachExternalRef)).toContain(UserSessionGuard);
     expect(reflector.get(WORKSPACE_ROLE_KEY, proto.detachExternalRef)).toBe('admin');
     expect(reflector.get<TokenPermission[]>(PERMISSION_KEY, proto.detachExternalRef)).toEqual([
       TokenPermission.WorkspaceManage,
     ]);
-    expect(Reflect.getMetadata(GUARDS_METADATA, proto.detachExternalRef)).toContain(JwtOnlyGuard);
+    expect(Reflect.getMetadata(GUARDS_METADATA, proto.detachExternalRef)).toContain(UserSessionGuard);
     expect(reflector.get(WORKSPACE_ROLE_KEY, proto.recordCoredocShipEvidence)).toBe('admin');
     expect(reflector.get<TokenPermission[]>(PERMISSION_KEY, proto.recordCoredocShipEvidence)).toEqual([
       TokenPermission.WorkspaceManage,
     ]);
-    expect(Reflect.getMetadata(GUARDS_METADATA, proto.recordCoredocShipEvidence)).toContain(JwtOnlyGuard);
+    expect(Reflect.getMetadata(GUARDS_METADATA, proto.recordCoredocShipEvidence)).toContain(UserSessionGuard);
     for (const read of [
       proto.listTaskSummaries,
       proto.getDeliverySummary,
@@ -737,7 +737,7 @@ describe('CanonicalDeliveryController', () => {
     ]) {
       expect(reflector.get(WORKSPACE_ROLE_KEY, read)).toBe('member');
       expect(reflector.get<TokenPermission[]>(PERMISSION_KEY, read)).toEqual([TokenPermission.ResultRead]);
-      expect(Reflect.getMetadata(GUARDS_METADATA, read)).toContain(JwtOnlyGuard);
+      expect(Reflect.getMetadata(GUARDS_METADATA, read)).toContain(UserSessionGuard);
     }
   });
 });

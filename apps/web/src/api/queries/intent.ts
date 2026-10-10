@@ -61,34 +61,34 @@ import type {
 } from '../../features/intent/types.js';
 
 /** How many items a browse page and a transitions page ask for. */
-export const INTENT_BROWSE_PAGE_SIZE = 100;
-export const INTENT_HISTORY_PAGE_SIZE = 25;
+const INTENT_BROWSE_PAGE_SIZE = 100;
+const INTENT_HISTORY_PAGE_SIZE = 25;
 
 /**
  * How many ITEMS one context read may answer with (`INTENT_CONTEXT_LIMITS.max`).
  * It is a hard refusal, not a clamp: a bigger `limit` fails the whole read, so
  * anything resolving records by exact id bounds its request by this number.
  */
-export const INTENT_CONTEXT_ITEM_LIMIT = 20;
+const INTENT_CONTEXT_ITEM_LIMIT = 20;
 
 /**
  * How many candidates one review page carries — bounded by what ONE context
  * read can answer with, because each loaded page resolves its candidates' full
  * records and its predecessors' current versions by exact id.
  */
-export const INTENT_REVIEW_PAGE_SIZE = INTENT_CONTEXT_ITEM_LIMIT;
+const INTENT_REVIEW_PAGE_SIZE = INTENT_CONTEXT_ITEM_LIMIT;
 
 /**
  * What a reviewer narrows the queue by. Paging belongs to the query option, not
  * to the caller: a `cursor` in the filter would give every page its own entry.
  */
-export type IntentReviewQueueFilter = Omit<IntentReviewQueueQuery, 'cursor' | 'limit'>;
+type IntentReviewQueueFilter = Omit<IntentReviewQueueQuery, 'cursor' | 'limit'>;
 
 /** How many pages an exhaustive read follows before it stops. */
 const EXHAUSTIVE_PAGE_LIMIT = 20;
 
 /** The result of walking every page of a cursor-paged list, ceiling included. */
-export interface IntentExhaustiveRead<T> {
+interface IntentExhaustiveRead<T> {
   rows: T[];
   /** True when the ceiling stopped the walk while the server still had pages. */
   truncated: boolean;
@@ -472,17 +472,6 @@ export const refreshIntentAnchor = (workspaceId: string, body: IntentAnchorRefre
     intentPath(workspaceId, `items/${encodeURIComponent(body.itemId)}/anchors/refresh`),
     body,
   );
-
-/**
- * Mint one idempotency key. Callers do not call this per click — they go through
- * `IntentAttemptKeys`, which reuses a key while the attempt's content is
- * unchanged (so a double-click or a retry replays instead of writing twice) and
- * mints a new one once the input changes, because the ledger keys on
- * `(key, request hash)`.
- */
-export function newIntentIdempotencyKey(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `intent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
 
 /** Select the complete matching set only when it fits one release. Never silently
  * substitute the first page for "all results". Revalidation still pins content at confirmation. */

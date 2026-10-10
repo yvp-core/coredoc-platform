@@ -13,8 +13,6 @@ import { PushWorkerService } from './push-worker.service.js';
 import { JobsController } from './jobs.controller.js';
 import { StaleJobRecoveryService } from './stale-job-recovery.service.js';
 
-export { JobQueueModule } from '../job-queue/job-queue.module.js';
-
 @Module({
   imports: [AuthModule, JobQueueModule],
   controllers: [JobsController],
@@ -38,10 +36,3 @@ export class JobsApiModule {}
   exports: [PushWorkerService],
 })
 export class JobsWorkerModule {}
-
-/** Compatibility composition for repository-local consumers. */
-@Module({
-  imports: [JobQueueModule, JobsApiModule, JobsWorkerModule],
-  exports: [JobQueueModule, JobsWorkerModule],
-})
-export class JobsModule {}

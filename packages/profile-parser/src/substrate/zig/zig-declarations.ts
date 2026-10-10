@@ -46,7 +46,6 @@ import {
   memberChain,
   namedChildrenOfType,
   parameterFacts,
-  parseZig,
   referencesSelf,
   returnTypeText,
   returnedContainer,
@@ -54,6 +53,7 @@ import {
   stringConstText,
   unwrapTry,
 } from './zig-cst.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 /** One parsed Zig source file. `root` is released by the caller (`releaseParsedTrees`). */
 export interface ZigFile {
@@ -250,7 +250,7 @@ export interface ZigFileEntry {
 
 /** Parse one file's source into a `ZigFile`. */
 export async function toZigFile(relPath: string, source: string): Promise<ZigFile> {
-  return { relPath, source, root: await parseZig(source) };
+  return { relPath, source, root: await parseSource('zig', source) };
 }
 
 /** The file-struct's name: the basename without the `.zig` extension (`src/Config.zig` → `Config`). */

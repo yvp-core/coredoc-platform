@@ -1,14 +1,15 @@
 import { StableIdGenerator } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
-import { type PythonFile, parsePython } from './python-cst.js';
+import { type PythonFile } from './python-cst.js';
 import { type PythonEntityConfig, extractPythonEntities } from './python-entities.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 /** Same seed the parser uses — assertions recompute canonical ids through it. */
 const ID = new StableIdGenerator('/demo', 'demo');
 
 /** Build a PythonFile (relPath + source + parsed root) the way the parser does. */
 async function pf(relPath: string, source: string): Promise<PythonFile> {
-  return { relPath, source, root: await parsePython(source) };
+  return { relPath, source, root: await parseSource('python', source) };
 }
 
 const DJANGO_CFG: PythonEntityConfig = { idGen: ID, baseClasses: ['models.Model'] };

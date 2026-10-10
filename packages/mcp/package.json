@@ -20,9 +20,9 @@
     }
   },
   "scripts": {
-    "gen-build-env": "node scripts/gen-build-env.mjs",
-    "postinstall": "node -e \"const f='scripts/gen-build-env.mjs';require('fs').existsSync(f)&&require('child_process').execFileSync(process.execPath,[f],{stdio:'inherit'})\"",
-    "build": "node scripts/gen-build-env.mjs && tsc",
+    "gen-build-env": "node ../../scripts/gen-build-env.mjs src/build-env.ts",
+    "postinstall": "node -e \"const f='../../scripts/gen-build-env.mjs';require('fs').existsSync(f)&&require('child_process').execFileSync(process.execPath,[f,'src/build-env.ts'],{stdio:'inherit'})\"",
+    "build": "node ../../scripts/gen-build-env.mjs src/build-env.ts && tsc",
     "prepack": "pnpm run clean && pnpm run build",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",

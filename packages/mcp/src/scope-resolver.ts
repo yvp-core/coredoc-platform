@@ -125,10 +125,7 @@ function findConfigFile(startPath: string): string | null {
  * @returns Parsed RuntimeConfig
  */
 export function loadConfig(configPath: string): RuntimeConfig {
-  // The MCP server owns stdio, so migration diagnostics go to the debug log only.
-  return loadCoredocConfig(configPath, {
-    onMigrationWarning: (message) => debug('loadConfig', `Migration warning: ${message}`),
-  });
+  return loadCoredocConfig(configPath);
 }
 
 /**
@@ -744,27 +741,6 @@ function createEmptyScope(currentPath: string): ScopeContext {
 // =============================================================================
 
 /**
- * Build a Cypher WHERE clause fragment for filtering by repo hashes
- *
- * @param scope - Scope context
- * @param nodeAlias - Node alias in Cypher query (default: 'n')
- * @returns Cypher WHERE fragment (without WHERE keyword)
- */
-export function buildRepoHashFilter(scope: ScopeContext, nodeAlias: string = 'n'): string {
-  if (scope.repoHashes.length === 0) {
-    return 'true'; // No filter
-  }
-
-  if (scope.repoHashes.length === 1) {
-    return `${nodeAlias}.id STARTS WITH '${scope.repoHashes[0]}:'`;
-  }
-
-  // Multiple hashes - use ANY()
-  const prefixes = scope.repoHashes.map((h) => `'${h}:'`).join(', ');
-  return `ANY(prefix IN [${prefixes}] WHERE ${nodeAlias}.id STARTS WITH prefix)`;
-}
-
-/**
  * Resolve the "vantage" repo — the repo the MCP server is physically running
  * from — to a `{ name, hash }` pair within an already-resolved scope.
  *
@@ -812,28 +788,6 @@ export function resolveVantageRepo(scope: ScopeContext, signal: string): { name:
   }
 
   return undefined;
-}
-
-/**
- * Get human-readable scope description for responses
- *
- * @param scope - Scope context
- * @returns Description string
- */
-export function getScopeDescription(scope: ScopeContext): string {
-  if (scope.resolvedRepos.length === 0) {
-    return 'No repositories matched';
-  }
-
-  if (scope.resolvedRepos.length === 1) {
-    return `Repository: ${scope.resolvedRepos[0]}`;
-  }
-
-  if (scope.project) {
-    return `Project '${scope.project}': ${scope.resolvedRepos.join(', ')}`;
-  }
-
-  return `Repositories: ${scope.resolvedRepos.join(', ')}`;
 }
 
 // =============================================================================

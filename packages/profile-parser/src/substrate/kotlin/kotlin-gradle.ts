@@ -6,6 +6,7 @@
  * is derived from a repo-relative file listing — no filesystem access — which is what makes the
  * module-root rule ("kept only when a build file exists") a pure predicate over that listing.
  */
+import { posix } from 'node:path';
 
 /** Build files that mark a directory as a real Gradle module. */
 const BUILD_FILES = ['build.gradle', 'build.gradle.kts'];
@@ -65,12 +66,6 @@ export function gradlePathToDir(gradlePath: string): string {
   return gradlePath.replace(/^:/, '').split(':').filter(Boolean).join('/');
 }
 
-/** The directory part of a repo-relative path (`''` for a root file). */
-function dirOf(path: string): string {
-  const i = path.lastIndexOf('/');
-  return i < 0 ? '' : path.slice(0, i);
-}
-
 function hasBuildFile(dir: string, fileSet: ReadonlySet<string>): boolean {
   return BUILD_FILES.some((name) => fileSet.has(dir ? `${dir}/${name}` : name));
 }
@@ -109,7 +104,7 @@ export function discoverGradleLayout(
   const inScope = (path: string) => [...sourceSetDirs].some((dir) => path.startsWith(`${dir}/`));
   for (const file of allFiles) {
     if (!inScope(file)) continue;
-    const dir = dirOf(file);
+    const dir = posix.dirname(file);
     if (file.endsWith('/AndroidManifest.xml')) manifestFiles.push(file);
     else if (!file.endsWith('.xml')) continue;
     else if (/(^|\/)res\/navigation(-[^/]+)?$/.test(dir)) navigationFiles.push(file);

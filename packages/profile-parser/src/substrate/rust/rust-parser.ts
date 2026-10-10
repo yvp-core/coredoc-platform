@@ -21,7 +21,7 @@
  * files already back emitted `EntityNode`s, and omitting them left every DDL entity's `fileId`
  * pointing at nothing.
  */
-import { rustScipCallFacts } from './scip-calls.js';
+import { scipCallFacts } from '../../facts/scip/call-facts.js';
 import { runScipRust } from './scip-run.js';
 import {
   type ClassNode,
@@ -35,6 +35,7 @@ import {
   type Package,
   type StableIdGenerator,
 } from '@coredoc/core';
+import { toFileNodes } from '../file-nodes.js';
 import type { RustProfile } from '../../types.js';
 import { indexRustDefs, resolveRustCalls } from './rust-callgraph.js';
 import { extractRustClasses } from './rust-classes.js';
@@ -47,10 +48,11 @@ import {
   discoverRustFileScope,
   isPublic,
   itemName,
+  rustFunctionId,
 } from './rust-cst.js';
 import { extractRustDbOps } from './rust-dbops.js';
 import { extractRustEgress } from './rust-egress.js';
-import { type RustSchemaFile, extractRustEntities } from './rust-entities.js';
+import { extractRustEntities } from './rust-entities.js';
 import { extractRustEntrypoints } from './rust-entrypoints.js';
 import { buildModuleIndex, buildUseTable } from './rust-imports.js';
 import type { Substrate } from '../parse-substrate.js';
@@ -69,49 +71,6 @@ function crateToPackage(crate: RustCrate, idGen: StableIdGenerator): Package {
     version: crate.version,
     language: 'rust',
     dependencies: Object.fromEntries([...crate.dependencies].map((d) => [d, '*'])),
-  };
-}
-
-/** A `FileNode` for one parsed source, assigned to its owning crate. */
-function toFileNode(file: RustFile, packageId: string, idGen: StableIdGenerator): FileNode {
-  const contentHash = idGen.contentHash(file.source);
-  return {
-    id: idGen.fileId(file.relPath),
-    versionedId: idGen.versionedFileId(file.relPath, contentHash),
-    path: file.relPath,
-    extension: '.rs',
-    packageId,
-    language: 'rust',
-    contentHash,
-    loc: file.source.split('\n').filter((l) => {
-      const t = l.trim();
-      return t.length > 0 && !t.startsWith('//');
-    }).length,
-  };
-}
-
-/**
- * A `FileNode` for one plain-SQL schema/migration file that backed an emitted entity.
- *
- * The `.sql` files live OUTSIDE the `.rs` substrate scope but inside the graph: `extractRustEntities`
- * mints `fileId(<the .sql path>)` on every DDL-derived entity. `language` is the honest 'sql'
- * (`FileNode.language` is a free-form string, so no union needed) — calling it 'rust' would make
- * `list-file-symbols` and every language rollup lie about the repo's composition.
- */
-function toSchemaFileNode(file: RustSchemaFile, packageId: string, idGen: StableIdGenerator): FileNode {
-  const contentHash = idGen.contentHash(file.source);
-  return {
-    id: idGen.fileId(file.relPath),
-    versionedId: idGen.versionedFileId(file.relPath, contentHash),
-    path: file.relPath,
-    extension: '.sql',
-    packageId,
-    language: 'sql',
-    contentHash,
-    loc: file.source.split('\n').filter((l) => {
-      const t = l.trim();
-      return t.length > 0 && !t.startsWith('--');
-    }).length,
   };
 }
 
@@ -206,7 +165,24 @@ export const rustSubstrate: Substrate<RustProfile, RustFile> = {
       profile.substrate.exclude ?? [],
       profile.substrate.excludeDefaults,
     ),
-  scip: { language: 'rust', run: runScipRust, facts: rustScipCallFacts },
+  scip: {
+    language: 'rust',
+    run: runScipRust,
+    facts: scipCallFacts({
+      definitions: ['function_item'],
+      call: 'call_expression',
+      defaultPositionEncoding: 1,
+      functionId: rustFunctionId,
+      callee(call) {
+        let token = call.childForFieldName('function');
+        while (token?.type === 'generic_function') token = token.childForFieldName('function');
+        const isMethodCall = token?.type === 'field_expression';
+        if (token?.type === 'field_expression') token = token.childForFieldName('field');
+        else if (token?.type === 'scoped_identifier') token = token.childForFieldName('name');
+        return { token, isMethodCall };
+      },
+    }),
+  },
 
   async extract({ root, name, profile, idGen, files, skipped, enhanceCalls }) {
     // ENTITIES run here, ahead of package assembly, because the plain-SQL DDL source reads `.sql`
@@ -247,10 +223,12 @@ export const rustSubstrate: Substrate<RustProfile, RustFile> = {
     const index = indexRustDefs(files, idGen);
     const fnById = new Map<string, FunctionNode>(index.byId);
 
-    const packageIdOf = (relPath: string): string => idGen.packageId(ownerOf.get(relPath) ?? '.');
+    const packageIdFor = (relPath: string): string => idGen.packageId(ownerOf.get(relPath) ?? '.');
+    // `.sql` schema files back DDL-derived entities: outside the `.rs` scope but inside the graph.
+    // `language` is the honest 'sql' so language rollups don't misreport the repo's composition.
     const fileNodes: FileNode[] = [
-      ...files.map((f) => toFileNode(f, packageIdOf(f.relPath), idGen)),
-      ...schemaFiles.map((s) => toSchemaFileNode(s, packageIdOf(s.relPath), idGen)),
+      ...toFileNodes(files, idGen, { language: 'rust', commentPrefix: '//', packageIdFor }),
+      ...toFileNodes(schemaFiles, idGen, { language: 'sql', commentPrefix: '--', packageIdFor }),
     ];
     const classes: ClassNode[] = extractRustClasses(files, idGen);
     const { interfaces, enums } = extractTypeNodes(files, idGen);

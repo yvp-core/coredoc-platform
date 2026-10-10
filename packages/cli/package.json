@@ -14,14 +14,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./commands": {
-      "types": "./dist/commands/index.d.ts",
-      "import": "./dist/commands/index.js"
-    },
-    "./validate": {
-      "types": "./dist/validate/index.d.ts",
-      "import": "./dist/validate/index.js"
-    },
     "./sdk": {
       "types": "./dist/sdk/index.d.ts",
       "import": "./dist/sdk/index.js"
@@ -32,9 +24,9 @@
     }
   },
   "scripts": {
-    "gen-build-env": "node scripts/gen-build-env.mjs",
-    "postinstall": "node -e \"const f='scripts/gen-build-env.mjs';require('fs').existsSync(f)&&require('child_process').execFileSync(process.execPath,[f],{stdio:'inherit'})\"",
-    "build": "node scripts/gen-build-env.mjs && tsc",
+    "gen-build-env": "node ../../scripts/gen-build-env.mjs src/build-env.ts",
+    "postinstall": "node -e \"const f='../../scripts/gen-build-env.mjs';require('fs').existsSync(f)&&require('child_process').execFileSync(process.execPath,[f,'src/build-env.ts'],{stdio:'inherit'})\"",
+    "build": "node ../../scripts/gen-build-env.mjs src/build-env.ts && tsc",
     "prepack": "pnpm run clean && pnpm run build",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
@@ -45,31 +37,20 @@
     "@ai-sdk/anthropic": "^4.0.55",
     "@ai-sdk/openai": "^4.0.68",
     "@anthropic-ai/claude-agent-sdk": "^0.2.12",
-    "@anthropic-ai/sdk": "^0.71.2",
     "@coredoc/core": "workspace:*",
     "@coredoc/db": "workspace:*",
     "@coredoc/mcp": "workspace:*",
     "@coredoc/profile-parser": "workspace:*",
-    "@langchain/core": "^1.1.16",
-    "@langchain/ollama": "^1.2.1",
-    "@langchain/openai": "^1.2.3",
     "@modelcontextprotocol/sdk": "^1.25.3",
     "@openrouter/ai-sdk-provider": "3.0.0",
     "ai": "^7.0.103",
     "commander": "^12.0.0",
-    "dotenv": "^16.6.1",
-    "handlebars": "^4.7.8",
-    "posthog-node": "^5.28.11",
-    "stream-chain": "^3.4.0",
-    "stream-json": "^1.9.1",
     "typescript": ">=5.0.0",
-    "yaml": "^2.8.2",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "@types/stream-chain": "^2.1.0",
-    "@types/stream-json": "^1.7.8",
+    "yaml": "^2.8.2",
     "vitest": "^1.2.0"
   },
   "peerDependencies": {

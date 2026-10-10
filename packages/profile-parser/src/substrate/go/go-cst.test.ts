@@ -6,7 +6,7 @@ import {
   METHOD_DECLARATION,
   type TsNode,
   baseTypeName,
-  discoverGoFiles,
+  discoverGoFileScope,
   enclosingFunction,
   fieldNames,
   goDeclName,
@@ -16,17 +16,17 @@ import {
   isExported,
   itemName,
   packageName,
-  parseGo,
   receiverTypeName,
   structTags,
 } from './go-cst.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 /** Same seed the parser uses — assertions recompute canonical ids through it. */
 const ID = new StableIdGenerator('/demo', 'demo');
 
 /** All function-ish declarations in document order. */
 async function decls(source: string): Promise<TsNode[]> {
-  const root = await parseGo(source);
+  const root = await parseSource('go', source);
   return [
     ...(root.descendantsOfType('function_declaration') as TsNode[]),
     ...(root.descendantsOfType('method_declaration') as TsNode[]),
@@ -39,7 +39,7 @@ describe('goStringValue — Go string literals have NO string_content child', ()
   // ever appear), so the Python idiom `descendantsOfType('string_content')[0]?.text` returns '' for
   // every Go string with no error — empty route paths, empty table names, empty SQL.
   it('strips the quotes and never returns the empty-string artefact', async () => {
-    const root = await parseGo('package p\nfunc f() { a := "/users/{id}"; b := "table_name"; _, _ = a, b }');
+    const root = await parseSource('go', 'package p\nfunc f() { a := "/users/{id}"; b := "table_name"; _, _ = a, b }');
     const values = (root.descendantsOfType('interpreted_string_literal') as TsNode[]).map(goStringValue);
     expect(values).toEqual(['/users/{id}', 'table_name']);
     // The trap itself, asserted so a grammar bump that "fixes" it is noticed.
@@ -48,13 +48,13 @@ describe('goStringValue — Go string literals have NO string_content child', ()
 
   it('decodes the common escapes in an interpreted literal', async () => {
     const src = ['package p', 'func f() {', '  a := "line\\nnext"', '  b := "say \\"hi\\""', '  _, _ = a, b', '}'];
-    const root = await parseGo(src.join('\n'));
+    const root = await parseSource('go', src.join('\n'));
     const values = (root.descendantsOfType('interpreted_string_literal') as TsNode[]).map(goStringValue);
     expect(values).toEqual(['line\nnext', 'say "hi"']);
   });
 
   it('does NOT process escapes in a raw literal — that is Go’s actual semantics', async () => {
-    const root = await parseGo('package p\nfunc f() { q := `SELECT *\\nFROM users`; _ = q }');
+    const root = await parseSource('go', 'package p\nfunc f() { q := `SELECT *\\nFROM users`; _ = q }');
     const raw = (root.descendantsOfType('raw_string_literal') as TsNode[])[0];
     expect(goStringValue(raw)).toBe('SELECT *\\nFROM users');
   });
@@ -72,7 +72,7 @@ func Plain() {}
 `;
 
   it('names the method, not its receiver variable', async () => {
-    const root = await parseGo(SRC);
+    const root = await parseSource('go', SRC);
     const method = (root.descendantsOfType(METHOD_DECLARATION) as TsNode[])[0];
     expect(itemName(method)).toBe('Handle');
     // The trap, asserted: the naive descendant scan yields the receiver variable.
@@ -80,13 +80,13 @@ func Plain() {}
   });
 
   it('collapses pointer and value receivers onto the same type name', async () => {
-    const root = await parseGo(SRC);
+    const root = await parseSource('go', SRC);
     const methods = root.descendantsOfType(METHOD_DECLARATION) as TsNode[];
     expect(methods.map(receiverTypeName)).toEqual(['Svc', 'Svc']);
   });
 
   it('reads a generic receiver through its type arguments', async () => {
-    const root = await parseGo('package p\nfunc (r *Repo[T]) Get() {}');
+    const root = await parseSource('go', 'package p\nfunc (r *Repo[T]) Get() {}');
     const method = (root.descendantsOfType(METHOD_DECLARATION) as TsNode[])[0];
     expect(receiverTypeName(method)).toBe('Repo');
   });
@@ -116,7 +116,7 @@ describe('isExported / packageName', () => {
   });
 
   it('reads the declared package name', async () => {
-    const file = { relPath: 'internal/db/store.go', source: '', root: await parseGo('package db\n') };
+    const file = { relPath: 'internal/db/store.go', source: '', root: await parseSource('go', 'package db\n') };
     expect(packageName(file)).toBe('db');
   });
 });
@@ -132,7 +132,7 @@ type User struct {
 `;
 
   it('returns every name in a grouped declaration and none for an embedded field', async () => {
-    const root = await parseGo(SRC);
+    const root = await parseSource('go', SRC);
     const fields = root.descendantsOfType(FIELD_DECLARATION) as TsNode[];
     expect(fields.map(fieldNames)).toEqual([['ID'], ['a', 'b'], []]);
     // The trap: the `name` field alone loses `b` and cannot tell an embedded field from an unnamed one.
@@ -143,7 +143,7 @@ type User struct {
 describe('structTags', () => {
   it('parses a multi-key tag down to each value’s first comma segment', async () => {
     const src = ['package p', 'type User struct {', '  ID int `json:"id,omitempty" db:"id" gorm:"primaryKey"`', '}'];
-    const root = await parseGo(src.join('\n'));
+    const root = await parseSource('go', src.join('\n'));
     const field = (root.descendantsOfType(FIELD_DECLARATION) as TsNode[])[0];
     expect([...structTags(field)]).toEqual([
       ['json', 'id'],
@@ -160,7 +160,7 @@ describe('structTags', () => {
       '  Opt    string `json:",omitempty"`',
       '}',
     ];
-    const root = await parseGo(src.join('\n'));
+    const root = await parseSource('go', src.join('\n'));
     const fields = root.descendantsOfType(FIELD_DECLARATION) as TsNode[];
     expect(structTags(fields[0]).get('json')).toBe('-');
     expect(structTags(fields[1]).get('json')).toBe('');
@@ -168,14 +168,14 @@ describe('structTags', () => {
 
   it('reads the interpreted-string spelling of a tag, which generated code emits', async () => {
     const src = ['package p', 'type User struct {', '  ID int "json:\\"id\\""', '}'];
-    const root = await parseGo(src.join('\n'));
+    const root = await parseSource('go', src.join('\n'));
     const field = (root.descendantsOfType(FIELD_DECLARATION) as TsNode[])[0];
     expect(structTags(field).get('json')).toBe('id');
   });
 
   it('stops at a malformed pair instead of inventing a key, and is empty for an untagged field', async () => {
     const src = ['package p', 'type User struct {', '  ID   int `json:"id" broken db:"x"`', '  Name string', '}'];
-    const root = await parseGo(src.join('\n'));
+    const root = await parseSource('go', src.join('\n'));
     const fields = root.descendantsOfType(FIELD_DECLARATION) as TsNode[];
     expect([...structTags(fields[0]).keys()]).toEqual(['json']);
     expect(structTags(fields[1]).size).toBe(0);
@@ -254,7 +254,7 @@ func outer() {
 describe('enclosingFunction', () => {
   it('attributes a call to its method, and reports NO owner at package scope', async () => {
     const src = 'package p\n\nvar router = chi.NewRouter()\n\nfunc (s *Svc) Handle() { s.log() }\n';
-    const root = await parseGo(src);
+    const root = await parseSource('go', src);
     const calls = root.descendantsOfType('call_expression') as TsNode[];
     const inMethod = calls.find((c) => c.text === 's.log()') as TsNode;
     const atPackageScope = calls.find((c) => c.text === 'chi.NewRouter()') as TsNode;
@@ -265,7 +265,7 @@ describe('enclosingFunction', () => {
   });
 });
 
-describe('discoverGoFiles — built-in default excludes', () => {
+describe('discoverGoFileScope — built-in default excludes', () => {
   // `vendor/` is NOT in the shared enumerator's ignore floor, so this is the only thing keeping a
   // vendored dependency tree out of scope.
   it('excludes vendor/testdata/_test.go/.pb.go by default, and honors the opt-out', async () => {
@@ -288,10 +288,10 @@ describe('discoverGoFiles — built-in default excludes', () => {
       writeFileSync(abs, 'package p\n');
     }
     try {
-      expect(discoverGoFiles(root, ['**/*.go'])).toEqual(['internal/db/store.go', 'main.go']);
-      expect(discoverGoFiles(root, ['**/*.go'], [], false)).toContain('internal/db/store_test.go');
+      expect(discoverGoFileScope(root, ['**/*.go']).included).toEqual(['internal/db/store.go', 'main.go']);
+      expect(discoverGoFileScope(root, ['**/*.go'], [], false).included).toContain('internal/db/store_test.go');
       // An empty include defaults to every .go file, so a bare profile still extracts.
-      expect(discoverGoFiles(root, [])).toEqual(['internal/db/store.go', 'main.go']);
+      expect(discoverGoFileScope(root, []).included).toEqual(['internal/db/store.go', 'main.go']);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

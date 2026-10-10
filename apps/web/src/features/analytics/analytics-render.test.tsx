@@ -14,22 +14,20 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type AnalyticsWindow, AnalyticsWindowKind } from './types.js';
-import { WindowSelector } from './WindowSelector.js';
+import { DateRangePicker } from '@/components/ui/date-range-picker';
 
 afterEach(cleanup);
 
 /** Renders the selector, opens the popover, and returns queries scoped to it. */
 async function openPicker(analyticsWindow: AnalyticsWindow, onChange: (next: AnalyticsWindow) => void) {
-  render(<WindowSelector analyticsWindow={analyticsWindow} onChange={onChange} />);
+  render(<DateRangePicker value={analyticsWindow} onChange={onChange} />);
   await userEvent.click(screen.getByRole('button', { expanded: false }));
   return within(screen.getByRole('dialog'));
 }
 
-describe('WindowSelector trigger', () => {
+describe('DateRangePicker trigger', () => {
   it('names the preset, and is the only control in the header', () => {
-    render(
-      <WindowSelector analyticsWindow={{ kind: AnalyticsWindowKind.Days, days: 30 }} onChange={() => undefined} />,
-    );
+    render(<DateRangePicker value={{ kind: AnalyticsWindowKind.Days, days: 30 }} onChange={() => undefined} />);
 
     expect(screen.getByRole('button', { name: /Last 30 days/ })).toHaveAttribute('aria-haspopup', 'dialog');
     expect(screen.queryByLabelText('From date')).toBeNull();
@@ -37,8 +35,8 @@ describe('WindowSelector trigger', () => {
 
   it('names the range itself when the window is a custom one', () => {
     render(
-      <WindowSelector
-        analyticsWindow={{ kind: AnalyticsWindowKind.Custom, since: '2026-08-01', until: '2026-08-14' }}
+      <DateRangePicker
+        value={{ kind: AnalyticsWindowKind.Custom, since: '2026-08-01', until: '2026-08-14' }}
         onChange={() => undefined}
       />,
     );
@@ -47,7 +45,7 @@ describe('WindowSelector trigger', () => {
   });
 });
 
-describe('WindowSelector popover', () => {
+describe('DateRangePicker popover', () => {
   it('emits a Days window for each of the three presets', async () => {
     for (const days of [7, 30, 90]) {
       const onChange = vi.fn();

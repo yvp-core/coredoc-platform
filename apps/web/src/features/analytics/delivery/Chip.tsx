@@ -7,7 +7,7 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
-export type ChipTone = 'default' | 'completed' | 'active' | 'abandoned' | 'partial' | 'rework';
+type ChipTone = 'default' | 'completed' | 'active' | 'abandoned' | 'partial' | 'rework';
 
 const TONE_CLASS: Record<ChipTone, string> = {
   default: 'bg-surface-2 border-border-soft text-ink-3',

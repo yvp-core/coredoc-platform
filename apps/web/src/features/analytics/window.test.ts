@@ -6,8 +6,7 @@ import {
   customWindowError,
   windowDays,
 } from './types.js';
-import { dateToDay, dayToDate, presetRange, windowLabel } from '@/components/ui/date-range-picker';
-import { customRangeLabel } from './WindowSelector.js';
+import { customRangeLabel, dateToDay, dayToDate, presetRange, windowLabel } from '@/components/ui/date-range-picker';
 
 const custom = (since: string, until: string): AnalyticsWindow => ({
   kind: AnalyticsWindowKind.Custom,

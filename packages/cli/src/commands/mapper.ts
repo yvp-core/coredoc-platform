@@ -863,7 +863,6 @@ export function runMapperDiscover(loadedConfig: DiscoverConfigShape, options: Di
     inputsHash: `discover:${repos.length}-repos:${totalCalls}-calls`,
     baselineResolutionRate,
     baselineEdgeIds,
-    regenHistory: [],
   };
   writeMapperMeta(paths.mapperMeta, meta);
 
@@ -1953,15 +1952,14 @@ export async function runMapperPush(options: MapperPushOptions): Promise<MapperP
     );
   }
 
-  const { getToken, getServerUrl } = await import('../auth.js');
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated. Run: coredoc login');
+  const { authHeaders, getServerUrl } = await import('../auth.js');
+  const auth = await authHeaders();
   const serverUrl = await getServerUrl();
   const url = `${serverUrl}/api/v1/workspaces/${options.workspaceId}/mapper${options.defer ? '?defer=true' : ''}`;
 
   const response = await fetch(url, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json', ...auth },
     body: raw,
   });
   if (!response.ok) {
@@ -2032,14 +2030,13 @@ export interface MapperPullResult {
  * available, else we recompute locally to compare.
  */
 export async function runMapperPull(options: MapperPullOptions): Promise<MapperPullResult> {
-  const { getToken, getServerUrl } = await import('../auth.js');
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated. Run: coredoc login');
+  const { authHeaders, getServerUrl } = await import('../auth.js');
+  const auth = await authHeaders();
   const serverUrl = await getServerUrl();
   const url = `${serverUrl}/api/v1/workspaces/${options.workspaceId}/mapper`;
 
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: auth,
   });
   if (response.status === 404) {
     throw new Error(`No mapper exists for workspace ${options.workspaceId} (run 'coredoc mapper push' first)`);

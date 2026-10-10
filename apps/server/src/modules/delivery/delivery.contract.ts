@@ -71,6 +71,5 @@ export const MergeActorSchema = z.object({
 
 export type UpdateDeliverySettingsInput = z.infer<typeof UpdateDeliverySettingsSchema>;
 export type CreateConnectorInput = z.infer<typeof CreateConnectorSchema>;
-export type StatusMapEntryInput = z.infer<typeof StatusMapEntrySchema>;
 export type UpdateStatusMapInput = z.infer<typeof UpdateStatusMapSchema>;
 export type MergeActorInput = z.infer<typeof MergeActorSchema>;

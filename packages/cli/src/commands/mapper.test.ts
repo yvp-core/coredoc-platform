@@ -122,7 +122,6 @@ describe('runMapperStatus', () => {
         inputsHash: 'sha256:x',
         baselineResolutionRate: 0.81,
         baselineEdgeIds: [],
-        regenHistory: [],
       }),
     );
 

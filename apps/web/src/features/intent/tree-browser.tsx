@@ -12,7 +12,6 @@
  */
 
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { Archive, CircleHelp, Funnel, MessageSquareDot, MessagesSquare, Settings2 } from 'lucide-react';
 import type * as React from 'react';
@@ -25,7 +24,7 @@ import type { IntentDimension, IntentFeatureView, IntentTreeDomain, TreeConditio
  * The full feature list of ONE domain, loaded on demand — the repair for the
  * tree route's `featuresTruncated`, which used to be a dead-end sentence.
  */
-export interface IntentFeatureExpansion {
+interface IntentFeatureExpansion {
   domainId: string | null;
   features: IntentFeatureView[] | null;
   loading: boolean;
@@ -103,57 +102,54 @@ export function IntentTreeBrowser({
 
   return (
     <>
-      {/* Icon-only so the toolbar fits the narrow column; the tooltip and
-          aria-label carry the words. A local provider keeps the toolbar
-          renderable outside the app shell (tests, embeds). */}
-      <TooltipProvider delayDuration={200}>
-        <div className="flex items-center gap-1 border-b border-border-soft px-2.5 py-1.5">
+      {/* Icon-only so the toolbar fits the narrow column; the title and
+          aria-label carry the words. */}
+      <div className="flex items-center gap-1 border-b border-border-soft px-2.5 py-1.5">
+        <TreeToolbarButton
+          label="Show archived"
+          tooltip={includeArchived ? 'Showing archived' : 'Show archived'}
+          pressed={includeArchived}
+          activeClassName="text-brand-text"
+          onClick={onToggleArchived}
+        >
+          <Archive aria-hidden="true" className="size-4" />
+        </TreeToolbarButton>
+        {onToggleOnlyPending && (
           <TreeToolbarButton
-            label="Show archived"
-            tooltip={includeArchived ? 'Showing archived' : 'Show archived'}
-            pressed={includeArchived}
-            activeClassName="text-brand-text"
-            onClick={onToggleArchived}
+            label="Only with proposals"
+            pressed={onlyPending}
+            activeClassName="text-blue"
+            onClick={onToggleOnlyPending}
           >
-            <Archive aria-hidden="true" className="size-4" />
+            <MessageSquareDot aria-hidden="true" className="size-4" />
           </TreeToolbarButton>
-          {onToggleOnlyPending && (
-            <TreeToolbarButton
-              label="Only with proposals"
-              pressed={onlyPending}
-              activeClassName="text-blue"
-              onClick={onToggleOnlyPending}
-            >
-              <MessageSquareDot aria-hidden="true" className="size-4" />
-            </TreeToolbarButton>
-          )}
-          {onToggleOnlyOpenQuestions && (
-            <TreeToolbarButton
-              label="Only with open questions"
-              pressed={onlyOpenQuestions}
-              activeClassName="text-warn-text"
-              onClick={onToggleOnlyOpenQuestions}
-            >
-              <CircleHelp aria-hidden="true" className="size-4" />
-            </TreeToolbarButton>
-          )}
-          {onToggleOnlyOpenComments && (
-            <TreeToolbarButton
-              label="Only with open comments"
-              pressed={onlyOpenComments}
-              activeClassName="text-blue"
-              onClick={onToggleOnlyOpenComments}
-            >
-              <MessagesSquare aria-hidden="true" className="size-4" />
-            </TreeToolbarButton>
-          )}
-          {canEdit && (
-            <TreeToolbarButton label="Manage structure" className="ml-auto" onClick={onEditTree}>
-              <Settings2 aria-hidden="true" className="size-4" />
-            </TreeToolbarButton>
-          )}
-        </div>
-      </TooltipProvider>
+        )}
+        {onToggleOnlyOpenQuestions && (
+          <TreeToolbarButton
+            label="Only with open questions"
+            pressed={onlyOpenQuestions}
+            activeClassName="text-warn-text"
+            onClick={onToggleOnlyOpenQuestions}
+          >
+            <CircleHelp aria-hidden="true" className="size-4" />
+          </TreeToolbarButton>
+        )}
+        {onToggleOnlyOpenComments && (
+          <TreeToolbarButton
+            label="Only with open comments"
+            pressed={onlyOpenComments}
+            activeClassName="text-blue"
+            onClick={onToggleOnlyOpenComments}
+          >
+            <MessagesSquare aria-hidden="true" className="size-4" />
+          </TreeToolbarButton>
+        )}
+        {canEdit && (
+          <TreeToolbarButton label="Manage structure" className="ml-auto" onClick={onEditTree}>
+            <Settings2 aria-hidden="true" className="size-4" />
+          </TreeToolbarButton>
+        )}
+      </div>
       <nav className="relative min-h-0 flex-1 overflow-y-auto px-2 pb-2.5 pt-1.5">
         <TreeRow
           label="All product rules"
@@ -270,25 +266,21 @@ function TreeToolbarButton({
   children: React.ReactNode;
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={label}
-          aria-pressed={pressed}
-          onClick={onClick}
-          className={cn(
-            'grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-2 hover:text-ink-1',
-            pressed ? (activeClassName ?? 'text-ink-1') : 'text-ink-3',
-            pressed && 'bg-surface-2',
-            className,
-          )}
-        >
-          {children}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top">{tooltip ?? label}</TooltipContent>
-    </Tooltip>
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={pressed}
+      title={tooltip ?? label}
+      onClick={onClick}
+      className={cn(
+        'grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-2 hover:text-ink-1',
+        pressed ? (activeClassName ?? 'text-ink-1') : 'text-ink-3',
+        pressed && 'bg-surface-2',
+        className,
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

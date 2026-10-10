@@ -371,7 +371,7 @@ export function DeliveryPanel({ wsId }: { wsId: string }) {
               checked={enabled}
               disabled={settings.isPending || toggleMutation.isPending}
               aria-label="Enable delivery analytics"
-              onCheckedChange={(next) => toggleMutation.mutate({ wsId, enabled: next })}
+              onChange={(event) => toggleMutation.mutate({ wsId, enabled: event.target.checked })}
             />
           </div>
         }

@@ -2,26 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IpcMain } from 'electron';
 
 // Mock every collaborator so the manager never touches network or real IPC/IO.
-const { getConfiguredServerUrlMock, getFeedbackRoadmapMock, getFeedbackCorrelationMock, openExternalMock } = vi.hoisted(
-  () => ({
-    getConfiguredServerUrlMock: vi.fn(() => 'https://api.example'),
-    getFeedbackRoadmapMock: vi.fn(async () => ({
-      feedbackCount: 0,
-      topIssues: [],
-      topMissingTools: [],
-      ratingTrend: [],
-    })),
-    getFeedbackCorrelationMock: vi.fn(async () => []),
-    openExternalMock: vi.fn(async () => undefined),
-  }),
-);
+const { getConfiguredServerUrlMock, openExternalMock } = vi.hoisted(() => ({
+  getConfiguredServerUrlMock: vi.fn(() => 'https://api.example'),
+  openExternalMock: vi.fn(async () => undefined),
+}));
 
 vi.mock('electron', () => ({ shell: { openExternal: openExternalMock } }));
 
 vi.mock('./server-api.js', () => ({
   getConfiguredServerUrl: getConfiguredServerUrlMock,
-  getFeedbackRoadmap: getFeedbackRoadmapMock,
-  getFeedbackCorrelation: getFeedbackCorrelationMock,
 }));
 
 vi.mock('./build-env.js', () => ({ BUNDLED_COREDOC_WEB_URL: '' }));
@@ -52,45 +41,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   // clearAllMocks wipes call history but keeps implementations; restore defaults.
   getConfiguredServerUrlMock.mockReturnValue('https://api.example');
-  getFeedbackRoadmapMock.mockResolvedValue({ feedbackCount: 0, topIssues: [], topMissingTools: [], ratingTrend: [] });
-  getFeedbackCorrelationMock.mockResolvedValue([]);
   process.env = { ...savedEnv };
   delete process.env.COREDOC_WEB_URL;
-});
-
-describe('observability:getFeedbackRoadmap / getFeedbackCorrelation', () => {
-  it('returns the roadmap and correlation reads independently', async () => {
-    const handlers = await registered();
-    const roadmap = (await handlers.get('observability:getFeedbackRoadmap')!(null, 'ws-1', 30)) as {
-      success: boolean;
-      data?: { feedbackCount: number };
-    };
-    const correlation = (await handlers.get('observability:getFeedbackCorrelation')!(null, 'ws-1', 30)) as {
-      success: boolean;
-      data?: unknown[];
-    };
-
-    expect(roadmap.success).toBe(true);
-    expect(roadmap.data?.feedbackCount).toBe(0);
-    expect(correlation.success).toBe(true);
-    expect(correlation.data).toEqual([]);
-    expect(getFeedbackRoadmapMock).toHaveBeenCalledWith('ws-1', 30);
-    expect(getFeedbackCorrelationMock).toHaveBeenCalledWith('ws-1', 30);
-  });
-
-  it('one endpoint failing does not affect the other (independent reads)', async () => {
-    getFeedbackRoadmapMock.mockRejectedValueOnce(new Error('roadmap down'));
-    const handlers = await registered();
-    const roadmap = (await handlers.get('observability:getFeedbackRoadmap')!(null, 'ws-1', 30)) as {
-      success: boolean;
-    };
-    const correlation = (await handlers.get('observability:getFeedbackCorrelation')!(null, 'ws-1', 30)) as {
-      success: boolean;
-    };
-
-    expect(roadmap.success).toBe(false);
-    expect(correlation.success).toBe(true);
-  });
 });
 
 describe('observability:openDashboard', () => {

@@ -50,14 +50,6 @@ vi.mock('@coredoc/core/utils', () => ({
   ),
 }));
 vi.mock('@coredoc/db', () => ({ closeAllDrivers: vi.fn(), closeProjectDatabases: vi.fn() }));
-vi.mock('@coredoc/cli/sdk', () => ({ loadConfig: vi.fn() }));
-vi.mock('./pty-manager.js', () => ({
-  writePty: vi.fn(),
-  resizePty: vi.fn(),
-  spawnPty: vi.fn(),
-  killPty: vi.fn(),
-  killAllPtys: vi.fn(),
-}));
 vi.mock('./parser-artifact.js', () => ({
   profileArtifactPath: vi.fn(() => PROFILE_PATH),
 }));
@@ -109,7 +101,6 @@ vi.mock('./profile-parse-sandbox.js', () => ({
   },
 }));
 
-import { spawnPty } from './pty-manager.js';
 import * as scoreHost from './profile-score-host.js';
 import { getCurrentConfig, resolveRepoPath } from './config-manager.js';
 import { cancelCommand, runCommand } from './command-runner.js';
@@ -128,7 +119,6 @@ describe('command-runner E2E guard (generate)', () => {
     vi.unstubAllGlobals();
     sends.mockClear();
     startAgentRunMock.mockClear();
-    vi.mocked(spawnPty).mockClear();
     buildHarnessEnvironmentMock.mockClear();
     harnessSettings.provider = 'claude-code';
     harnessSettings.authMode = 'subscription';
@@ -152,7 +142,6 @@ describe('command-runner E2E guard (generate)', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(startAgentRunMock).not.toHaveBeenCalled();
-    expect(spawnPty).not.toHaveBeenCalled();
     const completedCall = sends.mock.calls.find(([channel]) => channel === 'command:completed');
     expect(completedCall?.[1]).toMatchObject({ id: result.id, success: false });
     expect(completedCall?.[1].error).toMatch(/E2E mode/);
@@ -262,7 +251,6 @@ describe('command-runner E2E guard (generate)', () => {
     expect(request.prompt).not.toMatch(/use the request_user_input tool/);
     expect(request.policy.readDirs).not.toContain(PROFILE_ROOT);
     expect(adapter).toMatchObject({ kind: 'codex', executablePath: '/root/codex' });
-    expect(spawnPty).not.toHaveBeenCalled();
   });
 
   it('keeps Claude authoring on the staged fail-closed SDK path when the retired PTY flag is set', async () => {
@@ -284,7 +272,6 @@ describe('command-runner E2E guard (generate)', () => {
     expect(request.prompt).toContain('Read/Glob/Grep tools');
     expect(request.verifyCompletion).toBeTypeOf('function');
     expect(request.finalizeCompletion).toBeTypeOf('function');
-    expect(spawnPty).not.toHaveBeenCalled();
   });
 
   it('requires the latest profile revision to match the ExtractionProfile schema before generation completes', async () => {

@@ -5,7 +5,7 @@
  * cookie `Secure` flag derived from the same scheme — never drift apart.
  */
 
-import { type AuthConfig, authConfigFromEnv } from '../../config/app-config.js';
+import { type AuthConfig, configFromEnv } from '../../config/app-config.js';
 
 /**
  * MCP_SERVER_URL is preferred over SERVER_URL — a deliberate deviation from
@@ -13,12 +13,12 @@ import { type AuthConfig, authConfigFromEnv } from '../../config/app-config.js';
  * client redirect_uri and /authorize can never disagree. Operational caveat:
  * if both are set and differ, the login flow follows MCP_SERVER_URL.
  */
-export function serverUrl(auth: AuthConfig = authConfigFromEnv()): string {
+export function serverUrl(auth: AuthConfig = configFromEnv().auth): string {
   return auth.mcpServerUrl ?? auth.serverUrl ?? 'http://localhost:3000';
 }
 
 /** Cookies are Secure only when actually served over HTTPS (see oauth.module.ts). */
-export function cookieSecure(auth: AuthConfig = authConfigFromEnv()): boolean {
+export function cookieSecure(auth: AuthConfig = configFromEnv().auth): boolean {
   return serverUrl(auth).startsWith('https://');
 }
 
@@ -40,7 +40,7 @@ export function cookieSecure(auth: AuthConfig = authConfigFromEnv()): boolean {
  * not match expected"). Changing this value invalidates all previously minted
  * MCP tokens (audience mismatch) — every connected client re-authorizes once.
  */
-export function mcpResourceIdentifier(auth: AuthConfig = authConfigFromEnv()): string {
+export function mcpResourceIdentifier(auth: AuthConfig = configFromEnv().auth): string {
   return serverUrl(auth);
 }
 
@@ -76,7 +76,7 @@ function normalizeBase(raw: string, source: string): string {
  * on serverUrl(), because the SDK is configured with a single serverUrl at
  * module-definition time (auth/oauth/oauth.module.ts).
  */
-export function webOrigins(auth: AuthConfig = authConfigFromEnv()): string[] {
+export function webOrigins(auth: AuthConfig = configFromEnv().auth): string[] {
   const canonical = normalizeBase(serverUrl(auth), 'MCP_SERVER_URL/SERVER_URL');
   const extra = auth.webOrigins
     .split(',')
@@ -96,7 +96,7 @@ export function webOrigins(auth: AuthConfig = authConfigFromEnv()): string[] {
  * deliberately ignored: Express `trust proxy` is off, and the ingress in front
  * of us preserves Host.
  */
-export function resolveWebOrigin(hostHeader: string | undefined, auth: AuthConfig = authConfigFromEnv()): string {
+export function resolveWebOrigin(hostHeader: string | undefined, auth: AuthConfig = configFromEnv().auth): string {
   const canonical = normalizeBase(serverUrl(auth), 'MCP_SERVER_URL/SERVER_URL');
   if (!hostHeader) return canonical;
   const host = hostHeader.trim().toLowerCase();

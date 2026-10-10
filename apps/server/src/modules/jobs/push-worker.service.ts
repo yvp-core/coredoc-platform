@@ -1,10 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
-import {
-  miscConfigFromEnv,
-  WORKERS_CONFIG,
-  type WorkersConfig,
-  workersConfigFromEnv,
-} from '../../config/app-config.js';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { configFromEnv, WORKERS_CONFIG, type WorkersConfig } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { Prisma, type PushJob } from '../../generated/prisma/client.js';
 import { JobProcessor } from './job-processor.service.js';
@@ -41,7 +37,7 @@ const BUSY_RETRY_MS = 60_000;
  * LicenseService's own re-verification.
  */
 const LICENSE_SKIP_LOG_INTERVAL_MS = 60 * 60 * 1000;
-const SHUTDOWN_WAIT_MS = miscConfigFromEnv().environment === 'development' ? 10_000 : 30_000;
+const SHUTDOWN_WAIT_MS = configFromEnv().misc.environment === 'development' ? 10_000 : 30_000;
 
 class WorkerShutdownError extends Error {
   constructor() {
@@ -125,7 +121,7 @@ export class PushWorkerService implements OnModuleInit, OnModuleDestroy {
     // Optional: no license file (hosted, dev) means no enforcement, which is
     // also what an injector without LicenseCoreModule expresses.
     @Optional() private readonly license?: LicenseService,
-    @Optional() @Inject(WORKERS_CONFIG) private readonly workers: WorkersConfig = workersConfigFromEnv(),
+    @Optional() @Inject(WORKERS_CONFIG) private readonly workers: WorkersConfig = configFromEnv().workers,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -225,7 +221,7 @@ export class PushWorkerService implements OnModuleInit, OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     this.running = false;
     for (const execution of this.active.values()) execution.controller.abort(new WorkerShutdownError());
-    await Promise.race([Promise.all(this.loops), new Promise((resolve) => setTimeout(resolve, SHUTDOWN_WAIT_MS))]);
+    await Promise.race([Promise.all(this.loops), sleep(SHUTDOWN_WAIT_MS)]);
     this.logger.log('PushWorker stopped');
   }
 
@@ -239,10 +235,10 @@ export class PushWorkerService implements OnModuleInit, OnModuleDestroy {
     );
     while (this.running) {
       try {
-        if (!(await this.processOnce())) await this.sleep(pollMs);
+        if (!(await this.processOnce())) await sleep(pollMs);
       } catch (err) {
         this.logger.error(`Loop ${index} error: ${(err as Error).message}`);
-        await this.sleep(pollMs);
+        await sleep(pollMs);
       }
     }
   }
@@ -596,10 +592,6 @@ export class PushWorkerService implements OnModuleInit, OnModuleDestroy {
       }),
     );
     return updated.count === 1;
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
 

@@ -27,14 +27,8 @@ export interface CoredocConfig {
   /** Directory to store generated parsers */
   parserStorage: string;
 
-  /** Agent interaction mode */
-  agentMode: AgentMode;
-
   /** Global exclude patterns */
   exclude?: string[];
-
-  /** Advanced options */
-  advanced?: AdvancedConfig;
 }
 
 // =============================================================================
@@ -247,47 +241,6 @@ export interface OutputConfig {
 
   /** Pretty print JSON */
   prettyPrint?: boolean;
-
-  /** Generate separate files per package */
-  splitByPackage?: boolean;
-
-  /** Generate incremental state file */
-  generateIncrementalState?: boolean;
-}
-
-// =============================================================================
-// Agent Configuration
-// =============================================================================
-
-export type AgentMode = 'interactive' | 'auto';
-
-export interface AdvancedConfig {
-  /** Maximum files to analyze during parser generation */
-  maxFilesForAnalysis?: number;
-
-  /** File patterns to prioritize for analysis */
-  priorityPatterns?: string[];
-
-  /** Timeout for parser generation (seconds) */
-  parserGenerationTimeout?: number;
-
-  /** Number of test cases to generate for validation */
-  validationTestCount?: number;
-
-  /** Minimum coverage percentage for parser validation */
-  minCoveragePercent?: number;
-
-  /** Enable verbose logging */
-  verbose?: boolean;
-
-  /** Parallel parsing workers */
-  parallelWorkers?: number;
-
-  /** Cache parsed ASTs */
-  enableAstCache?: boolean;
-
-  /** Custom parser templates directory */
-  customTemplatesDir?: string;
 }
 
 // =============================================================================
@@ -401,55 +354,4 @@ export interface RuntimeConfig extends CoredocConfig {
 
   /** Resolved parser storage (absolute) */
   resolvedParserStorage: string;
-}
-
-// =============================================================================
-// Environment Variables
-// =============================================================================
-
-export interface CoredocEnv {
-  /** Anthropic API key */
-  // ANTHROPIC_API_KEY: string;
-
-  /**
-   * Optional: Override the coredoc home directory (default `~/.coredoc` —
-   * credentials, telemetry, session, capture-relay state). Must be absolute.
-   * Dev desktop builds default this to `~/.coredoc-dev` so they never share
-   * state with a packaged install.
-   */
-  COREDOC_HOME?: string;
-
-  /** Optional: Override config path */
-  COREDOC_CONFIG?: string;
-
-  /** Optional: Override output directory */
-  COREDOC_OUTPUT?: string;
-
-  /** Optional: Enable debug logging */
-  COREDOC_DEBUG?: string;
-
-  /** Optional: Claude model to use */
-  COREDOC_MODEL?: string;
-}
-
-// =============================================================================
-// Config Validation
-// =============================================================================
-
-export interface ConfigValidationResult {
-  valid: boolean;
-  errors: ConfigValidationError[];
-  warnings: ConfigValidationWarning[];
-}
-
-export interface ConfigValidationError {
-  path: string;
-  message: string;
-  value?: unknown;
-}
-
-export interface ConfigValidationWarning {
-  path: string;
-  message: string;
-  suggestion?: string;
 }

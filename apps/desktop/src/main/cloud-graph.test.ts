@@ -107,28 +107,6 @@ describe('cloudGraph — URL + param mapping vs the web graph factory', () => {
     expect(lastCall().url).toBe('http://localhost:3000/api/v1/workspaces/ws1/graph/repos');
   });
 
-  it('crossRepo omits the query string when no args', async () => {
-    fetchMock.mockResolvedValue(jsonOk({ nodes: [], edges: [], truncated: false }));
-    await cloudGraph.crossRepo('ws1', {});
-    expect(lastCall().url).toBe('http://localhost:3000/api/v1/workspaces/ws1/graph/cross-repo');
-  });
-
-  it('crossRepo maps scopeRepo + limit when present', async () => {
-    fetchMock.mockResolvedValue(jsonOk({ nodes: [], edges: [], truncated: false }));
-    await cloudGraph.crossRepo('ws1', { scopeRepo: 'repo-a', limit: 20 });
-    expect(lastCall().url).toBe(
-      'http://localhost:3000/api/v1/workspaces/ws1/graph/cross-repo?scopeRepo=repo-a&limit=20',
-    );
-  });
-
-  it('deadCode joins types + maps scopeRepo/limit', async () => {
-    fetchMock.mockResolvedValue(jsonOk({ nodes: [], truncated: false, lowCoverageRepos: [] }));
-    await cloudGraph.deadCode('ws1', { types: ['function', 'class'], scopeRepo: 'repo-a', limit: 20 });
-    expect(lastCall().url).toBe(
-      'http://localhost:3000/api/v1/workspaces/ws1/graph/dead-code?types=function%2Cclass&scopeRepo=repo-a&limit=20',
-    );
-  });
-
   it('capabilities GETs /graph/capabilities', async () => {
     fetchMock.mockResolvedValue(jsonOk({ cypher: true, edgesAmong: true }));
     const res = await cloudGraph.capabilities('ws1');

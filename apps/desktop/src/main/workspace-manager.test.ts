@@ -159,35 +159,6 @@ describe('workspace:getAuthStatus', () => {
   });
 });
 
-describe('workspace:getRepoState', () => {
-  it('returns the repo state when the server has one', async () => {
-    const state = { lastPushedAt: '2026-08-01T00:00:00.000Z', nodeCount: 10, edgeCount: 5 };
-    getRepoStateMock.mockResolvedValue(state);
-    const handlers = await registered();
-
-    const result = await handlers.get('workspace:getRepoState')?.({}, 'ws-1', 'repo-a');
-
-    expect(result).toEqual(state);
-    expect(getRepoStateMock).toHaveBeenCalledWith('ws-1', 'repo-a');
-  });
-
-  it('returns null on 404 so the renderer can treat the repo as never pushed', async () => {
-    getRepoStateMock.mockRejectedValue(new ApiErrorClass(404, 'Repo "repo-b" not found'));
-    const handlers = await registered();
-
-    const result = await handlers.get('workspace:getRepoState')?.({}, 'ws-1', 'repo-b');
-
-    expect(result).toBeNull();
-  });
-
-  it('rethrows non-404 errors instead of masking them as "no state"', async () => {
-    getRepoStateMock.mockRejectedValue(new ApiErrorClass(500, 'boom'));
-    const handlers = await registered();
-
-    await expect(handlers.get('workspace:getRepoState')?.({}, 'ws-1', 'repo-c')).rejects.toThrow('boom');
-  });
-});
-
 describe('workspace:setServerUrl', () => {
   it('invalidates the cached compat verdict so the banner cannot describe the old server', async () => {
     const handlers = await registered();

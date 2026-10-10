@@ -9,21 +9,10 @@ import { GithubCodeChangePersistenceService } from './github-code-change-persist
 import { CODE_CHANGE_NORM_VERSION, normalizePullRequest } from './github-normalizer.js';
 import { parseGithubRepo } from './github-importer.service.js';
 import { unpackRawPayload } from './raw-payload-codec.js';
+import { asArray as arr, asRecord as obj, asString as str } from '../../libs/coerce.js';
 
 /** Raw-payload scan batch size (id-cursor pagination). */
 const BATCH_SIZE = 200;
-
-// Tolerant coercion helpers — the stored raw payload is UNTRUSTED (it may be a legacy
-// shape, or hand-edited), so every access degrades to a safe default rather than throwing.
-function str(v: unknown): string | undefined {
-  return typeof v === 'string' ? v : undefined;
-}
-function arr(v: unknown): unknown[] {
-  return Array.isArray(v) ? v : [];
-}
-function obj(v: unknown): Record<string, unknown> {
-  return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
-}
 
 /** Loosely-typed raw-payload row shape (only the columns this job reads). */
 type RawRow = {

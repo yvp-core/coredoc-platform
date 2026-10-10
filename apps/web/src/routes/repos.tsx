@@ -19,12 +19,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Table, Td, Th, Tr } from '@/features/teams/table';
 import { hasAdminAccess } from '@/lib/roles';
 import { formatRelativeTime } from '@/lib/time';
 import { findWorkspace } from './workspace';
-
-const TH = 'border-b border-border-soft pb-[7px] px-3 text-[11.5px] font-normal uppercase tracking-[0.04em] text-ink-4';
-const TD = 'border-b border-border-soft px-3 py-2 text-ink-2';
 
 const NUM = new Intl.NumberFormat('en-US');
 const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '—' : NUM.format(Math.round(n)));
@@ -49,23 +47,23 @@ function RepoRow({
   const state = useQuery(repoStateQueryOptions(wsId, repo.repoName));
 
   return (
-    <tr className="hover:bg-surface-2">
-      <td className={`${TD} pl-0`}>
+    <Tr>
+      <Td>
         <div className="font-medium text-ink-1">{repo.repoName}</div>
         <div className="truncate font-mono text-[12px] text-ink-4">{repo.gitUrl ?? repo.repoKey}</div>
-      </td>
-      <td className={`${TD} num text-right`}>{fmt(repo.nodeCount)}</td>
-      <td className={`${TD} num text-right`}>{fmt(repo.edgeCount)}</td>
-      <td className={`${TD} text-right text-ink-4`}>{formatRelativeTime(repo.lastPushedAt)}</td>
-      <td className={`${TD} text-right font-mono text-[12px]`}>{state.data?.currentSummaryVersion ?? '—'}</td>
+      </Td>
+      <Td>{fmt(repo.nodeCount)}</Td>
+      <Td>{fmt(repo.edgeCount)}</Td>
+      <Td className="text-ink-4">{formatRelativeTime(repo.lastPushedAt)}</Td>
+      <Td className="font-mono text-[12px]">{state.data?.currentSummaryVersion ?? '—'}</Td>
       {canManage ? (
-        <td className={`${TD} pr-0 text-right`}>
+        <Td className="pr-0">
           <Button variant="ghost" size="sm" onClick={onRemove}>
             Remove
           </Button>
-        </td>
+        </Td>
       ) : null}
-    </tr>
+    </Tr>
   );
 }
 
@@ -159,15 +157,15 @@ function ReposContent({ wsId, canManage }: { wsId: string; canManage: boolean })
                   Push a repository from the CLI: <span className="font-mono text-ink-2">{PUSH_HINT}</span>
                 </EmptyNote>
               ) : (
-                <table className="w-full min-w-[680px] border-collapse text-[13.5px]">
+                <Table minWidth={680}>
                   <thead>
                     <tr>
-                      <th className={`${TH} pl-0 text-left`}>Repository</th>
-                      <th className={`${TH} text-right`}>Nodes</th>
-                      <th className={`${TH} text-right`}>Edges</th>
-                      <th className={`${TH} text-right`}>Last push</th>
-                      <th className={`${TH} text-right`}>Summary</th>
-                      {canManage ? <th className={`${TH} pr-0 text-right`}>&nbsp;</th> : null}
+                      <Th>Repository</Th>
+                      <Th>Nodes</Th>
+                      <Th>Edges</Th>
+                      <Th>Last push</Th>
+                      <Th>Summary</Th>
+                      {canManage ? <Th className="pr-0">&nbsp;</Th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -181,7 +179,7 @@ function ReposContent({ wsId, canManage }: { wsId: string; canManage: boolean })
                       />
                     ))}
                   </tbody>
-                </table>
+                </Table>
               )}
             </CardBody>
           </Card>

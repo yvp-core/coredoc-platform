@@ -5,13 +5,7 @@
  * Supports Neo4j, SQLite, and Ladybug backends.
  */
 
-import type {
-  IDatabaseDriver,
-  IGraphRepository,
-  IOperationsRepository,
-  DatabaseBackend,
-  ProjectFileBackend,
-} from './types.js';
+import type { IDatabaseDriver, IGraphRepository, DatabaseBackend, ProjectFileBackend } from './types.js';
 import {
   existsSync,
   lstatSync,
@@ -45,8 +39,7 @@ let currentLadybugLease: LadybugLease | null = null;
 // the ops repo shares the same driver. Other graph engines lazily create a
 // dedicated SQLite driver for operations only.
 let opsOnlyDriver: SqliteDriver | null = null; // Only used when graph backend != sqlite
-let currentOpsRepo: IOperationsRepository | null = null;
-let currentMcpMetricsRepo: McpMetricsRepository | null = null;
+let currentOpsRepo: SqliteOperationsRepository | null = null;
 
 // =============================================================================
 // Configuration
@@ -419,10 +412,10 @@ export async function getRepository(backend?: DatabaseBackend): Promise<IGraphRe
  * (single connection, no busy errors). For other graph engines,
  * we create a dedicated SQLite driver for operations.
  */
-export async function getOperationsRepository(): Promise<IOperationsRepository> {
+export async function getOperationsRepository(): Promise<SqliteOperationsRepository> {
   // If graph backend is SQLite, reuse its driver for operations
   if (currentBackend === 'sqlite' && currentDriver) {
-    if (!currentOpsRepo || !(currentOpsRepo instanceof SqliteOperationsRepository)) {
+    if (!currentOpsRepo) {
       currentOpsRepo = new SqliteOperationsRepository(currentDriver);
     }
     return currentOpsRepo;
@@ -437,31 +430,6 @@ export async function getOperationsRepository(): Promise<IOperationsRepository> 
   await opsOnlyDriver.initialize();
   currentOpsRepo = new SqliteOperationsRepository(opsOnlyDriver);
   return currentOpsRepo;
-}
-
-/**
- * Get or create the MCP metrics repository.
- * Always uses SQLite (local metrics are always local).
- */
-export async function getMcpMetricsRepository(): Promise<McpMetricsRepository> {
-  if (currentMcpMetricsRepo) return currentMcpMetricsRepo;
-
-  const backend = getConfiguredBackend();
-  let sqliteDriver: SqliteDriver;
-
-  if (backend === 'sqlite') {
-    sqliteDriver = (await getDriver()) as SqliteDriver;
-  } else {
-    // MCP metrics always use SQLite, even when the graph engine is not SQLite.
-    if (!opsOnlyDriver) {
-      opsOnlyDriver = new SqliteDriver();
-      await opsOnlyDriver.initialize();
-    }
-    sqliteDriver = opsOnlyDriver;
-  }
-
-  currentMcpMetricsRepo = new McpMetricsRepository(sqliteDriver);
-  return currentMcpMetricsRepo;
 }
 
 /**
@@ -482,10 +450,6 @@ export async function closeDriver(): Promise<void> {
     currentRepository = null;
     currentBackend = null;
     currentLadybugLease = null;
-    // Built on top of a driver this just closed. `bindProjectDatabase` relies
-    // on closeAllDrivers dropping everything cached before it rebinds, so a
-    // metrics repo surviving here would keep writing to the previous project.
-    currentMcpMetricsRepo = null;
     const cleanupFailures: unknown[] = checkpointFailure === undefined ? [] : [checkpointFailure];
     try {
       ladybugLease?.release();
@@ -506,7 +470,6 @@ export async function closeOperationsDriver(): Promise<void> {
     if (opsOnlyDriver === driver) {
       opsOnlyDriver = null;
       currentOpsRepo = null;
-      currentMcpMetricsRepo = null;
     }
   }
 }
@@ -603,22 +566,6 @@ export async function replaceProjectLadybugGraphFile<T>(
   return { graphPath, result };
 }
 
-/**
- * Reset the backend factory state without closing the driver.
- * Useful for testing when you want to force re-initialization.
- */
-export function resetBackendState(): void {
-  if (currentDriver || opsOnlyDriver) {
-    throw new Error('Cannot reset initialized database state. Await closeAllDrivers() first.');
-  }
-  currentDriver = null;
-  currentRepository = null;
-  currentBackend = null;
-  currentLadybugLease = null;
-  currentOpsRepo = null;
-  currentMcpMetricsRepo = null;
-}
-
 // =============================================================================
 // Project database connections
 // =============================================================================
@@ -644,7 +591,7 @@ export interface ProjectDatabase {
   url: string;
   backend: ProjectFileBackend;
   graph: IGraphRepository;
-  operations: IOperationsRepository;
+  operations: SqliteOperationsRepository;
   metrics: McpMetricsRepository;
 }
 
@@ -877,40 +824,14 @@ export function closeProjectDatabases(): Promise<void> {
   return closeProjectDatabasesPromise;
 }
 
-/**
- * Check if a driver is currently initialized.
- */
-export function isDriverInitialized(): boolean {
-  return currentDriver !== null;
-}
-
-/**
- * Get the current backend type.
- */
-export function getCurrentBackend(): DatabaseBackend | null {
-  return currentBackend;
-}
-
 // =============================================================================
 // Utility Functions
 // =============================================================================
 
 /**
- * Check if SQLite backend is available.
- */
-export async function isSqliteAvailable(): Promise<boolean> {
-  try {
-    await import('@libsql/client');
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Check if Neo4j backend is available (dependencies installed and configured).
  */
-export async function isNeo4jAvailable(): Promise<boolean> {
+async function isNeo4jAvailable(): Promise<boolean> {
   try {
     await import('neo4j-driver');
     const password = process.env.NEO4J_PASSWORD;
@@ -928,34 +849,6 @@ async function isLadybugAvailable(): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-/**
- * Get information about available backends.
- */
-export async function getAvailableBackends(): Promise<{
-  sqlite: { available: boolean; url?: string };
-  neo4j: { available: boolean; uri?: string };
-  ladybug: { available: boolean; path?: string };
-}> {
-  const sqliteAvailable = await isSqliteAvailable();
-  const neo4jAvailable = await isNeo4jAvailable();
-  const ladybugAvailable = await isLadybugAvailable();
-
-  return {
-    sqlite: {
-      available: sqliteAvailable,
-      url: sqliteAvailable ? process.env.COREDOC_SQLITE_URL : undefined,
-    },
-    neo4j: {
-      available: neo4jAvailable,
-      uri: neo4jAvailable ? process.env.NEO4J_URI || 'bolt://localhost:7687' : undefined,
-    },
-    ladybug: {
-      available: ladybugAvailable,
-      path: ladybugAvailable ? process.env.COREDOC_LADYBUG_PATH : undefined,
-    },
-  };
 }
 
 // =============================================================================
@@ -1005,9 +898,7 @@ export async function isDatabaseAvailable(): Promise<boolean> {
   const backend = getConfiguredBackend();
 
   try {
-    if (backend === 'sqlite') {
-      return await isSqliteAvailable();
-    }
+    if (backend === 'sqlite') return true;
     if (backend === 'ladybug') return await isLadybugAvailable();
     if (!(await isNeo4jAvailable())) return false;
     await getDriver('neo4j');

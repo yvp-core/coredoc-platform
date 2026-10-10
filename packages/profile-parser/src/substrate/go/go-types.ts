@@ -81,6 +81,7 @@ import {
 } from './go-cst.js';
 import { namedChildren } from '../cst-kit/walk.js';
 import { type GoPackageIndex, buildImportTable, resolveQualifier } from './go-imports.js';
+import { repoDir } from '../glob.js';
 
 // =============================================================================
 // Public shapes
@@ -134,12 +135,6 @@ export interface GoTypeEnv {
 // Repo-wide declaration indexes
 // =============================================================================
 
-/** dirname of a repo-relative path ('' at the repo root) — a Go package IS a directory. */
-function dirOf(rel: string): string {
-  const i = rel.lastIndexOf('/');
-  return i === -1 ? '' : rel.slice(0, i);
-}
-
 /** A declaration plus the file that SPELLS it — the context its type expressions resolve in. */
 interface GoDecl {
   file: GoFile;
@@ -170,7 +165,7 @@ function buildTypeIndexes(files: GoFile[]): TypeIndexes {
   const packageVars = new Map<string, GoDecl>();
 
   for (const file of files) {
-    const dir = dirOf(file.relPath);
+    const dir = repoDir(file.relPath);
 
     for (const fn of file.root.descendantsOfType(FUNCTION_DECLARATION) as TsNode[]) {
       const name = itemName(fn);
@@ -370,7 +365,7 @@ export function buildGoTypeEnv(files: GoFile[], packageIndex: GoPackageIndex): G
     // the CST cannot tell us (see go-imports.ts).
     if (PREDECLARED_TYPES.has(name)) return undefined;
     if (buildImportTable(file).dotImports.length > 0) return undefined;
-    return { name, dir: dirOf(file.relPath) };
+    return { name, dir: repoDir(file.relPath) };
   }
 
   /** The declared type of result slot `slot` of a func/method declaration. */
@@ -407,7 +402,7 @@ export function buildGoTypeEnv(files: GoFile[], packageIndex: GoPackageIndex): G
       // than a missing one. The func value's own result is not read back: that needs the literal's
       // signature threaded through every binding form, and no caller needs the recall today.
       if (findBinding(name, callee, file)) return undefined;
-      const decl = uniqueFunc(dirOf(file.relPath), name);
+      const decl = uniqueFunc(repoDir(file.relPath), name);
       return decl ? resultTypeRef(decl, slot) : undefined;
     }
     if (callee.type !== SELECTOR_EXPRESSION) return undefined;
@@ -520,7 +515,7 @@ export function buildGoTypeEnv(files: GoFile[], packageIndex: GoPackageIndex): G
     }
     // Package scope: visible to every file of the directory and NOT position-ordered (Go permits a
     // forward reference there), so it is a plain lookup rather than part of the ordered walk.
-    return idx.packageVars.get(`${dirOf(file.relPath)}#${name}`);
+    return idx.packageVars.get(`${repoDir(file.relPath)}#${name}`);
   }
 
   /** `resolveOperand`, with the recursion depth the value-chasing paths thread through. */

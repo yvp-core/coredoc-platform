@@ -11,10 +11,11 @@
 import { StableIdGenerator } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
 import { indexGoDefs, resolveGoCalls } from './go-callgraph.js';
-import { type GoFile, parseGo } from './go-cst.js';
+import { type GoFile } from './go-cst.js';
 import { buildPackageIndex } from './go-imports.js';
 import type { GoModule } from './go-modules.js';
 import { buildGoTypeEnv } from './go-types.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 const ID = new StableIdGenerator('/demo', 'demo');
 const MODULES: GoModule[] = [
@@ -28,7 +29,7 @@ const MODULES: GoModule[] = [
 ];
 
 async function gf(relPath: string, source: string): Promise<GoFile> {
-  return { relPath, source, root: await parseGo(source) };
+  return { relPath, source, root: await parseSource('go', source) };
 }
 
 function pkgIndex(files: GoFile[]) {

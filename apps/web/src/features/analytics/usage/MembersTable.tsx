@@ -10,7 +10,7 @@
 import { useState } from 'react';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
 import { MagnitudeBar } from '../charts/MagnitudeBar.js';
-import { NO_DATA, formatNumber, plural } from '../format.js';
+import { NO_DATA, formatNumber, plural } from '@coredoc/core/browser/format';
 import type { UsageMemberRow } from '../types.js';
 import {
   DEFAULT_MEMBER_SORT,

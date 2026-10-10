@@ -82,7 +82,7 @@ Precondition on an EMPTY workspace: every packet attaches to a domain, so first 
 
 1. **One packet, one slice** — one domain and one risk theme. Risk-first order: auth/tenant isolation, money, deletion and data loss, privacy, then compliance, before low-risk explanatory context. Never scan a whole product into one packet.
 2. **Inventory exact source identities**, each with a named owner and one class: `A` explicit current product decision (approved spec/ADR, owner's decision); `B` maintained product evidence (user/API docs, release or support contract); `C` observed implementation (code, tests, config, telemetry, graph, AI summary); `D` stale or unknown provenance. A class is provenance — never a confidence score, never acceptance.
-3. **Framing follows class, and it is enforced.** A/B may frame a `product_candidate`; C/D may only frame `observed_behavior` or `question`. A class-D source must appear in an explicit conflict entry naming the question and its `decisionOwner`. Each candidate's `proposal.sources` must exactly match its classified `sourceIds`, and every `proposal.domainId` must be the packet's domain; a packet `feature` sets every `featureId`.
+3. **Framing follows class; check it by hand before proposing.** A/B may frame a `product_candidate`; C/D may only frame `observed_behavior` or `question`. A class-D source must appear in an explicit conflict entry naming the question and its `decisionOwner`. Each candidate's `proposal.sources` must exactly match its classified `sourceIds`, and every `proposal.domainId` must be the packet's domain; a packet `feature` sets every `featureId`.
 4. **The graph finds questions, not answers.** It suggests touchpoints; it never establishes product truth.
 5. **Keep conflicts intact** — do not rank, merge, or resolve them. At most ten candidates per packet.
 
@@ -98,7 +98,7 @@ The packet wrapper (scratchpad only; never persisted, never sent to a tool):
 }
 ```
 
-**Validate the packet before any propose call.** `parseBrownfieldPacket` in `@coredoc/core` enforces these checks. Without package access, check them manually. On refusal, fix the packet, never route around it. Send **only `candidates[].proposal`** through `intent_propose`; omit wrapper, classes, owners and conflicts.
+**Validate the packet by hand before any propose call** against the checks above. On a failed check, fix the packet, never route around it. Send **only `candidates[].proposal`** through `intent_propose`; omit wrapper, classes, owners and conflicts.
 
 Re-running bootstrap on the same source revision is safe: matching source identities update those candidates instead of duplicating them. Put the revision in every `sources[].revision` to identify source changes. Report source-class counts, conflicts and their decision owners, unanchored candidates, and the open owner questions. Bootstrap never accepts anything.
 

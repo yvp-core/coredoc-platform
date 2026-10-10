@@ -8,12 +8,12 @@
 import { ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select } from '@/components/ui/select';
 import { hasIntentAccess } from '@/lib/roles';
 import { ReleaseRecordOutcome, useReleaseRecorder } from './release-record.js';
 import type { IntentReleaseAction, ReleaseSelectionItem } from './release-types.js';
 
-export interface DeliverySelectionBarProps {
+interface DeliverySelectionBarProps {
   workspaceId: string;
   role: string;
   selection: ReleaseSelectionItem[];
@@ -81,14 +81,11 @@ export function DeliverySelectionBar({
                         selection.map((row) => (row.id === item.id ? { ...row, removed: value === 'removed' } : row)),
                       )
                     }
+                    aria-label={`Delivery outcome for ${item.title}`}
+                    className="w-[210px]"
                   >
-                    <SelectTrigger aria-label={`Delivery outcome for ${item.title}`} className="w-[210px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="delivered">Now available</SelectItem>
-                      <SelectItem value="removed">Removed from production</SelectItem>
-                    </SelectContent>
+                    <option value="delivered">Now available</option>
+                    <option value="removed">Removed from production</option>
                   </Select>
                   <Button
                     variant="ghost"

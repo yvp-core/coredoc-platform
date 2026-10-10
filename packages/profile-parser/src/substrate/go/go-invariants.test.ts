@@ -22,8 +22,9 @@ import { type EdgeIdKind, type FunctionNode, type NodeIdKind, type ParsedRepo, S
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { goProvider } from '../../providers/go.js';
 import type { GoProfile } from '../../types.js';
-import { type GoFile, parseGo } from './go-cst.js';
+import { type GoFile } from './go-cst.js';
 import { buildImportTable } from './go-imports.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 const FILES: Record<string, string> = {
   'go.mod': [
@@ -346,7 +347,7 @@ describe('go substrate — graph-wide invariants', () => {
   it('binds a /vN-suffixed import path to its real local name', async () => {
     const relPath = 'internal/api/router.go';
     const source = readFileSync(join(root, relPath), 'utf-8');
-    const file: GoFile = { relPath, source, root: await parseGo(source) };
+    const file: GoFile = { relPath, source, root: await parseSource('go', source) };
     // `github.com/go-chi/chi/v5` binds `chi`, never `v5` — miss this and every selector on a
     // v2+ dependency resolves to nothing.
     expect(buildImportTable(file).byLocal.get('chi')).toBe('github.com/go-chi/chi/v5');

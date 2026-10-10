@@ -72,5 +72,4 @@ export const ResolveWorkspaceSchema = z.object({
 export type CreateWorkspaceInput = z.infer<typeof CreateWorkspaceSchema>;
 export type UpdateWorkspaceInput = z.infer<typeof UpdateWorkspaceSchema>;
 export type EnableCloudInput = z.infer<typeof EnableCloudSchema>;
-export type ResolveTargetInput = z.infer<typeof ResolveTargetSchema>;
 export type ResolveWorkspaceInput = z.infer<typeof ResolveWorkspaceSchema>;

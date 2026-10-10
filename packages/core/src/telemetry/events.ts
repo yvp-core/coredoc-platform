@@ -50,14 +50,6 @@ export enum ErrorCode {
   ErrorRateGt20Pct = 'error_rate_gt_20pct',
 }
 
-/** Pipeline step names used in parse timing/anomaly breakdowns. */
-export enum StepName {
-  Substrate = 'substrate',
-  Scip = 'scip',
-  Extract = 'extract',
-  Write = 'write',
-}
-
 /** Surface an event originated from — a config/env value, not a constrained emit vocabulary. */
 export type Surface = 'cli' | 'desktop' | 'ci' | 'mcp';
 

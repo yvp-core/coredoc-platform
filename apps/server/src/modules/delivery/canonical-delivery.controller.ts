@@ -15,7 +15,7 @@ import { AuthGuard } from '../../auth/auth.guard.js';
 import { CurrentUser, type AuthUser } from '../../auth/decorators/current-user.decorator.js';
 import { RequirePermission } from '../../auth/decorators/require-permission.decorator.js';
 import { WorkspaceRole } from '../../auth/decorators/workspace-role.decorator.js';
-import { JwtOnlyGuard } from '../../auth/jwt-only.guard.js';
+import { UserSessionGuard } from '../../auth/user-session.guard.js';
 import { PermissionsGuard } from '../../auth/permissions.guard.js';
 import { TokenPermission } from '../../auth/token-permissions.js';
 import { WorkspaceRoleValue } from '../../auth/decorators/workspace-role-value.decorator.js';
@@ -93,7 +93,7 @@ export class CanonicalDeliveryController {
   @HttpCode(200)
   @WorkspaceRole('admin')
   @RequirePermission(TokenPermission.WorkspaceManage)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   attachExternalRef(
     @Param('workspaceId') workspaceId: string,
     @Param('taskId') taskId: string,
@@ -106,7 +106,7 @@ export class CanonicalDeliveryController {
   @HttpCode(200)
   @WorkspaceRole('admin')
   @RequirePermission(TokenPermission.WorkspaceManage)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   detachExternalRef(
     @Param('workspaceId') workspaceId: string,
     @Param('taskId') taskId: string,
@@ -120,7 +120,7 @@ export class CanonicalDeliveryController {
   @HttpCode(200)
   @WorkspaceRole('admin')
   @RequirePermission(TokenPermission.WorkspaceManage)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   recordCoredocShipEvidence(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() actor: AuthUser,
@@ -146,7 +146,7 @@ export class CanonicalDeliveryController {
   @Get('artifacts/:artifactId/revisions')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.ResultRead)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   getArtifact(@Param('workspaceId') workspaceId: string, @Param('artifactId') artifactId: string) {
     return this.delivery.getArtifact(workspaceId, artifactId);
   }
@@ -154,7 +154,7 @@ export class CanonicalDeliveryController {
   @Get('tasks')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.ResultRead)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   listTasks(@Param('workspaceId') workspaceId: string) {
     return this.delivery.listTasks(workspaceId);
   }
@@ -162,7 +162,7 @@ export class CanonicalDeliveryController {
   @Get('task-summaries')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.ResultRead)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   listTaskSummaries(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: AuthUser,
@@ -193,7 +193,7 @@ export class CanonicalDeliveryController {
   @Get('summary')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.ResultRead)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   getDeliverySummary(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: AuthUser,
@@ -218,7 +218,7 @@ export class CanonicalDeliveryController {
   @Get('tasks/:taskId')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.ResultRead)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   getTaskDetail(@Param('workspaceId') workspaceId: string, @Param('taskId') taskId: string) {
     return this.delivery.getTaskDetail(workspaceId, taskId);
   }
@@ -226,7 +226,7 @@ export class CanonicalDeliveryController {
   @Get('tasks/:taskId/external-refs')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.ResultRead)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   listTaskExternalRefs(
     @Param('workspaceId') workspaceId: string,
     @Param('taskId') taskId: string,
@@ -239,7 +239,7 @@ export class CanonicalDeliveryController {
   @Get('tasks/:taskId/external-refs/:externalRefId/state-history')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.ResultRead)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   listExternalRefStateHistory(
     @Param('workspaceId') workspaceId: string,
     @Param('taskId') taskId: string,
@@ -253,7 +253,7 @@ export class CanonicalDeliveryController {
   @Get('tasks/:taskId/runs')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.ResultRead)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   listTaskRuns(
     @Param('workspaceId') workspaceId: string,
     @Param('taskId') taskId: string,
@@ -266,7 +266,7 @@ export class CanonicalDeliveryController {
   @Get('tasks/:taskId/runs/:runId/stage-occurrences')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.ResultRead)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   listRunStageOccurrences(
     @Param('workspaceId') workspaceId: string,
     @Param('taskId') taskId: string,
@@ -280,7 +280,7 @@ export class CanonicalDeliveryController {
   @Get('tasks/:taskId/code-changes')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.ResultRead)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   listTaskCodeChanges(
     @Param('workspaceId') workspaceId: string,
     @Param('taskId') taskId: string,
@@ -293,7 +293,7 @@ export class CanonicalDeliveryController {
   @Get('tasks/:taskId/ship-evidence')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.ResultRead)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   listTaskShipEvidence(
     @Param('workspaceId') workspaceId: string,
     @Param('taskId') taskId: string,
@@ -306,7 +306,7 @@ export class CanonicalDeliveryController {
   @Get('tasks/:taskId/rework-signals')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.ResultRead)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   listTaskReworkSignals(
     @Param('workspaceId') workspaceId: string,
     @Param('taskId') taskId: string,
@@ -319,7 +319,7 @@ export class CanonicalDeliveryController {
   @Get('tasks/:taskId/artifacts')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.ResultRead)
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   listTaskArtifacts(
     @Param('workspaceId') workspaceId: string,
     @Param('taskId') taskId: string,

@@ -35,7 +35,6 @@ import type {
   CliEntrypointDetails,
   Entrypoint,
   GrpcEntrypointDetails,
-  HttpEntrypointDetails,
   HttpMethod,
   StableIdGenerator,
 } from '@coredoc/core';
@@ -73,6 +72,8 @@ import {
 import { type GoPackageIndex, buildImportTable, buildPackageIndex } from './go-imports.js';
 import { type GoModule, dependsOnAny } from './go-modules.js';
 import { type GoTypeEnv, buildGoTypeEnv } from './go-types.js';
+import { httpEntrypoint } from '../file-nodes.js';
+import { repoDir } from '../glob.js';
 
 export interface GoEntrypointConfig {
   /** Router methods that REGISTER a handler. Default: the verb set in both spellings + Handle/Method. */
@@ -337,12 +338,6 @@ function chainedMethods(call: TsNode): HttpMethod[] {
 // Declaration indexes (handler resolution)
 // =============================================================================
 
-/** dirname of a repo-relative path ('' at the repo root) — a Go package IS a directory. */
-function dirOf(rel: string): string {
-  const i = rel.lastIndexOf('/');
-  return i === -1 ? '' : rel.slice(0, i);
-}
-
 interface DeclIndex {
   /** `${dir}#${name}` → package-scope func ids. A list, so an ambiguous name can be dropped. */
   funcIds: Map<string, string[]>;
@@ -362,7 +357,7 @@ function indexDecls(files: GoFile[], idGen: StableIdGenerator): DeclIndex {
   const funcNodes = new Map<string, { file: GoFile; node: TsNode }>();
 
   for (const file of files) {
-    const dir = dirOf(file.relPath);
+    const dir = repoDir(file.relPath);
     for (const fn of file.root.descendantsOfType(FUNCTION_DECLARATION) as TsNode[]) {
       const name = itemName(fn);
       if (!name || nearestAncestor(fn, new Set([FUNCTION_DECLARATION, METHOD_DECLARATION, FUNC_LITERAL]))) continue;
@@ -420,7 +415,7 @@ function resolveHandler(
   if (!arg) return undefined;
   if (arg.type === FUNC_LITERAL) return goFunctionId(idGen, file.relPath, arg);
   if (arg.type === IDENTIFIER) {
-    const ids = index.funcIds.get(`${dirOf(file.relPath)}#${arg.text as string}`);
+    const ids = index.funcIds.get(`${repoDir(file.relPath)}#${arg.text as string}`);
     return ids && ids.length === 1 ? ids[0] : undefined;
   }
   if (arg.type === CALL_EXPRESSION) {
@@ -430,7 +425,7 @@ function resolveHandler(
     // nearest real node.
     const fn = arg.childForFieldName?.('function') as TsNode | undefined;
     if (fn?.type !== IDENTIFIER) return undefined;
-    const ids = index.funcIds.get(`${dirOf(file.relPath)}#${fn.text as string}`);
+    const ids = index.funcIds.get(`${repoDir(file.relPath)}#${fn.text as string}`);
     if (!ids || ids.length !== 1) return undefined;
     const decl = index.funcNodes.get(ids[0]);
     const closures = returnedClosures(decl?.node);
@@ -469,27 +464,6 @@ function returnedClosures(decl: TsNode | undefined): TsNode[] {
 // =============================================================================
 // Entrypoint builders
 // =============================================================================
-
-/** Build one http entrypoint; `handlerId` falls back to a synthetic id when unresolvable. */
-function httpEntrypoint(
-  idGen: StableIdGenerator,
-  method: HttpMethod,
-  fullPath: string,
-  relPath: string,
-  node: TsNode,
-  handlerId?: string,
-): Entrypoint {
-  const id = idGen.httpEntrypointId(method, fullPath, relPath);
-  const details: HttpEntrypointDetails = { type: 'http', method, path: fullPath, fullPath };
-  return {
-    id,
-    versionedId: idGen.versionedId(id, `${method} ${fullPath}`),
-    type: 'http',
-    handlerId: handlerId ?? idGen.functionId(relPath, `${method} ${fullPath}`),
-    location: { filePath: relPath, startLine: node.startPosition.row + 1, endLine: node.endPosition.row + 1 },
-    details,
-  };
-}
 
 /**
  * The HTTP methods a registration call declares.
@@ -565,7 +539,17 @@ function httpEntrypoints(
       const handlerArg = VERB_ARG_METHODS.has(sel.field) ? args[2] : args[1];
       const handlerId = resolveHandler(handlerArg, file, index, idGen, typeEnv);
       for (const method of verbs) {
-        out.push(httpEntrypoint(idGen, method, fullPath, file.relPath, call, handlerId));
+        out.push(
+          httpEntrypoint(
+            idGen,
+            method,
+            fullPath,
+            file.relPath,
+            call.startPosition.row + 1,
+            call.endPosition.row + 1,
+            handlerId,
+          ),
+        );
       }
     }
   }
@@ -604,7 +588,7 @@ function grpcEntrypoints(
       const impl = callArgs(call)[1];
       const typeName = implTypeName(impl, file);
       if (!typeName) continue;
-      for (const { file: methodFile, node } of index.methodNodes.get(`${dirOf(file.relPath)}#${typeName}`) ?? []) {
+      for (const { file: methodFile, node } of index.methodNodes.get(`${repoDir(file.relPath)}#${typeName}`) ?? []) {
         const methodName = itemName(node);
         if (!methodName || !isExported(methodName) || methodName.startsWith('mustEmbedUnimplemented')) continue;
         const id = idGen.grpcEntrypointId(serviceName, methodName, methodFile.relPath);
@@ -730,7 +714,7 @@ type PackageValues = Map<string, Map<string, TsNode>>;
 function packageScopeValues(files: GoFile[]): PackageValues {
   const out: PackageValues = new Map();
   for (const file of files) {
-    const dir = dirOf(file.relPath);
+    const dir = repoDir(file.relPath);
     const bucket = out.get(dir) ?? new Map<string, TsNode>();
     out.set(dir, bucket);
     const n = file.root?.namedChildCount ?? 0;
@@ -832,7 +816,7 @@ function humaEntrypoints(
     const imports = buildImportTable(file);
     const humaLocals = new Set([...imports.byLocal].filter(([, path]) => HUMA_IMPORT_RE.test(path)).map(([l]) => l));
     if (humaLocals.size === 0) continue;
-    const dir = dirOf(file.relPath);
+    const dir = repoDir(file.relPath);
     for (const call of file.root.descendantsOfType(CALL_EXPRESSION) as TsNode[]) {
       const sel = selectorCall(call);
       if (!sel || sel.operand.type !== IDENTIFIER || !humaLocals.has(sel.operand.text as string)) continue;
@@ -854,7 +838,17 @@ function humaEntrypoints(
       if (!method || rawPath === undefined || !rawPath.startsWith('/')) continue;
       const fullPath = normalizePath(templatize(rawPath));
       const handlerId = resolveHandler(args[2], file, index, idGen, typeEnv);
-      out.push(httpEntrypoint(idGen, method, fullPath, file.relPath, call, handlerId));
+      out.push(
+        httpEntrypoint(
+          idGen,
+          method,
+          fullPath,
+          file.relPath,
+          call.startPosition.row + 1,
+          call.endPosition.row + 1,
+          handlerId,
+        ),
+      );
     }
   }
   return out;

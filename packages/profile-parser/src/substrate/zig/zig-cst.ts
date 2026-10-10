@@ -18,7 +18,7 @@
  *     class nor an enum in this vertical (BR-2).
  *   - `///` doc comments are `comment` siblings preceding the declaration.
  */
-import { TreeSitterLoader, type TsNode } from '../../tree-sitter/tree-sitter-loader.js';
+import { type TsNode } from '../../tree-sitter/tree-sitter-loader.js';
 import { makeStringValueReader } from '../cst-kit/strings.js';
 import { makeEnclosingWalker, namedChildrenOfType } from '../cst-kit/walk.js';
 
@@ -40,11 +40,6 @@ export const CONTAINER_DECLS: ReadonlySet<string> = new Set([
   'union_declaration',
   'opaque_declaration',
 ]);
-
-/** Parse Zig source and return the root node. The loader memoises the Parser per grammar. */
-export async function parseZig(source: string): Promise<TsNode> {
-  return (await TreeSitterLoader.getInstance().getParser('zig')).parse(source).rootNode;
-}
 
 export { namedChildrenOfType };
 

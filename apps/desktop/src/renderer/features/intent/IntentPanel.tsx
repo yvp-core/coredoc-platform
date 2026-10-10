@@ -79,7 +79,7 @@ import {
   updateIntentDomain,
   updateIntentFeature,
 } from './intent-api';
-import { IntentAttemptKeys, IntentWriteForm } from './intent-attempt-keys';
+import { IntentAttemptKeys, IntentWriteForm } from '@coredoc/core/browser/intent-attempt-keys';
 import {
   DEFAULT_INTENT_ITEM_FILTER,
   DEFAULT_INTENT_PANEL_TAB,
@@ -178,7 +178,7 @@ function IntentPanelInner({ workspaceId, workspaceSlug, reviewerHandle }: Intent
    * two writes is exactly the defect being closed.
    */
   const writeInFlight = useRef(false);
-  /** One idempotency key per logical attempt — see `intent-attempt-keys.ts`. */
+  /** One idempotency key per logical attempt — see `@coredoc/core/browser/intent-attempt-keys`. */
   const attemptKeys = useRef(new IntentAttemptKeys());
 
   const id = workspaceId as string;

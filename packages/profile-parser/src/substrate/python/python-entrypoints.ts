@@ -16,13 +16,7 @@
  * Celery tasks reuse the existing `'event'` EntrypointType (no new member) — a `@shared_task`
  * def is a message consumer, not an HTTP handler.
  */
-import type {
-  Entrypoint,
-  EventEntrypointDetails,
-  HttpEntrypointDetails,
-  HttpMethod,
-  StableIdGenerator,
-} from '@coredoc/core';
+import type { Entrypoint, EventEntrypointDetails, HttpMethod, StableIdGenerator } from '@coredoc/core';
 import { globMatches } from '../glob.js';
 import { buildModuleIndex, resolveModuleToFile } from './python-imports.js';
 import {
@@ -36,6 +30,7 @@ import {
 import { extractDjangoCommandEntrypoints } from './python-django-commands.js';
 import { extractDrfRoutes } from './python-drf.js';
 import { calleeLastName, firstPositionalString, includedModule, normalizePath, templatize } from './python-urlconf.js';
+import { httpEntrypoint } from '../file-nodes.js';
 
 export interface PythonEntrypointConfig {
   /** Where Django/DRF URLconf tables live. Defaults to the repo's `urls.py` files. */
@@ -132,24 +127,6 @@ function mountPrefixes(files: PythonFile[], routeFiles: Set<string>): Map<string
 // Entrypoint construction
 // =============================================================================
 
-function httpEntrypoint(idGen: StableIdGenerator, route: Route, relPath: string): Entrypoint {
-  const { method, fullPath, line, handlerId } = route;
-  const id = idGen.httpEntrypointId(method, fullPath, relPath);
-  const details: HttpEntrypointDetails = { type: 'http', method, path: fullPath, fullPath };
-  return {
-    id,
-    versionedId: idGen.versionedId(id, `${method} ${fullPath}`),
-    type: 'http',
-    // The real ViewSet method when the DRF lane could derive one; otherwise the documented
-    // synthetic id (a urlconf `path()` names a view no Python lane emits a node for). The
-    // synthetic SHAPE — a function id whose name segment is `"<METHOD> <path>"` — is the
-    // referential-integrity validator's non-violating exception and must stay stable.
-    handlerId: handlerId ?? idGen.functionId(relPath, `${method} ${fullPath}`),
-    location: { filePath: relPath, startLine: line, endLine: line },
-    details,
-  };
-}
-
 function celeryEntrypoint(idGen: StableIdGenerator, taskName: string, relPath: string, def: TsNode): Entrypoint {
   const id = idGen.queueEntrypointId('celery', taskName, relPath);
   const details: EventEntrypointDetails = { type: 'event', eventName: taskName, emitter: 'celery' };
@@ -233,7 +210,9 @@ export function extractPythonEntrypoints(
       const key = `${route.method} ${route.fullPath} ${file.relPath}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push(httpEntrypoint(idGen, route, file.relPath));
+      out.push(
+        httpEntrypoint(idGen, route.method, route.fullPath, file.relPath, route.line, route.line, route.handlerId),
+      );
     }
   }
   return out;

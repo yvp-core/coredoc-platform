@@ -202,7 +202,6 @@ function runPreChecks() {
         ],
         output: { dir: './output', format: 'json' },
         parserStorage: './parsers',
-        agentMode: 'interactive',
       }),
     );
 

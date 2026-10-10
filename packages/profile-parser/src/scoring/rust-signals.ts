@@ -15,22 +15,7 @@ import { discoverRustFileScope } from '../substrate/rust/rust-cst.js';
 import type { RustProfile } from '../types/rust-profile.js';
 import { absoluteSourceFiles, grepCountInFiles } from './explicit-source-files.js';
 import type { SourceSignals } from './score-core.js';
-
-/** Escape ERE metacharacters in a literal (e.g. `sqlx::query` → `sqlx::query`). */
-function escapeEre(s: string): string {
-  return s.replace(/[.[\]{}()*+?^$|\\/]/g, '\\$&');
-}
-
-/** A case-insensitive ERE for an ASCII literal — POSIX ERE has no `(?i)` and `grep -E` has no `-i` here. */
-function caseInsensitiveEre(word: string): string {
-  return [...word]
-    .map((ch) => {
-      const lower = ch.toLowerCase();
-      const upper = ch.toUpperCase();
-      return lower === upper ? escapeEre(ch) : `[${lower}${upper}]`;
-    })
-    .join('');
-}
+import { caseInsensitiveEre, escapeEre } from './grep-lines.js';
 
 const DEFAULT_ROUTE_ATTRIBUTES = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'route'];
 const DEFAULT_DERIVE_MACROS = ['DeriveEntityModel', 'Queryable', 'Insertable'];

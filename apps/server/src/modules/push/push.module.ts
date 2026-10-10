@@ -23,10 +23,3 @@ export class PushCoreModule {}
   controllers: [PushController],
 })
 export class PushApiModule {}
-
-/** Compatibility composition for repository-local consumers. */
-@Module({
-  imports: [PushCoreModule, PushApiModule],
-  exports: [PushCoreModule],
-})
-export class PushModule {}

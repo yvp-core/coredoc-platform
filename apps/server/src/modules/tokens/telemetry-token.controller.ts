@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../../auth/auth.guard.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
-import { JwtOnlyGuard } from '../../auth/jwt-only.guard.js';
+import { UserSessionGuard } from '../../auth/user-session.guard.js';
 import { WorkspaceRole } from '../../auth/decorators/workspace-role.decorator.js';
 import { CurrentUser, type AuthUser } from '../../auth/decorators/current-user.decorator.js';
 import { TELEMETRY_TOKEN_PERMISSIONS } from '../../auth/permissions.guard.js';
@@ -14,11 +14,11 @@ import { CreateTelemetryTokenSchema, type CreateTelemetryTokenInput } from './to
  * Self-service telemetry-token minting. Deliberately separate from the
  * admin-gated TokensController: any workspace *member* may mint a
  * telemetry-scoped token OWNED BY THEMSELVES, and nothing else. Scope is
- * hard-coded server-side; JwtOnlyGuard blocks service-token principals so a
+ * hard-coded server-side; UserSessionGuard blocks service-token principals so a
  * leaked telemetry token cannot mint more tokens.
  */
 @Controller('workspaces/:workspaceId/telemetry-token')
-@UseGuards(AuthGuard, WorkspaceRoleGuard, JwtOnlyGuard)
+@UseGuards(AuthGuard, WorkspaceRoleGuard, UserSessionGuard)
 export class TelemetryTokenController {
   constructor(private readonly tokensService: TokensService) {}
 

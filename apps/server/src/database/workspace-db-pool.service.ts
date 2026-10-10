@@ -8,7 +8,7 @@
  */
 
 import { Inject, Injectable, OnModuleDestroy, Logger, Optional } from '@nestjs/common';
-import { STORAGE_CONFIG, type StorageConfig, storageConfigFromEnv } from '../config/app-config.js';
+import { configFromEnv, STORAGE_CONFIG, type StorageConfig } from '../config/app-config.js';
 import type { IDatabaseDriver, IGraphRepository } from '@coredoc/db';
 import { TursoProvisioningService } from './turso-provisioning.service.js';
 
@@ -70,7 +70,7 @@ export class WorkspaceDbPoolService implements OnModuleDestroy {
 
   constructor(
     private readonly tursoProvisioning: TursoProvisioningService,
-    @Optional() @Inject(STORAGE_CONFIG) private readonly storage: StorageConfig = storageConfigFromEnv(),
+    @Optional() @Inject(STORAGE_CONFIG) private readonly storage: StorageConfig = configFromEnv().storage,
   ) {
     // Periodically evict idle connections
     this.cleanupInterval = setInterval(() => this.evictIdle(), 5 * 60 * 1000);
@@ -306,8 +306,7 @@ export class WorkspaceDbPoolService implements OnModuleDestroy {
 
   private async createConnection(workspaceId: string, url: string, token: string): Promise<IGraphRepository> {
     // Dynamically import to avoid circular dependencies and allow tree-shaking
-    const { SqliteDriver } = await import('@coredoc/db/sqlite');
-    const { SqliteRepository } = await import('@coredoc/db');
+    const { SqliteDriver, SqliteRepository } = await import('@coredoc/db');
 
     const driver = new SqliteDriver(url, token);
     await driver.initialize();

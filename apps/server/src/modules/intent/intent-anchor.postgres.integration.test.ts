@@ -26,7 +26,7 @@
  * shows that its own gate and its shared operation schema land the identical
  * row against real Postgres and a real snapshot.
  */
-import 'dotenv/config';
+import '../../config/load-env.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

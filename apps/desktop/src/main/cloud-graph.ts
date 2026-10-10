@@ -23,7 +23,6 @@ import type {
   NeighborPage,
   NodeDetail,
   VizNodePage,
-  DeadCodePage,
   WorkspaceRepoRef,
   GraphCapabilities,
   CypherGraphResult,
@@ -50,17 +49,6 @@ interface NodesByTypeArgs {
   scopeRepo?: string;
   limit?: number;
   cursor?: string;
-}
-
-interface CrossRepoArgs {
-  scopeRepo?: string;
-  limit?: number;
-}
-
-interface DeadCodeArgs {
-  types?: string[];
-  scopeRepo?: string;
-  limit?: number;
 }
 
 const base = (wsId: string) => `/api/v1/workspaces/${wsId}/graph`;
@@ -140,23 +128,6 @@ export const cloudGraph = {
         gitRemoteUrl: r.gitRemoteUrl,
       })),
     };
-  },
-
-  // GET /graph/cross-repo[?scopeRepo][&limit]
-  crossRepo: (wsId: string, args: CrossRepoArgs): Promise<NeighborPage> => {
-    const params = new URLSearchParams();
-    if (args.scopeRepo) params.set('scopeRepo', args.scopeRepo);
-    if (args.limit) params.set('limit', String(args.limit));
-    return apiRequest<NeighborPage>('GET', withQuery(`${base(wsId)}/cross-repo`, params));
-  },
-
-  // GET /graph/dead-code[?types][&scopeRepo][&limit]
-  deadCode: (wsId: string, args: DeadCodeArgs): Promise<DeadCodePage> => {
-    const params = new URLSearchParams();
-    if (args.types?.length) params.set('types', args.types.join(','));
-    if (args.scopeRepo) params.set('scopeRepo', args.scopeRepo);
-    if (args.limit) params.set('limit', String(args.limit));
-    return apiRequest<DeadCodePage>('GET', withQuery(`${base(wsId)}/dead-code`, params));
   },
 
   // GET /graph/capabilities

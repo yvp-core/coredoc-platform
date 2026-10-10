@@ -6,7 +6,8 @@ import {
   defaultReleaseReason,
   isAutomaticRecord,
   PlanIntentReleaseSchema,
-  RecordIntentReleaseSchema,
+  AutomaticRecordIntentReleaseSchema,
+  HumanRecordIntentReleaseSchema,
   RollbackIntentReleaseSchema,
   ChangeIntentPlanSchema,
   type ReleaseCommand,
@@ -25,16 +26,16 @@ const human = { idempotencyKey: 'key-1', deliveredRef: 'v1.2.3', included: [{ it
 
 function refusalOf(body: unknown): IntentPublicException['publicError'] {
   try {
-    parseContract(RecordIntentReleaseSchema, body);
+    parseContract(AutomaticRecordIntentReleaseSchema, body);
   } catch (error) {
     return (error as IntentPublicException).publicError;
   }
   throw new Error('expected a refusal');
 }
 
-describe('RecordIntentReleaseSchema — two bodies, one command', () => {
+describe('record release — two bodies, one command', () => {
   it('keeps the human body exactly as it was, including its defaults', () => {
-    expect(parseContract(RecordIntentReleaseSchema, { ...human, reason: 'Verified' })).toEqual({
+    expect(parseContract(HumanRecordIntentReleaseSchema, { ...human, reason: 'Verified' })).toEqual({
       ...human,
       reason: 'Verified',
       kind: 'release',
@@ -44,7 +45,7 @@ describe('RecordIntentReleaseSchema — two bodies, one command', () => {
   });
 
   it('accepts only structured internal declarations', () => {
-    const parsed = parseContract(RecordIntentReleaseSchema, automatic);
+    const parsed = parseContract(AutomaticRecordIntentReleaseSchema, automatic);
     expect(isAutomaticRecord(parsed)).toBe(true);
     expect(parsed).toEqual({
       ...automatic,
@@ -116,7 +117,11 @@ describe('RecordIntentReleaseSchema — two bodies, one command', () => {
     it('accepts an over-long identity through the schema rather than refusing it', () => {
       const input = identity(320);
       expect(() =>
-        parseContract(RecordIntentReleaseSchema, { ...automatic, ...input, repoKey: input.repoKey.slice(0, 200) }),
+        parseContract(AutomaticRecordIntentReleaseSchema, {
+          ...automatic,
+          ...input,
+          repoKey: input.repoKey.slice(0, 200),
+        }),
       ).not.toThrow();
     });
   });
@@ -124,11 +129,11 @@ describe('RecordIntentReleaseSchema — two bodies, one command', () => {
 
 describe('reason — required only where it carries information', () => {
   it('accepts a record and a plan change without one', () => {
-    expect(parseContract(RecordIntentReleaseSchema, human)).not.toHaveProperty('reason');
+    expect(parseContract(HumanRecordIntentReleaseSchema, human)).not.toHaveProperty('reason');
     expect(parseContract(ChangeIntentPlanSchema, { idempotencyKey: 'k', itemId: 'cap-a' })).not.toHaveProperty(
       'reason',
     );
-    expect(parseContract(RecordIntentReleaseSchema, automatic)).not.toHaveProperty('reason');
+    expect(parseContract(AutomaticRecordIntentReleaseSchema, automatic)).not.toHaveProperty('reason');
   });
 
   it.each([
@@ -139,17 +144,17 @@ describe('reason — required only where it carries information', () => {
   });
 
   it('fills the system default from the most specific identity the command carries', () => {
-    const deployed = parseContract(RecordIntentReleaseSchema, automatic);
+    const deployed = parseContract(AutomaticRecordIntentReleaseSchema, automatic);
     expect(defaultReleaseReason(deployed)).toBe('deploy v1.2.3');
     expect(
       defaultReleaseReason(
-        parseContract(RecordIntentReleaseSchema, {
+        parseContract(AutomaticRecordIntentReleaseSchema, {
           ...automatic,
           pr: { repoKey: 'github.com/acme/orders-api', number: 42 },
         }),
       ),
     ).toBe('PR github.com/acme/orders-api#42');
-    expect(defaultReleaseReason(parseContract(RecordIntentReleaseSchema, human))).toBe('manual');
+    expect(defaultReleaseReason(parseContract(HumanRecordIntentReleaseSchema, human))).toBe('manual');
     expect(defaultReleaseReason({ ...deployed, reason: 'Typed by a maintainer' } as ReleaseCommand)).toBe(
       'Typed by a maintainer',
     );

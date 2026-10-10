@@ -64,7 +64,6 @@ export const AutomaticRecordIntentReleaseSchema = z
   })
   .strict();
 
-export const RecordIntentReleaseSchema = z.union([AutomaticRecordIntentReleaseSchema, HumanRecordIntentReleaseSchema]);
 export const RollbackIntentReleaseSchema = z.object({ ...common, reason, releaseSeq: head.min(1) }).strict();
 export const PlanIntentReleaseSchema = z
   .object({ ...common, reason, itemId: slugId(), expectedVersion: itemVersion })

@@ -7,7 +7,7 @@
 import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Chip } from '../delivery/Chip.js';
-import { NO_DATA } from '../format.js';
+import { NO_DATA } from '@coredoc/core/browser/format';
 import type { FeedbackRecord, FeedbackReviewStatus } from '../types.js';
 import { formatUtcMinute, humanizeArea, humanizeIssueType, recordCountChips } from './usage-presentation.js';
 

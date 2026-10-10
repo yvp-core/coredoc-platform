@@ -5,9 +5,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, expect, it, vi } from 'vitest';
 import { withOptionalIndexHost } from '../../facts/scip/index-host.js';
-import { parseGo } from './go-cst.js';
-import { goScipCallFacts } from './scip-calls.js';
+
+import { goSubstrate } from './go-parser.js';
 import { StableIdGenerator } from '@coredoc/core';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__/scip');
 let work: string | undefined;
@@ -19,8 +20,8 @@ const profile = { parserId: 'scip-test', substrate: { language: 'go' as const, i
 
 it('keeps generic free functions distinct from selector calls', async () => {
   const source = 'package demo\nfunc Run() { Work[int](); worker.Perform() }';
-  const facts = goScipCallFacts(
-    [{ relPath: 'main.go', source, root: await parseGo(source) }],
+  const facts = goSubstrate.scip!.facts(
+    [{ relPath: 'main.go', source, root: await parseSource('go', source) }],
     new StableIdGenerator('fixture'),
   );
   expect(facts[0].calls.map((call) => [call.name, call.edge.isMethodCall])).toEqual([

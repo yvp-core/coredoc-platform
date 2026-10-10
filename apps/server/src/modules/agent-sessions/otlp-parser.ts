@@ -343,8 +343,3 @@ export function aggregateLogRecords(entry: SessionLogRecords, sinceNanos: bigint
   }
   return d;
 }
-
-/** Back-compat aggregate-everything view (no watermark filtering). */
-export function parseOtlpLogs(body: unknown): SessionDelta[] {
-  return parseOtlpLogRecords(body).map((entry) => aggregateLogRecords(entry, -1n));
-}

@@ -1,11 +1,11 @@
-import 'dotenv/config';
+import '../../config/load-env.js';
 import { randomBytes } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AuthService } from '../../auth/auth.service.js';
-import { STORAGE_CONFIG, storageConfigFromEnv } from '../../config/app-config.js';
+import { STORAGE_CONFIG, configFromEnv } from '../../config/app-config.js';
 import { ControlPlaneService } from '../../database/control-plane.service.js';
 import { buildPrismaAdapter } from '../../database/create-prisma-client.js';
 import { encrypt } from '../../database/encryption.js';
@@ -107,7 +107,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
 
     const users = new Map(USERS.map((user) => [user.id, user]));
     const jiraFactory: JiraClientFactory = ({ baseUrl }) => (jiraSites.get(baseUrl) ?? new FakeJira()).client();
-    const storage = storageConfigFromEnv();
+    const storage = configFromEnv().storage;
     const moduleRef = await Test.createTestingModule({
       controllers: [CloudAgentRunsController],
       providers: [

@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 
-export interface PillTabItem<T extends string> {
+interface PillTabItem<T extends string> {
   value: T;
   label: string;
   count?: number;

@@ -12,10 +12,9 @@
 import { shell, type IpcMain } from 'electron';
 import { validateAnalyticsWindow } from './analytics-window.js';
 import { BUNDLED_COREDOC_WEB_URL } from './build-env.js';
-import { getFeedbackCorrelation, getFeedbackRecords, getFeedbackRoadmap, getUsageAnalytics } from './server-api.js';
+import { getFeedbackRecords, getUsageAnalytics } from './server-api.js';
 import {
   IpcChannels,
-  type FeedbackIssueCostCorrelation,
   type FeedbackIssueType,
   type FeedbackMisleadingMetadata,
   type FeedbackMissingCapability,
@@ -511,22 +510,6 @@ export function registerObservabilityHandlers(ipcMain: IpcMain): void {
     },
   );
 
-  ipcMain.handle(
-    IpcChannels.OBSERVABILITY_GET_FEEDBACK_ROADMAP,
-    async (
-      _event,
-      workspaceId: string,
-      days: number,
-    ): Promise<{ success: boolean; data?: FeedbackRoadmap; error?: string }> => {
-      try {
-        const data = await getFeedbackRoadmap(workspaceId, days);
-        return { success: true, data };
-      } catch (err) {
-        return { success: false, error: message(err) };
-      }
-    },
-  );
-
   // The paged records behind the roadmap aggregates. Both the request knobs and
   // the response cross a projector, so neither a hostile renderer nor a hostile
   // server reaches the other half-validated.
@@ -545,22 +528,6 @@ export function registerObservabilityHandlers(ipcMain: IpcMain): void {
           validateFeedbackRecordsFilter(filter),
         );
         return { success: true, data: projectFeedbackRecords(read) };
-      } catch (err) {
-        return { success: false, error: message(err) };
-      }
-    },
-  );
-
-  ipcMain.handle(
-    IpcChannels.OBSERVABILITY_GET_FEEDBACK_CORRELATION,
-    async (
-      _event,
-      workspaceId: string,
-      days: number,
-    ): Promise<{ success: boolean; data?: FeedbackIssueCostCorrelation[]; error?: string }> => {
-      try {
-        const data = await getFeedbackCorrelation(workspaceId, days);
-        return { success: true, data };
       } catch (err) {
         return { success: false, error: message(err) };
       }

@@ -56,13 +56,6 @@ vi.mock('./build-env.js', () => ({
   BUNDLED_POSTHOG_HOST: 'https://ph.example',
 }));
 
-// A local posthog-node client must NEVER be constructed by the adapter — the
-// old telemetry-manager did; the shared client owns transport now.
-const PostHogCtor = vi.fn(() => {
-  throw new Error('posthog-node must not be constructed by the desktop adapter');
-});
-vi.mock('posthog-node', () => ({ PostHog: PostHogCtor }));
-
 /** Minimal ipcMain double that records the handlers registered against it. */
 type IpcHandler = (event: unknown, ...args: unknown[]) => unknown;
 function fakeIpcMain(): { ipcMain: IpcMain; handlers: Map<string, IpcHandler> } {
@@ -108,12 +101,6 @@ describe('captureMainException', () => {
     expect(passedErr).toBe(err); // the raw error — core scrubs the message + stack, not the call site
     expect(code).toBe('unknown'); // ErrorCode.Unknown
     expect(props).toMatchObject({ source: 'uncaughtException' });
-  });
-
-  it('never constructs a local posthog-node client', async () => {
-    const { captureMainException } = await import('./telemetry-manager.js');
-    await captureMainException(new Error('boom'), { source: 'unhandledRejection' });
-    expect(PostHogCtor).not.toHaveBeenCalled();
   });
 });
 

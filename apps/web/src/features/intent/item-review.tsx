@@ -20,7 +20,7 @@ import {
   type IntentReviewDecisionResult,
 } from './types.js';
 
-export interface IntentItemReviewProps {
+interface IntentItemReviewProps {
   match: IntentContextMatch;
   predecessor?: IntentContextMatch;
   predecessorLoading: boolean;

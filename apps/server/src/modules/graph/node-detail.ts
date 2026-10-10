@@ -14,18 +14,13 @@
  */
 
 import type { EntityFieldDetail, MemberDetail, NodeDetailData } from '@coredoc/core';
+import { asArray as arr, asFiniteNumber as num } from '../../libs/coerce.js';
 
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v !== '' ? v : undefined;
 }
-function num(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
-}
 function bool(v: unknown): boolean | undefined {
   return typeof v === 'boolean' ? v : undefined;
-}
-function arr(v: unknown): unknown[] {
-  return Array.isArray(v) ? v : [];
 }
 function obj(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : {};

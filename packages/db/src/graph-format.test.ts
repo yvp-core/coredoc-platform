@@ -1,13 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { GRAPH_FILE_ENGINE_VERSION, GRAPH_FILE_FORMAT_COMPATIBILITY, heritageIdentityIsVerifiable } from './index.js';
+import { GRAPH_FILE_FORMAT_COMPATIBILITY, heritageIdentityIsVerifiable } from './index.js';
 
 describe('graph file compatibility identity', () => {
   it('matches the exact Ladybug runtime dependency and ignores environment overrides', () => {
     const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       dependencies: Record<string, string>;
     };
-    expect(packageJson.dependencies['@ladybugdb/core']).toBe(GRAPH_FILE_ENGINE_VERSION);
+    expect(packageJson.dependencies['@ladybugdb/core']).toBe(GRAPH_FILE_FORMAT_COMPATIBILITY.engineVersion);
 
     const previous = process.env.GRAPH_FILE_STORAGE_FORMAT_VERSION;
     process.env.GRAPH_FILE_STORAGE_FORMAT_VERSION = '999';

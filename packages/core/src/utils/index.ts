@@ -6,7 +6,7 @@
 export * from './erd-generator.js';
 
 // Locale-independent ordering for hashed / persisted / compared output
-export { compareCodeUnits, byCodeUnits } from './deterministic-order.js';
+export { compareCodeUnits } from './deterministic-order.js';
 
 // Config helpers
 export * from './config-helpers.js';
@@ -38,8 +38,5 @@ export * from './project-id.js';
 // Repo reference & path-construction helpers
 export * from './repo-ref.js';
 
-// Workspace layout migration helper
-export * from './migrate-workspace-layout.js';
-
 // Canonical coredoc.config.json loader (shared by CLI, SDK, sync and MCP)
-export { loadConfig, type LoadConfigOptions } from './load-config.js';
+export { loadConfig } from './load-config.js';

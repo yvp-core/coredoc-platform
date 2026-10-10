@@ -11,7 +11,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const getToken = vi.hoisted(() => vi.fn(async () => 'cdt_test'));
 const getServerUrl = vi.hoisted(() => vi.fn(async () => 'https://api.test'));
-vi.mock('../auth.js', () => ({ getToken, getServerUrl }));
+vi.mock('../auth.js', () => ({
+  getToken,
+  getServerUrl,
+  authHeaders: async () => ({ Authorization: `Bearer ${await getToken()}` }),
+}));
 
 /** URLs the client requested, in order. */
 let requested: string[];
@@ -195,7 +199,7 @@ describe('waitForPushJob', () => {
     const error = await waitForPushJob('ws_1', 'job_1', { timeoutMs: 5000, intervalMs: 1 }).catch((e) => e);
 
     expect(error).not.toBeInstanceOf(PushJobTimeoutError);
-    expect((error as Error).message).toContain('Job status check failed (401)');
+    expect((error as Error).message).toContain('getJob failed (401)');
     expect(requested).toHaveLength(1);
   });
 });

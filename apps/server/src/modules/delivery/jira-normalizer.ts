@@ -1,12 +1,11 @@
 // Pure normalizer: Jira Cloud REST v3 issue payloads -> NormalizedJiraIssue.
-// No imports, no I/O, no date parsing. Jira payloads are UNTRUSTED (attacker-
+// No I/O, no date parsing. Jira payloads are UNTRUSTED (attacker-
 // controlled), so every field is coerced through tolerant helpers (str/arr/obj/
 // capped); non-conforming shapes degrade to undefined / [] rather than throwing,
 // and every string/array is capped before it leaves this module. Dates are
 // passed through verbatim as source strings — the service layer converts to `Date`.
-//
-// The tolerant-coercion helper idiom is duplicated locally on purpose (mirrors
-// github-normalizer): normalizers do NOT import helpers across module boundaries.
+
+import { asArray as arr, asRecord as obj, asString as str } from '../../libs/coerce.js';
 
 export interface NormalizedJiraTransition {
   occurredAt: string;
@@ -42,21 +41,6 @@ export interface NormalizedJiraIssue {
 }
 
 // --- tolerant coercion helpers -------------------------------------------------
-
-/** Non-string -> undefined. */
-function str(v: unknown): string | undefined {
-  return typeof v === 'string' ? v : undefined;
-}
-
-/** Non-array -> []. */
-function arr(v: unknown): unknown[] {
-  return Array.isArray(v) ? v : [];
-}
-
-/** Non-object (or array/null) -> {}. */
-function obj(v: unknown): Record<string, unknown> {
-  return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
-}
 
 /** str() then truncate to `max` chars; undefined passes through. */
 function capped(v: unknown, max: number): string | undefined {

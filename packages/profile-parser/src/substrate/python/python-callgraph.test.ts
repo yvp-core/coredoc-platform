@@ -1,12 +1,15 @@
 import { StableIdGenerator } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
-import { type PythonFile, parsePython } from './python-cst.js';
-import { SHIPPABLE_PROVENANCE, collectPythonDefs, indexPythonDefs, resolvePythonCalls } from './python-callgraph.js';
+import { type PythonFile } from './python-cst.js';
+import { SHIPPABLE_PROVENANCE, indexPythonDefs, resolvePythonCalls } from './python-callgraph.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
+
+const defsOf = (...args: Parameters<typeof indexPythonDefs>) => [...indexPythonDefs(...args).byId.values()];
 
 const mkGen = () => new StableIdGenerator('/repo', 'repo');
 
 async function file(relPath: string, source: string): Promise<PythonFile> {
-  return { relPath, source, root: await parsePython(source) };
+  return { relPath, source, root: await parseSource('python', source) };
 }
 
 /** Build the def index + resolve the shippable calls across a set of files. */
@@ -187,12 +190,12 @@ describe('resolvePythonCalls — precision-first remediation regressions (S7)', 
   });
 });
 
-describe('collectPythonDefs / indexPythonDefs — structural extraction + two-ID integrity (S4)', () => {
+describe('indexPythonDefs — structural extraction + two-ID integrity (S4)', () => {
   it('a nested def and a class method get DISTINCT ids and REAL versionedIds', async () => {
     const idGen = mkGen();
     const src =
       'class Svc:\n    def outer(self):\n        def helper():\n            return 1\n\n        return helper()\n';
-    const defs = collectPythonDefs([await file('f.py', src)], idGen);
+    const defs = defsOf([await file('f.py', src)], idGen);
 
     const outer = defs.find((d) => d.name === 'outer');
     const helper = defs.find((d) => d.name === 'helper');
@@ -220,7 +223,7 @@ describe('collectPythonDefs / indexPythonDefs — structural extraction + two-ID
   it('a module-level def and a same-named method get DISTINCT ids (function vs method)', async () => {
     const idGen = mkGen();
     const src = 'def run():\n    pass\n\n\nclass Svc:\n    def run(self):\n        pass\n';
-    const defs = collectPythonDefs([await file('f.py', src)], idGen);
+    const defs = defsOf([await file('f.py', src)], idGen);
     const fn = defs.find((d) => d.kind === 'function' && d.name === 'run');
     const method = defs.find((d) => d.kind === 'method' && d.name === 'run');
     expect(fn).toBeDefined();
@@ -234,14 +237,8 @@ describe('collectPythonDefs / indexPythonDefs — structural extraction + two-ID
 
   it('editing one function body flips ONLY that node versionedId', async () => {
     const idGen = mkGen();
-    const v1 = collectPythonDefs(
-      [await file('f.py', 'def alpha():\n    return 1\n\n\ndef beta():\n    return 2\n')],
-      idGen,
-    );
-    const v2 = collectPythonDefs(
-      [await file('f.py', 'def alpha():\n    return 1\n\n\ndef beta():\n    return 99\n')],
-      idGen,
-    );
+    const v1 = defsOf([await file('f.py', 'def alpha():\n    return 1\n\n\ndef beta():\n    return 2\n')], idGen);
+    const v2 = defsOf([await file('f.py', 'def alpha():\n    return 1\n\n\ndef beta():\n    return 99\n')], idGen);
     const a1 = v1.find((d) => d.name === 'alpha');
     const a2 = v2.find((d) => d.name === 'alpha');
     const b1 = v1.find((d) => d.name === 'beta');
@@ -257,7 +254,7 @@ describe('collectPythonDefs / indexPythonDefs — structural extraction + two-ID
   it('captures async, parameters, location, and caps sourceCode at 20000 chars', async () => {
     const idGen = mkGen();
     const src = 'async def handle(request, *args, **kwargs):\n    return 1\n';
-    const defs = collectPythonDefs([await file('h.py', src)], idGen);
+    const defs = defsOf([await file('h.py', src)], idGen);
     const handle = defs.find((d) => d.name === 'handle');
     expect(handle?.isAsync).toBe(true);
     expect(handle?.isGenerator).toBe(false);
@@ -266,15 +263,6 @@ describe('collectPythonDefs / indexPythonDefs — structural extraction + two-ID
     expect(handle?.location.startLine).toBe(1);
     expect(handle?.fileId).toBe(idGen.fileId('h.py'));
     expect(handle?.sourceCode.length).toBeLessThanOrEqual(20000);
-  });
-
-  it('collectPythonDefs === [...index.byId.values()]', async () => {
-    const idGen = mkGen();
-    const f = await file('f.py', 'def a():\n    pass\n\n\ndef b():\n    pass\n');
-    const idGen2 = mkGen();
-    const collected = collectPythonDefs([f], idGen);
-    const indexed = [...indexPythonDefs([f], idGen2).byId.values()];
-    expect(collected.map((d) => d.id).sort()).toEqual(indexed.map((d) => d.id).sort());
   });
 });
 

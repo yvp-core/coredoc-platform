@@ -17,22 +17,7 @@ import { globMatches } from '../substrate/glob.js';
 import type { GoProfile } from '../types/go-profile.js';
 import { absoluteSourceFiles, grepCountInFiles, grepMatchingFiles } from './explicit-source-files.js';
 import type { SourceSignals } from './score-core.js';
-
-/** Escape ERE metacharacters in a literal. */
-function escapeEre(s: string): string {
-  return s.replace(/[.[\]{}()*+?^$|\\/]/g, '\\$&');
-}
-
-/** A case-insensitive ERE for an ASCII literal — POSIX ERE has no `(?i)` and `grep -E` has no `-i` here. */
-function caseInsensitiveEre(word: string): string {
-  return [...word]
-    .map((ch) => {
-      const lower = ch.toLowerCase();
-      const upper = ch.toUpperCase();
-      return lower === upper ? escapeEre(ch) : `[${lower}${upper}]`;
-    })
-    .join('');
-}
+import { caseInsensitiveEre, escapeEre } from './grep-lines.js';
 
 /**
  * Router registration verbs, in BOTH ecosystem spellings: chi / gorilla / stdlib use

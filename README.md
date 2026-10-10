@@ -318,7 +318,6 @@ cp coredoc.config.example.json coredoc.config.json
     "prettyPrint": true
   },
   "parserStorage": "./coredoc-parsers",
-  "agentMode": "interactive",
   "exclude": [
     "**/node_modules/**",
     "**/dist/**",
@@ -343,7 +342,6 @@ cp coredoc.config.example.json coredoc.config.json
 | `output.format` | string | Output format (`json`) |
 | `output.prettyPrint` | boolean | Pretty-print output JSON |
 | `parserStorage` | string | Directory to store per-repo extraction profiles |
-| `agentMode` | string | Agent interaction mode (`interactive` \| `auto`) |
 | `exclude` | array | Glob patterns to exclude from parsing |
 
 ### MCP Server

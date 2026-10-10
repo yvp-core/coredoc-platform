@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { createClient } from '@libsql/client';
-import { getSqliteUrl, SqliteDriver, rewriteParams } from './driver.js';
+import { getSqliteUrl, SqliteDriver } from './driver.js';
 
 // A fixed cwd path lets overlapping Vitest processes delete or lock each other's database.
 const TEST_DB_DIRECTORY = fs.mkdtempSync(path.join(os.tmpdir(), 'coredoc-sqlite-driver-'));
@@ -245,43 +245,5 @@ describe('SQLite binding', () => {
       await relativeDriver.close();
       fs.rmSync(root, { recursive: true, force: true });
     }
-  });
-});
-
-describe('rewriteParams', () => {
-  it('should convert @param to $param', () => {
-    expect(rewriteParams('SELECT * FROM nodes WHERE id = @id')).toBe('SELECT * FROM nodes WHERE id = $id');
-  });
-
-  it('should handle multiple parameters', () => {
-    expect(rewriteParams('INSERT INTO nodes (id, name) VALUES (@id, @name)')).toBe(
-      'INSERT INTO nodes (id, name) VALUES ($id, $name)',
-    );
-  });
-
-  it('should preserve @-signs inside single-quoted strings', () => {
-    expect(rewriteParams("SELECT * FROM nodes WHERE email = 'user@email.com'")).toBe(
-      "SELECT * FROM nodes WHERE email = 'user@email.com'",
-    );
-  });
-
-  it('should preserve @-signs inside double-quoted identifiers', () => {
-    expect(rewriteParams('SELECT "col@name" FROM nodes')).toBe('SELECT "col@name" FROM nodes');
-  });
-
-  it('should preserve @-signs inside single-line comments', () => {
-    expect(rewriteParams('SELECT * FROM nodes -- @note\nWHERE id = @id')).toBe(
-      'SELECT * FROM nodes -- @note\nWHERE id = $id',
-    );
-  });
-
-  it('should preserve @-signs inside multi-line comments', () => {
-    expect(rewriteParams('SELECT * FROM nodes /* @note */ WHERE id = @id')).toBe(
-      'SELECT * FROM nodes /* @note */ WHERE id = $id',
-    );
-  });
-
-  it('should not rewrite @ followed by non-identifier characters', () => {
-    expect(rewriteParams('SELECT @id, @@ FROM nodes')).toBe('SELECT $id, @@ FROM nodes');
   });
 });

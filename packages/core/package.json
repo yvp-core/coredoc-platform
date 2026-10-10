@@ -38,6 +38,10 @@
     "./agent-runner": {
       "types": "./dist/agent-runner/index.d.ts",
       "import": "./dist/agent-runner/index.js"
+    },
+    "./browser/*": {
+      "types": "./dist/browser/*.d.ts",
+      "import": "./dist/browser/*.js"
     }
   },
   "scripts": {
@@ -49,7 +53,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "glob": "^13.0.0",
     "posthog-node": "^5.28.11",
     "zod": "^4.0.0"
   },

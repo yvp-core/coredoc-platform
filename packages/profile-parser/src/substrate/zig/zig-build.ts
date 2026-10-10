@@ -26,9 +26,9 @@ import {
   initializerElements,
   initializerEntries,
   namedChildrenOfType,
-  parseZig,
   sameNode,
 } from './zig-cst.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 /** What an identifier may stand for at one point of `build.zig`: call-site arguments + fn locals. */
 interface Ctx {
@@ -68,7 +68,7 @@ export async function parseZigBuild(root: string): Promise<ZigBuildMap> {
   const map: ZigBuildMap = { modules: new Map(), exeByRoot: new Map() };
   let tree: TsNode | undefined;
   try {
-    tree = await parseZig(await readFile(join(root, 'build.zig'), 'utf8'));
+    tree = await parseSource('zig', await readFile(join(root, 'build.zig'), 'utf8'));
   } catch {
     // BR-13a: missing or unparseable build.zig → empty maps, never a throw. Only the READ and
     // the PARSE are guarded: a bug inside `collect` must surface, not read as an absent build.

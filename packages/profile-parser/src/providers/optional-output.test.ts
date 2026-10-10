@@ -24,7 +24,7 @@ it.each([
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   run.mockResolvedValue({ ok: false, degradeReason: 'fixture tooling unavailable' });
   const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../substrate', language, '__fixtures__/scip');
-  const opts = { repoRoot, repoName: 'fixture', cacheDir: '/cache/shared' };
+  const opts = { repoRoot, repoName: 'fixture' };
   const profile = {
     parserId: 'fixture',
     substrate: { language, include: [`**/*.${ext}`], analysis: { mode: 'enhanced' as const } },

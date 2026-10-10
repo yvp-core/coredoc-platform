@@ -8,13 +8,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { refreshIntentAnchor } from '@/api/queries/intent';
 import type { IntentAnchorRefreshOutcome } from './anchor-row.js';
-import { IntentWriteForm } from './intent-attempt-keys.js';
+import { IntentWriteForm } from '@coredoc/core/browser/intent-attempt-keys';
 import { intentAnchorKey } from './intent-panel-state.js';
 import { messageOf } from './intent-presentation.js';
 import type { IntentWriter } from './intent-writer.js';
 import type { IntentItemAnchor } from './types.js';
 
-export interface AnchorRefreshInput {
+interface AnchorRefreshInput {
   workspaceId: string;
   selectedItemId: string | null;
   canRefresh: boolean;

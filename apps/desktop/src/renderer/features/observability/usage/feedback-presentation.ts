@@ -17,7 +17,7 @@ import {
   type FeedbackReviewStatus,
 } from '../../../../shared/ipc-types.js';
 import type { ChipTone } from '../delivery/Chip';
-import { NO_DATA, plural } from '../observability-format';
+import { NO_DATA, plural } from '@coredoc/core/browser/format';
 
 /** Human labels for the closed session-issue area set (the raw slugs read as internals). */
 export const SESSION_AREA_LABELS: Record<FeedbackSessionIssueArea, string> = {

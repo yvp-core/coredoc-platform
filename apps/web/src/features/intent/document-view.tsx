@@ -11,6 +11,7 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import { plural } from '@coredoc/core/browser/format';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { useEffect, useRef, useState } from 'react';
@@ -25,7 +26,7 @@ import {
   type IntentNodeDocument,
 } from './types.js';
 
-export interface IntentDocumentViewProps {
+interface IntentDocumentViewProps {
   document: IntentNodeDocument | null;
   loading: boolean;
   errorMessage?: string;
@@ -43,7 +44,7 @@ export interface IntentDocumentViewProps {
   approveAll?: IntentApproveAll;
 }
 
-export interface IntentApproveAll {
+interface IntentApproveAll {
   canReview: boolean;
   busy: boolean;
   /** Resolves with what happened, in one sentence. */
@@ -332,10 +333,6 @@ function DomainRow({ domain, onClick }: { domain: IntentDocumentDomain; onClick:
       </span>
     </button>
   );
-}
-
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
 
 /** Delivery covers the node's whole subtree, as its tree badges do. */

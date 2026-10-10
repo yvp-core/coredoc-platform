@@ -11,19 +11,7 @@ import type { WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js'
 import { selfScopeFor } from '../../auth/self-scope.js';
 import { parseCustomWindow } from '../../libs/analytics-window.js';
 import { MAX_ANALYTICS_DAYS, UsageAnalyticsService } from './usage-analytics.service.js';
-
-const DEFAULT_DAYS = 30;
-
-/**
- * Same parse rule as `metrics.controller.ts parseDaysParam`, clamped to the
- * analytics ceiling (LIM-4: the largest day-selector value).
- */
-function parseDaysParam(raw?: string): number {
-  if (!raw) return DEFAULT_DAYS;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) return DEFAULT_DAYS;
-  return Math.min(parsed, MAX_ANALYTICS_DAYS);
-}
+import { parseDaysParam } from '../../libs/coerce.js';
 
 @Controller('workspaces/:workspaceId/analytics')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard)
@@ -45,6 +33,11 @@ export class AnalyticsController {
   ) {
     // `since`/`until` win over `days` when present; malformed ranges 400 instead of clamping.
     const custom = parseCustomWindow(since, until);
-    return this.usage.getWorkspaceUsage(workspaceId, parseDaysParam(days), selfScopeFor(user, role), custom);
+    return this.usage.getWorkspaceUsage(
+      workspaceId,
+      parseDaysParam(days, MAX_ANALYTICS_DAYS),
+      selfScopeFor(user, role),
+      custom,
+    );
   }
 }

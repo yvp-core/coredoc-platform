@@ -44,17 +44,6 @@ import type {
 export type DatabaseBackend = 'neo4j' | 'sqlite' | 'ladybug';
 export type ProjectFileBackend = Exclude<DatabaseBackend, 'neo4j'>;
 
-export interface DatabaseConfig {
-  backend: DatabaseBackend;
-  // Neo4j specific
-  neo4jUri?: string;
-  neo4jUser?: string;
-  neo4jPassword?: string;
-  // SQLite specific
-  sqliteUrl?: string;
-  sqliteAuthToken?: string;
-}
-
 // =============================================================================
 // Transaction Interface
 // =============================================================================
@@ -1733,32 +1722,17 @@ export interface IGraphRepository extends IGraphCypherReadRepository {
 }
 
 // =============================================================================
-// Batch Types for Push Operations
-// =============================================================================
-
-export interface NodeBatch {
-  type: NodeType;
-  nodes: GraphNode[];
-}
-
-export interface EdgeBatch {
-  type: EdgeType;
-  edges: GraphEdge[];
-}
-
-// =============================================================================
 // Operations Tracking
 // =============================================================================
 
 export type OperationType = 'parse' | 'summarize' | 'push' | 'docs' | 'generate' | 'embed' | 'resolve';
-export type OperationStatus = 'started' | 'completed' | 'failed';
 
 export interface OperationRecord {
   id: string;
   projectId: string;
   repoName: string;
   operation: OperationType;
-  status: OperationStatus;
+  status: 'started' | 'completed' | 'failed';
   startedAt: number; // unix epoch ms
   completedAt?: number;
   durationMs?: number;
@@ -1773,24 +1747,4 @@ export interface OperationSummary {
   lastPushed?: OperationRecord;
   lastGenerated?: OperationRecord;
   lastDocs?: OperationRecord;
-}
-
-export interface IOperationsRepository {
-  startOperation(
-    projectId: string,
-    repoName: string,
-    operation: OperationType,
-    metadata?: Record<string, unknown>,
-  ): Promise<string>;
-  completeOperation(id: string, metadata?: Record<string, unknown>): Promise<void>;
-  failOperation(id: string, error: string, metadata?: Record<string, unknown>): Promise<void>;
-  getOperationSummary(projectId: string, repoName: string): Promise<OperationSummary>;
-  getOperationHistory(
-    projectId: string,
-    repoName: string,
-    operation?: OperationType,
-    limit?: number,
-  ): Promise<OperationRecord[]>;
-  getLatestOperation(projectId: string, repoName: string, operation: OperationType): Promise<OperationRecord | null>;
-  getAllOperationSummaries(): Promise<OperationSummary[]>;
 }

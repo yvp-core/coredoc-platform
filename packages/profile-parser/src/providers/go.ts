@@ -1,28 +1,17 @@
-import { goScipPrereqs } from '../substrate/go/scip-tool.js';
 import { goSourceSignals } from '../scoring/go-signals.js';
 import type { ScoreContext, SourceSignals } from '../scoring/score-core.js';
 import { goSubstrate } from '../substrate/go/go-parser.js';
-import { parseSubstrate } from '../substrate/parse-substrate.js';
+import { substrateEntry } from '../substrate/parse-substrate.js';
 import type { GoProfile } from '../types/go-profile.js';
+import { hasLanguage } from './registry.js';
 import type { LanguageProvider } from './types.js';
-
-/** A Go extraction profile: has parserId+substrate and language 'go'. */
-function isGoProfile(v: unknown): v is GoProfile {
-  if (typeof v !== 'object' || v === null) return false;
-  if (!('parserId' in v) || !('substrate' in v)) return false;
-  return (v as GoProfile).substrate?.language === 'go';
-}
 
 export const goProvider: LanguageProvider<GoProfile> = {
   language: 'go',
-  discovery: {
-    scipPrereqs: goScipPrereqs,
-    extensions: ['.go'],
-  },
-  isProfile: isGoProfile,
+  discovery: { extensions: ['.go'] },
+  isProfile: (v): v is GoProfile => hasLanguage(v, 'go'),
 
-  sourceFiles: (profile, repoRoot) => goSubstrate.scope(profile, repoRoot),
-  parse: (profile, opts) => parseSubstrate(goSubstrate, profile, opts),
+  ...substrateEntry(goSubstrate),
 
   sourceSignals(ctx: ScoreContext): SourceSignals {
     return goSourceSignals(ctx.repoRoot, ctx.profile as GoProfile, ctx.parsed, ctx.sourceFiles);

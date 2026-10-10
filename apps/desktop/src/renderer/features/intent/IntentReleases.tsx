@@ -9,7 +9,7 @@ import { ChevronRight } from 'lucide-react';
 import { IntentDetails } from './IntentDetails';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useId, useRef, useState } from 'react';
-import { newIntentIdempotencyKey } from './intent-api';
+import { newIntentIdempotencyKey } from '@coredoc/core/browser/intent-attempt-keys';
 import { externalHttpsUrl } from '../../../shared/external-url.js';
 import {
   intentReleaseHistoryOptions,

@@ -32,7 +32,7 @@
  *
  * Pool `forks` (the server vitest config sets it): the Ladybug native module.
  */
-import 'dotenv/config';
+import '../../../config/load-env.js';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { cpus, tmpdir } from 'node:os';
 import { join } from 'node:path';

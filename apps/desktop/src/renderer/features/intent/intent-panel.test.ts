@@ -115,6 +115,7 @@ const DOMAIN: IntentTreeDomain = {
     {
       id: 'refunds',
       domainId: 'payments',
+      parentFeatureId: null,
       title: 'Refunds',
       statement: 'Giving money back.',
       archived: false,
@@ -198,10 +199,28 @@ const TRANSITION: IntentTransition = {
   createdAt: '2026-08-20T10:00:00.000Z',
 };
 
+const NO_COUNTS = { itemCount: 0, pendingCount: 0, openQuestionCount: 0, openCommentCount: 0 };
+
 function seededClient(): QueryClient {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(intentTreeQueryOptions(WORKSPACE, false).queryKey, {
-    pages: [{ domains: [DOMAIN], nextCursor: null }],
+    pages: [
+      {
+        root: NO_COUNTS,
+        domains: [
+          {
+            ...DOMAIN,
+            ...NO_COUNTS,
+            subtreeItemCount: 0,
+            subtreePendingCount: 0,
+            subtreeOpenQuestionCount: 0,
+            subtreeOpenCommentCount: 0,
+            features: DOMAIN.features.map((feature) => ({ ...feature, ...NO_COUNTS })),
+          },
+        ],
+        nextCursor: null,
+      },
+    ],
     pageParams: [null],
   });
   client.setQueryData(intentItemsQueryOptions(WORKSPACE, {}).queryKey, {

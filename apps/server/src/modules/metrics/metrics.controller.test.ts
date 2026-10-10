@@ -11,8 +11,6 @@ import { MetricsService } from './metrics.service.js';
 function mockService() {
   return {
     getMcpQueryCount: vi.fn().mockResolvedValue(7),
-    getMcpQueryBreakdown: vi.fn().mockResolvedValue([]),
-    getMcpEmptyResultBreakdown: vi.fn().mockResolvedValue([]),
     getTimeseries: vi.fn().mockResolvedValue({ metric: 'mcp_calls', days: 30, points: [] }),
   };
 }
@@ -90,42 +88,11 @@ describe('MetricsController self-scoping (integration)', () => {
     expect(svc.getMcpQueryCount).toHaveBeenCalledWith(W, undefined);
   });
 
-  it('member → breakdown and timeseries also forward the self-scope', async () => {
+  it('member → timeseries also forwards the self-scope', async () => {
     principal = MEMBER;
     const scope = { userId: 'u1' };
 
-    await request(app.getHttpServer()).get(`/api/v1/workspaces/${W}/metrics/mcp/breakdown?days=14`);
-    expect(svc.getMcpQueryBreakdown).toHaveBeenCalledWith(W, 14, scope);
-
     await request(app.getHttpServer()).get(`/api/v1/workspaces/${W}/metrics/timeseries?metric=sessions&days=7`);
     expect(svc.getTimeseries).toHaveBeenCalledWith(W, 'sessions', 7, scope);
-  });
-
-  describe('mcp/empty-results (C3)', () => {
-    it('member → forwards the self-scope and parsed days, same guards as mcp/breakdown', async () => {
-      principal = MEMBER;
-      const res = await request(app.getHttpServer()).get(`/api/v1/workspaces/${W}/metrics/mcp/empty-results?days=14`);
-
-      expect(res.status).toBe(200);
-      expect(svc.getMcpEmptyResultBreakdown).toHaveBeenCalledWith(W, 14, { userId: 'u1' });
-    });
-
-    it('admin → workspace-wide (undefined scope), default days when omitted', async () => {
-      principal = ADMIN;
-      await request(app.getHttpServer()).get(`/api/v1/workspaces/${W}/metrics/mcp/empty-results`);
-
-      expect(svc.getMcpEmptyResultBreakdown).toHaveBeenCalledWith(W, 30, undefined);
-    });
-
-    it('returns the service rows verbatim', async () => {
-      principal = OWNER;
-      svc.getMcpEmptyResultBreakdown.mockResolvedValue([
-        { toolName: 'search_symbols', total: 10, empty: 4, emptyRate: 0.4 },
-      ]);
-
-      const res = await request(app.getHttpServer()).get(`/api/v1/workspaces/${W}/metrics/mcp/empty-results`);
-
-      expect(res.body).toEqual([{ toolName: 'search_symbols', total: 10, empty: 4, emptyRate: 0.4 }]);
-    });
   });
 });

@@ -5,9 +5,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, expect, it, vi } from 'vitest';
 import { withOptionalIndexHost } from '../../facts/scip/index-host.js';
-import { parseRust } from './rust-cst.js';
-import { rustScipCallFacts } from './scip-calls.js';
+
+import { rustSubstrate } from './rust-parser.js';
 import { StableIdGenerator } from '@coredoc/core';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__/scip');
 let work: string | undefined;
@@ -19,8 +20,8 @@ const profile = { parserId: 'scip-test', substrate: { language: 'rust' as const,
 
 it('keeps associated functions and module calls distinct from receiver method calls', async () => {
   const source = 'fn run() { Worker::new(); module::work(); worker.perform::<u32>(); }';
-  const facts = rustScipCallFacts(
-    [{ relPath: 'lib.rs', source, root: await parseRust(source) }],
+  const facts = rustSubstrate.scip!.facts(
+    [{ relPath: 'lib.rs', source, root: await parseSource('rust', source) }],
     new StableIdGenerator('fixture'),
   );
   expect(facts[0].calls.map((call) => [call.name, call.edge.isMethodCall])).toEqual([

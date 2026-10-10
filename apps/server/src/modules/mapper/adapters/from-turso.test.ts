@@ -1,7 +1,24 @@
 import { describe, it, expect, vi } from 'vitest';
-import { parsedReposFromRepository, parsedReposFromTurso } from './from-turso.js';
+import { parsedReposFromRepository } from './from-turso.js';
 import type { IGraphRepository } from '@coredoc/db';
 import { HopVia, linkWorkspace, type Mapper } from '@coredoc/core';
+
+/** Pins repos by name, the way a resolver caller does, then reads them through the adapter. */
+async function parsedReposFromTurso(
+  repository: IGraphRepository,
+  projectRepoNames: string[],
+  httpPrefixes?: Map<string, string | null | undefined>,
+) {
+  if (projectRepoNames.length === 0) return [];
+  const allRepos = await repository.listAllRepositories(projectRepoNames);
+  const byName = new Map(allRepos.map((repo) => [repo.name, repo]));
+  const pinned = projectRepoNames.flatMap((repoName) => {
+    const graphRepo = byName.get(repoName);
+    return graphRepo ? [{ repoKey: graphRepo.hash, repoName, httpPrefix: httpPrefixes?.get(repoName) ?? null }] : [];
+  });
+  if (pinned.length === 0) return [];
+  return parsedReposFromRepository(repository, pinned, undefined, allRepos);
+}
 
 function createMockRepo() {
   return {

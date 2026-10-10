@@ -180,65 +180,6 @@ describe('MetricsService', () => {
     });
   });
 
-  describe('getRepoMetricsHistory', () => {
-    it('should return metrics history for a repo', async () => {
-      const mockMetrics = [
-        {
-          id: 'm-1',
-          workspaceId: 'ws-1',
-          repoKey: 'repo_abc',
-          repoName: 'my-service',
-          pushMode: 'incremental',
-          pushedAt: new Date('2026-04-01'),
-          totalNodes: 100,
-          totalEdges: 200,
-          nodesByType: { function: 50 },
-          edgesByType: { CALLS: 100 },
-          entrypointCount: 5,
-          entityCount: 3,
-          externalCallCount: 2,
-          componentCount: 0,
-          nodesAdded: 5,
-          nodesUpdated: 3,
-          nodesDeleted: 1,
-          nodesWithSummaries: 40,
-          nodesWithEmbeddings: 30,
-          commitHash: 'abc',
-          pushedByUserId: 'u-1',
-          pushDurationMs: null,
-          diffSkippedPct: null,
-        },
-      ];
-      (prisma.pushMetric.findMany as any).mockResolvedValue(mockMetrics);
-
-      const result = await service.getRepoMetricsHistory('ws-1', 'repo_abc', 30);
-
-      expect(prisma.pushMetric.findMany).toHaveBeenCalledWith({
-        where: {
-          workspaceId: 'ws-1',
-          repoKey: 'repo_abc',
-          pushedAt: { gte: expect.any(Date) },
-        },
-        orderBy: { pushedAt: 'desc' },
-        take: 100,
-        select: expect.not.objectContaining({ executionToken: true }),
-      });
-      expect(result).toHaveLength(1);
-      expect(result[0].totalNodes).toBe(100);
-    });
-
-    it('never projects the internal executionToken into the public history response', async () => {
-      (prisma.pushMetric.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-      await service.getRepoMetricsHistory('ws-1', 'repo_abc', 30);
-      const args = (prisma.pushMetric.findMany as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
-        select?: Record<string, boolean>;
-      };
-      expect(args.select).toBeDefined();
-      expect(args.select).not.toHaveProperty('executionToken');
-      expect(args.select).toMatchObject({ id: true, repoKey: true, totalNodes: true });
-    });
-  });
-
   describe('recordMcpQuery', () => {
     it('should record an MCP tool invocation', async () => {
       await service.recordMcpQuery({
@@ -449,7 +390,7 @@ describe('MetricsService', () => {
       expect(sqlParamsOfCall(prisma, 1)).toContainEqual(until);
     });
 
-    it('omits the upper bound when `until` is absent (standalone route default)', async () => {
+    it('omits the upper bound when `until` is absent (rolling default)', async () => {
       await service.getMcpQueryBreakdown('ws-1', 30);
 
       expect(composedSqlOfCall(prisma)).not.toContain('queried_at <');

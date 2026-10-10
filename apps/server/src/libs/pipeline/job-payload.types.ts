@@ -1,6 +1,3 @@
-/** Discriminated union for PushJob.payload (JSONB column). */
-export type PushJobPayload = PushPayload | ResolvePayload | ConnectorSyncPayload | RenormalizePayload;
-
 export interface PushPayload {
   /** Server-generated idempotency key retained across every retry. */
   executionToken?: string;

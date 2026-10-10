@@ -20,7 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { format } from 'date-fns';
+import { formatDateTime } from '../lib/utils';
 import type { WorkflowAction } from '../stores/project-detail-store';
 import type { RepoDetailState, OperationTimestamps, GitRevision, RepoStalenessInfo } from '../../shared/ipc-types';
 import { getBadge } from './RepoStateBadge';
@@ -310,7 +310,7 @@ export function OperationTimestampsRow({ operations }: { operations: OperationTi
   return (
     <div className="flex items-center gap-1 text-xs text-content-secondary min-w-0 shrink-0">
       <Refresh weight="Bold" className="text-lg shrink-0" />
-      <span>{format(new Date(lastOperation), 'dd.MM.yyyy / h:mm a')}</span>
+      <span>{formatDateTime(new Date(lastOperation))}</span>
     </div>
   );
 }

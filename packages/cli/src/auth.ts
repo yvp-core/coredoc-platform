@@ -91,6 +91,13 @@ export async function getToken(): Promise<string | null> {
   return creds.accessToken;
 }
 
+/** Bearer auth header for the current token; throws when not logged in. */
+export async function authHeaders(): Promise<{ Authorization: string }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated. Run: coredoc login (or set COREDOC_TOKEN)');
+  return { Authorization: `Bearer ${token}` };
+}
+
 export async function getCredentials(): Promise<StoredCredentials | null> {
   const document = await readCredentialsDocument();
   return toStoredCredentials(document);

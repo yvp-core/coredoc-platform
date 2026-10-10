@@ -24,7 +24,7 @@ import type { Request, Response } from 'express';
 import { AuthGuard } from '../auth.guard.js';
 import { CurrentUser, type AuthUser } from '../decorators/current-user.decorator.js';
 import { ControlPlaneService } from '../../database/control-plane.service.js';
-import { INTENT_CONFIG, intentConfigFromEnv, type IntentConfig } from '../../config/app-config.js';
+import { INTENT_CONFIG, configFromEnv, type IntentConfig } from '../../config/app-config.js';
 import { intentEnabledForActor } from '../../modules/intent/intent-rollout.js';
 import {
   CSRF_HEADER,
@@ -51,7 +51,7 @@ export class WebAuthController {
   constructor(
     private readonly webAuth: WebAuthService,
     private readonly controlPlane: ControlPlaneService,
-    @Optional() @Inject(INTENT_CONFIG) private readonly intent: IntentConfig = intentConfigFromEnv(),
+    @Optional() @Inject(INTENT_CONFIG) private readonly intent: IntentConfig = configFromEnv().intent,
   ) {}
 
   /**

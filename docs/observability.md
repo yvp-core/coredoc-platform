@@ -147,16 +147,13 @@ All exports come from `packages/core/src/telemetry/index.ts`.
 | `initTelemetry(ctx: InitContext = {}): void` | Once per process, early. Records pending context (surface, sessionId, channels) only — **channels are built lazily on first emit**, so this never touches the network. Idempotent; a later auto-init on first `track` is harmless. |
 | `track(event: EventName, props?: Props): void` | Fire-and-forget anon event. The normal path for funnel/parse/summarize/push events. |
 | `trackError(err: unknown, code: ErrorCode, props?: Props): void` | Anon error capture. **Scrubs** the message (sliced to 200 chars) and stack via `scrubPaths`, then routes through PostHog `captureException`. The *only* place scrubbing happens. |
-| `withTiming<T>(step: StepName, fn): Promise<{ result: T; durationMs: number }>` | Times an async step and returns the duration explicitly. Emits **nothing** on its own (the `step` arg is currently `void`'d/unused); callers decide what to emit. |
 | `emitAgentRun(summary: AgentRunSummary, opts?: { cloud?: CloudChannelConfig }): void` | Emit an agent-run economics event. Dual-emits: anon (bucketed) first, then cloud (full) — ephemeral per-run channel when `opts.cloud` is present. |
 | `shutdownTelemetry(deadlineMs = 500): Promise<void>` | Bounded drain + flush of process-global channels. Resolves within the deadline no matter what; never rejects/hangs. |
-| `setCloudChannel(config: CloudChannelConfig): void` | Swap the live process-global cloud channel (used when a run's workspace is known up front). Swaps unconditionally, even after a prior emit. |
-| `clearCloudChannel(): void` | Reset the global cloud channel to a config-less no-op — prevents cross-workspace mis-attribution after a cloud run followed by a local-only run. |
 
 Test-only seams `__setChannelsForTests` / `__resetTelemetryForTests` are exported but marked
 not-public. `scrubPaths`, `AnonChannel`, `CloudChannel` are **not** re-exported (internal).
 
-Re-exported values: `EventName, ErrorCode, StepName, SCHEMA_VERSION` (from `events.ts`),
+Re-exported values: `EventName, ErrorCode, SCHEMA_VERSION` (from `events.ts`),
 `detectParseAnomalies` (`parse-anomaly.ts`), `newInvocationId, repoId, resolveSession`
 (`ids.ts`). Re-exported types: `Surface, Props, BaseProps, DetectParseAnomaliesInput,
 ResolveSessionOptions, CloudChannelConfig`, plus locally-defined `AgentRunSummary` and
@@ -244,7 +241,6 @@ favor of `command_completed` / `command_failed` (running both would double-count
   failure codes `wasm_missing`, `auth_failed`, `network_error`, `parse_error`,
   `push_rejected`, `unknown`; anomaly rule_ids `zero_calls_nonzero_functions`,
   `error_rate_gt_20pct`, and `wasm_missing` (doubles as anomaly hint).
-- **`StepName`** (for `withTiming`): `substrate`, `scip`, `extract`, `write`.
 - **`cost_bucket`** (anon `agent_run`): `< 0.1 → 'lt_0.1'`, `< 1 → 'lt_1'`, else `'gte_1'`.
 
 ---
@@ -435,9 +431,9 @@ The attributed channel targets a dedicated agent-runs module in the NestJS serve
 | Method | Route | Guards / perms | Returns |
 |---|---|---|---|
 | `POST` | `/api/v1/workspaces/:workspaceId/agent-runs` (`create`) | `@HttpCode(200)`, `@WorkspaceRole('member')`, `@RequirePermission(TelemetryWrite)` | `{}` — calls `agentRuns.record(workspaceId, body, identityOf(req))` |
-| `GET` | `/api/v1/workspaces/:workspaceId/agent-runs` (`list`) | `@WorkspaceRole('member')` + method-level `@UseGuards(JwtOnlyGuard)`, **no** `@RequirePermission` | `{ totals, runs }` (last 50, newest-first) |
+| `GET` | `/api/v1/workspaces/:workspaceId/agent-runs` (`list`) | `@WorkspaceRole('member')` + method-level `@UseGuards(UserSessionGuard)`, **no** `@RequirePermission` | `{ totals, runs }` (last 50, newest-first) |
 
-The GET is JWT-member-only: `JwtOnlyGuard` bars any service-token principal, so a leaked
+The GET is JWT-member-only: `UserSessionGuard` bars any service-token principal, so a leaked
 **write-only** telemetry token can POST runs but cannot read history.
 
 **Identity is server-derived.** `identityOf(req)` returns `{ userId, userEmail }` from the
@@ -487,10 +483,10 @@ are altered/dropped. **Documented rollback: `DROP TABLE "desktop_agent_runs";`.*
 ### Telemetry-token mint reuse — `tokens/telemetry-token.controller.ts`
 
 `@Controller('workspaces/:workspaceId/telemetry-token')`, guards
-`AuthGuard, WorkspaceRoleGuard, JwtOnlyGuard`. `POST /api/v1/workspaces/:workspaceId/telemetry-token`
+`AuthGuard, WorkspaceRoleGuard, UserSessionGuard`. `POST /api/v1/workspaces/:workspaceId/telemetry-token`
 (`mint`, `@WorkspaceRole('member')`): any workspace member mints a token owned by themselves,
 scope hard-coded server-side to `[TokenPermission.TelemetryWrite]` (`telemetry:write`).
-`JwtOnlyGuard` blocks service-token principals, so a leaked telemetry token cannot mint more
+`UserSessionGuard` blocks service-token principals, so a leaked telemetry token cannot mint more
 tokens. Returns `{ token: string }`. Desktop calls this endpoint only when enabling the
 external Claude Code OTLP exporter: the token is cached under
 `~/.coredoc/credentials.json#workspaces[workspaceId]` and copied into the repository's
@@ -534,12 +530,10 @@ Set `COREDOC_POSTHOG_KEY`, `COREDOC_POSTHOG_HOST` (and, for the desktop, `COREDO
 there once, and `pnpm build` bakes them into the CLI, MCP, and desktop builds. Start from
 `.env.example`. The root `.env` is gitignored; leave the keys blank to keep telemetry off.
 
-The shared, dependency-free loader `scripts/load-root-env.mjs` reads that root `.env` and
-copies each var into `process.env` **only if the shell has not already set it**. All three
-build entry points call it first:
+Each build entry point loads that root `.env` with Node's `process.loadEnvFile`, which
+copies each var into `process.env` **only if the shell has not already set it**:
 
-- `packages/cli/scripts/gen-build-env.mjs` and `packages/mcp/scripts/gen-build-env.mjs` run as
-  the **first build step** and overwrite `src/build-env.ts` with the literal, trimmed
+- `scripts/gen-build-env.mjs <output file>` runs as the CLI and MCP **first build step** and overwrite `src/build-env.ts` with the literal, trimmed
   `COREDOC_POSTHOG_KEY` / `COREDOC_POSTHOG_HOST`. Committed defaults are empty strings, so with
   no `.env` and no shell env the file is rewritten byte-for-byte (no git churn, telemetry off).
 - The desktop main (`apps/desktop/electron.vite.config.ts` → `apps/desktop/src/main/build-env.ts`)
@@ -698,7 +692,7 @@ curl -X POST http://localhost:3000/api/v1/workspaces/<WS_ID>/agent-runs \
   -H "Authorization: Bearer <USER_JWT>" -H 'Content-Type: application/json' \
   -d '{"runId":"run-1","kind":"author-profile","tokensIn":100,"tokensOut":50,"costUsd":0.02,"turns":3,"toolCalls":5,"interventions":0,"outcome":"success","durationMs":1200,"surface":"desktop"}'
 
-# GET history — JWT-member only; the JwtOnlyGuard rejects the telemetry token, use the cookie
+# GET history — JWT-member only; the UserSessionGuard rejects the telemetry token, use the cookie
 curl http://localhost:3000/api/v1/workspaces/<WS_ID>/agent-runs \
   -H "Cookie: <session>" -H 'X-Coredoc-Csrf: 1'   # → { totals:{...}, runs:[...] }
 ```

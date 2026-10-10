@@ -18,19 +18,16 @@ import {
 } from '../../../shared/intent-types.js';
 import { INTENT_KIND_ORDER } from './intent-presentation';
 import {
-  DEFAULT_INTENT_ITEM_FILTER,
   EMPTY_INTENT_SCOPE_COUNTS,
   IntentBrowseState,
   IntentItemScope,
   authorityShare,
-  filterIntentItems,
   groupIntentItemsByKind,
   intentAnchorKey,
   intentAuthorityTally,
   intentBrowseState,
   intentItemScope,
   intentItemsInScope,
-  intentKindCounts,
   intentMatchesById,
   intentKnownCount,
   intentScopeCounts,
@@ -215,43 +212,8 @@ describe('intentKnownCount', () => {
   });
 });
 
-describe('filterIntentItems', () => {
-  const rows = [
-    item({ id: 'br-accepted', authority: IntentAuthority.Accepted, title: 'Refund window' }),
-    item({ id: 'br-candidate', authority: IntentAuthority.Candidate, title: 'Longer window' }),
-    item({ id: 'br-rejected', authority: IntentAuthority.Rejected, title: 'Rejected idea' }),
-    item({ id: 'fl-flow', kind: IntentItemKind.Flow, title: 'Checkout' }),
-  ];
-
-  it('shows accepted and candidates but hides resolved items by default', () => {
-    const ids = filterIntentItems(rows, DEFAULT_INTENT_ITEM_FILTER).map((row) => row.id);
-    expect(ids).toContain('br-candidate');
-    expect(ids).not.toContain('br-rejected');
-  });
-
-  it('adds the resolved items when the reader asks for them', () => {
-    const ids = filterIntentItems(rows, { ...DEFAULT_INTENT_ITEM_FILTER, includeResolved: true }).map((row) => row.id);
-    expect(ids).toContain('br-rejected');
-  });
-
-  it('drops candidates when only accepted intent is wanted', () => {
-    const ids = filterIntentItems(rows, { ...DEFAULT_INTENT_ITEM_FILTER, includeCandidates: false }).map((r) => r.id);
-    expect(ids).not.toContain('br-candidate');
-  });
-
-  it('filters by kind and searches title and id', () => {
-    expect(filterIntentItems(rows, { ...DEFAULT_INTENT_ITEM_FILTER, kinds: [IntentItemKind.Flow] })).toHaveLength(1);
-    expect(filterIntentItems(rows, { ...DEFAULT_INTENT_ITEM_FILTER, search: 'window' })).toHaveLength(2);
-    expect(filterIntentItems(rows, { ...DEFAULT_INTENT_ITEM_FILTER, search: 'br-candidate' })).toHaveLength(1);
-  });
-});
-
-describe('intentKindCounts and grouping', () => {
+describe('groupIntentItemsByKind', () => {
   const rows = [item({ id: 'a' }), item({ id: 'b' }), item({ id: 'c', kind: IntentItemKind.Flow })];
-
-  it('counts only the kinds actually present', () => {
-    expect(intentKindCounts(rows)).toEqual({ [IntentItemKind.BusinessRule]: 2, [IntentItemKind.Flow]: 1 });
-  });
 
   it('groups in the declared kind order', () => {
     const groups = groupIntentItemsByKind(rows, INTENT_KIND_ORDER);
@@ -312,6 +274,7 @@ describe('intentTreeNames', () => {
               id: 'refunds',
               title: 'Refunds',
               domainId: 'payments',
+              parentFeatureId: null,
               statement: '',
               archived: false,
               createdAt: '2026-08-01T00:00:00.000Z',
@@ -332,6 +295,7 @@ describe('intentTreeNames', () => {
         id: 'payouts',
         title: 'Payouts',
         domainId: 'payments',
+        parentFeatureId: null,
         statement: '',
         archived: false,
         createdAt: '2026-08-01T00:00:00.000Z',

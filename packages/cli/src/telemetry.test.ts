@@ -20,10 +20,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ErrorCode, EventName } from '@coredoc/core/telemetry';
 
-const { trackSpy, shutdownSpy, resetSpy } = vi.hoisted(() => ({
+const { trackSpy } = vi.hoisted(() => ({
   trackSpy: vi.fn(),
-  shutdownSpy: vi.fn().mockResolvedValue(undefined),
-  resetSpy: vi.fn(),
 }));
 
 vi.mock('@coredoc/core/telemetry', async (importActual) => {
@@ -31,8 +29,6 @@ vi.mock('@coredoc/core/telemetry', async (importActual) => {
   return {
     ...actual,
     track: trackSpy,
-    shutdownTelemetry: shutdownSpy,
-    __resetTelemetryForTests: resetSpy,
   };
 });
 
@@ -43,8 +39,6 @@ import {
   classifyError,
   isTelemetryCommandPath,
   buildTelemetryShowText,
-  resetTelemetryClient,
-  shutdownTelemetry,
 } from './telemetry.js';
 
 describe('CLI telemetry shim', () => {
@@ -184,15 +178,5 @@ describe('CLI telemetry shim', () => {
       expect(text).toContain('Source code');
       expect(text).toContain('File paths');
     });
-  });
-
-  it('resetTelemetryClient delegates to the core test-reset seam', () => {
-    resetTelemetryClient();
-    expect(resetSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('shutdownTelemetry delegates to core shutdown', async () => {
-    await shutdownTelemetry();
-    expect(shutdownSpy).toHaveBeenCalledTimes(1);
   });
 });

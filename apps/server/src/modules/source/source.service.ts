@@ -6,7 +6,7 @@
  */
 
 import { Inject, Injectable, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
-import { CONNECTORS_CONFIG, type ConnectorsConfig, connectorsConfigFromEnv } from '../../config/app-config.js';
+import { CONNECTORS_CONFIG, type ConnectorsConfig, configFromEnv } from '../../config/app-config.js';
 import { ControlPlaneService } from '../../database/control-plane.service.js';
 
 // =============================================================================
@@ -28,7 +28,7 @@ export interface SourceFile {
 export class SourceService {
   constructor(
     private readonly controlPlane: ControlPlaneService,
-    @Optional() @Inject(CONNECTORS_CONFIG) private readonly connectors: ConnectorsConfig = connectorsConfigFromEnv(),
+    @Optional() @Inject(CONNECTORS_CONFIG) private readonly connectors: ConnectorsConfig = configFromEnv().connectors,
   ) {}
 
   async fetchFile(workspaceId: string, repoName: string, filePath: string, ref?: string): Promise<SourceFile> {

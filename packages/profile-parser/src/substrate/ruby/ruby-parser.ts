@@ -13,6 +13,7 @@ import type {
   EntityNode,
   ExternalCallEdge,
   FunctionNode,
+  HttpMethod,
   StableIdGenerator,
 } from '@coredoc/core';
 import type { RubyProfile } from '../../types.js';
@@ -20,7 +21,7 @@ import { loadOptionalScip, assertScipSources } from '../../facts/scip/source-man
 import { runScipRuby } from './scip-run.js';
 import { optionalAnalysis } from '../../facts/scip/index-host.js';
 import { makeFileScopeDiscoverer } from '../cst-kit/file-scope.js';
-import type { SourceFile } from '../file-nodes.js';
+import { type SourceFile, httpEntrypoint } from '../file-nodes.js';
 import type { Substrate } from '../parse-substrate.js';
 import {
   SHIPPABLE_PROVENANCE,
@@ -65,38 +66,11 @@ export const discoverRubyFileScope = makeFileScopeDiscoverer({
   defaultExclude: DEFAULT_RUBY_EXCLUDES,
 });
 
-export function discoverRubyFiles(
-  root: string,
-  include: string[],
-  exclude: string[] = [],
-  excludeDefaults?: boolean,
-): string[] {
-  return discoverRubyFileScope(root, include, exclude, excludeDefaults).included;
-}
-
 /** A full URL → its path (strip scheme + host); a bare path passes through. */
 function urlToPath(url: string): string {
   const m = /^https?:\/\/[^/]+(\/.*)?$/i.exec(url.trim());
   if (m) return m[1] ?? '/';
   return url.trim().startsWith('/') ? url.trim() : `/${url.trim()}`;
-}
-
-function httpEntrypoint(
-  idGen: StableIdGenerator,
-  method: string,
-  fullPath: string,
-  file: string,
-  line: number,
-): Entrypoint {
-  const id = idGen.httpEntrypointId(method, fullPath, file);
-  return {
-    id,
-    versionedId: idGen.versionedId(id, `${method} ${fullPath}`),
-    type: 'http',
-    handlerId: idGen.functionId(file, `${method} ${fullPath}`),
-    location: { filePath: file, startLine: line, endLine: line },
-    details: { type: 'http', method: method as never, path: fullPath, fullPath },
-  } as Entrypoint;
 }
 
 function queueEntrypoint(
@@ -186,7 +160,7 @@ export const rubySubstrate: Substrate<RubyProfile, SourceFile> = {
       const key = `${method} ${path}`;
       if (seen.has(key)) return;
       seen.add(key);
-      entrypoints.push(httpEntrypoint(idGen, method, path, file, line));
+      entrypoints.push(httpEntrypoint(idGen, method as HttpMethod, path, file, line, line));
     };
 
     if (grapeEnabled) {
@@ -296,7 +270,7 @@ export const rubySubstrate: Substrate<RubyProfile, SourceFile> = {
     const enhanced = await optionalAnalysis(
       'ruby',
       all.length ? profile.substrate.analysis : { mode: 'basic' },
-      () => runScipRuby(root, { outDir: opts.scipOutDir ?? opts.cacheDir }),
+      () => runScipRuby(root, { outDir: opts.scipOutDir }),
       (path) => {
         const scip = loadOptionalScip(path);
         // scip-ruby indexes `.rb` only (see scip-run inputs); `.rake` stays on syntax resolution.

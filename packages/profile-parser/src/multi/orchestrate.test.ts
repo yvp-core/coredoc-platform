@@ -80,24 +80,11 @@ describe('parseMultiTarget', () => {
       repoRoot: '/acme',
       repoName: 'acme',
       repoKey: 'k',
-      cacheDir: '/cache/acme',
     });
     expect(merged.functions.map((f) => f.id)).toEqual(['fnA', 'fnB']);
     expect(merged.type).toBe('monorepo');
-    // Shared identity + per-target cache subdirectory.
+    // Shared identity.
     expect(seenA[0].repoKey).toBe('k');
     expect(seenB[0].repoKey).toBe('k');
-    expect(seenA[0].cacheDir).toBe('/cache/acme/a');
-    expect(seenB[0].cacheDir).toBe('/cache/acme/b');
-  });
-
-  it('leaves cacheDir undefined when the caller passed none', async () => {
-    const seen: ParseOptions[] = [];
-    registerLanguage(fakeProvider('fake-c', makeRepo({}), seen));
-    await parseMultiTarget(
-      { parserId: 'acme', targets: [{ name: 'c', substrate: { language: 'fake-c', include: [] } } as never] },
-      { repoRoot: '/acme', repoName: 'acme' },
-    );
-    expect(seen[0].cacheDir).toBeUndefined();
   });
 });

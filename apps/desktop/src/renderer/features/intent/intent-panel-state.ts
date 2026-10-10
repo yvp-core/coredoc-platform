@@ -287,29 +287,6 @@ export const DEFAULT_INTENT_ITEM_FILTER: IntentItemFilter = {
   includeResolved: false,
 };
 
-export function filterIntentItems(items: readonly IntentItemSummary[], filter: IntentItemFilter): IntentItemSummary[] {
-  const needle = filter.search.trim().toLowerCase();
-  return items.filter((item) => {
-    if (filter.kinds.length > 0 && !filter.kinds.includes(item.kind)) return false;
-    if (item.authority === IntentAuthority.Candidate && !filter.includeCandidates) return false;
-    if (
-      (item.authority === IntentAuthority.Rejected || item.authority === IntentAuthority.Superseded) &&
-      !filter.includeResolved
-    ) {
-      return false;
-    }
-    if (needle === '') return true;
-    return item.title.toLowerCase().includes(needle) || item.id.toLowerCase().includes(needle);
-  });
-}
-
-/** How many items of each kind are in scope, for the kind chips. Only kinds present. */
-export function intentKindCounts(items: readonly IntentItemSummary[]): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const item of items) counts[item.kind] = (counts[item.kind] ?? 0) + 1;
-  return counts;
-}
-
 /** Items grouped by kind, in the browse filter's kind order. */
 export function groupIntentItemsByKind(
   items: readonly IntentItemSummary[],
