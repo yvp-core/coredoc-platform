@@ -385,7 +385,6 @@ export const intentFeatureSeedsQueryOptions = (workspaceId: string, featureId: s
     staleTime: 30_000,
   });
 
-/** One feature's or item's comment threads, oldest first; `status` filters on the thread's status. */
 export const intentCommentsQueryOptions = (
   workspaceId: string,
   target: IntentCommentTarget,

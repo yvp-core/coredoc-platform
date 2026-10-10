@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { RUNNER_PROTOCOL_VERSION, type TurnAssignment } from '@coredoc/core/agent-runner';
+import {
+  RunFailureCode,
+  RUNNER_PROTOCOL_VERSION,
+  RunnerStartupProblemCode,
+  type TurnAssignment,
+} from '@coredoc/core/agent-runner';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assignment, FakeCoredocApi, TOKEN, WORKSPACE } from './fake-coredoc-api.test-support.js';
 import { RunnerApiClient, RunnerApiError } from './runner-api.js';
@@ -131,7 +136,7 @@ describe('runner loop', () => {
         await io.submitResult({ summary: leak('result'), repositories: [] } as never);
         return {
           spend: null,
-          outcome: { kind: 'failed', code: 'agent_error', reason: leak('reason') },
+          outcome: { kind: 'failed', code: RunFailureCode.AgentError, reason: leak('reason') },
           lastMessage: leak('last message'),
         };
       },
@@ -162,7 +167,7 @@ describe('runner loop', () => {
       secrets: [botToken],
       startupCheck: async () => ({
         versions: { ...VERSIONS, sdk: '0.3.285' },
-        problem: { code: 'bot_admin', detail: `acme/orders (token ${botToken})` },
+        problem: { code: RunnerStartupProblemCode.BotAdmin, detail: `acme/orders (token ${botToken})` },
       }),
       startupRetryMs: 5,
     });
@@ -174,7 +179,7 @@ describe('runner loop', () => {
     expect(api.startupProblems[0]).toEqual({
       protocolVersion: RUNNER_PROTOCOL_VERSION,
       versions: { ...VERSIONS, sdk: '0.3.285' },
-      code: 'bot_admin',
+      code: RunnerStartupProblemCode.BotAdmin,
       detail: 'acme/orders (token [REDACTED])',
     });
     expect(api.claims).toEqual([]);
@@ -189,7 +194,10 @@ describe('runner loop', () => {
       executor: blockingExecutor(),
       versions: VERSIONS,
       idlePollMs: 5,
-      startupCheck: async () => ({ versions: VERSIONS, problem: ++checks < 3 ? { code: 'plugin_missing' } : null }),
+      startupCheck: async () => ({
+        versions: VERSIONS,
+        problem: ++checks < 3 ? { code: RunnerStartupProblemCode.PluginMissing } : null,
+      }),
       startupRetryMs: 5,
     });
     const started = checking.start(shutdown.signal);

@@ -1,8 +1,4 @@
-/**
- * The run sweep's limit jobs: lost runners and the active-time budget. Each
- * item runs in its own transaction and re-checks its condition under the row
- * locks, so concurrent sweeps in several processes act on it once.
- */
+/** Each item re-checks its condition under the row locks, so concurrent sweeps act on it once. */
 import { randomUUID } from 'node:crypto';
 import type { Logger } from '@nestjs/common';
 import type { PrismaService } from '../../database/prisma.service.js';
@@ -27,16 +23,11 @@ export interface SweepDeps {
   logger: Logger;
 }
 
-/** Rows handled per job and tick; the next tick takes the rest. */
 const BATCH = 100;
 
 /**
- * A claimed turn of a live run whose lease expired: its runner is gone. The
- * turn goes back to `queued` with a new lease token, so the lost runner's
- * requests get `LEASE_LOST`, and its MCP token and any archive it uploaded
- * are deleted. The third expiry (attempts are counted at claim) abandons the
- * turn and fails the run. A turn that parked a question is left to the
- * parked-turn job, which completes it as paused.
+ * The re-queued turn gets a new lease token, so the lost runner's requests get
+ * `LEASE_LOST`. A turn that parked a question is left to the parked-turn job.
  */
 export async function expireLeases(deps: SweepDeps): Promise<void> {
   const at = deps.now();
@@ -106,11 +97,7 @@ async function expireLease(deps: SweepDeps, workspaceId: string, runId: string, 
 
 const ACTIVE_STATUSES = [RunStatus.Scoping, RunStatus.Implementing, RunStatus.Delivering];
 
-/**
- * A run whose active time reached its budget fails with
- * `wall_clock_exceeded`. Active time excludes waiting for a person and
- * includes waiting for a runner.
- */
+/** Active time excludes waiting for a person and includes waiting for a runner. */
 export async function expireActiveTime(deps: SweepDeps): Promise<void> {
   const at = deps.now();
   const due = await deps.prisma.$queryRaw<Array<{ id: string; workspace_id: string }>>`

@@ -44,12 +44,6 @@ import {
 } from './cloud-agent-runs.test-support.js';
 import { commentHasMarker, runMarker } from './jira-comments.js';
 
-/**
- * Delivery driven through the runner API and the run sweep on real
- * PostgreSQL with real guards: draft pull requests verified with the strict
- * pull read, then the Jira done comment and transition, or the failure
- * comment. Jira and GitHub are stateful fakes behind the client factories.
- */
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 const ADMIN = { id: `${RUN}-admin`, email: 'admin@example.com' };
@@ -133,7 +127,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
         config: { repos: [] },
       },
     });
-    // The statuses Delivery analytics has seen on each connector.
     await prisma.deliveryStatusMap.createMany({
       data: [
         { workspaceId, connectorId: jiraConnector.id, statusRaw: 'To Do', lifecycle: null },
@@ -306,7 +299,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
     return { runId, issue, branch, turn };
   }
 
-  /** Pull requests on the run branch in both repositories, as GitHub holds them. */
   function openPulls(branch: string, base = issueSeed * 10) {
     github.add('example-org/billing-api', { number: base + 1, headRepo: 'example-org/billing-api', headRef: branch });
     github.add('example-org/orders-api', { number: base + 2, headRepo: 'example-org/orders-api', headRef: branch });
@@ -685,7 +677,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       await configure(NONE);
     });
 
-    /** A started run: it left `queued` and its scope turn is queued. */
     async function started() {
       issueSeed += 1;
       const issue = jira.add({ key: `PROJ-${issueSeed}`, summary: `Export orders ${issueSeed}`, project: 'PROJ' });
@@ -697,7 +688,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       return { runId: res.body.id as string, issue };
     }
 
-    /** A started run whose scope turn reports a failure. */
     async function failed() {
       const run = await started();
       await complete(await claimTurn(), {

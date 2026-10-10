@@ -1,23 +1,24 @@
-/**
- * Git work of an implement turn, all in the runner with the bot's token:
- * clone and branch before the session; after it, stage, scan, commit and push
- * fast-forward to the run branch. Nothing is pushed while any clone's scan
- * blocks.
- */
+/** Implement-turn git, run with the bot's token. Nothing is pushed while any clone's scan blocks. */
 import { copyFile, lstat, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { type AssignedRepository, MAX_WORKFLOW_DIFF_BYTES, type RepositoryReport } from '@coredoc/core/agent-runner';
-import { defaultRetryDelay, GITHUB_ATTEMPTS, type RetryDelay, sleep, TurnFailure } from '../turn-failure.js';
+import {
+  type AssignedRepository,
+  defaultRetryDelay,
+  MAX_WORKFLOW_DIFF_BYTES,
+  type RepositoryReport,
+  type RetryDelay,
+  RunFailureCode,
+} from '@coredoc/core/agent-runner';
+import { GITHUB_ATTEMPTS, sleep, TurnFailure } from '../turn-failure.js';
 import { type Git, GitError } from './git.js';
 import { blocksPush, describeBlock, REMOTE_MOVED_REASONS, type SecretScanner } from './secret-scan.js';
 import { stageChanges } from './staging.js';
 
 export interface Clone {
   repository: AssignedRepository;
-  /** The clone's work tree, inside the turn's work directory. */
   dir: string;
   defaultBranch: string;
-  /** The run branch's head on the remote when the turn started; this run's own (reserved) branch. */
+  /** The run branch's head on the remote at turn start; this run's own (reserved) branch. */
   remoteRunHead: string | null;
   /** The clone's git config as the runner wrote it, restored before any git after the session. */
   configTemplate: string;
@@ -39,11 +40,7 @@ function quoted(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-/**
- * The only config a clone has after the session: its fresh clone's format
- * settings and `origin` pointing at the assigned clone URL. No hooks path,
- * includes, URL rewrites, push URLs, helpers or http settings survive.
- */
+/** The only config a clone keeps after the session: no hooks path, includes, URL rewrites, helpers or http settings. */
 export function configTemplate(freshConfig: string, cloneUrl: string): string {
   const sections = new Map<string, string[]>();
   for (const line of freshConfig.split('\n')) {
@@ -76,16 +73,13 @@ export interface TurnGitOptions {
   branch: string;
   /** The run's count of agent turns; a retried attempt keeps it. */
   turnNumber: number;
-  /** Per-turn temp directory, outside every clone. */
   tmp: string;
-  /** Records "created by this run" on the server before the first push of the run branch. */
   reserveBranch: (repository: string) => Promise<void>;
   /** True once the server said stop or the lease was lost: nothing more is pushed. */
   stopped: () => boolean;
   retryDelay?: RetryDelay;
 }
 
-/** A clone's directory name: the repository key, made safe for a path segment. */
 export function cloneDirName(key: string): string {
   return key.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '_');
 }
@@ -97,12 +91,7 @@ export class TurnGit {
     this.retryDelay = options.retryDelay ?? defaultRetryDelay;
   }
 
-  /**
-   * Clones every repository (never recursively, keeping the default branch
-   * and `origin/HEAD`) and checks out the run branch: this run's branch from
-   * the remote when it exists there, else a new one from the default branch.
-   * A run branch this run did not create fails with `branch_exists`.
-   */
+  /** A run branch on the remote that this run did not create fails with `branch_exists`. */
   async prepare(repositories: AssignedRepository[], workDir: string): Promise<Clone[]> {
     const { git, branch } = this.options;
     const clones: Clone[] = [];
@@ -126,7 +115,7 @@ export class TurnGit {
         ).stdout.trim() || null;
       if (remoteRunHead && !repository.branchCreated) {
         throw new TurnFailure(
-          'branch_exists',
+          RunFailureCode.BranchExists,
           `The branch ${branch} already exists in ${repository.key}, and this run did not create it.`,
         );
       }
@@ -149,10 +138,8 @@ export class TurnGit {
   }
 
   /**
-   * Stages every clone under the staging rule, scans the staged change and
-   * the outbound commits, commits, and only when no clone blocks, reserves
-   * and pushes. A blocked attempt leaves the work trees as the agent left
-   * them, with no commit, so the session can fix them and this can run again.
+   * Pushes only when no clone blocks. A blocked attempt leaves the work trees as the agent left them,
+   * with no commit, so the session can fix them and this can run again.
    */
   async publish(clones: Clone[]): Promise<PublishOutcome> {
     const { git, scanner } = this.options;
@@ -204,7 +191,6 @@ export class TurnGit {
 
     if (findings.length > 0) {
       for (const { clone, before } of entries) {
-        // Back to the agent's work tree: no commit, nothing staged.
         await git.run(['reset', '--quiet', '--mixed', before], { cwd: clone.dir });
       }
       return { kind: 'blocked', findings, reports: entries.map(({ report }) => report) };
@@ -229,7 +215,6 @@ export class TurnGit {
     return { kind: 'published', reports };
   }
 
-  /** Reports for clones that pushed nothing this turn. */
   untouchedReports(clones: Clone[]): RepositoryReport[] {
     return clones.map((clone) => ({
       key: clone.repository.key,
@@ -240,17 +225,13 @@ export class TurnGit {
     }));
   }
 
-  /**
-   * The git directory must still be the clone's own directory; its config is
-   * replaced by the runner's template, and a planted common-directory pointer
-   * is removed. Hooks never run anyway (see Git).
-   */
+  /** Undoes what the session may have planted under .git; hooks never run anyway (see Git). */
   private async restoreGitDir(clone: Clone): Promise<void> {
     const gitDir = join(clone.dir, '.git');
     const stat = await lstat(gitDir).catch(() => null);
     if (!stat?.isDirectory()) {
       throw new TurnFailure(
-        'agent_error',
+        RunFailureCode.AgentError,
         `The session replaced the git directory of ${clone.repository.key}, so nothing was pushed.`,
       );
     }
@@ -273,7 +254,7 @@ export class TurnGit {
       const output = `${result.stdout}\n${result.stderr}`;
       if (/\[remote rejected\]/.test(output)) {
         throw new TurnFailure(
-          'github_error',
+          RunFailureCode.GithubError,
           `GitHub refused the push to ${branch} in ${clone.repository.key}: ${remoteReason(output)}`,
         );
       }
@@ -284,16 +265,12 @@ export class TurnGit {
 
   private pushRejected(repository: string): TurnFailure {
     return new TurnFailure(
-      'push_rejected',
+      RunFailureCode.PushRejected,
       `Someone else pushed to ${this.options.branch} in ${repository} during the turn, so the turn's commit was not pushed.`,
     );
   }
 
-  /**
-   * The workflow files' diff, staged into a scratch index so the real one is
-   * untouched, and offered to a person only when it passes the same secret
-   * scan and fits the cap.
-   */
+  /** Staged into a scratch index so the real one is untouched. */
   private async workflowDiff(
     clone: Clone,
     paths: string[],
@@ -340,7 +317,7 @@ export class TurnGit {
         if (attempt < GITHUB_ATTEMPTS) await sleep(this.retryDelay(attempt, null));
       }
     }
-    throw new TurnFailure('github_error', `git ${what} kept failing: ${last}`);
+    throw new TurnFailure(RunFailureCode.GithubError, `git ${what} kept failing: ${last}`);
   }
 }
 

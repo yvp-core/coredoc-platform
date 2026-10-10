@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AssignedRepository, TurnAssignment } from '@coredoc/core/agent-runner';
+import { type AssignedRepository, RunFailureCode, type TurnAssignment, TurnKind } from '@coredoc/core/agent-runner';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ClaudeExecutor } from './claude/claude-executor.js';
 import { assignment, FakeCoredocApi, TOKEN, WORKSPACE } from './fake-coredoc-api.test-support.js';
@@ -46,7 +46,7 @@ describe('delivery turns in the runner loop', () => {
   function deliveryTurn(version = 1): TurnAssignment {
     const base = assignment();
     return assignment({
-      turn: { ...base.turn, kind: 'delivery', ordinal: 5 },
+      turn: { ...base.turn, kind: TurnKind.Delivery, ordinal: 5 },
       run: { ...base.run, branch: BRANCH },
       prd: null,
       mcp: null,
@@ -168,7 +168,7 @@ describe('delivery turns in the runner loop', () => {
       if (github.pulls.length === 1) github.createAnswers = [{ status: 403, message: 'Forbidden' }];
     };
     await expect(runTurn(deliveryTurn())).resolves.toBe('completed');
-    expect(lastCompletion().outcome).toMatchObject({ kind: 'failed', code: 'delivery_failed' });
+    expect(lastCompletion().outcome).toMatchObject({ kind: 'failed', code: RunFailureCode.DeliveryFailed });
     expect(lastCompletion().deliveries).toEqual([
       { key: 'billing-api', pullRequest: { number: github.pulls[0]!.number } },
     ]);

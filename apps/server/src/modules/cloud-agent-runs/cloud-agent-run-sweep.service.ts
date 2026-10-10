@@ -6,6 +6,7 @@ import { CLOUD_AGENT_RUN_ARCHIVE_STORE, type CloudAgentRunArchiveStore } from '.
 import { CloudAgentRunJiraOutcomes } from './cloud-agent-run-jira-outcomes.service.js';
 import { settleTurnQuestions } from './cloud-agent-run-questions.service.js';
 import {
+  fromColumn,
   QuestionState,
   RunFailureCode,
   RunStatus,
@@ -19,16 +20,13 @@ import { expireActiveTime, expireLeases, type SweepDeps } from './run-limits.swe
 import { pruneEndedRuns } from './run-retention.sweep.js';
 import { deleteTurnTokens, failRun, lockRun } from './run-transitions.js';
 
-/** Rows handled per job and tick; the next tick takes the rest. */
 const BATCH = 100;
 
 const WAITING_STATUSES = [RunStatus.AwaitingAnswer, RunStatus.AwaitingScopeAcceptance];
 
 /**
- * The run sweep: time-based transitions, one job after another, each item in
- * its own transaction so one bad run never blocks the rest. Every API and
- * worker process runs it at once; each item re-checks its condition under the
- * row locks, so concurrent sweeps act on an item once.
+ * Every API and worker process runs the sweep at once; each item re-checks its
+ * condition under the row locks, so concurrent sweeps act on an item once.
  */
 @Injectable()
 export class CloudAgentRunSweep {
@@ -61,12 +59,7 @@ export class CloudAgentRunSweep {
     return { prisma: this.prisma, archives: this.archives, now: this.now, logger: this.logger };
   }
 
-  /**
-   * A claimed turn whose lease expired after it parked a question is completed
-   * as paused instead of re-queued: the session already ended with the
-   * question, and the answer queues the next turn. Other expired leases are
-   * left to the lease-expiry job (run-limits.sweep.ts).
-   */
+  /** Completed as paused, not re-queued: the session already ended with the question. */
   async completeParkedTurns(): Promise<void> {
     const at = this.now();
     const due = await this.prisma.$queryRaw<Array<{ id: string; run_id: string; workspace_id: string }>>`
@@ -128,11 +121,7 @@ export class CloudAgentRunSweep {
     if (replaced) await this.archives.delete(replaced).catch(() => undefined);
   }
 
-  /**
-   * A run waiting for a person (an answer or a scope review) longer than its
-   * waiting limit fails with `waiting_expired`. Elapsed time never answers a
-   * question: its open question is cancelled with the run.
-   */
+  /** Elapsed time never answers a question: it is cancelled with the run. */
   async expireWaiting(): Promise<void> {
     const at = this.now();
     const due = await this.prisma.$queryRaw<Array<{ id: string; workspace_id: string }>>`
@@ -146,7 +135,7 @@ export class CloudAgentRunSweep {
       try {
         await this.prisma.$transaction(async (tx) => {
           const run = await lockRun(tx, workspaceId, id);
-          if (!run || !WAITING_STATUSES.includes(run.status as (typeof WAITING_STATUSES)[number])) return;
+          if (!run || !WAITING_STATUSES.includes(fromColumn(RunStatus, run.status))) return;
           if (!run.waitingSince || run.waitingSince.getTime() + run.waitingLimitSeconds * 1000 > at.getTime()) return;
           await failRun(tx, run, RunFailureCode.WaitingExpired, null, at);
         });

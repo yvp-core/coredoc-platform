@@ -1,7 +1,6 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { XIcon } from 'lucide-react';
 
-/** The run page's right-hand drawer: a modal panel with a title, optional actions and a scrolling body. */
 export function RunDrawer({
   title,
   actions,

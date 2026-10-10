@@ -1,9 +1,6 @@
 /**
- * AskUserQuestion bridged to Coredoc questions. The server decides by the
- * run's policy: under pause the call is deferred, so the session ends with the
- * question parked and the resume turn re-runs the call with a person's
- * answers; under assume the server's answer goes back at once. Only the main
- * session asks. Nothing here ever lets a question through without answers.
+ * Under the pause policy the call is deferred, so the session ends with the question parked and the
+ * resume turn re-runs it with a person's answers. Nothing here lets a question through without answers.
  */
 import type { CanUseTool, HookJSONOutput, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { ReportQuestionRequestSchema, type TurnAssignment } from '@coredoc/core/agent-runner';
@@ -23,9 +20,7 @@ const NOT_DELIVERED =
 const QUESTION_SHAPE =
   'AskUserQuestion takes one to four questions, each with a question, a short header and two to four options with a label and a description.';
 
-/** What the turn's questions achieved; the end-of-turn classification reads it. */
 export interface QuestionState {
-  /** The request id of the question this turn parked for a person (pause policy). */
   parkedQuestion: string | null;
 }
 
@@ -97,8 +92,7 @@ export class QuestionBridge {
   }
 
   /**
-   * The permission callback's part. AskUserQuestion is offered only when one
-   * is set; it reaches the callback only when no hook decided (a hook that
+   * The SDK offers AskUserQuestion only when this is set, and calls it only when no hook decided (one
    * timed out or failed), so it is refused unless it already carries answers.
    */
   readonly canUseTool: CanUseTool = async (toolName, input, options) => {

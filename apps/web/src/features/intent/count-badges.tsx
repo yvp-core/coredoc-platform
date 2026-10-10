@@ -1,8 +1,7 @@
 /**
  * The waiting-proposal, open-question and open-comment badges a node row carries,
  * shared by the Structure tree and the product root's domain list so the two read
- * alike, plus the open-comment badge an item row carries. A zero or unread
- * (`undefined`) count draws nothing.
+ * alike. A zero or unread (`undefined`) count draws nothing.
  */
 
 import { Badge } from '@/components/ui/badge';
@@ -47,7 +46,6 @@ export function IntentCountBadges({ pending, open, comments }: { pending?: numbe
   );
 }
 
-/** "💬 2 open comments" on an item row; nothing when the item has none. */
 export function IntentOpenCommentsBadge({ count }: { count: number | undefined }) {
   const label = openCommentsLabel(count);
   if (label === null) return null;

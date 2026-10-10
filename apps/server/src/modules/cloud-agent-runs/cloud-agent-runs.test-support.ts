@@ -1,8 +1,3 @@
-/**
- * Fakes at the cloud agent runs module's ports, shared by its Postgres
- * suites: an in-memory Jira and GitHub (behind the importers' client-factory
- * seams) and an in-memory state-archive store.
- */
 import { Readable } from 'node:stream';
 import type { JiraClient, JiraComment, JiraTransition } from '../delivery/jira-client.js';
 import { JiraAuthError, JiraNotFoundError, JiraRateLimitError } from '../delivery/jira-client.js';
@@ -15,11 +10,9 @@ export interface FakeJiraIssue {
   summary: string;
   project: string;
   issueType?: string;
-  /** Parent issue key (an epic for stories). */
   parent?: string;
   labels?: string[];
   description?: unknown;
-  /** Jira status id; transitions change it. */
   statusId?: string;
 }
 
@@ -39,7 +32,6 @@ export const paragraphDoc = (text: string) => ({
   content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
 });
 
-/** A stateful Jira: issues by key, epic children by parent, scripted transient failures. */
 export class FakeJira {
   readonly issues = new Map<string, FakeJiraIssue>();
   /** The next N reads fail with a rate limit, to exercise in-process retries. */
@@ -47,7 +39,6 @@ export class FakeJira {
   /** Issue keys the connector's account may not see: Jira answers 403. */
   readonly forbidden = new Set<string>();
   reads = 0;
-  /** Comments by issue id, oldest first. */
   readonly comments = new Map<string, JiraComment[]>();
   transitions: JiraTransition[] = [
     { id: '21', name: 'Done (with screen)', hasScreen: true, to: DONE_STATUS },
@@ -77,13 +68,11 @@ export class FakeJira {
     return this.comments.get(this.issues.get(issueKey)!.id) ?? [];
   }
 
-  /** Jira calls that named this issue. */
   callsOn(issueKey: string): string[] {
     const id = this.issues.get(issueKey)!.id;
     return this.calls.filter((call) => call.endsWith(`:${id}`));
   }
 
-  /** Transitions applied to this issue, by transition id. */
   appliedOn(issueKey: string): string[] {
     const id = this.issues.get(issueKey)!.id;
     return this.applied.filter((entry) => entry.startsWith(`${id}:`)).map((entry) => entry.slice(id.length + 1));
@@ -209,7 +198,6 @@ export interface FakePull {
   baseRef?: string;
 }
 
-/** A stateful GitHub for the server's strict reads, with scripted transient failures. */
 export class FakeGithubPulls {
   readonly pulls = new Map<string, FakePull>();
   /** How a run branch compares with the default branch, by `owner/name`; `ahead` unless set. */

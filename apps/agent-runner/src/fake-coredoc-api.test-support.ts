@@ -1,8 +1,3 @@
-/**
- * A fake Coredoc runner API built on the shared contract, for the runner's
- * tests: it parses every request with the schemas the server uses and
- * answers from scripted state.
- */
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -14,19 +9,22 @@ import {
   HeartbeatRequestSchema,
   type ProposeScope,
   ProposeScopeRequestSchema,
-  ReserveBranchRequestSchema,
+  QuestionsPolicy,
   type ReportQuestion,
   ReportQuestionRequestSchema,
-  type RunnerStartupProblem,
-  RunnerStartupProblemSchema,
   type RequestRepo,
   RequestRepoRequestSchema,
   type RequestRepoResponse,
+  ReserveBranchRequestSchema,
   RUNNER_LEASE_HEADER,
   type RunnerEvent,
+  type RunnerStartupProblem,
+  RunnerStartupProblemSchema,
+  ScopeAcceptancePolicy,
   type SubmitResult,
   SubmitResultRequestSchema,
   type TurnAssignment,
+  TurnKind,
 } from '@coredoc/core/agent-runner';
 
 export const WORKSPACE = '6f1c2b0e-8a4d-4c55-9a39-1f4f0c1d2e3a';
@@ -34,13 +32,13 @@ export const TOKEN = 'cdt_runner_test';
 
 export function assignment(overrides: Partial<TurnAssignment> = {}): TurnAssignment {
   return {
-    turn: { id: randomUUID(), kind: 'scope', ordinal: 1, attempt: 1, inputText: null },
+    turn: { id: randomUUID(), kind: TurnKind.Scope, ordinal: 1, attempt: 1, inputText: null },
     lease: { token: randomUUID(), expiresAt: new Date(Date.now() + 120_000).toISOString() },
     run: {
       id: randomUUID(),
       issueKey: 'PROJ-1',
-      questionsPolicy: 'pause',
-      scopeAcceptancePolicy: 'required',
+      questionsPolicy: QuestionsPolicy.Pause,
+      scopeAcceptancePolicy: ScopeAcceptancePolicy.Required,
       model: null,
       sessionId: randomUUID(),
       remainingSpendUsd: 25,
@@ -71,33 +69,24 @@ export class FakeCoredocApi {
   readonly reservations: string[] = [];
   /** Errors the next submit_result gets back, once. */
   resultErrors: string[] = [];
-  /** The archive the server holds for the run; uploads replace it. */
   archive: Buffer | null = null;
   uploads = 0;
   heartbeats = 0;
   claims: unknown[] = [];
-  /** Start-up problems the runner reported while it claimed nothing. */
   readonly startupProblems: RunnerStartupProblem[] = [];
   /** 200 records the report; another status stands in for an older server without the route. */
   startupCheckAnswer = 200;
-  /** What a heartbeat answers: keep going, stop (run became terminal) or a lost lease. */
   heartbeatAnswer: 'continue' | 'stop' | 'lease_lost' = 'continue';
   readonly questions: ReportQuestion[] = [];
-  /** How the server treats a reported question: the run's policy, or a refusal. */
   questionState: 'open' | 'auto_answered' | 'refused' = 'open';
   /** Errors the next proposal gets back, once. */
   proposalErrors: string[] = [];
   readonly repoRequests: RequestRepo[] = [];
-  /** How the server answers `request_repo`; refuses by default. */
   repoAnswer: (request: RequestRepo) => Omit<RequestRepoResponse, 'stop'> = () => ({
     state: 'rejected',
     errors: ['No repository answer scripted.'],
   });
-  /**
-   * Failures the next matching turn requests get instead of being handled,
-   * in order: an HTTP status (with an optional Retry-After and error code),
-   * or `drop` to close the connection without an answer.
-   */
+  /** Consumed in order by the next matching turn requests; `drop` closes the connection without an answer. */
   readonly faults: Array<{
     action: string;
     status?: number;
@@ -105,7 +94,6 @@ export class FakeCoredocApi {
     code?: string;
     drop?: boolean;
   }> = [];
-  /** Every turn request that reached the fake, as its action (`events`, `complete`, …). */
   readonly turnRequests: string[] = [];
   private readonly leases = new Map<string, string>();
   private server!: Server;

@@ -1,125 +1,101 @@
-/**
- * The runner API contract: the only meeting point of the Coredoc
- * server and the customer-run agent runner. Both sides parse with these
- * schemas, so neither can drift without the other failing to compile or to
- * parse. Imports zod only, so the runner's dependency graph stays small.
- */
+/** The server-runner contract. Imports zod only, so the runner's dependency graph stays small. */
 import { z } from 'zod';
 
 /** Bumped on any incompatible change to the schemas below. */
 export const RUNNER_PROTOCOL_VERSION = 1;
-/** Protocol versions the server accepts on claim; anything else gets `RUNNER_INCOMPATIBLE`. */
-export const SUPPORTED_RUNNER_PROTOCOL_VERSIONS: readonly number[] = [1];
 
 /** Every request about a turn carries the claim's lease token in this header (reads included). */
 export const RUNNER_LEASE_HEADER = 'x-coredoc-lease-token';
 
-/** Typed refusal codes a runner branches on. */
-export const RunnerErrorCode = {
-  /** The lease is not this runner's any more (expired, re-claimed or unknown): stop the turn. */
-  LeaseLost: 'LEASE_LOST',
-  /** The server does not support the runner's protocol version. */
-  RunnerIncompatible: 'RUNNER_INCOMPATIBLE',
-  /** The uploaded state archive is over `MAX_STATE_ARCHIVE_BYTES`; the run failed with `archive_too_large`. */
-  ArchiveTooLarge: 'ARCHIVE_TOO_LARGE',
-} as const;
-export type RunnerErrorCode = (typeof RunnerErrorCode)[keyof typeof RunnerErrorCode];
+export enum RunnerErrorCode {
+  /** Expired, re-claimed or unknown lease: stop the turn. */
+  LeaseLost = 'LEASE_LOST',
+  RunnerIncompatible = 'RUNNER_INCOMPATIBLE',
+  /** The server has already failed the run with `archive_too_large`. */
+  ArchiveTooLarge = 'ARCHIVE_TOO_LARGE',
+}
 
-export const TURN_KINDS = ['scope', 'implement', 'delivery'] as const;
-export type TurnKind = (typeof TURN_KINDS)[number];
+/** Also the run's phase. */
+export enum TurnKind {
+  Scope = 'scope',
+  Implement = 'implement',
+  Delivery = 'delivery',
+}
 
-export const QUESTIONS_POLICIES = ['pause', 'assume'] as const;
-export type QuestionsPolicy = (typeof QUESTIONS_POLICIES)[number];
+export enum QuestionsPolicy {
+  Pause = 'pause',
+  Assume = 'assume',
+}
 
-export const SCOPE_ACCEPTANCE_POLICIES = ['required', 'automatic'] as const;
-export type ScopeAcceptancePolicy = (typeof SCOPE_ACCEPTANCE_POLICIES)[number];
+export enum ScopeAcceptancePolicy {
+  Required = 'required',
+  Automatic = 'automatic',
+}
 
 const versionString = z.string().trim().min(1).max(64);
 
 /**
- * Cap on the state archive (Claude Code's config and session directory plus
- * the plugin's state home), provisional until a long run's archive is
- * measured. The runner checks it before uploading and the server's body-size
- * tier for the archive route is derived from it.
+ * Cap on the state archive (Claude Code's config and session directory plus the plugin's state
+ * home). The server's body-size tier for the archive route derives from it.
  */
 export const MAX_STATE_ARCHIVE_BYTES = 128 * 1024 * 1024;
 
-/**
- * Failures the runner detects and reports through `complete`. The server
- * fails the run with the code and keeps the reason (agent-written text stays
- * on the run page, never in Jira).
- */
-/** Every code a run can fail with; the server words each one for the run page and Jira. */
-export const RUN_FAILURE_CODES = [
-  'invalid_repository_label',
-  'too_many_repositories',
-  'issue_not_readable',
-  'run_owner_removed',
-  'connector_inactive',
-  'plugin_missing',
-  'agent_error',
-  'session_mismatch',
-  'repository_not_eligible',
-  'branch_exists',
-  'push_rejected',
-  'secret_scan_blocked',
-  'no_outcome',
-  'budget_exhausted',
-  'wall_clock_exceeded',
-  'waiting_expired',
-  'no_changes',
-  'github_error',
-  'jira_error',
-  'archive_too_large',
-  'report_limit_exceeded',
-  'delivery_failed',
-  'runner_lost',
-] as const;
-export type RunFailureCode = (typeof RUN_FAILURE_CODES)[number];
+export enum RunFailureCode {
+  InvalidRepositoryLabel = 'invalid_repository_label',
+  TooManyRepositories = 'too_many_repositories',
+  IssueNotReadable = 'issue_not_readable',
+  RunOwnerRemoved = 'run_owner_removed',
+  ConnectorInactive = 'connector_inactive',
+  PluginMissing = 'plugin_missing',
+  AgentError = 'agent_error',
+  SessionMismatch = 'session_mismatch',
+  RepositoryNotEligible = 'repository_not_eligible',
+  BranchExists = 'branch_exists',
+  PushRejected = 'push_rejected',
+  SecretScanBlocked = 'secret_scan_blocked',
+  NoOutcome = 'no_outcome',
+  BudgetExhausted = 'budget_exhausted',
+  WallClockExceeded = 'wall_clock_exceeded',
+  WaitingExpired = 'waiting_expired',
+  NoChanges = 'no_changes',
+  GithubError = 'github_error',
+  JiraError = 'jira_error',
+  ArchiveTooLarge = 'archive_too_large',
+  ReportLimitExceeded = 'report_limit_exceeded',
+  DeliveryFailed = 'delivery_failed',
+  RunnerLost = 'runner_lost',
+}
 
-/** The failure codes a runner may report; the rest are the server's own. */
+/** The failure codes a runner may report; its reason stays on the run page, never in Jira. */
 export const RUNNER_FAILURE_CODES = [
-  'plugin_missing',
-  'session_mismatch',
-  'agent_error',
-  'archive_too_large',
-  /** No spend left to bound a session with: the runner starts none. */
-  'budget_exhausted',
-  /** GitHub reports admin or maintain permission for the bot, or the repository is not readable with its token. */
-  'repository_not_eligible',
-  /** The run branch exists on the remote and this run did not create it. */
-  'branch_exists',
-  /** Someone else pushed to the run branch during the turn. */
-  'push_rejected',
-  /** The secret scan blocked the push twice in one turn. */
-  'secret_scan_blocked',
-  /** GitHub kept failing after the in-process retries, or refused a write. */
-  'github_error',
-  /** Delivery turns: a pull request could not be opened or reused. */
-  'delivery_failed',
-] as const satisfies readonly RunFailureCode[];
+  RunFailureCode.PluginMissing,
+  RunFailureCode.SessionMismatch,
+  RunFailureCode.AgentError,
+  RunFailureCode.ArchiveTooLarge,
+  RunFailureCode.BudgetExhausted,
+  RunFailureCode.RepositoryNotEligible,
+  RunFailureCode.BranchExists,
+  RunFailureCode.PushRejected,
+  RunFailureCode.SecretScanBlocked,
+  RunFailureCode.GithubError,
+  RunFailureCode.DeliveryFailed,
+] as const;
 export type RunnerFailureCode = (typeof RUNNER_FAILURE_CODES)[number];
 
-/**
- * A repository the run may touch: in implement turns the run's repositories,
- * in scope turns its eligible seeds (read only, for the bot permission check).
- */
+/** Implement turns: the run's repositories. Scope turns: its eligible seeds, read only, for the bot permission check. */
 export const AssignedRepositorySchema = z.object({
   key: z.string(),
   reason: z.string(),
   mergeOrder: z.number().int().nonnegative(),
-  /** HTTPS clone URL from the shared resolver; it never carries a credential. */
+  /** Never carries a credential. */
   cloneUrl: z.string().min(1),
-  /** The repository on GitHub's REST API, read with the bot's token before any session starts. */
   github: z.object({ apiBaseUrl: z.string().min(1), owner: z.string().min(1), name: z.string().min(1) }),
   /** True once this run reserved the run branch here: a run branch found on the remote is then its own. */
   branchCreated: z.boolean(),
-  /** Paths an earlier turn withheld from the push; the implement prompt names them. */
   withheldPaths: z.array(z.string()),
 });
 export type AssignedRepository = z.infer<typeof AssignedRepositorySchema>;
 
-/** Component versions a runner reports on claim, heartbeat and completion; shown in settings. */
 export const RunnerVersionsSchema = z.object({
   runner: versionString,
   sdk: versionString.optional(),
@@ -134,43 +110,26 @@ export const ClaimRequestSchema = z.object({
 });
 export type ClaimRequest = z.infer<typeof ClaimRequestSchema>;
 
-/**
- * Why a runner's start-up check failed. A closed list: the server words each
- * code itself, so settings never show runner-chosen text beyond the optional,
- * masked detail.
- */
-export const RUNNER_STARTUP_PROBLEM_CODES = [
-  /** The Agent SDK could not start Claude Code. */
-  'sdk_unusable',
-  /** Claude Code did not list the plugin at its configured path. */
-  'plugin_missing',
-  /** The plugin loaded with errors. */
-  'plugin_errors',
-  /** The plugin loaded without its skills. */
-  'plugin_skills_missing',
-  /** The bot account has admin or maintain permission on a repository it can see. */
-  'bot_admin',
-  /** GitHub refused or failed to list the bot account's repositories. */
-  'bot_unreadable',
-  /** `COREDOC_PACKAGE_REGISTRIES` could not be read. */
-  'registry_config_invalid',
-] as const;
-export type RunnerStartupProblemCode = (typeof RUNNER_STARTUP_PROBLEM_CODES)[number];
+/** A closed list: the server words each code, so settings never show runner-chosen text beyond the masked detail. */
+export enum RunnerStartupProblemCode {
+  SdkUnusable = 'sdk_unusable',
+  PluginMissing = 'plugin_missing',
+  PluginErrors = 'plugin_errors',
+  PluginSkillsMissing = 'plugin_skills_missing',
+  BotAdmin = 'bot_admin',
+  BotUnreadable = 'bot_unreadable',
+  RegistryConfigInvalid = 'registry_config_invalid',
+}
 
 /**
- * Sent instead of claiming while the runner's start-up check fails, so
- * settings can say why the runner claims nothing. It claims nothing itself;
- * the next claim clears the reported problem. Added within protocol version
- * 1: a server without the route answers 404, which the runner ignores.
+ * Sent instead of claiming while the start-up check fails; the next claim clears it. Added within
+ * protocol version 1: a server without the route answers 404, which the runner ignores.
  */
 export const RunnerStartupProblemSchema = z.strictObject({
   protocolVersion: z.number().int().positive(),
   versions: RunnerVersionsSchema,
-  code: z.enum(RUNNER_STARTUP_PROBLEM_CODES),
-  /**
-   * A short specific (a repository name, a plugin error), masked by the
-   * runner for the credentials it holds; the server redacts and caps it too.
-   */
+  code: z.enum(RunnerStartupProblemCode),
+  /** Masked by the runner for the credentials it holds; the server redacts and caps it too. */
   detail: z.string().trim().min(1).max(500).optional(),
 });
 export type RunnerStartupProblem = z.infer<typeof RunnerStartupProblemSchema>;
@@ -181,11 +140,10 @@ export type RunnerStartupProblemResponse = z.infer<typeof RunnerStartupProblemRe
 export const TurnAssignmentSchema = z.object({
   turn: z.object({
     id: z.uuid(),
-    kind: z.enum(TURN_KINDS),
+    kind: z.enum(TurnKind),
     ordinal: z.number().int().positive(),
     /** 1 on the first claim; raised each time an expired lease re-queues the turn. */
     attempt: z.number().int().positive(),
-    /** An answer, review feedback, a nudge or a continuation; null on a phase's first turn. */
     inputText: z.string().nullable(),
   }),
   lease: z.object({
@@ -195,28 +153,19 @@ export const TurnAssignmentSchema = z.object({
   run: z.object({
     id: z.uuid(),
     issueKey: z.string(),
-    questionsPolicy: z.enum(QUESTIONS_POLICIES),
-    scopeAcceptancePolicy: z.enum(SCOPE_ACCEPTANCE_POLICIES),
+    questionsPolicy: z.enum(QuestionsPolicy),
+    scopeAcceptancePolicy: z.enum(ScopeAcceptancePolicy),
     /** Null means Claude Code's default model. */
     model: z.string().nullable(),
-    /** The phase's predetermined session id. */
     sessionId: z.uuid(),
     remainingSpendUsd: z.number(),
-    /**
-     * Spend already reported for this phase's session. The pinned SDK reports
-     * a resumed session's cost cumulatively, so a turn's spend is the result's
-     * total minus this.
-     */
+    /** The SDK reports a resumed session's cost cumulatively, so a turn's spend is the result's total minus this. */
     priorSessionSpendUsd: z.number().nonnegative(),
     maxTurnDurationSeconds: z.number().int().positive(),
-    /** Repository keys named up front (labels or the manual start): the scope's starting points. */
     seeds: z.array(z.string()),
-    /** The run branch, `coredoc/<ISSUE-KEY>[-<n>]`, the same in every repository. */
     branch: z.string().min(1),
   }),
-  /** The PRD, read from Jira when a scope turn is claimed; null for other kinds. */
   prd: z.object({ markdown: z.string() }).nullable(),
-  /** The accepted spec and its acceptance record, for implement turns; null otherwise. */
   acceptedSpec: z
     .object({
       version: z.number().int().positive(),
@@ -229,29 +178,18 @@ export const TurnAssignmentSchema = z.object({
     })
     .nullable(),
   repositories: z.array(AssignedRepositorySchema),
-  /**
-   * Delivery turns: the draft pull request to open or reuse in each touched
-   * repository, in merge order, with the title and body the server
-   * assembled. Null for other kinds.
-   */
+  /** Delivery turns only; pull requests in merge order. */
   delivery: z
     .object({
       pullRequests: z.array(z.object({ key: z.string(), title: z.string().min(1), body: z.string() })),
     })
     .nullable()
     .default(null),
-  /**
-   * The per-turn MCP-only token for the Coredoc MCP, minted at claim and
-   * deleted when the turn ends; `path` is resolved against the runner's API
-   * base. Null for delivery turns.
-   */
+  /** Minted at claim and deleted when the turn ends; `path` resolves against the runner's API base. */
   mcp: z.object({ token: z.string().min(1), path: z.string().startsWith('/') }).nullable(),
-  /** Whether a previous state archive exists to download before the session starts. */
   hasStateArchive: z.boolean(),
   /**
-   * On the turn that resumes after a person answered a clarification: the
-   * answers, keyed by question text as AskUserQuestion takes them. The
-   * resumed session re-runs the deferred AskUserQuestion call and the
+   * Keyed by question text. The resumed session re-runs the deferred AskUserQuestion call and the
    * runner's pre-tool hook supplies these answers.
    */
   answer: z
@@ -261,11 +199,7 @@ export const TurnAssignmentSchema = z.object({
       answers: z.record(z.string(), z.string()),
     })
     .nullable(),
-  /**
-   * On the turn that resumes after a person decided a repository request:
-   * the repository and whether it was added. An added repository is among
-   * `repositories`, and the runner tells the session where it is cloned.
-   */
+  /** An added repository is also among `repositories`. */
   repositoryDecision: z.object({ key: z.string(), added: z.boolean() }).nullable(),
 });
 export type TurnAssignment = z.infer<typeof TurnAssignmentSchema>;
@@ -294,13 +228,9 @@ export const MAX_TOOL_INTENT_IDS = 50;
 export const MAX_AGENT_MESSAGE_CHARS = 4_000;
 
 /**
- * Events a runner may report. Status, turn and run events are server-owned and
- * deliberately absent, so a runner can never forge a status change on the
- * timeline.
- *
- * `message`, `tool`, `skill` and `result` were added within protocol version
- * 1 and replace the agent's `raw` text lines; a server must still accept and
- * show `raw` from older runners. Upgrade the server before the runner.
+ * Status, turn and run events are server-owned and deliberately absent, so a runner cannot forge a
+ * status change. `message`, `tool`, `skill` and `result` were added within protocol version 1 and
+ * replace `raw`; a server must still accept `raw` from older runners. Upgrade the server first.
  */
 export const RunnerEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('phase'), phase: z.string().min(1).max(64) }),
@@ -309,31 +239,22 @@ export const RunnerEventSchema = z.discriminatedUnion('type', [
     items: z.array(z.object({ text: z.string().max(2_000), status: z.enum(AGENT_TODO_STATUSES) })).max(200),
   }),
   z.object({ type: z.literal('raw'), text: boundedText }),
-  /** The agent's own text between tool calls. */
   z.object({ type: z.literal('message'), text: z.string().max(MAX_AGENT_MESSAGE_CHARS) }),
   /** One tool call, reported when its result arrives (or when the session ended without one). */
   z.object({
     type: z.literal('tool'),
     /** The tool's name; for an MCP tool, the name within its server. */
     name: z.string().min(1).max(200),
-    /** The MCP server, for MCP tools. */
     server: z.string().min(1).max(200).optional(),
-    /** What it acted on: a path, a command, a query. */
     target: z.string().max(MAX_TOOL_TARGET_CHARS).optional(),
-    /** A one-line summary of the result. */
     summary: z.string().max(MAX_TOOL_SUMMARY_CHARS).optional(),
     isError: z.boolean(),
-    /** The start of a failed call's output. */
     errorOutput: z.string().max(MAX_TOOL_ERROR_OUTPUT_CHARS).optional(),
-    /**
-     * Intent item ids from the call's answer: the items a `get_intent_context`
-     * returned, or the items an `intent_propose` created or updated.
-     */
+    /** Items a `get_intent_context` returned, or an `intent_propose` created or updated. */
     intentIds: z.array(z.string().min(1).max(200)).max(MAX_TOOL_INTENT_IDS).optional(),
   }),
   /** A skill the agent loaded, by its full name (`plugin:skill`). */
   z.object({ type: z.literal('skill'), name: z.string().min(1).max(200) }),
-  /** The implement phase's recorded `submit_result`: its summary and one point per repository. */
   z.object({
     type: z.literal('result'),
     summary: z.string().max(4_000),
@@ -358,13 +279,12 @@ export const EventBatchSchema = z.object({
 export type EventBatch = z.infer<typeof EventBatchSchema>;
 
 export const EventBatchResponseSchema = z.object({
-  /** Sequence numbers the server assigned, in batch order. */
   seqs: z.array(z.number().int().positive()),
   stop: z.boolean(),
 });
 export type EventBatchResponse = z.infer<typeof EventBatchResponseSchema>;
 
-/** Spend the SDK result reported for this turn; null when no result arrived (unknown spend). */
+/** Null when no SDK result arrived (spend unknown). */
 export const TurnSpendSchema = z
   .object({
     costUsd: z.number().nonnegative(),
@@ -373,20 +293,13 @@ export const TurnSpendSchema = z
   .nullable();
 
 export const TurnOutcomeSchema = z.discriminatedUnion('kind', [
-  /** The session ended normally; what it achieved is known from the turn's recorded reports. */
   z.object({ kind: z.literal('ended') }),
-  /** The runner detected a failure that fails the run. */
   z.object({ kind: z.literal('failed'), code: z.enum(RUNNER_FAILURE_CODES), reason: z.string().max(2_000) }),
-  /**
-   * The session reached the turn's duration limit or the SDK turn cap without
-   * a run-control outcome: the work is pushed and the run continues.
-   */
+  /** Duration limit or SDK turn cap reached without a run-control outcome: the work is pushed and the run continues. */
   z.object({ kind: z.literal('checkpoint') }),
   /**
-   * The model stayed unavailable (overloaded, rate limited, connection lost)
-   * through Claude Code's own retries. The server re-queues the turn like a
-   * lost lease, consuming an attempt; the last attempt fails the run with
-   * `agent_error` and this reason.
+   * The model stayed unavailable through Claude Code's own retries. The server re-queues the turn,
+   * consuming an attempt; the last attempt fails the run with `agent_error` and this reason.
    */
   z.object({ kind: z.literal('transient'), reason: z.string().max(2_000) }),
 ]);
@@ -398,14 +311,13 @@ export const MAX_WORKFLOW_DIFF_BYTES = 64 * 1024;
 const repositoryPath = z.string().min(1).max(1_024);
 const commitSha = z.string().regex(/^[0-9a-f]{40,64}$/);
 
-/** What the end of an implement turn left in one repository. */
 export const RepositoryReportSchema = z.object({
   key: z.string().trim().min(1).max(255),
-  /** The run branch's head on the remote after this turn; null when the run branch is not there. */
+  /** Null when the run branch is not on the remote. */
   pushedHead: commitSha.nullable(),
-  /** Paths left out of the push by the staging rule; reported by path only. */
+  /** Reported by path only. */
   withheldPaths: z.array(repositoryPath).max(500),
-  /** Withheld workflow files, with their diff when it passed the secret scan and fits the cap. */
+  /** `diff` only when it passed the secret scan and fits the cap. */
   workflowDiff: z
     .object({
       paths: z.array(repositoryPath).min(1).max(100),
@@ -413,19 +325,15 @@ export const RepositoryReportSchema = z.object({
       note: z.string().max(500).nullable(),
     })
     .nullable(),
-  /** Binary files the secret scan could not review; listed for a person instead of blocking. */
+  /** Binary files the secret scan could not review; listed for a person instead of blocking the push. */
   binaryPaths: z.array(repositoryPath).max(500),
 });
 export type RepositoryReport = z.infer<typeof RepositoryReportSchema>;
 
-/**
- * What a delivery turn did in one repository. Untrusted: the server reads
- * every reported pull request back from GitHub, and confirms an unchanged
- * repository by comparing the run branch with the default branch.
- */
+/** Untrusted: the server reads every reported pull request back from GitHub and re-checks an unchanged repository. */
 export const DeliveryReportSchema = z.object({
   key: z.string().trim().min(1).max(255),
-  /** The pull request opened or reused for the run branch; null when GitHub refused one for having no commits. */
+  /** Null when GitHub refused a pull request for having no commits. */
   pullRequest: z.object({ number: z.number().int().positive() }).nullable(),
 });
 export type DeliveryReport = z.infer<typeof DeliveryReportSchema>;
@@ -434,11 +342,10 @@ export const CompleteTurnRequestSchema = z.object({
   outcome: TurnOutcomeSchema,
   spend: TurnSpendSchema,
   versions: RunnerVersionsSchema,
-  /** Implement turns: one report per run repository the turn cloned. */
   repositories: z.array(RepositoryReportSchema).max(50).default([]),
-  /** Delivery turns: one report per repository it opened, reused or found unchanged, including after a stop. */
+  /** Reported even after a stop. */
   deliveries: z.array(DeliveryReportSchema).max(50).default([]),
-  /** The agent's final message, the reason a second outcome-less turn in a row fails the run with. */
+  /** The failure reason when a second outcome-less turn in a row fails the run. */
   lastMessage: z.string().max(2_000).nullable().optional(),
 });
 export type CompleteTurnRequest = z.input<typeof CompleteTurnRequestSchema>;
@@ -454,11 +361,7 @@ const shortText = z.string().trim().min(1).max(2_000);
 /** Size cap on a proposal's spec markdown; the server also checks it in bytes. */
 export const MAX_SPEC_MARKDOWN_CHARS = 256 * 1024;
 
-/**
- * `propose_scope`: the agent's scope proposal. The schema bounds shapes; the
- * rules (eligible repositories, seeds accounted for, the repository cap) are
- * checked by the server, and broken rules go back to the agent as a tool error.
- */
+/** Bounds shapes only; the server checks the scope rules and returns broken ones to the agent as a tool error. */
 export const ProposeScopeRequestSchema = z.object({
   title: z.string().trim().min(1).max(200),
   summary: z.string().trim().min(1).max(4_000),
@@ -475,7 +378,7 @@ export const ProposeScopeRequestSchema = z.object({
     .array(z.object({ key: z.string().trim().min(1).max(255), reason: shortText }))
     .max(50)
     .default([]),
-  /** Product questions the PRD leaves open, each with what it blocks; never decided by the agent. */
+  /** Product questions the PRD leaves open; never decided by the agent. */
   candidates: z
     .array(z.object({ question: shortText, blocks: shortText }))
     .max(50)
@@ -487,16 +390,11 @@ export type ProposeScope = z.output<typeof ProposeScopeRequestSchema>;
 export const ProposeScopeResponseSchema = z.discriminatedUnion('accepted', [
   /** Stored as this turn's draft version; published when the turn completes. */
   z.object({ accepted: z.literal(true), version: z.number().int().positive(), stop: z.boolean() }),
-  /** Rules the proposal broke, for the agent to fix and propose again. */
   z.object({ accepted: z.literal(false), errors: z.array(z.string()).min(1), stop: z.boolean() }),
 ]);
 export type ProposeScopeResponse = z.infer<typeof ProposeScopeResponseSchema>;
 
-/**
- * One clarification in Claude Code's AskUserQuestion shape: a header, two to
- * four options with descriptions and optional previews, optional multiple
- * selection. The host adds the free-text "Other" answer.
- */
+/** Claude Code's AskUserQuestion shape; the host adds the free-text "Other" answer. */
 export const AskedQuestionSchema = z.object({
   question: z.string().trim().min(1).max(2_000),
   header: z.string().trim().min(1).max(64),
@@ -514,7 +412,6 @@ export const AskedQuestionSchema = z.object({
 });
 export type AskedQuestion = z.output<typeof AskedQuestionSchema>;
 
-/** A question the agent asked through AskUserQuestion; the server decides by the run's policy what happens to it. */
 export const ReportQuestionRequestSchema = z.object({
   /** The AskUserQuestion call's tool use id; the resume turn re-runs that call. */
   toolUseId: z.string().min(1).max(255),
@@ -533,30 +430,24 @@ export const ReportQuestionResponseSchema = z.discriminatedUnion('state', [
     answers: z.record(z.string(), z.string()),
     stop: z.boolean(),
   }),
-  /** The question was not recorded (the run ended, or a question is already open); do not let it through. */
+  /** Not recorded (the run ended, or a question is already open); do not let the call through. */
   z.object({ state: z.literal('refused'), reason: z.string(), stop: z.boolean() }),
 ]);
 export type ReportQuestionResponse = z.infer<typeof ReportQuestionResponseSchema>;
 
-/** The error body every runner-facing refusal carries. */
 export const RunnerErrorBodySchema = z.object({
   code: z.string().optional(),
   message: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
-/**
- * `submit_result`: the implement phase's result. It ends the turn; the run
- * moves to delivery only when the end-of-turn push touched a repository.
- */
+/** Ends the turn; the run moves to delivery only when the end-of-turn push touched a repository. */
 export const SubmitResultRequestSchema = z.object({
   summary: z.string().trim().min(1).max(4_000),
-  /** What changed in each repository, by repository key. */
   repositories: z
     .array(z.object({ key: z.string().trim().min(1).max(255), summary: shortText }))
     .max(50)
     .default([]),
   assumptions: z.array(shortText).max(50).default([]),
-  /** Repositories that could not be built or tested in the runner, with the reason. */
   notBuiltOrTested: z
     .array(z.object({ key: z.string().trim().min(1).max(255), reason: shortText }))
     .max(50)
@@ -573,10 +464,7 @@ export const SubmitResultResponseSchema = z.discriminatedUnion('accepted', [
 ]);
 export type SubmitResultResponse = z.infer<typeof SubmitResultResponseSchema>;
 
-/**
- * `request_repo`: the implement phase asks for a repository the accepted
- * scope left out. Validated like proposal repositories and against the cap.
- */
+/** Validated like proposal repositories and against the repository cap. */
 export const RequestRepoRequestSchema = z.object({
   key: z.string().trim().min(1).max(255),
   reason: shortText,
@@ -585,15 +473,11 @@ export type RequestRepoRequest = z.input<typeof RequestRepoRequestSchema>;
 export type RequestRepo = z.output<typeof RequestRepoRequestSchema>;
 
 export const RequestRepoResponseSchema = z.discriminatedUnion('state', [
-  /**
-   * The repository is in the run: appended now under automatic acceptance,
-   * or already there. Clone it unless this turn already has, and give the
-   * agent its path; the turn continues.
-   */
+  /** Appended under automatic acceptance, or already there: clone it unless this turn has, and continue. */
   z.object({ state: z.literal('added'), repository: AssignedRepositorySchema, stop: z.boolean() }),
   /** Required acceptance: a person decides when the turn ends, so end it. */
   z.object({ state: z.literal('requested'), stop: z.boolean() }),
-  /** Rules the request broke, for the agent; nothing was recorded. */
+  /** Nothing was recorded. */
   z.object({ state: z.literal('rejected'), errors: z.array(z.string()).min(1), stop: z.boolean() }),
 ]);
 export type RequestRepoResponse = z.infer<typeof RequestRepoResponseSchema>;

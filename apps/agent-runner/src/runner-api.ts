@@ -1,7 +1,3 @@
-/**
- * The runner's side of the runner API. Every response is parsed with the
- * shared contract, so a server that drifted fails loudly here.
- */
 import {
   type ClaimRequest,
   type CompleteTurnRequest,
@@ -35,7 +31,7 @@ import {
   TurnAssignmentSchema,
 } from '@coredoc/core/agent-runner';
 
-/** The lease is not this runner's any more: stop the turn and do not complete it. */
+/** Stop the turn and do not complete it. */
 export class LeaseLostError extends Error {
   constructor() {
     super('The turn lease was lost');
@@ -43,7 +39,6 @@ export class LeaseLostError extends Error {
   }
 }
 
-/** The server refused this runner's protocol version; an upgrade is needed. */
 export class RunnerIncompatibleError extends Error {
   constructor(message: string) {
     super(message);
@@ -53,10 +48,9 @@ export class RunnerIncompatibleError extends Error {
 
 export class RunnerApiError extends Error {
   constructor(
-    /** The HTTP status; 0 when no answer arrived (a network failure or a timeout). */
+    /** 0 when no answer arrived (a network failure or a timeout). */
     readonly status: number,
     message: string,
-    /** The wait the server asked for with Retry-After, in milliseconds. */
     readonly retryAfterMs: number | null = null,
   ) {
     super(message);
@@ -65,13 +59,10 @@ export class RunnerApiError extends Error {
 }
 
 export interface RunnerApiOptions {
-  /** The Coredoc server origin, e.g. `http://coredoc:3000`. */
   baseUrl: string;
   workspaceId: string;
-  /** The workspace's runner token (`cdt_…`, agent-runner scope). */
   token: string;
   fetchImpl?: typeof fetch;
-  /** Injectable for tests: the clock retries are bounded by, and how the client waits between attempts. */
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -79,19 +70,13 @@ export interface RunnerApiOptions {
 export interface TurnRef {
   turnId: string;
   leaseToken: string;
-  /**
-   * When the lease expires (epoch ms), as the last claim or heartbeat said.
-   * Failed turn requests are retried only while it lasts; without it they
-   * are not retried.
-   */
+  /** Epoch ms. Failed turn requests are retried only until then, and never without it. */
   leaseExpiresAt?: number;
 }
 
 /**
- * How a turn request may be retried. `idempotent` requests repeat safely
- * after an answer that may have been applied (a 500, a dropped connection, a
- * timeout); the others repeat only when the server cannot have applied them
- * (a 429, or a 502/503/504 from whatever fronts it).
+ * `idempotent` requests repeat even after an answer that may have been applied (a 500, a dropped
+ * connection, a timeout); `unapplied-only` ones only when the server cannot have applied them.
  */
 type Retry = 'idempotent' | 'unapplied-only' | 'never';
 
@@ -113,14 +98,13 @@ export class RunnerApiClient {
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
-  /** The oldest queued turn, or null when there is none. Not retried: the loop polls again. */
+  /** Not retried: the loop polls again. */
   async claim(request: ClaimRequest): Promise<TurnAssignment | null> {
     const response = await this.send('POST', '/claim', request);
     if (response.status === 204) return null;
     return TurnAssignmentSchema.parse(await this.json(response));
   }
 
-  /** Why the runner claims nothing: its start-up check failed. Claims nothing itself. */
   async reportStartupProblem(report: RunnerStartupProblem): Promise<void> {
     const response = await this.send('POST', '/startup-check', report);
     RunnerStartupProblemResponseSchema.parse(await this.json(response));
@@ -144,41 +128,34 @@ export class RunnerApiClient {
     CompleteTurnResponseSchema.parse(await this.json(response));
   }
 
-  /** `propose_scope`; broken rules come back as `accepted: false` for the agent to fix. Each call is a new version. */
+  /** Each call is a new version, so it is never repeated after a possibly applied answer. */
   async proposeScope(turn: TurnRef, proposal: ProposeScopeRequest): Promise<ProposeScopeResponse> {
     const response = await this.send('POST', `/turns/${turn.turnId}/propose-scope`, proposal, turn, 'unapplied-only');
     return ProposeScopeResponseSchema.parse(await this.json(response));
   }
 
-  /** `submit_result`; broken rules come back as `accepted: false` for the agent to fix. A repeat replaces it. */
+  /** A repeat replaces the stored result. */
   async submitResult(turn: TurnRef, result: SubmitResultRequest): Promise<SubmitResultResponse> {
     const response = await this.send('POST', `/turns/${turn.turnId}/submit-result`, result, turn, 'idempotent');
     return SubmitResultResponseSchema.parse(await this.json(response));
   }
 
-  /** `request_repo`: added (clone it), requested (a person decides), or rejected with errors for the agent. */
   async requestRepo(turn: TurnRef, request: RequestRepoRequest): Promise<RequestRepoResponse> {
     const response = await this.send('POST', `/turns/${turn.turnId}/request-repo`, request, turn, 'unapplied-only');
     return RequestRepoResponseSchema.parse(await this.json(response));
   }
 
-  /** Before the first push of the run branch to a repository: records that this run created it. */
   async reserveBranch(turn: TurnRef, request: ReserveBranchRequest): Promise<void> {
     const response = await this.send('POST', `/turns/${turn.turnId}/branches`, request, turn, 'idempotent');
     ReserveBranchResponseSchema.parse(await this.json(response));
   }
 
-  /**
-   * An AskUserQuestion call: parked for a person, answered at once, or
-   * refused. Never repeated after an answer that may have parked it: the
-   * repeat would be refused as a second question.
-   */
+  /** Never repeated after an answer that may have parked it: the repeat would be refused as a second question. */
   async reportQuestion(turn: TurnRef, question: ReportQuestionRequest): Promise<ReportQuestionResponse> {
     const response = await this.send('POST', `/turns/${turn.turnId}/questions`, question, turn, 'unapplied-only');
     return ReportQuestionResponseSchema.parse(await this.json(response));
   }
 
-  /** The run's previous state archive (gzip tar), fetched with the live lease. */
   async downloadArchive(turn: TurnRef): Promise<Buffer> {
     const response = await this.send('GET', `/turns/${turn.turnId}/archive`, undefined, turn, 'idempotent', 600_000);
     return Buffer.from(await response.arrayBuffer());
@@ -189,16 +166,11 @@ export class RunnerApiClient {
     await this.send('PUT', `/turns/${turn.turnId}/archive`, archive, turn, 'idempotent', 600_000);
   }
 
-  /** The base URL the runner reaches Coredoc on; the MCP path in an assignment resolves against it. */
   resolve(path: string): string {
     return new URL(path, `${this.options.baseUrl.replace(/\/+$/, '')}/`).toString();
   }
 
-  /**
-   * One request, retried with backoff (or the server's Retry-After) while
-   * the turn's lease, as known when the request began, lasts. `LEASE_LOST`
-   * and other refusals are never retried.
-   */
+  /** Retries only while the lease, as known when the request began, lasts; refusals are never retried. */
   private async send(
     method: 'GET' | 'POST' | 'PUT',
     path: string,
@@ -268,7 +240,6 @@ export class RunnerApiClient {
   }
 }
 
-/** Retry-After as delay seconds or an HTTP date, in milliseconds; null when absent or unreadable. */
 function retryAfterMs(header: string | null, now: number): number | null {
   if (!header) return null;
   const seconds = Number(header);

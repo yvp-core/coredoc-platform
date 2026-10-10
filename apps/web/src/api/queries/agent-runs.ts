@@ -18,7 +18,6 @@ import { request } from '../client.js';
 // The desktop telemetry ingest owns `/agent-runs`; cloud agent runs live under their own prefix.
 const base = (wsId: string) => `/api/v1/workspaces/${wsId}/cloud-agent-runs`;
 
-/** The list shows the newest runs only; the page says so when there are more. */
 export const AGENT_RUN_LIST_LIMIT = 50;
 
 export const agentRunsQueryOptions = (wsId: string) =>
@@ -40,12 +39,7 @@ const timelineKey = (wsId: string, runId: string) => ['ws', wsId, 'agent-runs', 
 
 const TIMELINE_PAGE = 500;
 
-/**
- * The timeline, appended forwards: each fetch asks only for events after the
- * last sequence already in the cache, page after page until it has caught up,
- * and merges them in. The caller passes the run's status so polling stops once
- * the run is terminal.
- */
+/** Each fetch asks only for events after the cached last seq, page by page until caught up. */
 export const agentRunTimelineQueryOptions = (
   queryClient: QueryClient,
   wsId: string,
@@ -68,7 +62,6 @@ export const agentRunTimelineQueryOptions = (
     refetchInterval: pollInterval(status),
   });
 
-/** Per-turn activity and skill and tool counts, refreshed with the timeline while the run is active. */
 export const agentRunActivityQueryOptions = (wsId: string, runId: string, status: AgentRun['status'] | undefined) =>
   queryOptions({
     queryKey: ['ws', wsId, 'agent-runs', runId, 'activity'] as const,
@@ -94,7 +87,6 @@ export function startAgentRun(params: {
   });
 }
 
-/** Every published spec version of a run, oldest first. */
 export const agentRunSpecsQueryOptions = (wsId: string, runId: string, latestVersion: number | undefined) =>
   queryOptions({
     // The latest version is in the key, so a new proposal refetches the list.
@@ -122,7 +114,6 @@ export function requestAgentRunScopeChanges(params: {
   });
 }
 
-/** Answer an open question; a second answer is refused with QUESTION_ALREADY_ANSWERED. */
 export function answerAgentRunQuestion(params: {
   wsId: string;
   runId: string;
@@ -136,12 +127,10 @@ export function answerAgentRunQuestion(params: {
   });
 }
 
-/** Cancel a run that has not ended; a run that already ended is refused with RUN_TERMINAL. */
 export function cancelAgentRun(params: { wsId: string; runId: string }): Promise<AgentRunDetail> {
   return request<AgentRunDetail>(`${base(params.wsId)}/${params.runId}/cancel`, { method: 'POST' });
 }
 
-/** A new run for the same issue from a terminal run. */
 export function rerunAgentRun(params: { wsId: string; runId: string }): Promise<AgentRun> {
   return request<AgentRun>(`${base(params.wsId)}/${params.runId}/rerun`, { method: 'POST' });
 }

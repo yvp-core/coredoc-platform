@@ -1,18 +1,13 @@
-/**
- * Per-turn caps on what a runner reports. Runner reports are untrusted: a
- * runaway or compromised runner fails its run with `report_limit_exceeded`
- * instead of filling the timeline.
- */
+/** Runner reports are untrusted: a runaway or compromised runner fails its run instead of filling the timeline. */
 import { RunFailureCode } from './run-states.js';
 import type { Tx } from './run-store.js';
 import { failRun, lockRun } from './run-transitions.js';
 
-/** Injected caps, so suites can exceed them in a few requests. */
 export const CLOUD_AGENT_RUN_REPORT_CAPS = Symbol('CLOUD_AGENT_RUN_REPORT_CAPS');
 
 export interface ReportCaps {
   events: number;
-  /** Bytes of event JSON as the runner sent it. */
+  /** Measured as the runner sent it. */
   eventBytes: number;
   /** `propose_scope` calls, refused ones included. */
   proposals: number;
@@ -28,11 +23,7 @@ export const DEFAULT_REPORT_CAPS: ReportCaps = {
 
 export type Report = { events: number; eventBytes: number } | { proposals: 1 } | { questions: 1 };
 
-/**
- * Counts a report against its turn's caps, inside the caller's fenced
- * transaction. When it exceeds one, the run fails and the caller tells the
- * runner to stop without recording the report. Returns whether it did.
- */
+/** Over a cap the run fails, and the caller tells the runner to stop without recording the report. */
 export async function chargeReport(
   tx: Tx,
   turn: { id: string; run_id: string; workspace_id: string },

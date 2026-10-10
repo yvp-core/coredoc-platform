@@ -10,11 +10,7 @@ export type JiraConnectorState =
   | { status: 'inactive'; connector: DeliveryConnector }
   | { status: 'active'; connector: DeliveryConnector; projectKeys: string[] };
 
-/**
- * The workspace's Jira Delivery analytics connector as agent runs see it: its
- * state, the configured project keys, and a client. Jira credentials stay in
- * the connector and are used only by the server.
- */
+/** Jira credentials stay in the connector and are used only by the server. */
 @Injectable()
 export class CloudAgentRunJiraConnector {
   private readonly clientFactory: JiraClientFactory;
@@ -36,7 +32,7 @@ export class CloudAgentRunJiraConnector {
     return connectors[0] ? { status: 'inactive', connector: connectors[0] } : { status: 'missing' };
   }
 
-  /** A client for the connector; throws when its host or credentials are unusable. */
+  /** Throws when the connector's host or credentials are unusable. */
   client(connector: DeliveryConnector): JiraClient {
     if (!connector.baseUrl) throw new Error('jira_connector_base_url_missing');
     if (!isEncryptionAvailable() || !connector.credentialsEncrypted)

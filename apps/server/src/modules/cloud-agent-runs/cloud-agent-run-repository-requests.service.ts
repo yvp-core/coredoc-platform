@@ -4,15 +4,21 @@ import type { CloudAgentRun, CloudAgentRunQuestion, Prisma } from '../../generat
 import { CloudAgentRunImplementService, runRepositories } from './cloud-agent-run-implement.service.js';
 import type { RunRepository } from './cloud-agent-run-scope.service.js';
 import type { QuestionAnswer } from './cloud-agent-runs.contract.js';
-import { QuestionKind, QuestionState, RunEventCode, RunPhase, RunStatus, ServerEventType } from './run-states.js';
+import {
+  QuestionKind,
+  QuestionState,
+  RunEventCode,
+  RunPhase,
+  RunStatus,
+  ScopeAcceptancePolicy,
+  ServerEventType,
+} from './run-states.js';
 import { appendRunEvents, type NewRunEvent, type Tx } from './run-store.js';
 import { setRunStatus } from './run-transitions.js';
 
-/** The fixed options of a repository-request question. */
 export const ADD_REPOSITORY = 'Add';
 export const DECLINE_REPOSITORY = "Don't add";
 
-/** A `request_repo` call stored on its turn under required acceptance. */
 interface RepositoryRequest {
   key: string;
   reason: string;
@@ -26,10 +32,7 @@ function repositoryEvent(code: string, key: string, text: string): NewRunEvent {
   return { type: ServerEventType.RunEvent, payload: { code, text, repository: key } };
 }
 
-/**
- * Appends a requested repository to the run: origin `request`, the agent's
- * reason, merge order last. The caller holds the locked run.
- */
+/** The caller holds the locked run. */
 async function appendRequestedRepository(
   tx: Tx,
   run: CloudAgentRun,
@@ -67,7 +70,6 @@ async function appendRequestedRepository(
   return repository;
 }
 
-/** Whether a person declined this repository for the run; asking again is then a tool error. */
 async function isDeclined(tx: Tx, run: CloudAgentRun, key: string): Promise<boolean> {
   const decided = await tx.cloudAgentRunQuestion.findMany({
     where: {
@@ -86,7 +88,6 @@ function isAdded(row: CloudAgentRunQuestion): boolean {
   return answers[0]?.labels[0] === ADD_REPOSITORY;
 }
 
-/** The question a person answers; the agent's reason is part of what they decide on. */
 function repositoryQuestion(request: RepositoryRequest): AskedQuestion {
   return {
     question: `The agent asks to add repository \`${request.key}\` to this run. Add it?`,
@@ -105,11 +106,6 @@ function repositoryQuestion(request: RepositoryRequest): AskedQuestion {
   };
 }
 
-/**
- * At implement-turn completion: a `request_repo` stored under required
- * acceptance opens its repository-request question and the run waits for a
- * person. False when the turn requested nothing.
- */
 export async function openRepositoryRequest(tx: Tx, run: CloudAgentRun, turnId: string, at: Date): Promise<boolean> {
   const turn = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turnId }, select: { repoRequest: true } });
   const request = turn.repoRequest as unknown as RepositoryRequest | null;
@@ -137,7 +133,7 @@ export async function openRepositoryRequest(tx: Tx, run: CloudAgentRun, turnId: 
   return true;
 }
 
-/** Why these answers do not decide a repository request, or null: exactly one fixed option, no free text. */
+/** A decision is exactly one fixed option, with no free text. */
 export function repositoryAnswerProblem(answers: QuestionAnswer[]): string | null {
   const [answer] = answers;
   const labels = answer?.labels ?? [];
@@ -149,11 +145,7 @@ export function repositoryAnswerProblem(answers: QuestionAnswer[]): string | nul
   return decided ? null : `Choose "${ADD_REPOSITORY}" or "${DECLINE_REPOSITORY}".`;
 }
 
-/**
- * A person's decision, inside the answer transaction: "Add" appends the
- * repository, "Don't add" records the decline. The caller holds the locked
- * run and queues the resume turn.
- */
+/** The caller holds the locked run and queues the resume turn. */
 export async function applyRepositoryDecision(
   tx: Tx,
   run: CloudAgentRun,
@@ -178,7 +170,6 @@ export async function applyRepositoryDecision(
   await appendRequestedRepository(tx, run, { key, reason: request?.reason ?? 'Requested by the agent' }, at);
 }
 
-/** The resume turn's input after a decision. */
 export function repositoryDecisionText(row: CloudAgentRunQuestion): string {
   const key = row.repositoryKey!;
   return isAdded(row)
@@ -186,7 +177,6 @@ export function repositoryDecisionText(row: CloudAgentRunQuestion): string {
     : `Repository \`${key}\` was declined; continue without it or call submit_result noting the gap.`;
 }
 
-/** The decision a resume turn delivers, for its assignment. */
 export async function repositoryDecisionForTurn(
   tx: Tx,
   workspaceId: string,
@@ -198,20 +188,12 @@ export async function repositoryDecisionForTurn(
   return row?.repositoryKey ? { key: row.repositoryKey, added: isAdded(row) } : null;
 }
 
-/**
- * `request_repo` and its decision: validated like proposal repositories and
- * against the cap; appended mid-turn under automatic acceptance, or stored on
- * the turn and decided by a person under required acceptance.
- */
+/** Appended mid-turn under automatic acceptance; stored on the turn for a person under required acceptance. */
 @Injectable()
 export class CloudAgentRunRepositoryRequestService {
   constructor(private readonly implement: CloudAgentRunImplementService) {}
 
-  /**
-   * The live implement turn's request. The caller holds the fenced turn and
-   * the locked run; `eligibility` maps every workspace repository key to why
-   * it is not eligible, or null.
-   */
+  /** The caller holds the fenced turn and the locked run; `eligibility` maps a key to why it is ineligible. */
   async request(
     tx: Tx,
     run: CloudAgentRun,
@@ -247,7 +229,7 @@ export class CloudAgentRunRepositoryRequestService {
     }
     if (errors.length) return rejected(errors);
 
-    if (run.scopeAcceptancePolicy === 'automatic') {
+    if (run.scopeAcceptancePolicy === ScopeAcceptancePolicy.Automatic) {
       return this.added(run, await appendRequestedRepository(tx, run, request, at));
     }
     // Required acceptance: a person widens an accepted scope, whatever the questions policy.

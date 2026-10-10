@@ -75,7 +75,6 @@ it('renders the node as a document, marks proposals in place and opens what is c
   expect(screen.getByRole('heading', { level: 1, name: 'Refunds' })).toBeTruthy();
   expect(screen.getByRole('heading', { level: 2, name: 'Rules' })).toBeTruthy();
   expect(screen.getByText('Proposed')).toBeTruthy();
-  // Only the item with open threads is marked.
   expect(screen.getAllByText(/open comment/)).toHaveLength(1);
   expect(screen.getByText('2 open comments')).toBeTruthy();
 

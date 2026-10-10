@@ -47,12 +47,7 @@ export enum TokenPermission {
   IntentRelease = 'intent:release',
   /** Apply a PR's CI anchor operations against the graph its CI run published. */
   IntentBindings = 'intent:bindings',
-  /**
-   * Act as a cloud agent runner of the workspace: claim turns and
-   * report on them over the runner API. An exact-purpose token holding only
-   * this permission is refused everywhere else (AuthGuard and the MCP
-   * middleware), and the legacy wildcard never grants it.
-   */
+  /** A token holding only this is refused outside the runner API; the legacy wildcard never grants it. */
   AgentRunnerRun = 'agent-runner:run',
 }
 
@@ -87,7 +82,6 @@ export const INTENT_AGENT_TOKEN_PERMISSIONS: TokenPermission[] = [
  */
 export const TELEMETRY_TOKEN_PERMISSIONS: TokenPermission[] = [TokenPermission.TelemetryWrite];
 
-/** A runner token's whole grant: the runner API of its own workspace, nothing else. */
 export const AGENT_RUNNER_TOKEN_PERMISSIONS: TokenPermission[] = [TokenPermission.AgentRunnerRun];
 
 /**
@@ -121,7 +115,6 @@ export function isExactTelemetryPurpose(permissions: readonly string[] | null | 
   return permissions?.length === 1 && permissions[0] === TokenPermission.TelemetryWrite;
 }
 
-/** Exact-purpose runner tokens work only on the runner API, including outside Nest guards. */
 export function isExactAgentRunnerPurpose(permissions: readonly string[] | null | undefined): boolean {
   return permissions?.length === 1 && permissions[0] === TokenPermission.AgentRunnerRun;
 }

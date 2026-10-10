@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { defaultRetryDelay, type RetryDelay } from '@coredoc/core/agent-runner';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { CloudAgentRun, Prisma } from '../../generated/prisma/client.js';
 import {
@@ -10,7 +11,7 @@ import {
 } from '../delivery/jira-client.js';
 import { recordedPullRequests } from './cloud-agent-run-delivery.service.js';
 import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js';
-import { FAILURE_MESSAGES, type FailureCode } from './failure-codes.js';
+import { FAILURE_MESSAGES } from './failure-codes.js';
 import { type CommentPullRequest, commentHasMarker, doneComment, failureComment, runMarker } from './jira-comments.js';
 import {
   type JiraCommentOutcome,
@@ -22,9 +23,9 @@ import {
   sameStatusName,
   transitionTo,
 } from './jira-outcome.js';
-import { CLOUD_AGENT_RUNS_RETRY_DELAY, defaultRetryDelay, type RetryDelay, withRetries } from './retry.js';
+import { CLOUD_AGENT_RUNS_RETRY_DELAY, withRetries } from './retry.js';
 import { runPageUrl } from './run-links.js';
-import { RunEventCode, RunFailureCode, RunStatus, ServerEventType } from './run-states.js';
+import { fromColumn, RunEventCode, RunFailureCode, RunStatus, ServerEventType } from './run-states.js';
 import {
   appendRunEvents,
   CLOUD_AGENT_RUNS_CLOCK,
@@ -35,11 +36,9 @@ import {
 } from './run-store.js';
 import { failRun, lockRun, markRunDone } from './run-transitions.js';
 
-/** Rows claimed per job and tick. */
 const BATCH = 20;
 /** A claimed comment is re-claimable after this, as the intent handoff cron does. */
 const CLAIM_MS = 5 * 60_000;
-/** After this many failed attempts a comment is recorded as not posted. */
 const MAX_ATTEMPTS = 5;
 
 type CommentKind = 'done' | 'failure';
@@ -49,11 +48,9 @@ const STATUS_EVENTS: readonly StatusEvent[] = [StatusEvent.Started, StatusEvent.
 
 const MOVED_OUT = 'The issue moved out of the configured projects.';
 
-/** Why a comment is skipped when the run marker check cannot see every comment. */
 const MARKER_UNKNOWN =
   'The issue has too many comments for Coredoc to check whether it already posted this one, so it posted none.';
 
-/** The workspace's Jira connector cannot be used: a permanent failure for the comment. */
 class ConnectorUnavailable extends Error {}
 
 function transientJira(error: unknown): { retryAfterMs: number | null } | false {
@@ -66,7 +63,6 @@ function transientJira(error: unknown): { retryAfterMs: number | null } | false 
   return false;
 }
 
-/** Permanent: retrying cannot help. Anything else counts as one failed attempt. */
 function isPermanent(error: unknown): boolean {
   return (
     error instanceof ConnectorUnavailable ||
@@ -89,17 +85,13 @@ function describe(error: unknown): string {
 
 interface IssueTarget {
   client: JiraClient;
-  /** The issue's current status name. */
   status: string | null;
 }
 
 /**
- * The run sweep's Jira jobs: the done comment and transition for delivered
- * runs, one failure comment per failed run, and the configured started,
- * cancelled and failed transitions. Rows are claimed with
- * skip-locked claims and a next-attempt time; a run marker on each comment
- * keeps a retry after a crash to one comment. Only server-owned facts reach
- * Jira: fixed messages, verified pull requests and the run link.
+ * Only server-owned facts reach Jira: fixed messages, verified pull requests
+ * and the run link. A run marker on each comment keeps a retry after a crash
+ * to one comment.
  */
 @Injectable()
 export class CloudAgentRunJiraOutcomes {
@@ -139,7 +131,6 @@ export class CloudAgentRunJiraOutcomes {
     }
   }
 
-  /** Failed runs without a failure comment: one comment each. Cancelled runs get none. */
   async postFailureComments(): Promise<void> {
     const at = this.now();
     const due = await this.prisma.$queryRaw<Array<{ id: string; workspace_id: string }>>`
@@ -168,11 +159,7 @@ export class CloudAgentRunJiraOutcomes {
     }
   }
 
-  /**
-   * Queued started, cancelled and failed transitions, with the same claim and
-   * next-attempt time as the comments. A transition never changes the run's
-   * outcome: problems end as warnings on the run.
-   */
+  /** A transition never changes the run's outcome: problems end as warnings on the run. */
   async applyStatusTransitions(): Promise<void> {
     for (const event of STATUS_EVENTS) {
       const at = this.now();
@@ -200,11 +187,7 @@ export class CloudAgentRunJiraOutcomes {
     }
   }
 
-  /**
-   * Re-checks the project, skips an issue already in the status, then applies
-   * the transition to it. A crash after Jira moved the issue is retried at the
-   * next claim and ends in the already-in-status skip: one transition.
-   */
+  /** A crash after Jira moved the issue is retried and ends in the already-in-status skip. */
   private async applyStatusTransition(workspaceId: string, runId: string, event: StatusEvent): Promise<void> {
     const run = await this.prisma.cloudAgentRun.findFirst({ where: { id: runId, workspaceId } });
     const queued = run ? jiraOutcomeOf(run).transitions?.[event] : undefined;
@@ -262,7 +245,6 @@ export class CloudAgentRunJiraOutcomes {
     });
   }
 
-  /** One failed attempt; a permanent error or the fifth attempt ends in a warning. */
   private async recordFailedTransition(run: CloudAgentRun, event: StatusEvent, error: unknown): Promise<void> {
     const at = this.now();
     await this.prisma.$transaction(async (tx) => {
@@ -354,7 +336,9 @@ export class CloudAgentRunJiraOutcomes {
         return;
       }
       const runUrl = await runPageUrl(this.prisma, run.workspaceId, run.id);
-      const message = FAILURE_MESSAGES[run.failureCode as FailureCode] ?? 'The run failed; the run page says why.';
+      const message = run.failureCode
+        ? FAILURE_MESSAGES[fromColumn(RunFailureCode, run.failureCode)]
+        : 'The run failed; the run page says why.';
       const commentId = await this.postOnce(target.client, run, runMarker(run.id, 'failure'), (marker) =>
         failureComment({ message, pullRequests: this.commentPulls(run), runUrl, marker }),
       );
@@ -392,10 +376,8 @@ export class CloudAgentRunJiraOutcomes {
   }
 
   /**
-   * Posts the comment unless one with the marker is already there (a crash
-   * after Jira accepted it), and returns its id. A retry looks again first.
-   * Null when the listing stopped at its cap without the marker: posting
-   * could duplicate a comment, so nothing is posted.
+   * Reuses a comment carrying the marker (a crash after Jira accepted it). Null
+   * when the listing hit its cap without the marker: posting could duplicate it.
    */
   private postOnce(
     client: JiraClient,
@@ -412,11 +394,7 @@ export class CloudAgentRunJiraOutcomes {
     });
   }
 
-  /**
-   * The configured done transition, matched by status name and preferring
-   * one without a screen. Never fails the run: problems after the done
-   * comment are recorded as warnings.
-   */
+  /** Never fails the run: problems after the done comment are recorded as warnings. */
   private async transition(
     target: IssueTarget,
     run: CloudAgentRun,
@@ -471,7 +449,6 @@ export class CloudAgentRunJiraOutcomes {
     });
   }
 
-  /** Merges into one comment's outcome while it is still pending; adds the events. */
   private async settle(
     run: CloudAgentRun,
     kind: CommentKind,
@@ -513,11 +490,7 @@ export class CloudAgentRunJiraOutcomes {
     });
   }
 
-  /**
-   * One failed attempt. A permanent error, or the fifth attempt, records the
-   * comment as not posted; for the done comment that fails the run with
-   * `delivery_failed`, and its failure comment then lists the pull requests.
-   */
+  /** Giving up on the done comment fails the run with `delivery_failed`. */
   private async recordFailedAttempt(run: CloudAgentRun, kind: CommentKind, error: unknown): Promise<void> {
     const at = this.now();
     const reason = describe(error);

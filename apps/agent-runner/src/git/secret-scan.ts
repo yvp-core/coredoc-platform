@@ -1,9 +1,4 @@
-/**
- * The plugin's secret preflight, called by the host on one clone with an
- * explicit git directory (plugin contract item 7). `commit` scans the staged
- * change and the message; `push` scans the outbound commits and needs the
- * bot's credentials in the environment for its live read of the remote.
- */
+/** `push` needs the bot's credentials in the environment for its live read of the remote. */
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 

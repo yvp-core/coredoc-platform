@@ -105,7 +105,6 @@ export interface IntentNodeCounts {
   itemCount: number;
   pendingCount: number;
   openQuestionCount: number;
-  /** Open comment threads on the node itself and on its live items. */
   openCommentCount: number;
 }
 

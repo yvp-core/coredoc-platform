@@ -22,9 +22,8 @@ export class JiraRateLimitError extends Error {
   }
 }
 /**
- * 404 or 400: the issue is missing or invisible to the connector's user (Jira
- * answers these, not 401/403, for missing permission). Permanent for agent-run
- * reads; still a plain Error to the importer's classifier.
+ * Jira answers 404 or 400, not 401/403, for an issue the connector's user may not
+ * see. Permanent for agent-run reads; a plain Error to the importer's classifier.
  */
 export class JiraNotFoundError extends Error {}
 /**
@@ -46,7 +45,6 @@ export interface JiraComment {
   body: unknown;
 }
 
-/** One available transition: its id, the status it leads to and whether it shows a screen. */
 export interface JiraTransition {
   id: string;
   name?: string;
@@ -198,13 +196,11 @@ export class JiraClient {
     return { items: out, nextPageToken: nextPageToken ?? null };
   }
 
-  /** One issue with exactly the fields asked for. */
   async getIssue(issueIdOrKey: string, fields: string[]): Promise<JiraIssue> {
     const query = new URLSearchParams({ fields: fields.join(',') });
     return asRecord(await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}?${query}`));
   }
 
-  /** Adds a comment whose body is Atlassian Document Format; returns its id. */
   async addComment(issueIdOrKey: string, body: unknown): Promise<{ id: string }> {
     const res = asRecord(
       await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/comment`, {
@@ -216,10 +212,7 @@ export class JiraClient {
     return { id: res.id };
   }
 
-  /**
-   * An issue's comments, oldest first, up to `maxPages` pages. `complete` is
-   * false when the cap stopped the listing before the last comment.
-   */
+  /** `complete` is false when `maxPages` stopped the listing before the last comment. */
   async listComments(issueIdOrKey: string, maxPages = 20): Promise<{ comments: JiraComment[]; complete: boolean }> {
     const out: JiraComment[] = [];
     let startAt = 0;

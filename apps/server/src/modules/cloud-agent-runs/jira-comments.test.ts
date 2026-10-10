@@ -7,7 +7,6 @@ const PULLS = [
   { repository: 'orders-api', number: 9, url: 'https://github.com/example-org/orders-api/pull/9' },
 ];
 
-/** Text and link targets in document order. */
 function flatten(node: unknown): string[] {
   if (!node || typeof node !== 'object') return [];
   const { text, marks, content } = node as {

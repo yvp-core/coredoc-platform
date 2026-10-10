@@ -5,9 +5,8 @@
  * intent text is workspace content, imported or written by agents. Mermaid is
  * loaded on first use, so pages without a diagram do not pay for it.
  *
- * `noRemote` is for agent-written text (cloud agent runs): nothing is fetched
- * from elsewhere when the page opens. Images show their alt text and URL as
- * plain text, and links show their target.
+ * `noRemote` is for agent-written text: nothing remote is fetched; images show
+ * their alt text and URL as plain text, and links show their target.
  */
 
 import { cn } from '@/lib/utils';
@@ -124,7 +123,6 @@ export function IntentMarkdown({
 }: {
   text: string;
   inline?: boolean;
-  /** Agent-written text: no remote images or other remote content. */
   noRemote?: boolean;
   className?: string;
 }) {

@@ -29,11 +29,6 @@ import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CLOUD_AGENT_RUNS_CLOCK, cloudAgentRunsCoreProviders } from './cloud-agent-runs.module.js';
 import { FakeJira, InMemoryArchiveStore, paragraphDoc } from './cloud-agent-runs.test-support.js';
 
-/**
- * The implement phase driven through the human API and the runner API on real
- * PostgreSQL with real guards. Jira and the archive store are in-memory fakes
- * at their ports; the runner is a scripted fake making runner API calls.
- */
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 const ADMIN = { id: `${RUN}-admin`, email: 'admin@example.com' };
@@ -424,7 +419,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     expect(next.body.turn.inputText).toBe('Continue where you stopped.');
     expect(next.body.run.sessionId).toBe(turn.body.run.sessionId);
     expect(next.body.run.priorSessionSpendUsd).toBe(0.5);
-    // The run's later turns see the branch as theirs.
     expect(next.body.repositories.find((r: { key: string }) => r.key === 'orders-api').branchCreated).toBe(true);
     await turnCall(next, 'submit-result', { summary: 'Finished.' }).expect(200);
     await complete(next, { kind: 'ended' }, [report('orders-api', { pushedHead: HEAD_B })]).expect(200);

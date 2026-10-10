@@ -1,12 +1,7 @@
-/**
- * The runner's tool policy, applied by a pre-tool hook before Claude Code's
- * own automatic approvals. Small and explicit: the pod is the boundary, so
- * this is hygiene and plugin-contract fallbacks, not containment.
- */
+/** Hygiene and plugin-contract fallbacks, not containment: the pod is the boundary. */
 
 export type ToolVerdict = { decision: 'allow' } | { decision: 'deny'; reason: string };
 
-/** Web tools, worktrees and scheduling have no place in a runner turn. */
 export const DENIED_TOOLS: ReadonlySet<string> = new Set([
   'WebSearch',
   'WebFetch',
@@ -19,11 +14,7 @@ export const DENIED_TOOLS: ReadonlySet<string> = new Set([
   'RemoteTrigger',
 ]);
 
-/**
- * Plugin contract item 4 fallback: until the plugin's hosted mode leaves git
- * delivery to the host, git writes, network git and `gh` pull request or
- * repository commands are refused. Reads (status, diff, log, show) pass.
- */
+/** The runner owns git delivery until the plugin's hosted mode leaves it to the host; git reads pass. */
 const GIT_WRITE =
   /\bgit\s+(?:-C\s+\S+\s+)?(?:commit|push|pull|fetch|merge|rebase|checkout|switch|reset|restore|tag|am|cherry-pick|revert|stash|clone|worktree|remote|branch\s+-[dDmMcC])\b/;
 const GH_WRITE = /\bgh\s+(?:pr|repo|release|api)\b/;

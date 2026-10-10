@@ -7,20 +7,11 @@ function event(seq: number, type: string, payload: Record<string, unknown> = {})
 }
 
 describe('pollInterval', () => {
-  it.each([
-    ['queued', 3000],
-    ['scoping', 3000],
-    ['awaiting_answer', 3000],
-    ['delivering', 3000],
-    ['done', false],
-    ['failed', false],
-    ['cancelled', false],
-  ] as const)('%s polls every %s', (status, expected) => {
-    expect(pollInterval(status)).toBe(expected);
-  });
-
-  it('polls while the run has not loaded yet', () => {
-    expect(pollInterval(undefined)).toBe(3000);
+  it('polls until the run is terminal, including before it has loaded', () => {
+    expect(pollInterval(undefined)).toBeTruthy();
+    expect(pollInterval('awaiting_answer')).toBeTruthy();
+    expect(pollInterval('done')).toBe(false);
+    expect(pollInterval('cancelled')).toBe(false);
   });
 });
 

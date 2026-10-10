@@ -1,19 +1,15 @@
 /**
- * Model API failures, as the pinned SDK reports them once Claude Code's own
- * retries are spent (about three minutes for an overloaded model): a
- * synthetic assistant message whose `error` names the kind, then a result
- * with `terminal_reason: 'api_error'` and the HTTP status in
+ * After Claude Code's own retries, the pinned SDK reports a model API failure as a synthetic assistant
+ * message whose `error` names the kind, then a result with `terminal_reason: 'api_error'` and
  * `api_error_status` (null when no response arrived).
  */
 import type { SDKAssistantMessageError } from '@anthropic-ai/claude-agent-sdk';
 
 export interface ModelFailure {
-  /** Transient failures re-queue the turn; the rest fail the run with `agent_error`. */
   transient: boolean;
   reason: string;
 }
 
-/** The model was busy or unreachable; a later attempt may succeed. */
 const TRANSIENT_ERRORS = new Set<SDKAssistantMessageError>(['rate_limit', 'overloaded', 'server_error']);
 const CREDENTIAL_ERRORS = new Set<SDKAssistantMessageError>([
   'authentication_failed',
@@ -26,7 +22,6 @@ const EXHAUSTED_ERRORS = new Set<SDKAssistantMessageError>(['billing_error', 'ac
 const EXHAUSTED_TEXT = /usage limit|credit balance/i;
 
 export function classifyModelFailure(input: {
-  /** The synthetic assistant message's `error`, when one arrived. */
   error: SDKAssistantMessageError | null;
   status: number | null | undefined;
   /** The SDK's own wording, kept after the plain reason. */

@@ -1,20 +1,11 @@
-/**
- * Finds a Claude Code session transcript inside a state archive (the
- * runner's gzip tar of its state directory) without buffering either: the
- * archive is read as a stream until the transcript's entry, whose body is then
- * handed out as a stream; the rest of the archive is never read.
- */
+/** Streams the transcript out of the state archive without buffering; the rest of the archive is never read. */
 import { StringDecoder } from 'node:string_decoder';
 import { PassThrough, type Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import * as tar from 'tar';
 import { redactTranscriptLine } from './redact-secrets.js';
 
-/**
- * Above this a transcript is refused rather than downloaded. Archives are
- * capped compressed (MAX_STATE_ARCHIVE_BYTES); JSONL compresses well, so a
- * transcript can be several times larger than its archive.
- */
+/** Archives are capped compressed and JSONL compresses well, so a transcript can far exceed its archive. */
 export const MAX_TRANSCRIPT_BYTES = 256 * 1024 * 1024;
 
 export type TranscriptLookup =
@@ -30,11 +21,7 @@ function transcriptPath(sessionId: string): RegExp {
   return new RegExp(`^(?:\\./)?claude/projects/[^/]+/${id}\\.jsonl$`);
 }
 
-/**
- * Looks for the session's transcript in the archive stream. On `found` the
- * caller must consume or destroy the stream; the archive is released when
- * the stream ends or closes. Otherwise the archive is already released.
- */
+/** On `found` the caller must consume or destroy the stream, which releases the archive. */
 export function findTranscript(
   archive: Readable,
   sessionId: string,
@@ -85,10 +72,7 @@ export function findTranscript(
   });
 }
 
-/**
- * Masks a transcript line by line with the server's secret patterns, the
- * same ones events get. Archives are stored unredacted; downloads are not.
- */
+/** Archives are stored unredacted; downloads are not. */
 export function redactTranscript(): Transform {
   const decoder = new StringDecoder('utf8');
   let partial = '';

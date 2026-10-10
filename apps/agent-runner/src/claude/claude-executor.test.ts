@@ -3,7 +3,12 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { ProposeScopeRequest, TurnAssignment } from '@coredoc/core/agent-runner';
+import {
+  type ProposeScopeRequest,
+  QuestionsPolicy,
+  RunFailureCode,
+  type TurnAssignment,
+} from '@coredoc/core/agent-runner';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -32,16 +37,13 @@ const COLOUR_QUESTION = {
   multiSelect: false,
 };
 
-/** An AskUserQuestion call the fake model makes. */
 interface AskScript {
   toolUseId: string;
-  /** Set when the call comes from a subagent. */
   agentId?: string;
   /** Model a hook that timed out or errored: Claude Code falls through to the permission callback. */
   skipHooks?: boolean;
 }
 
-/** How Claude Code resolved an AskUserQuestion call. */
 interface AskRecord {
   decision: 'allow' | 'deny' | 'defer';
   reason?: string;
@@ -49,35 +51,25 @@ interface AskRecord {
 }
 
 interface SessionScript {
-  /** The session id the init message reports; the expected one when omitted. */
   reportSessionId?: string;
   plugins?: Array<{ name: string; path: string }>;
   pluginErrors?: Array<{ plugin: string; type: string; message: string }>;
   propose?: ProposeScopeRequest[];
-  /** AskUserQuestion calls, in order, before any proposal; a deferred one ends the session. */
   ask?: AskScript[];
   result?: Partial<Extract<SDKMessage, { type: 'result' }>> | 'throw';
-  /** End on a model API failure, in the shape the pinned SDK reports one (measured in Phase 0). */
+  /** End on a model API failure, in the shape the pinned SDK reports one. */
   apiError?: ApiFailure;
-  /** Assistant and tool-result messages Claude Code streams after init, given the session's working directory. */
   transcript?: (cwd: string) => SDKMessage[];
 }
 
 interface ApiFailure {
-  /** The synthetic assistant message's `error`. */
   error: string;
-  /** The result's `api_error_status`; null when no response arrived. */
   status: number | null;
   text: string;
-  /** Spend reported up to the failure. */
   costUsd?: number;
 }
 
-/**
- * A scripted fake of the SDK query: it reports init, reads what Claude Code
- * would read, calls run-control tools over a real MCP client against the
- * in-process server the executor configured, and ends with a result.
- */
+/** Calls run-control tools over a real MCP client against the in-process server the executor configured. */
 function fakeQuery(
   script: SessionScript,
   seen: Array<{
@@ -214,11 +206,7 @@ async function* apiFailure(failure: ApiFailure, sessionId: string): AsyncGenerat
   throw new Error(`Claude Code returned an error result: ${failure.text}`);
 }
 
-/**
- * Claude Code's handling of one AskUserQuestion call: the pre-tool hooks
- * decide first (deny over defer over allow); with no decision, the permission
- * callback does.
- */
+/** Claude Code's order: pre-tool hooks decide first (deny over defer over allow), then the permission callback. */
 async function askUserQuestion(options: Options, ask: AskScript, sessionId: string): Promise<AskRecord> {
   const toolInput = { questions: [COLOUR_QUESTION] };
   const outputs = [];
@@ -373,15 +361,15 @@ describe('Claude executor in the runner loop', () => {
   });
 
   it.each([
-    ['session_mismatch', { reportSessionId: '00000000-0000-4000-8000-000000000000' }],
-    ['plugin_missing', { plugins: [] }],
+    [RunFailureCode.SessionMismatch, { reportSessionId: '00000000-0000-4000-8000-000000000000' }],
+    [RunFailureCode.PluginMissing, { plugins: [] }],
     [
-      'plugin_missing',
+      RunFailureCode.PluginMissing,
       { pluginErrors: [{ plugin: 'coredoc-workflows', type: 'hook-load-failed', message: 'bad hook' }] },
     ],
-    ['agent_error', { result: 'throw' as const }],
+    [RunFailureCode.AgentError, { result: 'throw' as const }],
     [
-      'agent_error',
+      RunFailureCode.AgentError,
       { result: { subtype: 'error_during_execution', is_error: true, errors: ['authentication_failed'] } },
     ],
   ])('fails the run with %s', async (code, script) => {
@@ -435,8 +423,11 @@ describe('Claude executor in the runner loop', () => {
 
       await expect(done).resolves.toBe('completed');
       const { outcome } = api.completions[0]!.body;
-      expect(outcome).toMatchObject({ kind: 'failed', code: 'agent_error', reason: expect.stringMatching(reason) });
-      // The SDK's own wording follows, for whoever investigates.
+      expect(outcome).toMatchObject({
+        kind: 'failed',
+        code: RunFailureCode.AgentError,
+        reason: expect.stringMatching(reason),
+      });
       expect((outcome as { reason: string }).reason).toContain(failure.text);
     });
 
@@ -487,16 +478,16 @@ describe('Claude executor in the runner loop', () => {
     expect(seen).toEqual([]);
     expect(api.uploads).toBe(0);
     expect(api.completions[0]!.body).toMatchObject({
-      outcome: { kind: 'failed', code: 'budget_exhausted' },
+      outcome: { kind: 'failed', code: RunFailureCode.BudgetExhausted },
       spend: null,
     });
   });
 
   it.each([
-    ['a missing remaining budget', { remainingSpendUsd: undefined }, 'budget_exhausted'],
-    ['a non-finite remaining budget', { remainingSpendUsd: Number.POSITIVE_INFINITY }, 'budget_exhausted'],
-    ['a missing turn duration limit', { maxTurnDurationSeconds: undefined }, 'agent_error'],
-    ['a zero turn duration limit', { maxTurnDurationSeconds: 0 }, 'agent_error'],
+    ['a missing remaining budget', { remainingSpendUsd: undefined }, RunFailureCode.BudgetExhausted],
+    ['a non-finite remaining budget', { remainingSpendUsd: Number.POSITIVE_INFINITY }, RunFailureCode.BudgetExhausted],
+    ['a missing turn duration limit', { maxTurnDurationSeconds: undefined }, RunFailureCode.AgentError],
+    ['a zero turn duration limit', { maxTurnDurationSeconds: 0 }, RunFailureCode.AgentError],
   ])('fails closed on %s, without starting a session', async (_name, overrides, code) => {
     const seen: Parameters<typeof fakeQuery>[1] = [];
     const executor = new ClaudeExecutor({
@@ -568,7 +559,7 @@ describe('Claude executor in the runner loop', () => {
 
     it('under assume, answers at once with the server’s answer and the session continues', async () => {
       api.questionState = 'auto_answered';
-      const turn = assignment({ run: { ...assignment().run, questionsPolicy: 'assume' } });
+      const turn = assignment({ run: { ...assignment().run, questionsPolicy: QuestionsPolicy.Assume } });
       const { done, seen } = runTurn(turn, { ask: [{ toolUseId: 'toolu_ask_1' }], propose: [proposal] });
 
       await expect(done).resolves.toBe('completed');
@@ -706,7 +697,7 @@ describe('Claude executor in the runner loop', () => {
       },
       { type: 'tool', name: 'Edit', target: 'src/export.ts', summary: 'no result', isError: false },
     ]);
-    // Agent text is no longer reported as raw lines.
+    // Agent text is reported as `message` events, not raw lines.
     expect(api.events.filter((event) => event.type === 'raw')).toEqual([{ type: 'raw', text: '[init] model=default' }]);
   });
 
@@ -796,7 +787,7 @@ describe('Claude executor in the runner loop', () => {
     });
     await expect(runner.runOnce()).resolves.toBe('completed');
     expect(api.uploads).toBe(0);
-    expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code: 'archive_too_large' });
+    expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code: RunFailureCode.ArchiveTooLarge });
   });
 
   it('refuses a restored archive that escapes the state directory, without starting a session', async () => {

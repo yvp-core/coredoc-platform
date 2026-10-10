@@ -1,14 +1,14 @@
-/**
- * The Claude Code executor: runs one turn's agent session through the pinned
- * Agent SDK with the plugin loaded by path, the run preamble, the tool policy,
- * the Coredoc MCP and the run-control server, then reports what happened.
- * Implement turns also clone the run's repositories before the session and
- * commit and push after it.
- */
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { HookCallback, Options, SDKAssistantMessageError, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { MAX_STATE_ARCHIVE_BYTES, type TurnAssignment, type TurnOutcome } from '@coredoc/core/agent-runner';
+import {
+  MAX_STATE_ARCHIVE_BYTES,
+  RunFailureCode,
+  RunnerStartupProblemCode,
+  type TurnAssignment,
+  TurnKind,
+  type TurnOutcome,
+} from '@coredoc/core/agent-runner';
 import { Git, gitEnvironment } from '../git/git.js';
 import { SecretScanner } from '../git/secret-scan.js';
 import { type Clone, TurnGit } from '../git/turn-git.js';
@@ -28,7 +28,6 @@ import { extractStateArchive, packStateArchive } from './state-archive.js';
 import { DENIED_TOOLS, evaluateToolUse } from './tool-policy.js';
 import { createTurnDirectories, sessionExists, type TurnPaths, turnPaths, wipeScratch } from './turn-paths.js';
 
-/** The SDK's `query`, injected so tests drive a scripted fake instead of a model. */
 export type QueryFn = (params: { prompt: string; options: Options }) => AsyncIterable<SDKMessage>;
 
 /** A high fixed runaway guard, not a setting. */
@@ -39,7 +38,6 @@ const MCP_TOOL_TIMEOUT_MS = 120_000;
 const MAX_TIMER_MS = 2_147_483_647;
 /** Long enough for the plugin to suspend its run at session end, with several clones. */
 const SESSION_END_HOOK_TIMEOUT_MS = 120_000;
-/** How long a session told to end its turn may take to do so before it is stopped. */
 const WIND_DOWN_GRACE_MS = 60_000;
 
 const DURATION_REACHED =
@@ -47,17 +45,14 @@ const DURATION_REACHED =
 
 export interface ClaudeExecutorOptions extends BotGithubOptions {
   query: QueryFn;
-  /** Resolves the assignment's MCP path against the Coredoc API base. */
   api: Pick<RunnerApiClient, 'resolve'>;
   /** The only writable volume; wiped at the end of every turn. */
   scratchRoot: string;
-  /** The pinned coredoc-workflows plugin, loaded by path. */
   pluginPath: string;
   modelApiKey: string;
   modelCredentialKind?: 'api_key' | 'subscription';
   modelBaseUrl?: string;
   hostEnv: NodeJS.ProcessEnv;
-  /** Written into each turn's home as its user-level registry configuration. */
   packageRegistries?: PackageRegistry[];
   maxArchiveBytes?: number;
   windDownGraceMs?: number;
@@ -65,7 +60,7 @@ export interface ClaudeExecutorOptions extends BotGithubOptions {
 }
 
 interface SessionFailure {
-  code: 'plugin_missing' | 'session_mismatch' | 'agent_error';
+  code: RunFailureCode.PluginMissing | RunFailureCode.SessionMismatch | RunFailureCode.AgentError;
   reason: string;
   /** The model was unavailable: the turn goes back to the queue instead of failing the run. */
   transient?: boolean;
@@ -74,11 +69,10 @@ interface SessionFailure {
 interface SessionOutcome {
   failure: SessionFailure | null;
   result: Extract<SDKMessage, { type: 'result' }> | null;
-  /** The session reached the turn's duration limit or the SDK turn cap. */
   checkpoint: boolean;
 }
 
-/** Limits one session invocation runs under; a re-invocation in the same turn shares them. */
+/** Shared by every session invocation in the same turn. */
 interface SessionLimits {
   deadlineAt: number;
   budgetUsd: number;
@@ -99,7 +93,7 @@ export class ClaudeExecutor implements TurnExecutor {
   }
 
   async run(turn: TurnAssignment, io: TurnIO): Promise<TurnResult> {
-    if (turn.turn.kind === 'delivery') return this.delivery.run(turn, io);
+    if (turn.turn.kind === TurnKind.Delivery) return this.delivery.run(turn, io);
     // Fail closed: a session never starts without a spend budget and a duration limit to bound it.
     const unbounded = missingLimit(turn);
     if (unbounded) return { spend: null, outcome: unbounded };
@@ -111,7 +105,7 @@ export class ClaudeExecutor implements TurnExecutor {
         await createTurnDirectories(paths);
         await writeUserRegistryConfig(paths.home, this.options.packageRegistries ?? []);
         if (turn.hasStateArchive) await extractStateArchive(await io.downloadArchive(), paths.state);
-        if (turn.turn.kind === 'implement') return this.implementTurn(turn, io, paths);
+        if (turn.turn.kind === TurnKind.Implement) return this.implementTurn(turn, io, paths);
         return this.scopeTurn(turn, io, paths);
       });
     } finally {
@@ -119,11 +113,7 @@ export class ClaudeExecutor implements TurnExecutor {
     }
   }
 
-  /**
-   * Clone and branch, run the session in the clones, then stage, scan,
-   * commit and push. A blocked scan resumes the session once in the same
-   * turn with the findings; a second block fails the run and pushes nothing.
-   */
+  /** A blocked scan resumes the session once with the findings; a second block fails the run and pushes nothing. */
   private async implementTurn(turn: TurnAssignment, io: TurnIO, paths: TurnPaths): Promise<TurnResult> {
     const bot = requireBot(this.options);
     const git = new Git(gitEnvironment({ hostEnv: this.options.hostEnv, home: paths.home, author: bot }), bot.token);
@@ -182,7 +172,7 @@ export class ClaudeExecutor implements TurnExecutor {
       if (io.signal.aborted) return { spend };
       if (cloneFailure) return { spend, outcome: failed(cloneFailure), repositories: turnGit.untouchedReports(clones) };
       // Classified from the runner's own state: a recorded result outlives a late SDK error.
-      if (session.failure && (session.failure.code !== 'agent_error' || !control.submitted)) {
+      if (session.failure && (session.failure.code !== RunFailureCode.AgentError || !control.submitted)) {
         return {
           spend,
           outcome: sessionFailureOutcome(session.failure),
@@ -207,7 +197,7 @@ export class ClaudeExecutor implements TurnExecutor {
         const reason = `The secret scan blocked the push${invocation === 2 ? ' twice' : ' while a question was open'}, so nothing was pushed. Blocked: ${published.findings.join('; ')}`;
         return {
           spend,
-          outcome: failed(new TurnFailure('secret_scan_blocked', reason)),
+          outcome: failed(new TurnFailure(RunFailureCode.SecretScanBlocked, reason)),
           repositories: turnGit.untouchedReports(clones),
         };
       }
@@ -249,14 +239,13 @@ export class ClaudeExecutor implements TurnExecutor {
     }
   }
 
-  /** Uploads the state archive; returns the failure instead when it is over the cap. */
   private async uploadState(paths: TurnPaths, io: TurnIO): Promise<TurnOutcome | null> {
     const archive = await packStateArchive(paths.state);
     const cap = this.options.maxArchiveBytes ?? MAX_STATE_ARCHIVE_BYTES;
     if (archive.length > cap) {
       return {
         kind: 'failed',
-        code: 'archive_too_large',
+        code: RunFailureCode.ArchiveTooLarge,
         reason: `The session state archive is ${archive.length} bytes; the limit is ${cap}.`,
       };
     }
@@ -283,7 +272,7 @@ export class ClaudeExecutor implements TurnExecutor {
     if (io.signal.aborted) return { spend };
     const lastMessage = lastMessageOf(session.result);
 
-    if (session.failure && (session.failure.code !== 'agent_error' || control.proposedVersion === null)) {
+    if (session.failure && (session.failure.code !== RunFailureCode.AgentError || control.proposedVersion === null)) {
       // Classified from the runner's own state: a recorded proposal outlives a late SDK error.
       return { spend, outcome: sessionFailureOutcome(session.failure), lastMessage };
     }
@@ -314,8 +303,7 @@ export class ClaudeExecutor implements TurnExecutor {
     if (io.signal.aborted) stop();
     const outcome: SessionOutcome = { failure: null, result: null, checkpoint: false };
 
-    // Ending a turn refuses further tools, so the session ends by itself and
-    // reports its spend; one that does not is stopped after a grace period.
+    // Ending a turn refuses further tools so the session ends itself and reports its spend; else it is stopped.
     let windDown: string | null = null;
     let grace: NodeJS.Timeout | undefined;
     control.endTurn = (reason) => {
@@ -323,7 +311,6 @@ export class ClaudeExecutor implements TurnExecutor {
       windDown = reason;
       grace = setTimeout(stop, this.options.windDownGraceMs ?? WIND_DOWN_GRACE_MS);
     };
-    // Reaching the turn's duration limit is a checkpoint: the work is pushed and the run continues.
     const deadline = setTimeout(
       () => {
         outcome.checkpoint = true;
@@ -374,10 +361,13 @@ export class ClaudeExecutor implements TurnExecutor {
               status: message.subtype === 'success' ? message.api_error_status : undefined,
               text: message.subtype === 'success' ? message.result : (message.errors ?? []).join('; '),
             });
-            fail({ code: 'agent_error', ...failure });
+            fail({ code: RunFailureCode.AgentError, ...failure });
           } else if (!parked && (message.subtype !== 'success' || message.is_error)) {
             const errors = 'errors' in message ? message.errors : [];
-            fail({ code: 'agent_error', reason: errors?.join('; ') || `The session ended with ${message.subtype}` });
+            fail({
+              code: RunFailureCode.AgentError,
+              reason: errors?.join('; ') || `The session ended with ${message.subtype}`,
+            });
           }
         }
         const events = activity.eventsFor(message);
@@ -397,7 +387,7 @@ export class ClaudeExecutor implements TurnExecutor {
       await io.emit(activity.flush());
     } catch (error) {
       if (!abort.signal.aborted) {
-        fail({ code: 'agent_error', reason: error instanceof Error ? error.message : String(error) });
+        fail({ code: RunFailureCode.AgentError, reason: error instanceof Error ? error.message : String(error) });
       }
     } finally {
       clearTimeout(deadline);
@@ -408,19 +398,18 @@ export class ClaudeExecutor implements TurnExecutor {
     return outcome;
   }
 
-  /** The plugin and its skills must be listed with no plugin errors, and the session must be the phase's. */
   private initProblem(
     init: Extract<SDKMessage, { type: 'system'; subtype: 'init' }>,
     sessionId: string,
   ): SessionOutcome['failure'] {
     if (init.session_id !== sessionId) {
       return {
-        code: 'session_mismatch',
+        code: RunFailureCode.SessionMismatch,
         reason: `Claude Code reported session ${init.session_id}; the run expects ${sessionId}.`,
       };
     }
     const problem = pluginProblem(init, this.options.pluginPath);
-    return problem ? { code: 'plugin_missing', reason: problem.detail } : null;
+    return problem ? { code: RunFailureCode.PluginMissing, reason: problem.detail } : null;
   }
 
   private sessionOptions(
@@ -504,7 +493,6 @@ export class ClaudeExecutor implements TurnExecutor {
   }
 }
 
-/** Why the init message says the plugin did not load, or null when it did. */
 export function pluginProblem(
   init: {
     plugins?: Array<{ name: string; path: string }>;
@@ -512,17 +500,30 @@ export function pluginProblem(
     skills?: string[];
   },
   pluginPath: string,
-): { code: 'plugin_errors' | 'plugin_missing' | 'plugin_skills_missing'; detail: string } | null {
+): {
+  code:
+    | RunnerStartupProblemCode.PluginErrors
+    | RunnerStartupProblemCode.PluginMissing
+    | RunnerStartupProblemCode.PluginSkillsMissing;
+  detail: string;
+} | null {
   if (init.plugin_errors?.length) {
     return {
-      code: 'plugin_errors',
+      code: RunnerStartupProblemCode.PluginErrors,
       detail: init.plugin_errors.map((error) => `${error.plugin}: ${error.message}`).join('; '),
     };
   }
   const plugin = init.plugins?.find((candidate) => resolve(candidate.path) === resolve(pluginPath));
-  if (!plugin) return { code: 'plugin_missing', detail: `The plugin at ${pluginPath} is not listed by Claude Code.` };
+  if (!plugin)
+    return {
+      code: RunnerStartupProblemCode.PluginMissing,
+      detail: `The plugin at ${pluginPath} is not listed by Claude Code.`,
+    };
   if (!init.skills?.some((skill) => skill.startsWith(`${plugin.name}:`))) {
-    return { code: 'plugin_skills_missing', detail: `The plugin ${plugin.name} loaded without its skills.` };
+    return {
+      code: RunnerStartupProblemCode.PluginSkillsMissing,
+      detail: `The plugin ${plugin.name} loaded without its skills.`,
+    };
   }
   return null;
 }
@@ -531,32 +532,29 @@ function isPositiveFinite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }
 
-/** The failure to report instead of starting a session whose spend or duration nothing would bound. */
 function missingLimit(turn: TurnAssignment): TurnOutcome | null {
   if (!isPositiveFinite(turn.run.remainingSpendUsd)) {
     return {
       kind: 'failed',
-      code: 'budget_exhausted',
+      code: RunFailureCode.BudgetExhausted,
       reason: `No spend remains for this run (remaining: ${String(turn.run.remainingSpendUsd)} USD).`,
     };
   }
   if (!isPositiveFinite(turn.run.maxTurnDurationSeconds)) {
     return {
       kind: 'failed',
-      code: 'agent_error',
+      code: RunFailureCode.AgentError,
       reason: 'The turn carries no valid duration limit, so no session was started.',
     };
   }
   return null;
 }
 
-/** A transient failure goes back to the queue; any other fails the run. */
 function sessionFailureOutcome(failure: SessionFailure): TurnOutcome {
   if (failure.transient) return { kind: 'transient', reason: failure.reason.slice(0, 2_000) };
   return failed(new TurnFailure(failure.code, failure.reason));
 }
 
-/** The agent's final message, when the session produced one. */
 function lastMessageOf(result: SessionOutcome['result']): string | null {
   const text = result?.subtype === 'success' && typeof result.result === 'string' ? result.result.trim() : '';
   return text || null;
@@ -580,7 +578,6 @@ function promptClone(clone: Clone) {
   };
 }
 
-/** A resumed implement turn's message: after a person added a repository, where its clone is. */
 function resumeInput(turn: TurnAssignment, clones: Clone[]): string {
   const decision = turn.repositoryDecision;
   const clone = decision?.added ? clones.find((candidate) => candidate.repository.key === decision.key) : undefined;
@@ -589,7 +586,7 @@ function resumeInput(turn: TurnAssignment, clones: Clone[]): string {
   return turn.turn.inputText ?? 'Continue where you stopped.';
 }
 
-/** The re-invocation after a blocked scan: paths and rule ids only, never the matched text. */
+/** Paths and rule ids only, never the matched text. */
 function scanBlockedPrompt(findings: string[]): string {
   return [
     'The secret scan blocked the push of your changes, so nothing was pushed. It flagged:',

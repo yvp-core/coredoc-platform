@@ -28,11 +28,6 @@ import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CLOUD_AGENT_RUNS_CLOCK, cloudAgentRunsCoreProviders } from './cloud-agent-runs.module.js';
 import { FakeJira, InMemoryArchiveStore, paragraphDoc } from './cloud-agent-runs.test-support.js';
 
-/**
- * `request_repo` driven through the runner API and the human API on real
- * PostgreSQL with real guards: the mid-turn append under automatic
- * acceptance, and the repository-request question under required acceptance.
- */
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 const ADMIN = { id: `${RUN}-admin`, email: 'admin@example.com' };
@@ -268,7 +263,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: request_repo (PostgreSQL 
       };
       expect(added.body).toEqual({ state: 'added', repository: expected, stop: false });
 
-      // The run is still implementing and the turn still running: the agent continues.
       const run = await detail(runId);
       expect(run).toMatchObject({ status: 'implementing', currentTurn: { state: 'claimed' } });
       expect(run.repositories).toContainEqual(

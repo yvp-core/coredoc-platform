@@ -50,7 +50,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/** A terminal run can be re-run: a new run for the same issue, which opens at once. */
 function RerunAction({ wsId, slug, run }: { wsId: string; slug: string; run: AgentRun }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -81,10 +80,7 @@ function RerunAction({ wsId, slug, run }: { wsId: string; slug: string; run: Age
   );
 }
 
-/**
- * Any member can cancel a run that has not ended, after confirming: its turn
- * is abandoned and a runner working on it stops at its next heartbeat.
- */
+/** Any member can cancel; a runner working on the run stops at its next heartbeat. */
 function CancelAction({ wsId, run }: { wsId: string; run: AgentRun }) {
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);

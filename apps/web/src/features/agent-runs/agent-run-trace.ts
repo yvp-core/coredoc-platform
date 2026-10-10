@@ -1,10 +1,7 @@
 /**
- * The trace drawer's model: the runner's structured events grouped by turn,
- * one row each, and the turns' transcripts. Pure, like the rest of the
- * presentation; payloads are free-form on the wire, so nothing here throws on
- * a shape it does not recognise. Runners that predate structured events
- * reported `[tool]`, `[result]` and `[text]` lines; those are read back into
- * the same rows, and any other `raw` line shows as it is.
+ * Payloads are free-form on the wire, so nothing here throws on a shape it does not recognise.
+ * Runners that predate structured events reported `[tool]`, `[result]` and `[text]` lines;
+ * those are read back into the same rows.
  */
 import type { AgentRunActivity, AgentRunEvent, AgentRunQuestion, AgentRunTurnActivity, TurnKind } from './types.js';
 
@@ -15,19 +12,16 @@ export type TraceRow =
       kind: 'call';
       seq: number;
       at: string;
-      /** The short label in the row's chip: the tool, `MCP`, `Run`, `Skill` or `Result`. */
       label: string;
       tone: TraceTone;
       target: string | null;
       summary: string | null;
       failed: boolean;
-      /** A failed call's output. */
       output: string | null;
-      /** The start of a successful call's result, from an older runner's `[result]` line. */
+      /** Only from an older runner's `[result]` line. */
       result?: string;
     }
   | { kind: 'message'; seq: number; at: string; text: string }
-  /** A question the turn asked a person, with what was chosen. */
   | { kind: 'question'; seq: number; at: string; question: AgentRunQuestion }
   /** A `raw` line from a runner that predates structured events, or a truncated event. */
   | { kind: 'line'; seq: number; at: string; text: string };
@@ -51,12 +45,10 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-/** A skill's name without its plugin prefix (`coredoc-workflows:coredoc-spec` → `coredoc-spec`). */
 export function skillLabel(name: string): string {
   return name.slice(name.lastIndexOf(':') + 1);
 }
 
-/** A tool's chip: the run-control server is `Run`, other MCP servers `MCP`, built-in tools their own name. */
 function toolLook(name: string, server: string | null): { label: string; tone: TraceTone } {
   if (server === RUN_CONTROL_SERVER) return { label: 'Run', tone: 'run' };
   if (server) return { label: 'MCP', tone: 'mcp' };
@@ -76,7 +68,6 @@ function callRow(event: AgentRunEvent): TraceRow | null {
         kind: 'call',
         ...base,
         ...toolLook(name, server),
-        // An MCP row names its tool before what it acted on.
         target: server ? [name, target].filter(Boolean).join(' ') : target,
         summary: text(payload.summary),
         failed,
@@ -143,10 +134,7 @@ function mcpName(name: string): { server: string; tool: string } | null {
 
 const NAMED_INPUTS = ['file_path', 'notebook_path', 'command', 'pattern', 'url', 'query', 'description', 'skill'];
 
-/**
- * An older runner's tool input: JSON cut at 120 characters, so read whole
- * when it parses and key by key when it does not.
- */
+/** Older runners cut tool input JSON at 120 characters, so it may not parse. */
 function legacyInput(raw: string): Record<string, string> {
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -190,11 +178,9 @@ function legacyCall(seq: number, at: string, line: string): Extract<TraceRow, { 
 const LEGACY_LINE = /^\[(init|text|tool|result|result:error)\] ?([\s\S]*)$/;
 
 /**
- * An older runner's lines as rows. Results carry no call id; Claude Code
- * answers calls in the order it made them, even when it streams the next
- * call before an earlier result, so each result goes to the oldest call still
- * waiting. An empty result left no line, which can shift the pairing after it,
- * so a result with no call waiting shows on its own.
+ * Older runners' results carry no call id; Claude Code answers calls in the order it made
+ * them, so each result goes to the oldest waiting call. An empty result left no line, so a
+ * result with no call waiting shows on its own.
  */
 class LegacyRows {
   private waiting: Array<Extract<TraceRow, { kind: 'call' }>> = [];
@@ -246,7 +232,6 @@ class LegacyRows {
   }
 }
 
-/** Every turn with its rows, oldest first: the activity's turns, plus any turn only the events know yet. */
 export function traceTurns(
   events: readonly AgentRunEvent[],
   turns: readonly AgentRunTurnActivity[],
@@ -309,7 +294,6 @@ export function traceTurns(
   return [...byId.values()];
 }
 
-/** The agent phases that ran, latest last: each has a transcript to download. */
 export function transcriptPhases(activity: AgentRunActivity | undefined): Array<Exclude<TurnKind, 'delivery'>> {
   const phases: Array<Exclude<TurnKind, 'delivery'>> = [];
   for (const turn of activity?.turns ?? []) {
@@ -318,7 +302,6 @@ export function transcriptPhases(activity: AgentRunActivity | undefined): Array<
   return phases;
 }
 
-/** `HH:MM` in the viewer's time zone. */
 export function clockTime(iso: string | null): string {
   if (!iso) return '';
   const date = new Date(iso);

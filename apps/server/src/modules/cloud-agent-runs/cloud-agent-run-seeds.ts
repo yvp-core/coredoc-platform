@@ -3,7 +3,6 @@ import type {
   GithubRepositoryResolution,
 } from '../../libs/github/github-repository.js';
 
-/** Jira labels that name a run's seed repositories: `coredoc-repo:<repository key>`. */
 export const REPOSITORY_LABEL_PREFIX = 'coredoc-repo:';
 
 export interface SeedCandidate {
@@ -17,11 +16,8 @@ export type SeedResolution =
   | { status: 'unknown' | 'ambiguous'; key: string };
 
 /**
- * Map named repository keys onto the workspace's repositories, as the shared
- * GitHub resolver sees them. An exact key wins; otherwise a key matches
- * case-insensitively, and more than one such match is ambiguous. Ineligible
- * repositories are listed, and the caller decides whether that refuses: a
- * Jira label fails the run, a manual start keeps them for the scope review.
+ * An exact key wins; otherwise a key matches case-insensitively, and more than
+ * one such match is ambiguous. The caller decides whether ineligibility refuses.
  */
 export function resolveSeeds(
   keys: readonly string[],
@@ -46,7 +42,6 @@ export function resolveSeeds(
   return { status: 'ok', seeds: [...new Set(seeds)], ineligible };
 }
 
-/** The keys named by `coredoc-repo:` labels, in label order. */
 export function seedKeysFromLabels(labels: readonly string[]): string[] {
   return labels
     .filter((label) => label.startsWith(REPOSITORY_LABEL_PREFIX))

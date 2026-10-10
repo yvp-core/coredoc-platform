@@ -3,7 +3,6 @@ import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { resolveGithubRepository } from './github-repository.js';
 
-/** The workspace's active GitHub connectors: the only ones repositories resolve through. */
 export function activeGithubConnectors(workspaceId: string): Prisma.DeliveryConnectorWhereInput {
   return { workspaceId, provider: 'github', status: 'active' };
 }

@@ -498,8 +498,7 @@ export class ControlPlaneService {
 
   async listServiceTokens(workspaceId: string) {
     return this.prisma.serviceToken.findMany({
-      // Per-turn MCP tokens belong to their cloud agent run turn, not to the
-      // workspace token list, so they can be neither listed nor revealed.
+      // Per-turn MCP tokens belong to their run turn: never listed, never revealed.
       where: { workspaceId, owningTurnId: null },
       orderBy: { createdAt: 'asc' },
       select: {

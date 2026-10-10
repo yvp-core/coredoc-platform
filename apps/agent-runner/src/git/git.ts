@@ -1,9 +1,6 @@
 /**
- * The runner's own git, run after the agent's session has exited. It gets an
- * explicit environment, and the bot's token reaches network commands only, as
- * a per-command HTTP authorization header scoped to the assigned clone URL and
- * passed in the environment: never in a remote URL, a config file or the
- * process arguments.
+ * The bot's token reaches network commands only, as a header scoped to the clone URL and passed in
+ * the environment: never in a remote URL, a config file or the process arguments.
  */
 import { spawn } from 'node:child_process';
 
@@ -17,10 +14,8 @@ export interface GitRunOptions {
   cwd: string;
   /** Adds the bot's credentials, scoped to this URL; for clone and push to that exact URL. */
   authUrl?: string;
-  /** Written to stdin. */
   input?: string;
   env?: Record<string, string>;
-  /** Resolve with the result instead of throwing on a non-zero exit. */
   allowFailure?: boolean;
 }
 
@@ -34,12 +29,7 @@ export class GitError extends Error {
   }
 }
 
-/**
- * Code the agent could plant through repository config never runs in the
- * runner's git: no hooks, no fsmonitor, no credential helpers. The command
- * line wins over every config file. (The clone's config is also rewritten
- * from a runner-written template before any post-session git; see TurnGit.)
- */
+/** Neutralises config the agent could plant: the command line wins over every config file. */
 const SAFE_CONFIG = [
   '-c',
   'core.hooksPath=/dev/null',
@@ -58,10 +48,7 @@ export class Git {
     private readonly token: string | null,
   ) {}
 
-  /**
-   * The bot's credentials for one URL, for git and for the plugin's push
-   * preflight: an authorization header scoped to that URL, never global.
-   */
+  /** Scoped to that URL, never global; the plugin's push preflight uses it too. */
   authEnv(url: string): Record<string, string> {
     if (!this.token) return {};
     const basic = Buffer.from(`x-access-token:${this.token}`).toString('base64');

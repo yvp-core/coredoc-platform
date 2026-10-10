@@ -23,19 +23,17 @@ import { CloudAgentRunTrigger } from './cloud-agent-run-trigger.service.js';
 import { CloudAgentRunService } from './cloud-agent-run.service.js';
 import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
+import { CloudAgentTurnArchiveService } from './cloud-agent-turn-archive.service.js';
 import { CloudAgentTurnService } from './cloud-agent-turn.service.js';
 
 export { CLOUD_AGENT_RUNS_RETRY_DELAY } from './retry.js';
 export { CLOUD_AGENT_RUNS_CLOCK } from './run-store.js';
 
-/**
- * Run service and state machine, turns and leases, scope, settings. No
- * controllers: the worker graph imports it. The state-archive store is
- * provided separately so suites can put an in-memory one at that port.
- */
+/** No controllers: the worker graph imports it. */
 export const cloudAgentRunsCoreProviders = [
   CloudAgentRunService,
   CloudAgentTurnService,
+  CloudAgentTurnArchiveService,
   CloudAgentRunSettingsService,
   CloudAgentRunIssueResolver,
   CloudAgentRunIssueReader,
@@ -62,14 +60,14 @@ const archiveStoreProvider = { provide: CLOUD_AGENT_RUN_ARCHIVE_STORE, useClass:
 })
 export class CloudAgentRunsCoreModule {}
 
-/** The human run API and the runner API. Not the desktop telemetry `AgentRunsModule`. */
+/** Not the desktop telemetry `AgentRunsModule`. */
 @Module({
   imports: [AuthModule, CloudAgentRunsCoreModule],
   controllers: [CloudAgentRunsController, CloudAgentRunnerController],
 })
 export class CloudAgentRunsApiModule {}
 
-/** The trigger cron (creation and promotion) and the run sweep. Worker graph only: crons never run in the api role. */
+/** Worker graph only: crons never run in the api role. */
 @Module({
   imports: [CloudAgentRunsCoreModule, LicenseCoreModule],
   providers: [CloudAgentRunTriggerCron, CloudAgentRunSweepCron],

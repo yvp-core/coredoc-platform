@@ -1,5 +1,10 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import type { DeliveryReport, TurnAssignment } from '@coredoc/core/agent-runner';
+import {
+  type DeliveryReport,
+  defaultRetryDelay,
+  type RetryDelay,
+  type TurnAssignment,
+} from '@coredoc/core/agent-runner';
 import { decrypt } from '../../database/encryption.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { CloudAgentRun, Prisma } from '../../generated/prisma/client.js';
@@ -10,14 +15,13 @@ import { strictPullWithHeadSchema } from '../../libs/github/github-pull.js';
 import { CloudAgentRunImplementService, type RunResult, runRepositories } from './cloud-agent-run-implement.service.js';
 import type { RunAssumption } from './cloud-agent-run-scope.service.js';
 import { assemblePullRequest } from './pull-request-body.js';
-import { CLOUD_AGENT_RUNS_RETRY_DELAY, defaultRetryDelay, type RetryDelay, withRetries } from './retry.js';
+import { CLOUD_AGENT_RUNS_RETRY_DELAY, withRetries } from './retry.js';
 import { runPageUrl } from './run-links.js';
 import { RunEventCode, RunFailureCode, RunPhase, ServerEventType, SpecStatus, TurnOutcome } from './run-states.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
 import { type JiraCommentOutcome, jiraOutcomeOf } from './jira-outcome.js';
 import { failRun } from './run-transitions.js';
 
-/** A pull request the server read back and confirmed is the run branch's, as stored on the run. */
 export interface RecordedPullRequest {
   repository: string;
   number: number;
@@ -29,12 +33,9 @@ export interface RecordedPullRequest {
   verifiedAt: string;
 }
 
-/** What the server made of a delivery turn's reports. */
 export interface DeliveryVerification {
   verified: RecordedPullRequest[];
-  /** Why delivery failed; null when every report checked out. */
   failure: string | null;
-  /** Touched repositories with no report at all. */
   missing: string[];
 }
 
@@ -42,7 +43,7 @@ export function recordedPullRequests(run: Pick<CloudAgentRun, 'pullRequests'>): 
   return (Array.isArray(run.pullRequests) ? run.pullRequests : []) as unknown as RecordedPullRequest[];
 }
 
-/** A report the server could not confirm; the reason is server-written. */
+/** The message is server-written, never runner text. */
 class Unconfirmed extends Error {}
 
 function transientGithub(error: unknown): { retryAfterMs: number | null } | false {
@@ -56,12 +57,7 @@ function transientGithub(error: unknown): { retryAfterMs: number | null } | fals
   return false;
 }
 
-/**
- * Delivery on the server: the delivery turn's assignment (each pull
- * request's title and body, assembled here so agent text is sanitised in
- * one place), verification of what the runner reports with the strict pull
- * read, and recording the verified pull requests on the run.
- */
+/** Pull request titles and bodies are assembled here so agent text is sanitised in one place. */
 @Injectable()
 export class CloudAgentRunDeliveryService {
   private readonly githubFactory: GithubClientFactory;
@@ -77,7 +73,6 @@ export class CloudAgentRunDeliveryService {
     this.githubFactory = githubFactory ?? ((token, baseUrl) => new GithubClient({ token, baseUrl }));
   }
 
-  /** The touched repositories in merge order, each with its pull request's title and body. */
   async assignment(run: CloudAgentRun): Promise<Pick<TurnAssignment, 'repositories' | 'delivery'>> {
     const stored = new Map(runRepositories(run).map((repository) => [repository.key, repository]));
     const repositories = (await this.implement.repositoriesFor(run, RunPhase.Implement)).filter(
@@ -121,13 +116,7 @@ export class CloudAgentRunDeliveryService {
     };
   }
 
-  /**
-   * Reads every reported pull request back through the GitHub connector
-   * with the strict pull read, and keeps it only if its base and head
-   * repositories are both that repository and its head branch is the run
-   * branch. Null for turns other than delivery. Runs before the completion
-   * transaction: it makes network calls.
-   */
+  /** Runs before the completion transaction because it makes network calls. Null for non-delivery turns. */
   async verify(workspaceId: string, turnId: string, reports: DeliveryReport[]): Promise<DeliveryVerification | null> {
     const turn = await this.prisma.cloudAgentRunTurn.findFirst({
       where: { id: turnId, workspaceId },
@@ -186,10 +175,8 @@ export class CloudAgentRunDeliveryService {
   }
 
   /**
-   * Everything recorded comes from GitHub's answer, never from the report:
-   * the pull request must target the repository's default branch from the
-   * run branch in the same repository, and one this run opened (no pull
-   * request recorded for the repository before) must still be a draft.
+   * Everything recorded comes from GitHub's answer, never from the report. A
+   * pull request this run opened must still be a draft.
    */
   private async verifyOne(
     run: CloudAgentRun,
@@ -251,11 +238,7 @@ export class CloudAgentRunDeliveryService {
     }
   }
 
-  /**
-   * Records verified pull requests on the run, one per repository in merge
-   * order. Also on a stopped turn: pull requests opened before a cancel are
-   * kept on the cancelled run.
-   */
+  /** Also called for a stopped turn, so pull requests opened before a cancel stay on the run. */
   async record(
     tx: Tx,
     run: CloudAgentRun,
@@ -291,12 +274,13 @@ export class CloudAgentRunDeliveryService {
     });
   }
 
-  /**
-   * A live delivery turn that ended normally: every touched repository has
-   * a verified pull request or was unchanged, and the done comment is handed
-   * to the run sweep; otherwise the run fails with `delivery_failed`.
-   */
-  async settle(tx: Tx, run: CloudAgentRun, verification: DeliveryVerification | null, at: Date): Promise<string> {
+  /** On success the done comment is handed to the run sweep. */
+  async settle(
+    tx: Tx,
+    run: CloudAgentRun,
+    verification: DeliveryVerification | null,
+    at: Date,
+  ): Promise<TurnOutcome | RunFailureCode> {
     const failure =
       verification?.failure ??
       (verification?.missing.length ? `No pull request was reported for ${verification.missing.join(', ')}.` : null);

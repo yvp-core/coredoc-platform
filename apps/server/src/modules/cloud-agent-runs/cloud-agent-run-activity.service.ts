@@ -1,9 +1,3 @@
-/**
- * What the agent did in a run, for the run page's turn lines and drawers:
- * per-turn timing, spend and tool calls, skill and tool counts, and the intent
- * items the agent read and proposed, all from the stored `tool` and `skill`
- * events; and the session transcript, streamed from the run's latest state archive.
- */
 import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -35,19 +29,18 @@ interface IntentIdRow {
 /** Each list is capped; a run that read more shows the first ones it read. */
 const MAX_INTENT_REFS = 100;
 
-/** An intent item the agent read or proposed; an item deleted since keeps only its id. */
+/** An item deleted since keeps only its id. */
 export interface IntentRef {
   id: string;
   title: string | null;
   kind: string | null;
   authority: 'candidate' | 'accepted' | 'rejected' | 'superseded' | null;
-  /** Domain and feature titles; null for an item on the product root. */
+  /** Null for an item on the product root. */
   location: string | null;
 }
 
 export interface TranscriptDownload {
   filename: string;
-  /** The transcript, masked line by line; its length is known only once it ends. */
   stream: Readable;
 }
 
@@ -134,12 +127,7 @@ export class CloudAgentRunActivityService {
     };
   }
 
-  /**
-   * The intent items the agent's `get_intent_context` calls returned (read) and
-   * its `intent_propose` calls created or updated (proposed), first seen first,
-   * from the ids the runner reported on those calls. A proposed item is not
-   * also listed as read.
-   */
+  /** A proposed item is not also listed as read. */
   private async intentRefs(workspaceId: string, runId: string): Promise<{ read: IntentRef[]; proposed: IntentRef[] }> {
     const rows = await this.prisma.$queryRaw<IntentIdRow[]>`
       SELECT e.payload->>'name' AS name, ids.id
@@ -182,10 +170,8 @@ export class CloudAgentRunActivityService {
   }
 
   /**
-   * The phase's Claude Code session transcript (JSONL) from the run's latest
-   * state archive, streamed. Without a phase: the implement session once the
-   * run has implement turns, the scope session before. Archives are stored
-   * unredacted, so every line is masked with the event patterns on the way out.
+   * Without a phase: the implement session once the run has implement turns.
+   * Archives are stored unredacted, so every line is masked on the way out.
    */
   async transcript(workspaceId: string, runId: string, phase?: TranscriptPhase): Promise<TranscriptDownload> {
     const run = await this.prisma.cloudAgentRun.findFirst({

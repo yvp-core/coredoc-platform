@@ -1,8 +1,6 @@
 /**
- * The state archive: Claude Code's config directory (sessions included) and
- * the plugin's state home, carried between turns through the runner API.
- * Archives come back from the server, so extraction trusts nothing: only
- * regular files and directories whose paths stay inside the state directory.
+ * Archives come back from the server, so extraction trusts nothing: only regular files and
+ * directories whose paths stay inside the state directory.
  */
 import { mkdir } from 'node:fs/promises';
 import { isAbsolute, normalize, sep } from 'node:path';
@@ -25,7 +23,7 @@ function safeEntryPath(path: string): boolean {
   return normalized !== '..' && !normalized.startsWith(`..${sep}`) && !normalized.split(sep).includes('..');
 }
 
-/** Gzip tar of the state directory: regular files and directories only (links are left out). */
+/** Links are left out. */
 export async function packStateArchive(stateDir: string): Promise<Buffer> {
   const chunks: Buffer[] = [];
   const stream = tar.create(
@@ -42,10 +40,7 @@ export async function packStateArchive(stateDir: string): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-/**
- * Extracts into `stateDir`. The whole archive is checked first, so a
- * rejected archive writes nothing.
- */
+/** The whole archive is checked first, so a rejected archive writes nothing. */
 export async function extractStateArchive(archive: Buffer, stateDir: string): Promise<void> {
   const problems: string[] = [];
   await pipeline(

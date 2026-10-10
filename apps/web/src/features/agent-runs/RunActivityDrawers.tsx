@@ -1,10 +1,4 @@
-/**
- * What the agent did, for debugging: the Trace drawer (every turn's tool
- * calls with their results, failures with their output, and the agent's
- * messages, plus the transcript download) and the Skills and tools drawer
- * (counts). Both read the timeline and activity queries the page already polls.
- * `RunActivityDrawer` opens these and the spec and intent drawers.
- */
+/** These drawers read the timeline and activity queries the page already polls. */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { DownloadIcon } from 'lucide-react';
 import { useEffect, useRef } from 'react';
@@ -22,10 +16,7 @@ import { IntentDrawer, SpecDrawer } from './RunArtifactDrawers';
 import { RunDrawer } from './RunDrawer';
 import type { AgentRunDetail, AgentRunQuestion } from './types';
 
-/**
- * Which drawer is open; a trace opened from a turn line expands only that
- * turn, and the spec opens at a version when one is named.
- */
+/** A trace opened from a turn line expands only that turn. */
 export type ActivityDrawer =
   | { kind: 'trace'; turnId?: string }
   | { kind: 'skills' }
@@ -48,7 +39,6 @@ const QUESTION_STATES: Record<AgentRunQuestion['state'], string> = {
   cancelled: 'cancelled',
 };
 
-/** Each part's chosen options and free text, or a dash before an answer. */
 function chosen(question: AgentRunQuestion, index: number): string {
   const answer = question.answers?.[index];
   if (!answer) return '—';

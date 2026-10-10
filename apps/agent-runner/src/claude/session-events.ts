@@ -1,11 +1,6 @@
 /**
- * SDK messages to run-page events. Started from a copy of desktop's mapping
- * (apps/desktop/src/main/agent-run/claude-adapter.ts); desktop keeps its own.
- *
- * The agent's activity is reported as structured events: each tool call is
- * held until its result arrives and then reported once, with what it acted on
- * and a summary of its result, so the run page needs no parsing. Credentials
- * are masked by the runner on the way out, like every other event.
+ * Started from a copy of desktop's mapping (apps/desktop/src/main/agent-run/claude-adapter.ts);
+ * desktop keeps its own. Credentials are masked later, on the way out, like every other event.
  */
 import { relative, isAbsolute } from 'node:path';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -22,7 +17,6 @@ import { RUN_CONTROL_SERVER } from './run-control.js';
 
 type ToolEvent = Extract<RunnerEvent, { type: 'tool' }>;
 
-/** Truncate a value to a compact one-line summary. */
 function summarize(value: unknown, max = 160): string {
   const s = typeof value === 'string' ? value : JSON.stringify(value);
   const oneLine = (s ?? '').replace(/\s+/g, ' ').trim();
@@ -91,12 +85,12 @@ interface PendingTool {
   input: Record<string, unknown>;
 }
 
-/** Turns one session's SDK messages into run-page events; one instance per session invocation. */
+/** One instance per session invocation. */
 export class SessionEvents {
   private readonly pending = new Map<string, PendingTool>();
   private cwd: string | null = null;
 
-  /** The events one SDK message produces (the result's `done` event is built by the executor). */
+  /** The result's `done` event is built by the executor. */
   eventsFor(message: SDKMessage): RunnerEvent[] {
     const events: RunnerEvent[] = [];
     switch (message.type) {
@@ -173,7 +167,6 @@ export class SessionEvents {
     return event;
   }
 
-  /** What a call acted on: a path relative to the working directory, a command's first line, a query. */
   private target(call: PendingTool): string | null {
     const { input } = call;
     const path = str(input.file_path) ?? str(input.notebook_path);
@@ -208,7 +201,6 @@ export class SessionEvents {
 /** The workspace MCP server's key in the session's `mcpServers` (claude-executor.ts). */
 const COREDOC_SERVER = 'coredoc';
 
-/** Where each intent tool's answer lists its item ids: the items read, or the items proposed. */
 const INTENT_ID_FIELDS: Record<string, Array<{ list: string; id: string }>> = {
   get_intent_context: [
     { list: 'matches', id: 'id' },
@@ -217,11 +209,7 @@ const INTENT_ID_FIELDS: Record<string, Array<{ list: string; id: string }>> = {
   intent_propose: [{ list: 'items', id: 'itemId' }],
 };
 
-/**
- * The intent item ids in an intent tool's JSON answer, for the run page's
- * product intent drawer. A text answer, a state such as `not_configured`, or
- * any shape it does not recognise yields none.
- */
+/** A text answer, a state such as `not_configured`, or any unrecognised shape yields none. */
 function intentIdsOf(tool: string, output: string): string[] {
   const fields = INTENT_ID_FIELDS[tool];
   if (!fields) return [];
@@ -244,7 +232,6 @@ function intentIdsOf(tool: string, output: string): string[] {
   return [...ids].slice(0, MAX_TOOL_INTENT_IDS);
 }
 
-/** The `result` event of an accepted `submit_result`: its summary and one point per repository. */
 function resultEvent(input: Record<string, unknown>): RunnerEvent {
   const list = (value: unknown) =>
     Array.isArray(value)

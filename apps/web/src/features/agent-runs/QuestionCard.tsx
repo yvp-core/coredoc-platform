@@ -183,12 +183,7 @@ function OpenQuestion({ wsId, run, open }: { wsId: string; run: AgentRunDetail; 
   );
 }
 
-/**
- * The question card: the agent's open question with headers, options,
- * descriptions, previews, single or multiple choice and a free-text "Other".
- * A repository request offers only its fixed "Add" and "Don't add".
- * Exactly one answer is accepted; a reviewer who answers second is told so.
- */
+/** Exactly one answer is accepted; a reviewer who answers second is told so. */
 export function QuestionCard({
   wsId,
   run,
@@ -207,7 +202,6 @@ const RESOLUTION: Record<Exclude<AgentRunQuestion['state'], 'open'>, string> = {
   cancelled: 'Cancelled: the run ended',
 };
 
-/** A question that is no longer open, each part with its options and the chosen ones marked. */
 export function AnsweredQuestion({ question }: { question: AgentRunQuestion }) {
   return (
     <div className="flex flex-col gap-3">

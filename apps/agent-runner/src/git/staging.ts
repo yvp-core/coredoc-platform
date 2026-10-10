@@ -1,10 +1,6 @@
 /**
- * The staging rule: what of the agent's work tree goes into the turn's commit.
- * Tracked modifications and deletions are staged, and new regular files under
- * 1 MiB that are not ignored and do not look like credentials. Gitlinks,
- * submodule files and filter-attributed (LFS) paths are never staged, and
- * workflow files are withheld because the bot's token has no Workflows
- * permission. Withheld paths are reported by path only.
+ * Gitlinks, submodule files and filter-attributed (LFS) paths are never staged; workflow files are
+ * withheld because the bot's token has no Workflows permission.
  */
 import { lstat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -30,11 +26,9 @@ const CREDENTIAL_NAMES = [
 const GITLINK_MODE = '160000';
 
 export interface StageResult {
-  /** True when the index differs from HEAD after staging. */
   staged: boolean;
   /** Every path left out of the commit, workflow files included. */
   withheld: string[];
-  /** Workflow files left out of the commit; their diff is offered to a person. */
   workflowPaths: string[];
 }
 
@@ -82,7 +76,6 @@ export async function stageChanges(git: Git, dir: string): Promise<StageResult> 
     }
   };
 
-  // Tracked modifications, deletions and type changes, work tree against the index.
   const tracked = nulFields((await git.run(['diff', '--raw', '-z', '--no-renames'], { cwd: dir })).stdout);
   for (let index = 0; index + 1 < tracked.length; index += 2) {
     const [srcMode, dstMode] = tracked[index]!.replace(/^:/, '').split(' ');

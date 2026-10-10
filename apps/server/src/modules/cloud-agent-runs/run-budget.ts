@@ -1,16 +1,14 @@
 /**
- * The run's spend budget. Spend is self-reported by the runner, so a run
- * whose turns stop reporting it can no longer be bounded and fails too.
+ * Spend is self-reported by the runner, so a run whose turns stop reporting it
+ * can no longer be bounded and fails too.
  */
 import type { CloudAgentRun } from '../../generated/prisma/client.js';
 import { isTerminalRunStatus, RunFailureCode, RunStatus } from './run-states.js';
 import type { Tx } from './run-store.js';
 import { failRun } from './run-transitions.js';
 
-/** Turns of unknown spend after which the budget is no longer enforceable. */
 export const MAX_UNKNOWN_SPEND_TURNS = 3;
 
-/** Why the run may start no further agent session, or null while it may. */
 export function spendBudgetFailure(run: CloudAgentRun): string | null {
   if (run.spendUsd >= run.maxSpendUsd) {
     return `The run spent an estimated ${run.spendUsd.toFixed(2)} USD of its ${run.maxSpendUsd.toFixed(2)} USD limit.`;
@@ -21,11 +19,7 @@ export function spendBudgetFailure(run: CloudAgentRun): string | null {
   return null;
 }
 
-/**
- * After a turn's spend is recorded: a run that cannot afford another agent
- * session fails now rather than when its next turn is claimed. Delivery
- * starts no session, so a delivering run keeps going.
- */
+/** Delivery starts no agent session, so a delivering run keeps going. */
 export async function failIfBudgetSpent(tx: Tx, run: CloudAgentRun, at: Date): Promise<void> {
   if (isTerminalRunStatus(run.status) || run.status === RunStatus.Delivering) return;
   const reason = spendBudgetFailure(run);

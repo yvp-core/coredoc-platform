@@ -2,18 +2,13 @@ import { readdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-/**
- * Hand-written partial indexes Prisma cannot represent: `prisma migrate dev`
- * proposes dropping them, and code depends on each one for correctness.
- */
+// Prisma cannot represent these partial indexes (`migrate dev` proposes dropping them); code relies on each.
 const HAND_WRITTEN_PARTIAL_INDEXES = [
   // Enqueue's P2002 race handling in push-queue.service.ts.
   { name: 'push_jobs_one_active_push_per_repo', migration: '20260804000000_cloud_push_reliability' },
   // ACTIVE_RUN_EXISTS: one non-terminal cloud agent run per workspace and Jira issue.
   { name: 'cloud_agent_runs_one_open_run_per_issue', migration: '20261010120000_cloud_agent_runs' },
-  // One queued or claimed turn per run.
   { name: 'cloud_agent_run_turns_one_pending_turn_per_run', migration: '20261010120000_cloud_agent_runs' },
-  // One open question per run: a run parks on one question at a time.
   { name: 'cloud_agent_run_questions_one_open_per_run', migration: '20261013120000_cloud_agent_run_questions' },
 ];
 

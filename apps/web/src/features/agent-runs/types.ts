@@ -1,9 +1,4 @@
-/**
- * Wire types of the cloud agent runs API, restated locally (the web app never
- * imports workspace packages). Mirrors
- * apps/server/src/modules/cloud-agent-runs/cloud-agent-run.service.ts
- * (`project`, `events`) and cloud-agent-run-settings.service.ts (`view`).
- */
+/** Restated from apps/server cloud-agent-runs: the web app never imports workspace packages. */
 
 export type RunStatus =
   | 'queued'
@@ -18,7 +13,7 @@ export type RunStatus =
 
 export type TurnKind = 'scope' | 'implement' | 'delivery';
 
-/** What a completed turn achieved (run-states.ts `TurnOutcome`); a failed turn records its failure code instead. */
+/** A failed turn records its failure code instead. */
 export type TurnOutcome =
   | 'no_outcome'
   | 'scope_proposed'
@@ -48,7 +43,6 @@ export interface AgentRun {
   phase: TurnKind;
   trigger: 'jira_label' | 'manual' | 'rerun';
   startedBy: string | null;
-  /** The run this one re-runs. */
   previousRunId: string | null;
   runOwner: { userId: string; email: string | null };
   questionsPolicy: 'pause' | 'assume';
@@ -76,7 +70,6 @@ export interface SpecRepository {
   ineligibleReason: string | null;
 }
 
-/** A published scope proposal (cloud-agent-run-scope.service.ts `projectSpec`). */
 export interface AgentRunSpec {
   version: number;
   status: 'proposed' | 'accepted' | 'changes_requested' | 'superseded';
@@ -100,7 +93,6 @@ export interface AgentRunSpec {
 /** One clarification in Claude Code's AskUserQuestion shape. */
 export interface AskedQuestion {
   question: string;
-  /** A short chip label. */
   header: string;
   options: Array<{ label: string; description: string; preview?: string }>;
   multiSelect: boolean;
@@ -112,7 +104,6 @@ export interface QuestionAnswer {
   other?: string;
 }
 
-/** A question the agent asked (cloud-agent-run-questions.service.ts `projectQuestion`). */
 export interface AgentRunQuestion {
   requestId: string;
   kind: 'clarification' | 'repository_request';
@@ -128,13 +119,11 @@ export interface AgentRunQuestion {
   askedInTurnId?: string | null;
 }
 
-/** An assumption the agent listed instead of asking. */
 export interface AgentRunAssumption {
   phase: TurnKind;
   text: string;
 }
 
-/** A repository of the run, with what the implement phase did there. */
 export interface RunRepository {
   key: string;
   reason: string;
@@ -150,7 +139,6 @@ export interface RunRepository {
   withheldPaths?: string[];
 }
 
-/** The implement phase's result, as the agent submitted it. */
 export interface AgentRunResult {
   summary: string;
   repositories: Array<{ key: string; summary: string }>;
@@ -182,7 +170,6 @@ export interface AgentRunJiraOutcome {
   transition?: { outcome: string; reason?: string | null };
 }
 
-/** One run as the run page reads it. */
 export interface AgentRunDetail extends AgentRun {
   /** The issue on the Jira connector's site; null when the connector has no site URL. */
   issueUrl: string | null;
@@ -193,7 +180,6 @@ export interface AgentRunDetail extends AgentRun {
   jiraOutcome?: AgentRunJiraOutcome;
   droppedSeeds: Array<{ key: string; reason: string }>;
   assumptions: AgentRunAssumption[];
-  /** The question waiting for a person, if any. */
   openQuestion: AgentRunQuestion | null;
   /** Every question of the run, oldest first. */
   questions: AgentRunQuestion[];
@@ -214,7 +200,6 @@ export interface AgentRunEvent {
   createdAt: string;
 }
 
-/** One turn of a run, as the activity endpoint reports it. */
 export interface AgentRunTurnActivity {
   id: string;
   ordinal: number;
@@ -239,7 +224,6 @@ export interface AgentRunIntentRef {
   location: string | null;
 }
 
-/** Per-turn activity and the run's skill and tool counts, from the runner's structured events. */
 export interface AgentRunActivity {
   turns: AgentRunTurnActivity[];
   skills: Array<{ name: string; count: number }>;
@@ -271,7 +255,6 @@ export interface RunnerTokenStatus {
   refusalDetail: string | null;
 }
 
-/** An unmet condition, with the reason settings and the list page show. */
 export interface AvailabilityReason {
   code: string;
   message: string;
@@ -311,7 +294,6 @@ export interface AgentRunSettings {
   runnerTokens: RunnerTokenStatus[];
 }
 
-/** The editable values of a settings PUT. */
 export type AgentRunSettingsUpdate = Partial<
   Pick<
     AgentRunSettings,
@@ -333,7 +315,6 @@ export type AgentRunSettingsUpdate = Partial<
   >
 > & { takeOverOwnership?: true };
 
-/** The statuses the workspace's Jira connector knows, from its Delivery analytics status map. */
 export interface JiraStatusChoices {
   statuses: string[];
 }

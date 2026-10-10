@@ -7,7 +7,6 @@ import {
   type EventBatch,
   type EventBatchResponse,
   type HeartbeatResponse,
-  MAX_STATE_ARCHIVE_BYTES,
   type ProposeScope,
   type ProposeScopeResponse,
   type ReportQuestion,
@@ -16,20 +15,16 @@ import {
   type RequestRepoResponse,
   type ReserveBranchResponse,
   type RunnerStartupProblem,
+  RUNNER_PROTOCOL_VERSION,
   type RunnerVersions,
   type SubmitResult,
   type SubmitResultResponse,
-  SUPPORTED_RUNNER_PROTOCOL_VERSIONS,
   type TurnAssignment,
 } from '@coredoc/core/agent-runner';
 import { TokenPermission } from '../../auth/token-permissions.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { CloudAgentRun, Prisma } from '../../generated/prisma/client.js';
-import {
-  CLOUD_AGENT_RUN_ARCHIVE_STORE,
-  type CloudAgentRunArchiveStore,
-  stateArchiveKey,
-} from './cloud-agent-run-archive.store.js';
+import { CLOUD_AGENT_RUN_ARCHIVE_STORE, type CloudAgentRunArchiveStore } from './cloud-agent-run-archive.store.js';
 import { CloudAgentRunIssueReader, JiraReadFailure } from './cloud-agent-run-issue-reader.js';
 import { answerForTurn, recordQuestion, settleTurnQuestions } from './cloud-agent-run-questions.service.js';
 import { CloudAgentRunDeliveryService } from './cloud-agent-run-delivery.service.js';
@@ -41,53 +36,50 @@ import {
 } from './cloud-agent-run-repository-requests.service.js';
 import { CloudAgentRunScopeService } from './cloud-agent-run-scope.service.js';
 import {
-  CloudAgentRunErrorCode,
   cloudAgentRunError,
-  isTerminalRunStatus,
+  CloudAgentRunErrorCode,
+  fromColumn,
   MAX_TURN_ATTEMPTS,
+  QuestionsPolicy,
   RunFailureCode,
+  RunnerSeenAction,
   RunPhase,
-  RUNNER_STARTUP_PROBLEM_TEXT,
+  ScopeAcceptancePolicy,
   ServerEventType,
   TERMINAL_RUN_STATUSES,
   TurnOutcome,
   TurnState,
 } from './run-states.js';
-import { redactSecrets } from './redact-secrets.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
-import { CLOUD_AGENT_RUN_REPORT_CAPS, chargeReport, DEFAULT_REPORT_CAPS, type ReportCaps } from './report-limits.js';
+import {
+  CLOUD_AGENT_RUN_REPORT_CAPS,
+  chargeReport,
+  DEFAULT_REPORT_CAPS,
+  type Report,
+  type ReportCaps,
+} from './report-limits.js';
 import { checkRunOwnerAndConnectors } from './run-checks.js';
 import { failIfBudgetSpent, spendBudgetFailure } from './run-budget.js';
 import { deleteTurnTokens, failRun, lockRun, queueTurn } from './run-transitions.js';
+import { recordRunnerSeen, startupProblemText } from './runner-seen.js';
+import {
+  type FencedTurn,
+  fenceLiveTurn,
+  fenceTurn,
+  leaseLost,
+  type RunnerPrincipal,
+  type TurnLease,
+} from './turn-lease.js';
 
 /** A claim's lease; the runner heartbeats every 20 s, so this tolerates several missed beats. */
 export const LEASE_MS = 2 * 60_000;
-/** The per-turn MCP token outlives the longest turn by this margin. */
 const MCP_TOKEN_GRACE_MS = 15 * 60_000;
 /** Claim attempts per request when a claimed turn's run fails its run-level re-check. */
 const MAX_CLAIM_ATTEMPTS = 5;
-/** The width of `agent_runner_seen.refused_reason`. */
-const MAX_REFUSED_REASON = 200;
-/** What settings show as a runner token's last report; `agent_runner_seen.last_action` holds 16 characters. */
-type RunnerSeenAction = 'claim' | 'heartbeat' | 'startup_check';
-
-/** The calling runner: its token and the workspace that token belongs to. */
-export interface RunnerPrincipal {
-  workspaceId: string;
-  tokenId: string;
-}
-
-/** A runner request about one turn, fenced on the lease token it presents. */
-export interface TurnLease {
-  runner: RunnerPrincipal;
-  turnId: string;
-  token: string;
-}
-
 interface ClaimedRow {
   id: string;
   run_id: string;
-  kind: string;
+  kind: RunPhase;
   ordinal: number;
   attempts: number;
   input_text: string | null;
@@ -95,34 +87,11 @@ interface ClaimedRow {
   lease_expires_at: Date;
 }
 
-interface FencedTurn {
-  id: string;
-  run_id: string;
-  workspace_id: string;
-  kind: string;
-  state: string;
-  lease_token: string | null;
-  lease_expires_at: Date | null;
-  completed_at: Date | null;
-  run_status: string;
-}
-
-/**
- * Where a lease-fenced request stands:
- * - `live`: the lease is this runner's and current;
- * - `stopped`: the turn was abandoned because the run became terminal — the
- *   runner records the turn's own facts and stops;
- * - `completed`: the turn already reported its completion, live or stopped (a
- *   repeated completion is a no-op).
- */
-type FenceResult = { turn: FencedTurn; standing: 'live' | 'stopped' | 'completed' };
-
 interface ClaimedTurn {
   assignment: TurnAssignment;
   run: CloudAgentRun;
 }
 
-/** The continuation after a checkpoint (duration limit or SDK turn cap). */
 const CONTINUE_WHERE_YOU_STOPPED = 'Continue where you stopped.';
 
 @Injectable()
@@ -157,7 +126,13 @@ export class CloudAgentTurnService {
       if (claimed === 'refused') continue;
       assignment = await this.withRunChecks(claimed);
     }
-    await this.recordSeen(runner, 'claim', request.protocolVersion, request.versions, null);
+    await recordRunnerSeen(
+      this.prisma,
+      runner,
+      RunnerSeenAction.Claim,
+      { ...request, refusedReason: null },
+      this.now(),
+    );
     return assignment;
   }
 
@@ -167,25 +142,32 @@ export class CloudAgentTurnService {
    */
   async recordStartupProblem(runner: RunnerPrincipal, report: RunnerStartupProblem): Promise<void> {
     await this.refuseIncompatible(runner, report);
-    await this.recordSeen(runner, 'startup_check', report.protocolVersion, report.versions, startupProblemText(report));
+    await recordRunnerSeen(
+      this.prisma,
+      runner,
+      RunnerSeenAction.StartupCheck,
+      { ...report, refusedReason: startupProblemText(report) },
+      this.now(),
+    );
   }
 
   private async refuseIncompatible(
     runner: RunnerPrincipal,
     request: { protocolVersion: number; versions: RunnerVersions },
   ): Promise<void> {
-    if (SUPPORTED_RUNNER_PROTOCOL_VERSIONS.includes(request.protocolVersion)) return;
-    const reason = `Protocol version ${request.protocolVersion} is not supported; this server supports ${SUPPORTED_RUNNER_PROTOCOL_VERSIONS.join(', ')}`;
-    await this.recordSeen(runner, 'claim', request.protocolVersion, request.versions, reason);
+    if (request.protocolVersion === RUNNER_PROTOCOL_VERSION) return;
+    const reason = `Protocol version ${request.protocolVersion} is not supported; this server supports ${RUNNER_PROTOCOL_VERSION}`;
+    await recordRunnerSeen(
+      this.prisma,
+      runner,
+      RunnerSeenAction.Claim,
+      { ...request, refusedReason: reason },
+      this.now(),
+    );
     throw cloudAgentRunError(CloudAgentRunErrorCode.RunnerIncompatible, reason);
   }
 
-  /**
-   * Scope turns get their PRD, read fresh from Jira, and their seeds for the
-   * runner's bot check; implement turns get clone URLs and the accepted spec.
-   * A run whose issue is unreadable or whose repository stopped resolving
-   * fails here.
-   */
+  /** A run whose issue is unreadable or whose repository stopped resolving fails here, after the claim commits. */
   private async withRunChecks(claimed: ClaimedTurn): Promise<TurnAssignment | null> {
     const { assignment, run } = claimed;
     try {
@@ -287,7 +269,7 @@ export class CloudAgentTurnService {
       const assignment: TurnAssignment = {
         turn: {
           id: claimed.id,
-          kind: claimed.kind as TurnAssignment['turn']['kind'],
+          kind: claimed.kind,
           ordinal: claimed.ordinal,
           attempt: claimed.attempts,
           inputText: claimed.input_text,
@@ -296,8 +278,8 @@ export class CloudAgentTurnService {
         run: {
           id: run.id,
           issueKey: run.issueKey,
-          questionsPolicy: run.questionsPolicy as TurnAssignment['run']['questionsPolicy'],
-          scopeAcceptancePolicy: run.scopeAcceptancePolicy as TurnAssignment['run']['scopeAcceptancePolicy'],
+          questionsPolicy: fromColumn(QuestionsPolicy, run.questionsPolicy),
+          scopeAcceptancePolicy: fromColumn(ScopeAcceptancePolicy, run.scopeAcceptancePolicy),
           model: run.model,
           sessionId: run.phase === RunPhase.Implement ? run.implementSessionId : run.scopeSessionId,
           remainingSpendUsd: Math.max(0, run.maxSpendUsd - run.spendUsd),
@@ -325,7 +307,7 @@ export class CloudAgentTurnService {
    * scope turns (proposing could overwrite the PRD tooling's candidates),
    * read and propose in implement turns. Hash-only; returned once.
    */
-  private async mintMcpToken(tx: Tx, run: CloudAgentRun, turnId: string, kind: string, at: Date): Promise<string> {
+  private async mintMcpToken(tx: Tx, run: CloudAgentRun, turnId: string, kind: RunPhase, at: Date): Promise<string> {
     // A re-claimed turn replaces the token its lost attempt held.
     await deleteTurnTokens(tx, [turnId]);
     const plaintext = `cdt_${randomBytes(32).toString('hex')}`;
@@ -350,7 +332,7 @@ export class CloudAgentTurnService {
 
   async heartbeat(lease: TurnLease, versions: RunnerVersions): Promise<HeartbeatResponse> {
     const result = await this.prisma.$transaction(async (tx) => {
-      const { turn, standing } = await this.fence(tx, lease);
+      const { turn, standing } = await fenceTurn(tx, lease, this.now());
       if (standing !== 'live') {
         return { stop: true, leaseExpiresAt: (turn.lease_expires_at ?? this.now()).toISOString() };
       }
@@ -358,7 +340,14 @@ export class CloudAgentTurnService {
       await tx.cloudAgentRunTurn.update({ where: { id: turn.id }, data: { leaseExpiresAt: expiresAt } });
       return { stop: false, leaseExpiresAt: expiresAt.toISOString() };
     });
-    if (!result.stop) await this.recordSeen(lease.runner, 'heartbeat', null, versions, null);
+    if (!result.stop)
+      await recordRunnerSeen(
+        this.prisma,
+        lease.runner,
+        RunnerSeenAction.Heartbeat,
+        { protocolVersion: null, versions, refusedReason: null },
+        this.now(),
+      );
     return result;
   }
 
@@ -379,76 +368,63 @@ export class CloudAgentTurnService {
     });
   }
 
-  /**
-   * `propose_scope`: validated against the run; a valid proposal becomes this
-   * turn's draft version, published when the turn completes. Broken rules go
-   * back to the agent as a tool error.
-   */
+  /** A valid proposal becomes this turn's draft, published only when the turn completes. */
   async proposeScope(lease: TurnLease, proposal: ProposeScope): Promise<ProposeScopeResponse> {
     const eligibility = await this.scope.eligibility(lease.runner.workspaceId);
-    return this.prisma.$transaction(async (tx) => {
-      const { turn, stopped } = await this.fenceOpen(tx, lease);
-      if (stopped) return { accepted: false, errors: ['The run has ended; stop.'], stop: true };
-      if (turn.kind !== RunPhase.Scope) {
-        return { accepted: false, errors: ['propose_scope is available only while scoping.'], stop: false };
-      }
-      if (await chargeReport(tx, turn, { proposals: 1 }, this.caps, this.now())) {
-        return { accepted: false, errors: ['This turn sent too many proposals; the run has ended.'], stop: true };
-      }
-      // The fenced turn's own run, in the runner's workspace: a draft is never written for another run.
-      const run = await tx.cloudAgentRun.findFirstOrThrow({
-        where: { id: turn.run_id, workspaceId: lease.runner.workspaceId },
-      });
-      const errors = this.scope.validate(proposal, {
-        eligibility,
-        seeds: run.seeds,
-        maxRepositories: run.maxRepositories,
-      });
-      if (errors.length) return { accepted: false, errors, stop: false };
-      const version = await this.scope.saveDraft(tx, run, turn.id, proposal, this.now());
-      return { accepted: true, version, stop: false };
-    });
+    return this.toolCall<ProposeScopeResponse>(
+      lease,
+      {
+        phases: [RunPhase.Scope],
+        wrongPhase: 'propose_scope is available only while scoping.',
+        charge: { report: { proposals: 1 }, overCap: 'This turn sent too many proposals; the run has ended.' },
+      },
+      (error, stop) => ({ accepted: false, errors: [error], stop }),
+      async (tx, turn) => {
+        // The fenced turn's own run, in the runner's workspace: a draft is never written for another run.
+        const run = await tx.cloudAgentRun.findFirstOrThrow({
+          where: { id: turn.run_id, workspaceId: lease.runner.workspaceId },
+        });
+        const errors = this.scope.validate(proposal, {
+          eligibility,
+          seeds: run.seeds,
+          maxRepositories: run.maxRepositories,
+        });
+        if (errors.length) return { accepted: false, errors, stop: false };
+        const version = await this.scope.saveDraft(tx, run, turn.id, proposal, this.now());
+        return { accepted: true, version, stop: false };
+      },
+    );
   }
 
-  /**
-   * `submit_result`: validated against the run; a valid result is stored on
-   * the turn and adopted when the turn completes. Broken rules go back to
-   * the agent as a tool error.
-   */
   async submitResult(lease: TurnLease, result: SubmitResult): Promise<SubmitResultResponse> {
-    return this.prisma.$transaction(async (tx) => {
-      const { turn, stopped } = await this.fenceOpen(tx, lease);
-      if (stopped) return { accepted: false, errors: ['The run has ended; stop.'], stop: true };
-      if (turn.kind !== RunPhase.Implement) {
-        return { accepted: false, errors: ['submit_result is available only while implementing.'], stop: false };
-      }
-      const run = await tx.cloudAgentRun.findFirstOrThrow({
-        where: { id: turn.run_id, workspaceId: lease.runner.workspaceId },
-      });
-      const errors = this.implement.validateResult(run, result);
-      if (errors.length) return { accepted: false, errors, stop: false };
-      await this.implement.saveResult(tx, turn.id, result);
-      return { accepted: true, stop: false };
-    });
+    return this.toolCall<SubmitResultResponse>(
+      lease,
+      { phases: [RunPhase.Implement], wrongPhase: 'submit_result is available only while implementing.' },
+      (error, stop) => ({ accepted: false, errors: [error], stop }),
+      async (tx, turn) => {
+        const run = await tx.cloudAgentRun.findFirstOrThrow({
+          where: { id: turn.run_id, workspaceId: lease.runner.workspaceId },
+        });
+        const errors = this.implement.validateResult(run, result);
+        if (errors.length) return { accepted: false, errors, stop: false };
+        await this.implement.saveResult(tx, turn.id, result);
+        return { accepted: true, stop: false };
+      },
+    );
   }
 
-  /**
-   * `request_repo`: a repository the accepted scope left out. Appended at
-   * once under automatic acceptance (the turn continues); stored for a
-   * person's decision under required acceptance (the turn ends). Broken
-   * rules go back to the agent as a tool error.
-   */
+  /** Under automatic acceptance the repository is added and the turn continues; under required, the turn ends. */
   async requestRepo(lease: TurnLease, request: RequestRepo): Promise<RequestRepoResponse> {
     const eligibility = await this.scope.eligibility(lease.runner.workspaceId);
-    return this.prisma.$transaction(async (tx) => {
-      const { turn, stopped } = await this.fenceOpen(tx, lease);
-      if (stopped) return { state: 'rejected', errors: ['The run has ended; stop.'], stop: true };
-      if (turn.kind !== RunPhase.Implement) {
-        return { state: 'rejected', errors: ['request_repo is available only while implementing.'], stop: false };
-      }
-      const run = (await lockRun(tx, lease.runner.workspaceId, turn.run_id))!;
-      return this.repositoryRequests.request(tx, run, turn.id, request, eligibility, this.now());
-    });
+    return this.toolCall<RequestRepoResponse>(
+      lease,
+      { phases: [RunPhase.Implement], wrongPhase: 'request_repo is available only while implementing.' },
+      (error, stop) => ({ state: 'rejected', errors: [error], stop }),
+      async (tx, turn) => {
+        const run = (await lockRun(tx, lease.runner.workspaceId, turn.run_id))!;
+        return this.repositoryRequests.request(tx, run, turn.id, request, eligibility, this.now());
+      },
+    );
   }
 
   /**
@@ -458,8 +434,7 @@ export class CloudAgentTurnService {
    */
   async reserveBranch(lease: TurnLease, repository: string): Promise<ReserveBranchResponse> {
     return this.prisma.$transaction(async (tx) => {
-      const { turn, standing } = await this.fence(tx, lease);
-      if (standing !== 'live') throw leaseLost();
+      const turn = await fenceLiveTurn(tx, lease, this.now());
       if (turn.kind !== RunPhase.Implement) {
         throw cloudAgentRunError(
           CloudAgentRunErrorCode.RunStateConflict,
@@ -479,92 +454,49 @@ export class CloudAgentTurnService {
    * `awaiting_answer` and the runner ends the session).
    */
   async reportQuestion(lease: TurnLease, report: ReportQuestion): Promise<ReportQuestionResponse> {
+    return this.toolCall<ReportQuestionResponse>(
+      lease,
+      {
+        phases: [RunPhase.Scope, RunPhase.Implement],
+        wrongPhase: 'Questions are asked only while scoping or implementing.',
+        charge: { report: { questions: 1 }, overCap: 'This turn asked too many questions; the run has ended.' },
+      },
+      (reason, stop) => ({ state: 'refused', reason, stop }),
+      async (tx, turn) => {
+        const run = (await lockRun(tx, lease.runner.workspaceId, turn.run_id))!;
+        return recordQuestion(tx, run, turn.id, report, this.now());
+      },
+    );
+  }
+
+  /**
+   * An agent tool call made during the turn: refused when the run has ended,
+   * outside the tool's phases, or over the turn's report caps.
+   */
+  private toolCall<T>(
+    lease: TurnLease,
+    rules: { phases: readonly string[]; wrongPhase: string; charge?: { report: Report; overCap: string } },
+    refuse: (message: string, stop: boolean) => T,
+    call: (tx: Tx, turn: FencedTurn) => Promise<T>,
+  ): Promise<T> {
     return this.prisma.$transaction(async (tx) => {
       const { turn, stopped } = await this.fenceOpen(tx, lease);
-      if (stopped) return { state: 'refused', reason: 'The run has ended; stop.', stop: true };
-      if (turn.kind !== RunPhase.Scope && turn.kind !== RunPhase.Implement) {
-        return { state: 'refused', reason: 'Questions are asked only while scoping or implementing.', stop: false };
+      if (stopped) return refuse('The run has ended; stop.', true);
+      if (!rules.phases.includes(turn.kind)) return refuse(rules.wrongPhase, false);
+      if (rules.charge && (await chargeReport(tx, turn, rules.charge.report, this.caps, this.now()))) {
+        return refuse(rules.charge.overCap, true);
       }
-      if (await chargeReport(tx, turn, { questions: 1 }, this.caps, this.now())) {
-        return { state: 'refused', reason: 'This turn asked too many questions; the run has ended.', stop: true };
-      }
-      const run = (await lockRun(tx, lease.runner.workspaceId, turn.run_id))!;
-      return recordQuestion(tx, run, turn.id, report, this.now());
+      return call(tx, turn);
     });
   }
 
-  /**
-   * Stores the turn's state archive under a new key, create-only; the run
-   * adopts it when the turn completes. An archive over the cap fails the run.
-   */
-  async uploadArchive(lease: TurnLease, body: Buffer): Promise<{ stored: true }> {
-    if (body.length > MAX_STATE_ARCHIVE_BYTES) {
-      await this.prisma.$transaction(async (tx) => {
-        const { turn, standing } = await this.fence(tx, lease);
-        const run = standing === 'live' ? await lockRun(tx, lease.runner.workspaceId, turn.run_id) : null;
-        if (run) await failRun(tx, run, RunFailureCode.ArchiveTooLarge, null, this.now());
-      });
-      throw cloudAgentRunError(
-        CloudAgentRunErrorCode.ArchiveTooLarge,
-        `The state archive is larger than ${MAX_STATE_ARCHIVE_BYTES} bytes`,
-        HttpStatus.PAYLOAD_TOO_LARGE,
-      );
-    }
-    const turn = await this.liveTurn(lease);
-    const key = stateArchiveKey(lease.runner.workspaceId, turn.run_id, turn.id, randomUUID());
-    await this.archives.put(key, body);
-    let replaced: string | null;
-    try {
-      replaced = await this.prisma.$transaction(async (tx) => {
-        const fenced = await this.fence(tx, lease);
-        if (fenced.standing !== 'live') throw leaseLost();
-        const row = await tx.cloudAgentRunTurn.findUniqueOrThrow({
-          where: { id: turn.id },
-          select: { stateArchiveKey: true },
-        });
-        await tx.cloudAgentRunTurn.update({ where: { id: turn.id }, data: { stateArchiveKey: key } });
-        return row.stateArchiveKey;
-      });
-    } catch (error) {
-      await this.archives.delete(key).catch(() => undefined);
-      throw error;
-    }
-    // An earlier upload of the same turn, which the run never adopted.
-    if (replaced) await this.archives.delete(replaced).catch(() => undefined);
-    return { stored: true };
-  }
-
-  /** The run's latest state archive, for the live lease only. */
-  async downloadArchive(lease: TurnLease): Promise<Buffer> {
-    const turn = await this.liveTurn(lease);
-    const run = await this.prisma.cloudAgentRun.findFirstOrThrow({
-      where: { id: turn.run_id, workspaceId: lease.runner.workspaceId },
-      select: { stateArchiveKey: true },
-    });
-    const archive = run.stateArchiveKey ? await this.archives.get(run.stateArchiveKey) : null;
-    if (!archive) {
-      throw cloudAgentRunError(
-        CloudAgentRunErrorCode.ArchiveNotFound,
-        'This run has no state archive',
-        HttpStatus.NOT_FOUND,
-      );
-    }
-    return archive;
-  }
-
-  /**
-   * The completion transaction: records the turn's facts (spend, versions,
-   * the uploaded archive), deletes its MCP token and advances the run from
-   * what the turn reported. A failure outcome fails the run; a transient one
-   * re-queues the turn until its last attempt; a scope turn publishes its
-   * draft proposal. A repeated completion is a no-op.
-   */
+  /** A repeated completion is a no-op; a stopped turn records its facts without advancing the run. */
   async complete(lease: TurnLease, request: CompleteTurn): Promise<CompleteTurnResponse> {
     const eligibility = await this.scope.eligibility(lease.runner.workspaceId);
     // Delivery turns: reported pull requests are read back from GitHub before the transaction.
     const delivered = await this.delivery.verify(lease.runner.workspaceId, lease.turnId, request.deliveries);
     const replacedArchive = await this.prisma.$transaction(async (tx) => {
-      const { turn, standing } = await this.fence(tx, lease);
+      const { turn, standing } = await fenceTurn(tx, lease, this.now());
       if (standing === 'completed') return null;
 
       const at = this.now();
@@ -573,12 +505,12 @@ export class CloudAgentTurnService {
       const run = (await lockRun(tx, lease.runner.workspaceId, turn.run_id))!;
       const live = standing === 'live';
       // Untrusted: refused before anything is written, so the runner can correct and complete again.
-      if (row.kind === RunPhase.Implement) this.implement.validateReports(run, request.repositories);
+      if (turn.kind === RunPhase.Implement) this.implement.validateReports(run, request.repositories);
 
       // The model was unavailable: like a lost lease, the turn goes back to the queue unless this was its last attempt.
       const requeue = live && request.outcome.kind === 'transient' && row.attempts < MAX_TURN_ATTEMPTS;
 
-      let outcome: string = TurnOutcome.NoOutcome;
+      let outcome: TurnOutcome | RunFailureCode = TurnOutcome.NoOutcome;
       if (request.outcome.kind === 'failed') outcome = request.outcome.code;
       if (request.outcome.kind === 'transient') {
         outcome = requeue ? TurnOutcome.ModelUnavailable : RunFailureCode.AgentError;
@@ -613,7 +545,7 @@ export class CloudAgentTurnService {
         data: {
           ...(spend
             ? { spendUsd: { increment: spend.costUsd }, agentTurns: { increment: spend.sdkTurns ?? 0 } }
-            : row.kind === RunPhase.Delivery
+            : turn.kind === RunPhase.Delivery
               ? {}
               : { unknownSpendTurns: { increment: 1 } }),
           ...(adoptArchive ? { stateArchiveKey: row.stateArchiveKey } : {}),
@@ -623,9 +555,9 @@ export class CloudAgentTurnService {
       // Pushes are facts of the turn: recorded even when it failed or was stopped.
       // So are verified pull requests, including those a cancelled delivery already opened.
       const updated =
-        row.kind === RunPhase.Implement
+        turn.kind === RunPhase.Implement
           ? await this.implement.recordReports(tx, charged, turn.id, request.repositories, at)
-          : row.kind === RunPhase.Delivery
+          : turn.kind === RunPhase.Delivery
             ? await this.delivery.record(tx, charged, turn.id, delivered, at)
             : charged;
 
@@ -633,10 +565,10 @@ export class CloudAgentTurnService {
         await failRun(tx, updated, request.outcome.code, request.outcome.reason || null, at);
       } else if (live && request.outcome.kind === 'transient') {
         if (!requeue) await failRun(tx, updated, RunFailureCode.AgentError, request.outcome.reason || null, at);
-      } else if (live && (row.kind === RunPhase.Scope || row.kind === RunPhase.Implement)) {
-        outcome = await this.advanceAfterAgentTurn(tx, updated, row.kind, turn.id, request, eligibility, at);
+      } else if (live && (turn.kind === RunPhase.Scope || turn.kind === RunPhase.Implement)) {
+        outcome = await this.advanceAfterAgentTurn(tx, updated, turn.kind, turn.id, request, eligibility, at);
         await failIfBudgetSpent(tx, await tx.cloudAgentRun.findUniqueOrThrow({ where: { id: run.id } }), at);
-      } else if (live && row.kind === RunPhase.Delivery) {
+      } else if (live && turn.kind === RunPhase.Delivery) {
         // No agent ran, so no spend check: delivery is exempt.
         outcome = await this.delivery.settle(tx, updated, delivered, at);
       }
@@ -674,12 +606,12 @@ export class CloudAgentTurnService {
   private async advanceAfterAgentTurn(
     tx: Tx,
     run: CloudAgentRun,
-    kind: string,
+    kind: RunPhase,
     turnId: string,
     request: CompleteTurn,
     eligibility: Map<string, string | null>,
     at: Date,
-  ): Promise<string> {
+  ): Promise<TurnOutcome | RunFailureCode> {
     if (await settleTurnQuestions(tx, run, turnId, at)) return TurnOutcome.QuestionAsked;
     if (kind === RunPhase.Scope && (await this.scope.publishDraft(tx, run, turnId, eligibility, at))) {
       return TurnOutcome.ScopeProposed;
@@ -706,109 +638,22 @@ export class CloudAgentTurnService {
     return TurnOutcome.NoOutcome;
   }
 
-  private async liveTurn(lease: TurnLease): Promise<FencedTurn> {
-    return this.prisma.$transaction(async (tx) => {
-      const { turn, standing } = await this.fence(tx, lease);
-      if (standing !== 'live') throw leaseLost();
-      return turn;
-    });
-  }
-
-  /**
-   * Every runner request about a turn is checked against the turn row locked
-   * for update: unknown turn, another lease, an expired lease or a re-queued
-   * turn all get `LEASE_LOST`.
-   */
-  private async fence(tx: Tx, { runner, turnId, token }: TurnLease): Promise<FenceResult> {
-    const rows = await tx.$queryRaw<FencedTurn[]>`
-      SELECT t.id, t.run_id, t.workspace_id, t.kind, t.state, t.lease_token::text AS lease_token, t.lease_expires_at,
-             t.completed_at, r.status AS run_status
-      FROM cloud_agent_run_turns t
-      JOIN cloud_agent_runs r ON r.id = t.run_id
-      WHERE t.id = ${turnId}::uuid AND t.workspace_id = ${runner.workspaceId}::uuid
-      FOR UPDATE OF t`;
-    const turn = rows[0];
-    if (!turn || turn.lease_token !== token) throw leaseLost();
-    if (turn.state === TurnState.Completed || turn.completed_at) return { turn, standing: 'completed' };
-    if (turn.state === TurnState.Abandoned || isTerminalRunStatus(turn.run_status)) {
-      return { turn, standing: 'stopped' };
-    }
-    if (turn.state !== TurnState.Claimed || !turn.lease_expires_at || turn.lease_expires_at <= this.now()) {
-      throw leaseLost();
-    }
-    return { turn, standing: 'live' };
-  }
-
   /**
    * The fenced turn of a report made during the turn: a completed turn's lease
    * is lost; `stopped` means its run has ended and the runner should stop.
    */
   private async fenceOpen(tx: Tx, lease: TurnLease): Promise<{ turn: FencedTurn; stopped: boolean }> {
-    const { turn, standing } = await this.fence(tx, lease);
+    const { turn, standing } = await fenceTurn(tx, lease, this.now());
     if (standing === 'completed') throw leaseLost();
     return { turn, stopped: standing === 'stopped' };
   }
-
-  /**
-   * Settings show each runner token's last successful claim or heartbeat with
-   * its versions, or why it was refused or claims nothing.
-   */
-  private async recordSeen(
-    runner: RunnerPrincipal,
-    action: RunnerSeenAction,
-    protocolVersion: number | null,
-    versions: RunnerVersions,
-    refusedReason: string | null,
-  ): Promise<void> {
-    const at = this.now();
-    const data = {
-      lastSeenAt: at,
-      lastAction: action,
-      versions: versions as Prisma.InputJsonObject,
-      refusedReason,
-      ...(protocolVersion === null ? {} : { protocolVersion }),
-    };
-    await this.prisma.agentRunnerSeen.upsert({
-      where: { serviceTokenId: runner.tokenId },
-      create: {
-        serviceTokenId: runner.tokenId,
-        workspaceId: runner.workspaceId,
-        protocolVersion: protocolVersion ?? 0,
-        ...data,
-      },
-      update: data,
-    });
-  }
 }
 
-/**
- * The server's wording for the code, then the runner's detail with common
- * credential shapes masked, cut to fit `refused_reason`.
- */
-function startupProblemText(report: RunnerStartupProblem): string {
-  const text = RUNNER_STARTUP_PROBLEM_TEXT[report.code];
-  if (!report.detail) return text;
-  const room = MAX_REFUSED_REASON - text.length - 3;
-  if (room < 8) return text;
-  const detail = redactSecrets(report.detail);
-  return `${text} (${detail.length > room ? `${detail.slice(0, room - 1)}…` : detail})`;
-}
-
-/** The second outcome-less turn in a row fails the run. */
 const MAX_OUTCOME_LESS_TURNS = 2;
 
-/** The resume message after an outcome-less turn, by questions policy. */
-function nudge(questionsPolicy: string, kind: string): string {
+function nudge(questionsPolicy: string, kind: RunPhase): string {
   const tool = kind === RunPhase.Scope ? 'propose_scope' : 'submit_result';
-  return questionsPolicy === 'assume'
+  return questionsPolicy === QuestionsPolicy.Assume
     ? `Your last turn ended without an outcome. Finish on stated assumptions: call ${tool} and list every assumption you made in it.`
     : `Your last turn ended without an outcome. Finish with ${tool}, or ask a person through AskUserQuestion.`;
-}
-
-function leaseLost() {
-  return cloudAgentRunError(
-    CloudAgentRunErrorCode.LeaseLost,
-    'The lease on this turn is no longer yours; stop the turn',
-    HttpStatus.CONFLICT,
-  );
 }

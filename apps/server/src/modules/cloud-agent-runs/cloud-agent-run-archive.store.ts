@@ -1,16 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { R2StorageService } from '../../database/r2-storage.service.js';
 
-/**
- * Where agent session state archives live. A port so the module's suites run
- * against memory; production writes object storage, create-only, under a new
- * key per upload.
- */
+/** Production writes object storage under a new key per upload. */
 export interface CloudAgentRunArchiveStore {
   /** Create-only: a key is never overwritten. */
   put(key: string, body: Buffer): Promise<void>;
   get(key: string): Promise<Buffer | null>;
-  /** Streams an archive without buffering it; aborting the signal stops the read. */
+  /** Aborting the signal stops the read. */
   getStream(key: string, signal?: AbortSignal): Promise<AsyncIterable<Uint8Array> | null>;
   delete(key: string): Promise<void>;
 }

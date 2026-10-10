@@ -1,74 +1,60 @@
-/**
- * The runner loop: claim a turn, keep its lease alive, let the executor work,
- * and complete the turn — or stop without completing when the server says the
- * run is over or the lease is gone. One turn at a time per process.
- */
+/** One turn at a time per process; a stopped or lease-lost turn is not completed. */
 import {
   type DeliveryReport,
   type ProposeScopeRequest,
   type ProposeScopeResponse,
-  type RepositoryReport,
   type ReportQuestionRequest,
   type ReportQuestionResponse,
+  type RepositoryReport,
   type RequestRepoRequest,
   type RequestRepoResponse,
   RUNNER_PROTOCOL_VERSION,
   type RunnerEvent,
-  type RunnerStartupProblemCode,
+  RunnerStartupProblemCode,
   type RunnerVersions,
   type SubmitResultRequest,
   type SubmitResultResponse,
   type TurnAssignment,
+  TurnKind,
   type TurnOutcome,
 } from '@coredoc/core/agent-runner';
 import { secretMasker } from './mask-secrets.js';
 import { LeaseLostError, type RunnerApiClient, type TurnRef } from './runner-api.js';
 
 export interface TurnIO {
-  /** Report events on the run's timeline. */
   emit(events: RunnerEvent[]): Promise<void>;
   /** Aborted when the server answers `stop` or the lease is lost: end the session at once. */
   signal: AbortSignal;
-  /** The run-control call; validation errors come back for the agent to fix. */
   proposeScope(proposal: ProposeScopeRequest): Promise<ProposeScopeResponse>;
-  /** Implement turns' result; validation errors come back for the agent to fix. */
   submitResult(result: SubmitResultRequest): Promise<SubmitResultResponse>;
-  /** `request_repo`; the server appends the repository, parks the request for a person, or rejects it. */
   requestRepo(request: RequestRepoRequest): Promise<RequestRepoResponse>;
-  /** Records that this run creates the run branch in a repository; called before its first push there. */
+  /** Called before the run branch's first push to a repository. */
   reserveBranch(repository: string): Promise<void>;
-  /** Report an AskUserQuestion call; the server answers by the run's questions policy. */
   reportQuestion(question: ReportQuestionRequest): Promise<ReportQuestionResponse>;
-  /** The run's previous state archive; call only when the assignment says one exists. */
+  /** Call only when the assignment says one exists. */
   downloadArchive(): Promise<Buffer>;
   uploadArchive(archive: Buffer): Promise<void>;
 }
 
 export interface TurnResult {
-  /** Spend the SDK reported for this turn; null when unknown. */
   spend: { costUsd: number; sdkTurns?: number } | null;
   /** Defaults to `ended`: the server judges the turn from what it reported. */
   outcome?: TurnOutcome;
-  /** Implement turns: what the end of the turn left in each repository. */
   repositories?: RepositoryReport[];
-  /** Delivery turns: the pull request opened or reused in each repository. */
   deliveries?: DeliveryReport[];
-  /** The agent's final message; the server keeps it as the reason when outcome-less turns fail the run. */
+  /** The server keeps it as the reason when outcome-less turns fail the run. */
   lastMessage?: string | null;
 }
 
-/** What does the work of a turn: the Claude Code executor in production. */
 export interface TurnExecutor {
   run(turn: TurnAssignment, io: TurnIO): Promise<TurnResult>;
 }
 
-/** Why the runner cannot work: a code the server words, and a specific for the log and settings. */
 export interface StartupProblem {
   code: RunnerStartupProblemCode;
   detail?: string;
 }
 
-/** The start-up check: versions to log and report, and why the runner cannot work, if it cannot. */
 export interface StartupReport {
   versions: RunnerVersions;
   problem: StartupProblem | null;
@@ -82,18 +68,11 @@ export interface RunnerOptions {
   versions: RunnerVersions;
   /** Every 20 s by default, well inside the 2-minute lease. */
   heartbeatIntervalMs?: number;
-  /** Claim every 5 s while idle by default. */
   idlePollMs?: number;
-  /**
-   * Run before claiming: while it reports a problem the runner claims
-   * nothing and checks again after `startupRetryMs`.
-   */
+  /** While it reports a problem the runner claims nothing and checks again after `startupRetryMs`. */
   startupCheck?: () => Promise<StartupReport>;
   startupRetryMs?: number;
-  /**
-   * Credentials the runner holds (the model key, the bot's GitHub token, the
-   * runner token): masked, with the turn's MCP token, in everything a turn sends.
-   */
+  /** Masked, with the turn's MCP token, in everything a turn sends. */
   secrets?: string[];
   log?: (message: string) => void;
 }
@@ -116,11 +95,7 @@ export class Runner {
     this.log = options.log ?? (() => undefined);
   }
 
-  /**
-   * Claim and run at most one turn. When `shutdown` aborts, the session stops,
-   * pushes are skipped and the turn is not completed: its lease expires and
-   * the turn is redone.
-   */
+  /** When `shutdown` aborts, pushes are skipped and the turn is not completed: its lease expires and it is redone. */
   async runOnce(shutdown?: AbortSignal): Promise<TurnEnd> {
     const turn = await this.options.api.claim({
       protocolVersion: RUNNER_PROTOCOL_VERSION,
@@ -133,10 +108,6 @@ export class Runner {
     return this.execute(turn, shutdown);
   }
 
-  /**
-   * The start-up check: log the versions and whether the SDK and the plugin
-   * are usable. Returns false (claim nothing) while they are not.
-   */
   async checkStartup(): Promise<boolean> {
     if (!this.options.startupCheck) return true;
     let report: StartupReport;
@@ -145,7 +116,10 @@ export class Runner {
     } catch (error) {
       report = {
         versions: this.versions,
-        problem: { code: 'sdk_unusable', detail: error instanceof Error ? error.message : String(error) },
+        problem: {
+          code: RunnerStartupProblemCode.SdkUnusable,
+          detail: error instanceof Error ? error.message : String(error),
+        },
       };
     }
     this.versions = { ...this.versions, ...report.versions };
@@ -171,7 +145,6 @@ export class Runner {
     return false;
   }
 
-  /** Poll and run turns until `signal` aborts (shutdown). */
   async start(signal: AbortSignal): Promise<void> {
     while (!signal.aborted && !(await this.checkStartup())) {
       await sleep(this.options.startupRetryMs ?? STARTUP_RETRY_MS, signal);
@@ -254,7 +227,7 @@ export class Runner {
       };
       const result = await this.options.executor.run(assignment, io);
       // A stopped delivery turn still completes, so the pull requests it opened are recorded.
-      const stoppedDelivery = end === 'stopped' && assignment.turn.kind === 'delivery';
+      const stoppedDelivery = end === 'stopped' && assignment.turn.kind === TurnKind.Delivery;
       if (end && !stoppedDelivery) return end;
 
       await this.options.api.complete(

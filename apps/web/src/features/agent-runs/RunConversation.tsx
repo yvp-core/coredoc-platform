@@ -1,9 +1,4 @@
-/**
- * The run page's main column: only what a person needs to follow the run.
- * The agent's scope proposals, the reviews and acceptances, its questions with
- * the chosen answer (the open one answerable in place), its result, delivery
- * and how the run ended; each agent turn is one line linking to its trace.
- */
+/** Only what a person needs to follow the run; raw agent activity stays in the trace. */
 import { Button } from '@/components/ui/button';
 import { IntentMarkdown } from '@/features/intent/intent-markdown';
 import { formatRelativeTime } from '@/lib/time';
@@ -114,7 +109,6 @@ function Event({
   at: string;
   tone: 'ok' | 'plain' | 'err' | 'warn';
   children: React.ReactNode;
-  /** Shown under the line, after its time. */
   detail?: React.ReactNode;
 }) {
   return (
@@ -355,7 +349,6 @@ export function RunConversation({
   wsId: string;
   run: AgentRunDetail;
   items: ConversationItem[];
-  /** The agent's own checklist while the run is active. */
   tasks: AgentTask[];
   waitingSince: string | null;
   now: Date;

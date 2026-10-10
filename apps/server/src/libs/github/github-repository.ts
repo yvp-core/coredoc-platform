@@ -32,10 +32,7 @@ export type GithubRepositoryResolution<C extends GithubConnectorCandidate = Gith
     }
   | { status: 'unresolved'; reason: GithubRepositoryIneligibleReason };
 
-/**
- * Reads a `normalizeGitRemote` value: `github.com/o/n`, or `https://` / `ssh://` with an optional port.
- * Only the host name is kept, because an SSH port says nothing about where the API or HTTPS clone lives.
- */
+/** Drops the port: an SSH port says nothing about where the API or HTTPS clone lives. */
 function parseRemote(remote: string) {
   const match = /^(?:(?:https|ssh):\/\/)?([^/:]+)(?::\d+)?\/([^/]+)\/([^/]+)$/.exec(remote);
   if (!match) return undefined;

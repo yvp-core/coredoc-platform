@@ -1,7 +1,4 @@
-/**
- * State-advancing writes shared by the run and turn services. Each runs
- * inside the caller's transaction, after the caller locked the run row.
- */
+/** Each write runs inside the caller's transaction, after the caller locked the run row. */
 import type { CloudAgentRun } from '../../generated/prisma/client.js';
 import { FAILURE_MESSAGES } from './failure-codes.js';
 import {
@@ -15,6 +12,7 @@ import {
   isTerminalRunStatus,
   QuestionState,
   type RunFailureCode,
+  type RunPhase,
   RunStatus,
   ServerEventType,
   TurnState,
@@ -23,11 +21,7 @@ import { appendRunEvents, type NewRunEvent, type Tx } from './run-store.js';
 
 const WAITING_STATUSES: readonly string[] = [RunStatus.AwaitingAnswer, RunStatus.AwaitingScopeAcceptance];
 
-/**
- * Locks the run row for the rest of the transaction; every state-advancing
- * write starts here. Scoped by workspace: a run of another workspace is
- * neither locked nor returned.
- */
+/** Every state-advancing write starts here; a run of another workspace is neither locked nor returned. */
 export async function lockRun(tx: Tx, workspaceId: string, runId: string): Promise<CloudAgentRun | null> {
   const rows = await tx.$queryRaw<Array<{ id: string }>>`
     SELECT id FROM cloud_agent_runs WHERE id = ${runId}::uuid AND workspace_id = ${workspaceId}::uuid FOR UPDATE`;
@@ -35,10 +29,7 @@ export async function lockRun(tx: Tx, workspaceId: string, runId: string): Promi
   return tx.cloudAgentRun.findFirstOrThrow({ where: { id: runId, workspaceId } });
 }
 
-/**
- * Move the run to `to`, keeping the active-time clock: time counts from
- * leaving `queued` and stops while the run waits for a person.
- */
+/** Active time counts from leaving `queued` and stops while the run waits for a person. */
 export async function setRunStatus(
   tx: Tx,
   run: CloudAgentRun,
@@ -70,16 +61,10 @@ export async function setRunStatus(
   return updated;
 }
 
-/** Deletes the per-turn MCP tokens of these turns. */
 export async function deleteTurnTokens(tx: Tx, turnIds: string[]): Promise<void> {
   if (turnIds.length) await tx.serviceToken.deleteMany({ where: { owningTurnId: { in: turnIds } } });
 }
 
-/**
- * Fail the run: record the code, abandon its queued or claimed turn and
- * delete that turn's MCP token, so nothing restarts it. An open question is
- * cancelled: nobody can answer it any more.
- */
 export async function failRun(
   tx: Tx,
   run: CloudAgentRun,
@@ -93,11 +78,7 @@ export async function failRun(
   });
 }
 
-/**
- * A member cancels: like a failure, without a code. The runner hears `stop`
- * at its next heartbeat. The configured cancelled status is queued for the
- * run sweep; a cancelled run gets no Jira comment.
- */
+/** The runner hears `stop` at its next heartbeat; a cancelled run gets no Jira comment. */
 export async function cancelRun(tx: Tx, run: CloudAgentRun, at: Date): Promise<void> {
   const settings = await tx.agentRunSettings.findUnique({
     where: { workspaceId: run.workspaceId },
@@ -107,7 +88,6 @@ export async function cancelRun(tx: Tx, run: CloudAgentRun, at: Date): Promise<v
   await endRun(tx, run, RunStatus.Cancelled, at, { jiraOutcome });
 }
 
-/** Delivery finished: the done comment and the transition outcome are recorded. */
 export async function markRunDone(
   tx: Tx,
   run: CloudAgentRun,
@@ -119,10 +99,8 @@ export async function markRunDone(
 }
 
 /**
- * Every transition to a terminal status: abandon the queued or claimed turn
- * and delete its MCP token in the same transaction, so neither claim nor lease
- * expiry ever hands the run new work; cancel its open questions; drop a
- * started transition that has not gone out yet.
+ * The turn is abandoned and its MCP token deleted in the same transaction, so
+ * neither claim nor lease expiry ever hands the run new work.
  */
 async function endRun(
   tx: Tx,
@@ -152,7 +130,6 @@ async function endRun(
   await setRunStatus(tx, run, to, at, { ...data, jiraOutcome }, events);
 }
 
-/** Questions still open when a run ends are cancelled, with a timeline entry each. */
 export async function cancelOpenQuestions(tx: Tx, run: CloudAgentRun, at: Date): Promise<void> {
   const open = await tx.cloudAgentRunQuestion.findMany({
     where: { workspaceId: run.workspaceId, runId: run.id, state: QuestionState.Open },
@@ -174,15 +151,11 @@ export async function cancelOpenQuestions(tx: Tx, run: CloudAgentRun, at: Date):
   );
 }
 
-/**
- * Queue the run's next turn unless one is already queued or claimed; a turn
- * still completing queues it from the stored decision instead. Returns the
- * new turn's id, or null when none was queued.
- */
+/** A turn still completing queues the next one from the stored decision instead. */
 export async function queueTurn(
   tx: Tx,
   run: CloudAgentRun,
-  kind: string,
+  kind: RunPhase,
   inputText: string | null,
   at: Date,
 ): Promise<string | null> {

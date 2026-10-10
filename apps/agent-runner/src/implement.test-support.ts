@@ -1,9 +1,3 @@
-/**
- * Ports for implement-turn tests: a stateful fake of GitHub's REST API, local
- * bare repositories driven with real git, a fake plugin whose secret preflight
- * flags a marker string, and a scripted fake SDK session that edits clones and
- * calls run-control tools over a real MCP client.
- */
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -12,11 +6,12 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HookCallback, Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import type {
-  AssignedRepository,
-  RequestRepoRequest,
-  SubmitResultRequest,
-  TurnAssignment,
+import {
+  type AssignedRepository,
+  type RequestRepoRequest,
+  type SubmitResultRequest,
+  type TurnAssignment,
+  TurnKind,
 } from '@coredoc/core/agent-runner';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -25,7 +20,6 @@ import type { QueryFn } from './claude/claude-executor.js';
 
 export const BOT_TOKEN = 'ghp_bot_token_for_tests_0123456789';
 
-/** Real git, outside the runner, as a person or a fixture builder would run it. */
 export function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, {
     cwd,
@@ -42,7 +36,6 @@ export function git(cwd: string, ...args: string[]): string {
   }).trim();
 }
 
-/** A bare repository with one commit on `main`, as GitHub would hold it. */
 export async function bareRemote(root: string, name: string, files: Record<string, string> = {}): Promise<string> {
   const bare = join(root, 'remotes', `${name}.git`);
   await mkdir(bare, { recursive: true });
@@ -59,7 +52,6 @@ export async function bareRemote(root: string, name: string, files: Record<strin
   return bare;
 }
 
-/** A person's commit pushed straight to a branch of the remote. */
 export async function pushAsPerson(bare: string, branch: string, path: string, content: string): Promise<string> {
   const work = await mkdtemp(join(tmpdir(), 'runner-person-'));
   git(work, 'clone', '--quiet', bare, '.');
@@ -77,19 +69,13 @@ export function remoteHead(bare: string, branch: string): string | null {
   return line ? line.split(/\s+/)[0]! : null;
 }
 
-/** Files in the tree of a remote branch's head. */
 export function remoteFiles(bare: string, branch: string): string[] {
   return git(bare, 'ls-tree', '-r', '--name-only', branch).split('\n').filter(Boolean).sort();
 }
 
 export const SECRET_MARKER = 'sk_live_fakesecret0000';
 
-/**
- * A plugin directory whose launcher answers `git-delivery-preflight` the way
- * the real one does: JSON on stdout with a verdict and findings. It blocks
- * any staged or outbound added line holding SECRET_MARKER, and logs each
- * invocation (arguments and the git environment) for assertions.
- */
+/** Its `git-delivery-preflight` answers like the real one and blocks any added line holding SECRET_MARKER. */
 export async function fakePlugin(root: string): Promise<{ path: string; log: string }> {
   const path = join(root, 'plugin');
   const log = join(root, 'preflight.jsonl');
@@ -157,12 +143,10 @@ export interface CreateAnswer {
   afterStoring?: boolean;
 }
 
-/** A stateful fake of GitHub's REST API: repository reads with the bot's permissions, and pull requests. */
 export class FakeGithub {
   readonly repositories = new Map<string, FakeRepository>();
   readonly requests: Array<{ method: string; path: string; authorization?: string; apiVersion?: string }> = [];
   readonly pulls: FakePull[] = [];
-  /** Answers for the next creates, in order. */
   createAnswers: CreateAnswer[] = [];
   /** Runs before each create is answered; tests use it to stop the turn mid-delivery. */
   beforeCreate: (() => Promise<void>) | null = null;
@@ -317,7 +301,7 @@ export function repository(bare: string, github: FakeGithub, key: string, overri
 export function implementAssignment(repositories: AssignedRepository[], overrides: Partial<TurnAssignment> = {}) {
   const base = assignment();
   return assignment({
-    turn: { ...base.turn, kind: 'implement', ordinal: 3 },
+    turn: { ...base.turn, kind: TurnKind.Implement, ordinal: 3 },
     run: { ...base.run, branch: 'coredoc/PROJ-1' },
     prd: null,
     acceptedSpec: {
@@ -332,25 +316,22 @@ export function implementAssignment(repositories: AssignedRepository[], override
   });
 }
 
-/** What one fake session invocation does, in order. */
 export interface SessionStep {
   /** `request_repo` calls, and work between them, before `act`; tool results land in `toolResults`. */
   calls?: Array<RequestRepoRequest | ((cwd: string) => Promise<void>)>;
   /** Edits the agent makes; `cwd` is the work directory holding the clones. */
   act?: (cwd: string) => Promise<void>;
   submit?: SubmitResultRequest;
-  /** Ends with a result of this subtype instead of success. */
   resultSubtype?: 'success' | 'error_max_turns';
   /** Keep working (calling tools) until the runner refuses tools, as at the duration limit. */
   untilStopped?: boolean;
-  /** End on a model API failure after the work, as the pinned SDK reports one: a synthetic message, an error result, a throw. */
+  /** End on a model API failure after the work, as the pinned SDK reports one. */
   apiError?: { error: string; status: number | null; text: string };
 }
 
 export interface SeenSession {
   prompt: string;
   options: Options;
-  /** What tool calls were refused with, after the session's work. */
   denials: string[];
   toolResults: string[];
 }
@@ -374,7 +355,6 @@ async function preToolUse(options: Options, toolName: string): Promise<string | 
   return output?.permissionDecision === 'deny' ? (output.permissionDecisionReason ?? 'denied') : null;
 }
 
-/** A scripted SDK query: each invocation of the session runs the next step. */
 export function fakeImplementQuery(steps: SessionStep[], seen: SeenSession[]): QueryFn {
   return ({ prompt, options }) =>
     (async function* () {

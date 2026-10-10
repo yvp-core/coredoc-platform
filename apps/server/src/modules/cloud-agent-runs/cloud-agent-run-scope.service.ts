@@ -4,20 +4,21 @@ import { PrismaService } from '../../database/prisma.service.js';
 import type { CloudAgentRun, CloudAgentRunSpecVersion, Prisma } from '../../generated/prisma/client.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
 import {
-  CloudAgentRunErrorCode,
   cloudAgentRunError,
+  CloudAgentRunErrorCode,
   isTerminalRunStatus,
   RunEventCode,
   RunPhase,
   RunStatus,
   RunTrigger,
+  ScopeAcceptancePolicy,
   ServerEventType,
   SpecStatus,
 } from './run-states.js';
 import { CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
 import { lockRun, queueTurn, setRunStatus } from './run-transitions.js';
 
-/** Spec markdown cap, in bytes (the contract caps characters). */
+/** In bytes; the contract caps characters. */
 const MAX_SPEC_MARKDOWN_BYTES = 256 * 1024;
 
 export interface SpecRepository {
@@ -26,7 +27,6 @@ export interface SpecRepository {
   changes: string;
   mergeOrder: number;
   eligible: boolean;
-  /** Why the shared resolver refused it, when it did. */
   ineligibleReason: string | null;
 }
 
@@ -39,13 +39,11 @@ export interface SpecContent {
   candidates: Array<{ question: string; blocks: string }>;
 }
 
-/** An assumption the agent listed, stored on the run with its phase and shown on the run page. */
 export interface RunAssumption {
-  phase: string;
+  phase: RunPhase;
   text: string;
 }
 
-/** A run repository; implement, delivery and the run page read these. */
 export interface RunRepository {
   key: string;
   reason: string;
@@ -56,16 +54,10 @@ export interface RunRepository {
   touched: boolean;
   lastPushedHead: string | null;
   notBuiltOrTested: string | null;
-  /** Paths the latest implement turn withheld from the push. */
   withheldPaths?: string[];
-  /** Binary files the secret scan could not review, for a person to check. */
   binaryPaths?: string[];
 }
 
-/**
- * The scope phase: `propose_scope` validation and drafts, publication at turn
- * completion, and a person's accept or change request.
- */
 @Injectable()
 export class CloudAgentRunScopeService {
   constructor(
@@ -74,7 +66,6 @@ export class CloudAgentRunScopeService {
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
   ) {}
 
-  /** Eligibility of every durable repository key in the workspace, through the shared resolver. */
   async eligibility(workspaceId: string): Promise<Map<string, string | null>> {
     const rows = await this.repositories.eligibility(workspaceId);
     const byKey = new Map<string, string | null>();
@@ -85,7 +76,6 @@ export class CloudAgentRunScopeService {
     return byKey;
   }
 
-  /** The rules a proposal must meet; each broken rule goes back to the agent to fix. */
   validate(
     proposal: ProposeScope,
     context: { eligibility: Map<string, string | null>; seeds: string[]; maxRepositories: number },
@@ -127,7 +117,7 @@ export class CloudAgentRunScopeService {
     return errors;
   }
 
-  /** Stores the turn's proposal as its draft version, replacing an earlier draft of the same turn. */
+  /** Replaces an earlier draft of the same turn. */
   async saveDraft(tx: Tx, run: CloudAgentRun, turnId: string, proposal: ProposeScope, at: Date): Promise<number> {
     const order = proposal.mergeOrder.length ? proposal.mergeOrder : proposal.repositories.map((r) => r.key);
     const content: SpecContent = {
@@ -169,11 +159,7 @@ export class CloudAgentRunScopeService {
     return version;
   }
 
-  /**
-   * At scope-turn completion: publish the turn's draft. Automatic acceptance
-   * applies only when every repository is still eligible and no candidate for
-   * the PRD is open; otherwise a person reviews it. Returns false without a draft.
-   */
+  /** Automatic acceptance applies only when every repository is still eligible and no PRD candidate is open. */
   async publishDraft(
     tx: Tx,
     run: CloudAgentRun,
@@ -216,7 +202,7 @@ export class CloudAgentRunScopeService {
       data: { assumptions: assumptions as unknown as Prisma.InputJsonArray },
     });
     const automatic =
-      run.scopeAcceptancePolicy === 'automatic' &&
+      run.scopeAcceptancePolicy === ScopeAcceptancePolicy.Automatic &&
       content.repositories.every((repository) => repository.eligible) &&
       content.candidates.length === 0;
     if (automatic) {
@@ -262,7 +248,7 @@ export class CloudAgentRunScopeService {
     });
   }
 
-  /** Every published version, oldest first; drafts stay hidden. */
+  /** Drafts stay hidden. */
   async versions(workspaceId: string, runId: string) {
     const rows = await this.prisma.cloudAgentRunSpecVersion.findMany({
       where: { workspaceId, runId, status: { not: SpecStatus.Draft } },
@@ -303,7 +289,7 @@ export class CloudAgentRunScopeService {
     return { run, spec: latest };
   }
 
-  /** Accept a version (a person's, or the system's when `reviewer` is null) and queue the first implement turn. */
+  /** `reviewer` is null for automatic acceptance. */
   private async accept(
     tx: Tx,
     run: CloudAgentRun,

@@ -1,10 +1,4 @@
-/**
- * The run page's model: the stages of the left rail, from the run's status
- * changes, and the conversation of the main column, from the run's specs,
- * questions, result, delivery and turns. Pure, like the rest of the
- * presentation; payloads are free-form on the wire, so nothing here throws on
- * a shape it does not recognise.
- */
+/** Payloads are free-form on the wire, so nothing here throws on a shape it does not recognise. */
 import { isTerminalStatus } from './agent-run-presentation.js';
 import type {
   AgentRunDetail,
@@ -57,10 +51,8 @@ function text(value: unknown): string | null {
 }
 
 /**
- * The stages, oldest first. Each status change opens or continues one: time
- * queued counts towards the stage it leads to, a question's wait towards the
- * stage it interrupts, and repeated scope and review stages are numbered by
- * the spec version they produce or review.
+ * Time queued counts towards the stage it leads to, a question's wait towards the stage it
+ * interrupts; repeated scope and review stages are numbered by the spec version.
  */
 export function runStages(
   run: Pick<AgentRunDetail, 'status' | 'createdAt' | 'finishedAt'>,
@@ -106,7 +98,6 @@ export function runStages(
     });
   });
 
-  // A stage ends where the next begins, or with the run.
   stages.forEach((stage, index) => {
     const next = stages[index + 1]?.startedAt ?? run.finishedAt ?? null;
     stage.endedAt = next;
@@ -116,7 +107,6 @@ export function runStages(
   return stages;
 }
 
-/** The run's span: from its first stage (or creation) to its end, or so far. */
 export function runSpan(
   run: Pick<AgentRunDetail, 'createdAt' | 'startedAt' | 'finishedAt'>,
   stages: readonly RunStage[],
@@ -130,7 +120,6 @@ export function runSpan(
   };
 }
 
-/** `45 s`, `11 min`, `1 h 25 min`. */
 export function durationText(totalSeconds: number): string {
   if (totalSeconds < 60) return `${totalSeconds} s`;
   const minutes = Math.round(totalSeconds / 60);
@@ -201,7 +190,6 @@ function commentLine(kind: 'Done' | 'Failure', comment: AgentRunJiraComment | un
   }
 }
 
-/** What the run told Jira, every value from the server's own Jira calls. */
 export function jiraOutcomeLines(outcome: AgentRunJiraOutcome | undefined): JiraLine[] {
   const transition = outcome?.transition;
   return [
@@ -217,7 +205,6 @@ export function jiraOutcomeLines(outcome: AgentRunJiraOutcome | undefined): Jira
   ].filter((line): line is JiraLine => line !== null);
 }
 
-/** The result's points: what the agent said per repository, then what a person must still do. */
 function resultPoints(run: AgentRunDetail, event: AgentRunEvent | undefined): string[] {
   const reported = Array.isArray(event?.payload?.points)
     ? event.payload.points.filter((point): point is string => typeof point === 'string')
@@ -235,11 +222,7 @@ function resultPoints(run: AgentRunDetail, event: AgentRunEvent | undefined): st
   return points;
 }
 
-/**
- * Every spec version, oldest first, with the run's own copy of the latest one:
- * the run is polled and the version list is not, so a review of the latest
- * version shows as soon as the run reports it.
- */
+/** The run is polled and the version list is not, so the run's copy of the latest spec wins. */
 export function specVersions(run: Pick<AgentRunDetail, 'latestSpec'>, specs: readonly AgentRunSpec[]): AgentRunSpec[] {
   const byVersion = new Map(specs.map((spec) => [spec.version, spec]));
   if (run.latestSpec) byVersion.set(run.latestSpec.version, run.latestSpec);
@@ -252,11 +235,6 @@ const latest = (values: Array<string | null | undefined>): string | null =>
     .sort()
     .at(-1) ?? null;
 
-/**
- * The conversation, oldest first: what the agent proposed, asked and
- * delivered, what people decided, and one line per agent turn. Raw activity
- * stays in the trace.
- */
 export function conversationItems(
   run: AgentRunDetail,
   specs: readonly AgentRunSpec[],
@@ -362,7 +340,6 @@ export function conversationItems(
     .map(({ item }) => item);
 }
 
-/** Where a stage's rail entry jumps to: the last conversation item inside it, or the first after its start. */
 export function stageTarget(stage: RunStage, items: readonly ConversationItem[]): string | null {
   const end = stage.endedAt ?? '￿';
   const inside = items.filter((item) => item.at >= stage.startedAt && item.at <= end && item.kind !== 'turn');

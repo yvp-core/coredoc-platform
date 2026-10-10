@@ -1,11 +1,7 @@
-/**
- * Request bodies of the human cloud agent runs API. The runner API's bodies
- * come from the shared contract, `@coredoc/core/agent-runner`.
- */
-import { QUESTIONS_POLICIES, SCOPE_ACCEPTANCE_POLICIES } from '@coredoc/core/agent-runner';
+import { QuestionsPolicy, ScopeAcceptancePolicy, TurnKind } from '@coredoc/core/agent-runner';
 import { z } from 'zod';
 
-/** A Jira issue key: project key, dash, number. Upper-cased before matching. */
+/** Upper-cased before matching. */
 export const ISSUE_KEY_RE = /^[A-Z][A-Z0-9_]{0,63}-[1-9][0-9]{0,17}$/;
 
 export const StartRunSchema = z.object({
@@ -14,9 +10,8 @@ export const StartRunSchema = z.object({
     .trim()
     .transform((value) => value.toUpperCase())
     .pipe(z.string().regex(ISSUE_KEY_RE, { error: 'issueKey must look like PROJ-123' })),
-  questionsPolicy: z.enum(QUESTIONS_POLICIES).optional(),
-  scopeAcceptancePolicy: z.enum(SCOPE_ACCEPTANCE_POLICIES).optional(),
-  /** Repository keys that become the run's seeds. */
+  questionsPolicy: z.enum(QuestionsPolicy).optional(),
+  scopeAcceptancePolicy: z.enum(ScopeAcceptancePolicy).optional(),
   repositoryKeys: z
     .array(z.string().trim().min(1).max(255), { error: 'repositoryKeys must be an array of repository keys' })
     .max(50)
@@ -43,19 +38,17 @@ const jiraStatusName = (field: string) =>
 export const UpdateSettingsSchema = z
   .object({
     enabled: z.boolean().optional(),
-    /** Record the caller as the run owner Jira-triggered runs act as. */
     takeOverOwnership: z.literal(true).optional(),
     triggerLabel: z
       .string()
       .regex(/^\S{1,255}$/, { error: 'triggerLabel must be a Jira label: 1 to 255 characters, no spaces' })
       .optional(),
-    /** Jira statuses, by name, the issue moves to on each event; null for none. */
     startedStatus: jiraStatusName('startedStatus'),
     doneStatus: jiraStatusName('doneStatus'),
     failedStatus: jiraStatusName('failedStatus'),
     cancelledStatus: jiraStatusName('cancelledStatus'),
-    questionsPolicy: z.enum(QUESTIONS_POLICIES).optional(),
-    scopeAcceptancePolicy: z.enum(SCOPE_ACCEPTANCE_POLICIES).optional(),
+    questionsPolicy: z.enum(QuestionsPolicy).optional(),
+    scopeAcceptancePolicy: z.enum(ScopeAcceptancePolicy).optional(),
     maxSpendUsd: z
       .number({ error: 'maxSpendUsd must be a number' })
       .positive({ error: 'maxSpendUsd must be positive' })
@@ -98,7 +91,7 @@ export const RequestScopeChangesSchema = z.object({
 });
 export type RequestScopeChangesInput = z.infer<typeof RequestScopeChangesSchema>;
 
-/** One answer per question, in order: chosen option labels and an optional free-text "Other". */
+/** One answer per question, in question order. */
 export const AnswerQuestionSchema = z.object({
   answers: z
     .array(
@@ -120,8 +113,8 @@ export type AnswerQuestionInput = z.output<typeof AnswerQuestionSchema>;
 export type QuestionAnswer = AnswerQuestionInput['answers'][number];
 
 export const TranscriptQuerySchema = z.object({
-  /** The session to download; defaults to the run's latest agent phase. */
-  phase: z.enum(['scope', 'implement'], { error: 'phase must be scope or implement' }).optional(),
+  /** Defaults to the run's latest agent phase. */
+  phase: z.enum([TurnKind.Scope, TurnKind.Implement], { error: 'phase must be scope or implement' }).optional(),
 });
 export type TranscriptQuery = z.infer<typeof TranscriptQuerySchema>;
 

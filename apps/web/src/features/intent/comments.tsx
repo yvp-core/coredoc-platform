@@ -1,7 +1,4 @@
-/**
- * Comment threads on a feature or an item. Any member may comment, reply and
- * resolve or reopen a thread; the thread's status lives on its first comment.
- */
+/** Any member may comment, reply, resolve or reopen; a thread's status lives on its first comment. */
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

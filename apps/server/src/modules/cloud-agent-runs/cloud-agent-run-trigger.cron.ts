@@ -4,12 +4,7 @@ import { PrismaService } from '../../database/prisma.service.js';
 import { LicenseService } from '../license/license.service.js';
 import { CloudAgentRunTrigger } from './cloud-agent-run-trigger.service.js';
 
-/**
- * Every minute, for each workspace with agent runs enabled: promote queued
- * runs and turn labelled Jira issues into runs. It runs in every worker and
- * all-role process at once; the per-workspace creation lock, not this
- * schedule, keeps that safe.
- */
+/** Runs in every worker and all-role process at once; the per-workspace creation lock keeps that safe. */
 @Injectable()
 export class CloudAgentRunTriggerCron {
   private readonly logger = new Logger(CloudAgentRunTriggerCron.name);

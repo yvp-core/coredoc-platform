@@ -10,13 +10,16 @@ import { CloudAgentRunScopeService } from './cloud-agent-run-scope.service.js';
 import { REPOSITORY_LABEL_PREFIX, resolveSeeds, seedKeysFromLabels } from './cloud-agent-run-seeds.js';
 import { CloudAgentRunSettingsService } from './cloud-agent-run-settings.service.js';
 import type { StartRunInput } from './cloud-agent-runs.contract.js';
-import type { FailureCode } from './failure-codes.js';
 import {
-  CloudAgentRunErrorCode,
   cloudAgentRunError,
+  CloudAgentRunErrorCode,
+  fromColumn,
   isTerminalRunStatus,
+  QuestionsPolicy,
   QuestionState,
+  RunFailureCode,
   RunTrigger,
+  ScopeAcceptancePolicy,
   TERMINAL_RUN_STATUSES,
   TurnState,
 } from './run-states.js';
@@ -35,14 +38,13 @@ function isUniqueViolation(error: unknown): boolean {
 
 type RunWithTurn = CloudAgentRun & { turns: CloudAgentRunTurn[] };
 
-/** A labelled issue as the trigger search returns it. */
 export interface TriggeredIssue {
   id: string;
   key: string;
   labels: string[];
 }
 
-type SeedOutcome = { seeds: string[]; failure?: { code: FailureCode; reason: string } };
+type SeedOutcome = { seeds: string[]; failure?: { code: RunFailureCode; reason: string } };
 
 @Injectable()
 export class CloudAgentRunService {
@@ -57,14 +59,8 @@ export class CloudAgentRunService {
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
   ) {}
 
-  /**
-   * Manual start: a `queued` run acting as the member who started it, started
-   * at once when the workspace has a free slot.
-   */
   async start(workspaceId: string, actorId: string, input: StartRunInput) {
     const settings = await this.startableSettings(workspaceId);
-    // Reads the issue through the Jira connector: missing, invisible or outside
-    // the configured projects is ISSUE_NOT_READABLE.
     const issue = await this.issues.resolve(workspaceId, input.issueKey);
     const seeds = await this.manualSeeds(workspaceId, input.repositoryKeys ?? [], settings.maxRepositories);
 
@@ -77,19 +73,16 @@ export class CloudAgentRunService {
         trigger: RunTrigger.Manual,
         startedBy: actorId,
         runOwnerId: actorId,
-        questionsPolicy: input.questionsPolicy ?? settings.questionsPolicy,
-        scopeAcceptancePolicy: input.scopeAcceptancePolicy ?? settings.scopeAcceptancePolicy,
+        questionsPolicy: input.questionsPolicy ?? fromColumn(QuestionsPolicy, settings.questionsPolicy),
+        scopeAcceptancePolicy:
+          input.scopeAcceptancePolicy ?? fromColumn(ScopeAcceptancePolicy, settings.scopeAcceptancePolicy),
         seeds,
       });
     });
     return this.detail(workspaceId, runId);
   }
 
-  /**
-   * A new run for the same issue from a terminal run, acting as the member who
-   * asked. Policies and seeds come from the previous run; budgets and the model
-   * from current settings. The previous run is linked, never touched.
-   */
+  /** Policies and seeds come from the previous run; budgets and the model from current settings. */
   async rerun(workspaceId: string, actorId: string, previousRunId: string) {
     const settings = await this.startableSettings(workspaceId);
     const previous = await this.prisma.cloudAgentRun.findFirst({ where: { id: previousRunId, workspaceId } });
@@ -115,8 +108,8 @@ export class CloudAgentRunService {
         startedBy: actorId,
         runOwnerId: actorId,
         previousRunId: previous.id,
-        questionsPolicy: previous.questionsPolicy,
-        scopeAcceptancePolicy: previous.scopeAcceptancePolicy,
+        questionsPolicy: fromColumn(QuestionsPolicy, previous.questionsPolicy),
+        scopeAcceptancePolicy: fromColumn(ScopeAcceptancePolicy, previous.scopeAcceptancePolicy),
         seeds: previous.seeds,
       });
     });
@@ -124,10 +117,8 @@ export class CloudAgentRunService {
   }
 
   /**
-   * A labelled issue found by the trigger: a run only when the issue never had
-   * one in this workspace, acting as the recorded run owner. Invalid seed
-   * labels create the run `failed`, so the label never retries it. Returns
-   * whether a run was created. The caller has checked that the trigger is ready.
+   * Only when the issue never had a run in this workspace. Invalid seed labels
+   * create the run `failed`, so the label never retries it.
    */
   async createFromJira(
     workspaceId: string,
@@ -151,8 +142,8 @@ export class CloudAgentRunService {
           trigger: RunTrigger.JiraLabel,
           startedBy: null,
           runOwnerId: settings.runOwnerId,
-          questionsPolicy: settings.questionsPolicy,
-          scopeAcceptancePolicy: settings.scopeAcceptancePolicy,
+          questionsPolicy: fromColumn(QuestionsPolicy, settings.questionsPolicy),
+          scopeAcceptancePolicy: fromColumn(ScopeAcceptancePolicy, settings.scopeAcceptancePolicy),
           ...outcome,
         });
         return true;
@@ -164,7 +155,7 @@ export class CloudAgentRunService {
     }
   }
 
-  /** Start queued runs, oldest first, while slots are free. The caller has checked runs may start. */
+  /** The caller has checked that runs may start. */
   async promote(workspaceId: string, settings: AgentRunSettings): Promise<string[]> {
     return this.prisma.$transaction(async (tx) => {
       await lockCloudAgentRunCreation(tx, workspaceId);
@@ -214,7 +205,6 @@ export class CloudAgentRunService {
     };
   }
 
-  /** The issue on the Jira site of the connector the run was created through. */
   private async issueUrl(run: CloudAgentRun): Promise<string | null> {
     const connector = await this.prisma.deliveryConnector.findFirst({
       where: {
@@ -233,7 +223,6 @@ export class CloudAgentRunService {
     }
   }
 
-  /** Every published spec version of a run, oldest first. */
   async specs(workspaceId: string, runId: string) {
     const run = await this.prisma.cloudAgentRun.findFirst({ where: { id: runId, workspaceId }, select: { id: true } });
     if (!run) throw runNotFound();
@@ -250,11 +239,6 @@ export class CloudAgentRunService {
     return this.detail(workspaceId, runId);
   }
 
-  /**
-   * A member cancels at any point before the run ends: the queued or claimed
-   * turn is abandoned, so nothing claims or re-queues it, and a runner working
-   * on it hears `stop` at its next heartbeat.
-   */
   async cancel(workspaceId: string, runId: string) {
     await this.prisma.$transaction(async (tx) => {
       const run = await lockRun(tx, workspaceId, runId);
@@ -267,7 +251,6 @@ export class CloudAgentRunService {
     return this.detail(workspaceId, runId);
   }
 
-  /** Timeline page: events after a sequence number, oldest first. */
   async events(workspaceId: string, runId: string, after: number, limit: number) {
     const run = await this.prisma.cloudAgentRun.findFirst({
       where: { id: runId, workspaceId },
@@ -364,14 +347,14 @@ export class CloudAgentRunService {
     const label = (key: string) => `${REPOSITORY_LABEL_PREFIX}${key}`;
     const invalid = (reason: string): SeedOutcome => ({
       seeds: [],
-      failure: { code: 'invalid_repository_label', reason },
+      failure: { code: RunFailureCode.InvalidRepositoryLabel, reason },
     });
     switch (resolution.status) {
       case 'too_many':
         return {
           seeds: [],
           failure: {
-            code: 'too_many_repositories',
+            code: RunFailureCode.TooManyRepositories,
             reason: `${resolution.count} repository labels are set; a run allows ${cap}.`,
           },
         };

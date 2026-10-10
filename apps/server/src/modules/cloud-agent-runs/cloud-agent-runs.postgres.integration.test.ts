@@ -34,14 +34,8 @@ import { cloudAgentRunsCoreProviders, CLOUD_AGENT_RUNS_CLOCK } from './cloud-age
 import { FakeJira, InMemoryArchiveStore, paragraphDoc } from './cloud-agent-runs.test-support.js';
 import { MAX_TRANSCRIPT_BYTES } from './run-transcript.js';
 
-/**
- * The cloud agent runs module driven through its two HTTP surfaces on real
- * PostgreSQL, with every guard REAL — AuthGuard included. Runner tokens are
- * minted through the real token API and presented as bearer tokens; only the
- * human JWT verification is stubbed (`Bearer jwt:<userId>`), because this
- * process has no token issuer. The runner is a scripted fake making runner
- * API calls; time comes from an injected clock.
- */
+// Every guard is real, AuthGuard included; only human JWT verification is
+// stubbed (`Bearer jwt:<userId>`) because this process has no token issuer.
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 
@@ -52,7 +46,6 @@ const VERSIONS = { runner: '0.0.1-test', sdk: '0.3.285', claudeCode: '2.1.285', 
 
 const jira = new FakeJira();
 let issueSeed = 0;
-/** A fresh issue the fake Jira can read, in the connector's configured project. */
 function nextIssueKey(): string {
   issueSeed += 1;
   const key = `PROJ-${issueSeed}`;
@@ -60,7 +53,6 @@ function nextIssueKey(): string {
   return key;
 }
 
-/** Reads a download whole, whatever its content type. */
 function binaryBody(res: IncomingMessage, callback: (error: Error | null, body: Buffer) => void): void {
   const chunks: Buffer[] = [];
   res.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -86,7 +78,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     prisma = new PrismaClient({ adapter: pool?.adapter } as never);
     await prisma.$connect();
 
-    // Available for agent runs: Delivery analytics with active Jira (project PROJ) and GitHub connectors.
     const workspace = await prisma.workspace.create({
       data: { name: `car-${RUN}`, slug: `car-${RUN}`, deliveryEnabled: true },
     });
@@ -229,7 +220,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     return settings.body.runnerTokens;
   }
 
-  /** Claim until the runner gets nothing, so each scenario starts with an empty queue. */
   async function drainQueue(token: string): Promise<void> {
     for (;;) {
       const res = await claim(token);
@@ -425,7 +415,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
         'The bot account has admin or maintain permission on a repository it can see; give it the Write role only. (acme/orders)',
     });
 
-    // Credentials a detail carries are masked before they are stored.
     const githubToken = `ghp_${'a1B2'.repeat(9)}`;
     const modelKey = `sk-ant-api03-${'Zy9x'.repeat(6)}`;
     await report({
@@ -437,7 +426,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
       'The Agent SDK could not start Claude Code in the runner image. (spawn failed with [REDACTED] and [REDACTED] via https://[REDACTED]@proxy.example.com/)',
     );
 
-    // A code outside the contract is refused; so are humans and unsupported protocol versions.
     await report({ code: 'something_else' }).expect(400);
     await report({ problem: 'free text' }).expect(400);
     await report({ code: 'plugin_errors' }, human(ADMIN)).expect(403);
@@ -479,7 +467,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
       };
     }
 
-    /** A state archive as the runner packs it: Claude Code's config directory, transcripts included. */
     async function stateArchive(files: Record<string, string>): Promise<Buffer> {
       const dir = await mkdtemp(join(tmpdir(), 'car-state-'));
       try {
@@ -648,7 +635,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
       const activityOf = async () =>
         (await api().get(`${runsBase()}/${run.id}/activity`).set('Authorization', human(MEMBER)).expect(200)).body;
 
-      // Intent is off for the workspace: the run page names no intent item.
       expect((await activityOf()).intent).toEqual({ read: [], proposed: [] });
 
       await prisma.workspace.update({ where: { id: workspaceId }, data: { intentEnabled: true } });
@@ -722,7 +708,6 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
       expect(res.headers['content-disposition']).toBe(`attachment; filename="${run.issueKey}-scope-transcript.jsonl"`);
       expect((res.body as Buffer).toString('utf8')).toBe(redacted);
 
-      // The implement session never ran, so it has no transcript.
       const missing = await transcript(run.id, '?phase=implement').expect(404);
       expect(missing.body.code).toBe('TRANSCRIPT_NOT_FOUND');
 

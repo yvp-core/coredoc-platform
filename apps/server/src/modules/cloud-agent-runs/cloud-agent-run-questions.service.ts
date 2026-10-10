@@ -9,10 +9,12 @@ import {
 } from './cloud-agent-run-repository-requests.service.js';
 import type { QuestionAnswer } from './cloud-agent-runs.contract.js';
 import {
-  CloudAgentRunErrorCode,
   cloudAgentRunError,
+  CloudAgentRunErrorCode,
+  fromColumn,
   isTerminalRunStatus,
   QuestionKind,
+  QuestionsPolicy,
   QuestionState,
   RunPhase,
   RunStatus,
@@ -21,7 +23,6 @@ import {
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
 import { lockRun, queueTurn, setRunStatus } from './run-transitions.js';
 
-/** What the assume policy answers every question with. */
 export const ASSUME_ANSWER =
   'No one is available to answer. Choose the option you judge best, continue, and list this decision in the assumptions of your next propose_scope or submit_result call.';
 
@@ -44,7 +45,7 @@ export function sdkAnswers(row: CloudAgentRunQuestion): Record<string, string> {
   return Object.fromEntries(asQuestions(row).map((q, index) => [q.question, answerText(answers[index]!)]));
 }
 
-/** The resume turn's input: the answers again, in case the deferred call is not re-run. */
+/** Repeats the answers in case the deferred call is not re-run. */
 function resumeText(row: CloudAgentRunQuestion): string {
   if (row.kind === QuestionKind.RepositoryRequest) return repositoryDecisionText(row);
   const lines = Object.entries(sdkAnswers(row)).map(([question, answer]) => `- ${question} ${answer}`);
@@ -63,11 +64,7 @@ function questionEvent(row: CloudAgentRunQuestion) {
   };
 }
 
-/**
- * Records an AskUserQuestion call the live turn reported. Under assume it is
- * answered at once; under pause it is parked and the run waits for a person.
- * The caller holds the fenced turn and the locked run.
- */
+/** The caller holds the fenced turn and the locked run. */
 export async function recordQuestion(
   tx: Tx,
   run: CloudAgentRun,
@@ -85,7 +82,7 @@ export async function recordQuestion(
     askedInTurnId: turnId,
     askedAt: at,
   };
-  if (run.questionsPolicy === 'assume') {
+  if (run.questionsPolicy === QuestionsPolicy.Assume) {
     const row = await tx.cloudAgentRunQuestion.create({
       data: {
         ...base,
@@ -107,10 +104,8 @@ export async function recordQuestion(
 }
 
 /**
- * At the end of a turn (completion, or lease expiry): whether the turn ended
- * with a question parked for a person. An answer that arrived while the turn
- * was still running is turned into the resume turn here. Either way the
- * outcome-less count resets.
+ * An answer that arrived while the turn was still running becomes the resume
+ * turn here. Either way the outcome-less count resets.
  */
 export async function settleTurnQuestions(tx: Tx, run: CloudAgentRun, turnId: string, at: Date): Promise<boolean> {
   const asked = await tx.cloudAgentRunQuestion.findMany({
@@ -130,11 +125,10 @@ export async function settleTurnQuestions(tx: Tx, run: CloudAgentRun, turnId: st
 }
 
 async function queueResumeTurn(tx: Tx, run: CloudAgentRun, row: CloudAgentRunQuestion, at: Date): Promise<void> {
-  const turnId = await queueTurn(tx, run, row.phase, resumeText(row), at);
+  const turnId = await queueTurn(tx, run, fromColumn(RunPhase, row.phase), resumeText(row), at);
   if (turnId) await tx.cloudAgentRunQuestion.update({ where: { id: row.id }, data: { resumeTurnId: turnId } });
 }
 
-/** The answered question a resume turn delivers, for its assignment. */
 export async function answerForTurn(tx: Tx, workspaceId: string, turnId: string) {
   const row = await tx.cloudAgentRunQuestion.findFirst({
     where: { workspaceId, resumeTurnId: turnId, kind: QuestionKind.Clarification, state: QuestionState.Answered },
@@ -153,12 +147,10 @@ export function projectQuestion(row: CloudAgentRunQuestion) {
     askedAt: row.askedAt.toISOString(),
     answeredAt: row.answeredAt?.toISOString() ?? null,
     answeredBy: row.answeredBy,
-    /** The turn that asked, whose trace shows the question. */
     askedInTurnId: row.askedInTurnId,
   };
 }
 
-/** Why these answers do not answer these questions, or null when they do. */
 function answerProblem(questions: AskedQuestion[], answers: QuestionAnswer[]): string | null {
   if (answers.length !== questions.length) {
     return `Answer each of the ${questions.length} questions, in order.`;
@@ -176,7 +168,7 @@ function answerProblem(questions: AskedQuestion[], answers: QuestionAnswer[]): s
   return null;
 }
 
-/** A person's answer: one compare-and-set from open; the next turn is queued under the usual rule. */
+/** Answering is one compare-and-set from open. */
 @Injectable()
 export class CloudAgentRunQuestionService {
   constructor(
@@ -229,7 +221,6 @@ export class CloudAgentRunQuestionService {
     });
   }
 
-  /** Every question of a run, oldest first. */
   async forRun(workspaceId: string, runId: string) {
     const rows = await this.prisma.cloudAgentRunQuestion.findMany({
       where: { workspaceId, runId },

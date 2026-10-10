@@ -138,7 +138,6 @@ describe('assemblePullRequest', () => {
     expect(body.length).toBeLessThanOrEqual(MAX_PULL_REQUEST_BODY_CHARS);
     expect(body).toMatch(/truncated/i);
     expect(body).toContain('https://coredoc.example/w/acme/agent-runs/run-1');
-    // Every assumption that made it is whole.
     expect(body.match(/^- x+$/gm)!.every((line) => line === `- ${'x'.repeat(2_000)}`)).toBe(true);
   });
 

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AssignedRepository, TurnAssignment } from '@coredoc/core/agent-runner';
+import { type AssignedRepository, RunFailureCode, type TurnAssignment } from '@coredoc/core/agent-runner';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ClaudeExecutor } from './claude/claude-executor.js';
 import { FakeCoredocApi, TOKEN, WORKSPACE } from './fake-coredoc-api.test-support.js';
@@ -27,11 +27,6 @@ import { Runner } from './runner.js';
 const BRANCH = 'coredoc/PROJ-1';
 const SEARCH = { key: 'search-api', reason: 'Owns the search index' };
 
-/**
- * `request_repo` in the runner: the mid-turn clone under automatic
- * acceptance, the turn that ends for a person's decision under required
- * acceptance, and the turn that resumes with that decision.
- */
 describe('request_repo in implement turns', () => {
   let api: FakeCoredocApi;
   let github: FakeGithub;
@@ -162,7 +157,10 @@ describe('request_repo in implement turns', () => {
       await expect(done).resolves.toBe('completed');
       expect(JSON.parse(seen[0]!.toolResults[0]!).isError).toBe(true);
       expect(existsSync(join(workDir(turn), 'search-api'))).toBe(false);
-      expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code: 'repository_not_eligible' });
+      expect(api.completions[0]!.body.outcome).toMatchObject({
+        kind: 'failed',
+        code: RunFailureCode.RepositoryNotEligible,
+      });
       expect(remoteHead(orders.bare, BRANCH)).toBeNull();
     });
   });

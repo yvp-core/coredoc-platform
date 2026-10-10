@@ -1,8 +1,3 @@
-/**
- * The run's documents: the Spec drawer (every published version, with a
- * version switch) and the Product intent drawer (the items the agent read and
- * the candidates it proposed, which are reviewed on the Intent page).
- */
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';

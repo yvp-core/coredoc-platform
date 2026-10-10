@@ -28,16 +28,10 @@ import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CLOUD_AGENT_RUNS_CLOCK, cloudAgentRunsCoreProviders } from './cloud-agent-runs.module.js';
 import { FakeJira, InMemoryArchiveStore, paragraphDoc } from './cloud-agent-runs.test-support.js';
 
-/**
- * The scope phase driven through the human API and the runner API on real
- * PostgreSQL with real guards. Jira and the archive store are in-memory fakes
- * at their ports; the runner is a scripted fake making runner API calls.
- */
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 const ADMIN = { id: `${RUN}-admin`, email: 'admin@example.com' };
 const MEMBER = { id: `${RUN}-member`, email: 'member@example.com' };
-/** A member of another workspace only. */
 const OUTSIDER = { id: `${RUN}-outsider`, email: 'outsider@example.com' };
 const VERSIONS = { runner: '0.0.1-test', sdk: '0.3.285' };
 

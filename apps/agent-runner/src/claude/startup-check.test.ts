@@ -8,6 +8,7 @@ import { Runner, type TurnExecutor } from '../runner.js';
 import { GithubApi } from '../github/github-api.js';
 import { BOT_TOKEN, FakeGithub } from '../implement.test-support.js';
 import { checkClaudeStartup, checkRunnerStartup, type StartupQueryFn } from './startup-check.js';
+import { RunnerStartupProblemCode } from '@coredoc/core/agent-runner';
 
 /** Claude Code's initialize answer listing these commands; the plugin's skills are prefixed with its name. */
 function initResult(commands: string[]): StartupQueryFn {
@@ -76,7 +77,7 @@ describe('runner start-up check', () => {
     expect(api.claims).toEqual([]);
     expect(logs.join('\n')).toContain('No plugin manifest');
     expect(logs.join('\n')).toContain('claude code 2.1.285');
-    expect(api.startupProblems[0]).toMatchObject({ code: 'plugin_missing' });
+    expect(api.startupProblems[0]).toMatchObject({ code: RunnerStartupProblemCode.PluginMissing });
   });
 
   it('claims nothing while Claude Code does not answer, naming the wait', async () => {
@@ -88,7 +89,10 @@ describe('runner start-up check', () => {
       versions: VERSIONS,
       timeoutMs: 20,
     });
-    expect(report.problem).toEqual({ code: 'sdk_unusable', detail: 'Claude Code did not initialise within 0 s.' });
+    expect(report.problem).toEqual({
+      code: RunnerStartupProblemCode.SdkUnusable,
+      detail: 'Claude Code did not initialise within 0 s.',
+    });
   });
 
   it('claims nothing while the SDK cannot start Claude Code', async () => {
@@ -97,7 +101,10 @@ describe('runner start-up check', () => {
     });
     expect(api.claims).toEqual([]);
     expect(logs.join('\n')).toContain('spawn claude ENOENT');
-    expect(api.startupProblems[0]).toMatchObject({ code: 'sdk_unusable', detail: 'spawn claude ENOENT' });
+    expect(api.startupProblems[0]).toMatchObject({
+      code: RunnerStartupProblemCode.SdkUnusable,
+      detail: 'spawn claude ENOENT',
+    });
   });
 
   describe('the bot account', () => {
@@ -122,7 +129,10 @@ describe('runner start-up check', () => {
       const logs = await startFor(loaded, github);
       expect(api.claims).toEqual([]);
       expect(logs.join('\n')).toContain('acme/billing-api');
-      expect(api.startupProblems[0]).toMatchObject({ code: 'bot_admin', detail: 'acme/billing-api' });
+      expect(api.startupProblems[0]).toMatchObject({
+        code: RunnerStartupProblemCode.BotAdmin,
+        detail: 'acme/billing-api',
+      });
     });
 
     it('claims while the bot has the Write role only', async () => {
@@ -135,7 +145,7 @@ describe('runner start-up check', () => {
   it('reports a plugin whose skills Claude Code does not list', async () => {
     await startFor(initResult(['init', 'review']));
     expect(api.claims).toEqual([]);
-    expect(api.startupProblems[0]).toMatchObject({ code: 'plugin_skills_missing' });
+    expect(api.startupProblems[0]).toMatchObject({ code: RunnerStartupProblemCode.PluginSkillsMissing });
   });
 
   it('claims once the plugin and its skills load, reporting the versions it found', async () => {

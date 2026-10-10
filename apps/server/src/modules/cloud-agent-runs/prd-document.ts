@@ -6,17 +6,16 @@ export interface PrdIssue {
   issueType: string | null;
   status: string | null;
   labels: string[];
-  /** The description in Atlassian Document Format. */
+  /** Atlassian Document Format. */
   description: unknown;
 }
 
 export interface PrdSource {
-  /** The Jira site, for the browse link. */
   siteUrl: string;
   issue: PrdIssue;
-  /** An epic's child issues in Jira rank order (only those in configured projects). */
+  /** In Jira rank order, only those in configured projects. */
   epicChildren: PrdIssue[];
-  /** The epic this issue belongs to: the PRD tooling keeps shared decisions there. */
+  /** The PRD tooling keeps shared decisions on the epic. */
   parentEpic: PrdIssue | null;
 }
 
@@ -24,7 +23,6 @@ function body(issue: PrdIssue): string {
   return adfToMarkdown(issue.description) || '(The issue has no description.)';
 }
 
-/** The PRD file a scope turn hands to the agent: a short header, then the description as markdown. */
 export function buildPrdDocument(source: PrdSource): string {
   const { issue } = source;
   const facts = [issue.issueType, issue.status].filter(Boolean).join(', ');

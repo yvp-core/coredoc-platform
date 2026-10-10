@@ -4,7 +4,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AssignedRepository, TurnAssignment } from '@coredoc/core/agent-runner';
+import { type AssignedRepository, RunFailureCode, type TurnAssignment, TurnKind } from '@coredoc/core/agent-runner';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ClaudeExecutor } from './claude/claude-executor.js';
 import { FakeCoredocApi, TOKEN, WORKSPACE } from './fake-coredoc-api.test-support.js';
@@ -126,7 +126,6 @@ describe('implement turns in the runner loop', () => {
     expect(git(bare, 'rev-parse', `${BRANCH}~1`)).toBe(git(bare, 'rev-parse', 'main'));
     expect(remoteFiles(bare, BRANCH)).toEqual(['README.md', 'src/export.ts', 'src/orders.ts']);
 
-    // The branch was reserved before its first push, and the push is reported.
     expect(api.reservations).toEqual([`${turn.turn.id}:orders-api`]);
     expect(api.results).toEqual([expect.objectContaining({ summary: 'Added the orders export.' })]);
     expect(api.completions[0]!.body).toMatchObject({
@@ -354,7 +353,6 @@ describe('implement turns in the runner loop', () => {
       expect(seen[1]!.options.resume).toBe(turn.run.sessionId);
       expect(seen[1]!.prompt).toContain('billing-api: keys.ts:1 (stripe.secret_key)');
       expect(seen[1]!.prompt).not.toContain(SECRET_MARKER);
-      // One commit per repository, the turn's number, on top of the default branch.
       for (const bare of [o.bare, b.bare]) {
         expect(git(bare, 'rev-list', '--count', `main..${BRANCH}`)).toBe('1');
       }
@@ -382,7 +380,7 @@ describe('implement turns in the runner loop', () => {
       expect(api.reservations).toEqual([]);
       expect(api.uploads).toBe(0);
       const { outcome } = api.completions[0]!.body;
-      expect(outcome).toMatchObject({ kind: 'failed', code: 'secret_scan_blocked' });
+      expect(outcome).toMatchObject({ kind: 'failed', code: RunFailureCode.SecretScanBlocked });
       expect(JSON.stringify(outcome)).toContain('billing-api: keys.ts');
       expect(JSON.stringify(api.completions[0])).not.toContain(SECRET_MARKER);
     });
@@ -481,7 +479,7 @@ describe('implement turns in the runner loop', () => {
         },
       ]);
       await expect(done).resolves.toBe('completed');
-      expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code: 'agent_error' });
+      expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code: RunFailureCode.AgentError });
       expect(remoteHead(bare, BRANCH)).toBeNull();
       expect(remoteHead(decoy, BRANCH)).toBeNull();
     });
@@ -494,7 +492,7 @@ describe('implement turns in the runner loop', () => {
       const { done, seen } = runTurn(implementAssignment([repo]), [{ submit: RESULT }]);
       await expect(done).resolves.toBe('completed');
       expect(seen).toEqual([]);
-      expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code: 'branch_exists' });
+      expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code: RunFailureCode.BranchExists });
     });
 
     it('a person pushing to the run branch during the turn fails the run with push_rejected', async () => {
@@ -513,7 +511,7 @@ describe('implement turns in the runner loop', () => {
       await expect(done).resolves.toBe('completed');
       expect(theirs).not.toBe(ours);
       expect(remoteHead(bare, BRANCH)).toBe(theirs);
-      expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code: 'push_rejected' });
+      expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code: RunFailureCode.PushRejected });
     });
 
     it('a push that fails for a later repository still reports the heads already pushed', async () => {
@@ -542,7 +540,7 @@ describe('implement turns in the runner loop', () => {
       expect(pushed).toBeTruthy();
       expect(remoteHead(billingBare, BRANCH)).toBeNull();
       expect(api.completions[0]!.body).toMatchObject({
-        outcome: { kind: 'failed', code: 'github_error' },
+        outcome: { kind: 'failed', code: RunFailureCode.GithubError },
         repositories: [
           expect.objectContaining({ key: 'orders-api', pushedHead: pushed }),
           expect.objectContaining({ key: 'billing', pushedHead: null }),
@@ -594,19 +592,22 @@ describe('implement turns in the runner loop', () => {
       expect(seen).toEqual([]);
       expect(api.completions[0]!.body.outcome).toMatchObject({
         kind: 'failed',
-        code: 'repository_not_eligible',
+        code: RunFailureCode.RepositoryNotEligible,
         reason: expect.stringMatching(/admin or maintain/),
       });
 
       github.add('example-org', 'orders-api', { admin: true });
       const scope = implementAssignment([repo]);
       const { done: scopeDone, seen: scopeSeen } = runTurn(
-        { ...scope, turn: { ...scope.turn, kind: 'scope' }, acceptedSpec: null, prd: { markdown: '# PRD' } },
+        { ...scope, turn: { ...scope.turn, kind: TurnKind.Scope }, acceptedSpec: null, prd: { markdown: '# PRD' } },
         [{}],
       );
       await expect(scopeDone).resolves.toBe('completed');
       expect(scopeSeen).toEqual([]);
-      expect(api.completions[1]!.body.outcome).toMatchObject({ kind: 'failed', code: 'repository_not_eligible' });
+      expect(api.completions[1]!.body.outcome).toMatchObject({
+        kind: 'failed',
+        code: RunFailureCode.RepositoryNotEligible,
+      });
     });
 
     it('GitHub server errors are retried three times in process, then fail the run with github_error', async () => {
@@ -621,7 +622,7 @@ describe('implement turns in the runner loop', () => {
       const { done: second, seen } = runTurn(implementAssignment([repo]), [{ submit: RESULT }]);
       await expect(second).resolves.toBe('completed');
       expect(seen).toEqual([]);
-      expect(api.completions[1]!.body.outcome).toMatchObject({ kind: 'failed', code: 'github_error' });
+      expect(api.completions[1]!.body.outcome).toMatchObject({ kind: 'failed', code: RunFailureCode.GithubError });
     });
 
     it('a clone that keeps failing fails the run with github_error', async () => {
@@ -629,7 +630,7 @@ describe('implement turns in the runner loop', () => {
       const { done, seen } = runTurn(implementAssignment([{ ...repo, cloneUrl: `file://${root}/missing.git` }]), [{}]);
       await expect(done).resolves.toBe('completed');
       expect(seen).toEqual([]);
-      expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code: 'github_error' });
+      expect(api.completions[0]!.body.outcome).toMatchObject({ kind: 'failed', code: RunFailureCode.GithubError });
     });
   });
 

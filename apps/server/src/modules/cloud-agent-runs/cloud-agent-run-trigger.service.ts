@@ -5,7 +5,7 @@ import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js'
 import { CloudAgentRunSettingsService } from './cloud-agent-run-settings.service.js';
 import { CloudAgentRunService, type TriggeredIssue } from './cloud-agent-run.service.js';
 
-/** What the trigger reads per issue; `id` and `key` come with every search result. */
+/** `id` and `key` come with every search result. */
 const TRIGGER_FIELDS = ['summary', 'labels', 'issuetype', 'status', 'updated'];
 /** One bounded search per tick: at most this many 100-issue pages. */
 const TRIGGER_MAX_PAGES = 5;
@@ -15,10 +15,7 @@ function jqlString(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-/**
- * The trigger search. Never issued without the project clause; the caller
- * passes at least one validated project key.
- */
+/** Never issued without the project clause. */
 export function triggerJql(projectKeys: readonly string[], label: string): string {
   if (projectKeys.length === 0) throw new Error('trigger search needs a project key');
   const projects = projectKeys.map(jqlString).join(', ');
@@ -32,12 +29,6 @@ function asTriggeredIssue(item: Record<string, unknown>): TriggeredIssue | null 
   return { id: item.id, key: item.key, labels };
 }
 
-/**
- * One workspace's trigger tick: promote queued runs while agent runs are
- * enabled and available, then, when the trigger is ready, search the
- * configured projects for the trigger label and create a run for every issue
- * that never had one.
- */
 @Injectable()
 export class CloudAgentRunTrigger {
   constructor(

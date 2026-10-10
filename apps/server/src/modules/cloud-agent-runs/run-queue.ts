@@ -1,40 +1,43 @@
 /**
- * Run creation and the concurrency queue, as transaction-level steps. Every
- * caller holds `lockCloudAgentRunCreation` for the workspace, so the "never
- * had a run" check, the ordinal, the count of started runs and promotion see
- * one consistent order across all API and worker processes.
+ * Every caller holds `lockCloudAgentRunCreation` for the workspace, so creation
+ * and promotion see one consistent order across all processes.
  */
 import { randomUUID } from 'node:crypto';
 import type { AgentRunSettings, CloudAgentRun, Prisma } from '../../generated/prisma/client.js';
-import { FAILURE_MESSAGES, type FailureCode } from './failure-codes.js';
+import { FAILURE_MESSAGES } from './failure-codes.js';
 import { jiraOutcomeOf, queueStatusTransition, StatusEvent } from './jira-outcome.js';
-import { RunPhase, RunStatus, ServerEventType, TERMINAL_RUN_STATUSES } from './run-states.js';
+import {
+  type QuestionsPolicy,
+  type RunFailureCode,
+  RunPhase,
+  RunStatus,
+  type RunTrigger,
+  type ScopeAcceptancePolicy,
+  ServerEventType,
+  TERMINAL_RUN_STATUSES,
+} from './run-states.js';
 import { appendRunEvents, type Tx } from './run-store.js';
 
 export interface NewRun {
   jiraIssueId: string;
   issueKey: string;
   jiraConnectorId: string | null;
-  trigger: string;
+  trigger: RunTrigger;
   startedBy: string | null;
   runOwnerId: string;
   previousRunId?: string;
-  questionsPolicy: string;
-  scopeAcceptancePolicy: string;
+  questionsPolicy: QuestionsPolicy;
+  scopeAcceptancePolicy: ScopeAcceptancePolicy;
   seeds: string[];
   /** A Jira-triggered run that fails validation is created `failed`. */
-  failure?: { code: FailureCode; reason: string };
+  failure?: { code: RunFailureCode; reason: string };
 }
 
-/** Run branch: `coredoc/<KEY>` for an issue's first run, `coredoc/<KEY>-<n>` for later ones. */
 function runBranch(issueKey: string, ordinal: number): string {
   return ordinal === 1 ? `coredoc/${issueKey}` : `coredoc/${issueKey}-${ordinal}`;
 }
 
-/**
- * Create a run, `queued` or failed at creation. Budgets and the model always
- * come from the current settings; policies come from the caller.
- */
+/** Budgets and the model always come from the current settings; policies come from the caller. */
 export async function createRun(
   tx: Tx,
   workspaceId: string,
@@ -97,12 +100,7 @@ export async function createRun(
   return run;
 }
 
-/**
- * Start queued runs, oldest first, while the workspace has fewer than its
- * limit of started, unfinished runs (every status except `queued` and the
- * terminal ones; runs waiting for a person keep their slot). Returns the ids
- * of the runs it started. The caller has checked that runs may start.
- */
+/** Runs waiting for a person keep their slot. The caller has checked that runs may start. */
 export async function promoteQueuedRuns(
   tx: Tx,
   workspaceId: string,
@@ -127,7 +125,6 @@ export async function promoteQueuedRuns(
         status: RunStatus.Scoping,
         startedAt: at,
         activeSince: at,
-        // The run sweep moves the issue to the configured started status.
         jiraOutcome: queueStatusTransition(
           jiraOutcomeOf({ jiraOutcome }),
           StatusEvent.Started,

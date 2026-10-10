@@ -19,15 +19,10 @@ const DEFAULT_RUNNER_RATE_LIMIT: RunnerRateLimit = { burst: 300, refillPerSec: 1
 const IDLE_EVICT_MS = 10 * 60_000;
 const SWEEP_EVERY = 1_000;
 
-/**
- * Per-token request rate limit on the runner API, after the token guards
- * resolved the runner token. Per process, like the other token buckets: with
- * several API replicas the limit is per replica.
- */
+/** Per process, like the other token buckets: with several API replicas the limit is per replica. */
 @Injectable()
 export class RunnerRateLimitGuard implements CanActivate {
   private readonly limiter: TokenBucketRateLimiter;
-  /** Whole seconds until a refused token earns its next request; the runner waits that long. */
   private readonly retryAfterSeconds: string;
   private calls = 0;
 

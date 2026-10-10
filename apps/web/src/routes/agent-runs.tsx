@@ -94,7 +94,6 @@ function StartRunCard({ wsId, slug }: { wsId: string; slug: string }) {
   );
 }
 
-/** Live availability: why runs cannot start, and why queued runs are waiting. */
 function AvailabilityBanner({ wsId }: { wsId: string }) {
   const settings = useQuery(agentRunSettingsQueryOptions(wsId));
   const availability = settings.data?.availability;
@@ -111,7 +110,7 @@ function AvailabilityBanner({ wsId }: { wsId: string }) {
   );
 }
 
-/** Each runner token's last successful claim or heartbeat: informational, runs queue without a runner. */
+/** Informational only: runs queue without a runner. */
 function RunnerStatus({ wsId }: { wsId: string }) {
   const settings = useQuery(agentRunSettingsQueryOptions(wsId));
   const tokens = settings.data?.runnerTokens ?? [];

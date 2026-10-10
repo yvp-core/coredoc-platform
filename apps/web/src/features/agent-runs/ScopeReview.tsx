@@ -37,12 +37,7 @@ function errorText(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
 }
 
-/**
- * One spec version as the reviewer reads it: the reviewer's feedback when it
- * was sent back, the summary, repositories with reasons, eligibility and merge
- * order, dropped seeds, candidates for the PRD, risks, assumptions and the
- * specification. Agent-written text is rendered with remote content disabled.
- */
+/** Agent-written text is rendered with remote content disabled. */
 export function SpecDocument({ spec }: { spec: AgentRunSpec }) {
   const ordered = [...spec.repositories].sort((a, b) => a.mergeOrder - b.mergeOrder);
   return (
@@ -159,11 +154,7 @@ export function SpecDocument({ spec }: { spec: AgentRunSpec }) {
   );
 }
 
-/**
- * Accept or request changes on the version the reviewer is looking at; the
- * server refuses anything but the latest proposed version, so a stale review
- * is told so rather than applied.
- */
+/** The server refuses anything but the latest proposed version, so a stale review is told so. */
 export function ScopeReviewActions({ wsId, runId, version }: { wsId: string; runId: string; version: number }) {
   const queryClient = useQueryClient();
   const feedbackId = useId();

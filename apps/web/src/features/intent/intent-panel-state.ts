@@ -151,7 +151,6 @@ export interface IntentCountCell {
   items: number;
   pending: number;
   open: number;
-  /** Open comment threads. */
   comments: number;
 }
 
@@ -219,10 +218,7 @@ export interface IntentItemFilter {
    * together and clearing either clears both.
    */
   openQuestions: boolean;
-  /**
-   * Only items with an open comment thread. Shared with the structure column's
-   * "Only with open comments" toggle, like `openQuestions`.
-   */
+  /** Shared with the structure column's toggle, like `openQuestions`. */
   openComments: boolean;
 }
 

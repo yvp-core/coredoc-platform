@@ -70,10 +70,7 @@ export interface AssertSafeCloudContentOptions {
   maxStructureNodes?: number;
   /** Path prefix of the walked value, when it is not the request root. */
   path?: string[];
-  /**
-   * Longest multi-line string accepted (defaults to {@link INTENT_CONTENT_LIMITS.maxMultilineChars}).
-   * Comments raise it: a discussion runs to several paragraphs, unlike a bounded statement.
-   */
+  /** Defaults to {@link INTENT_CONTENT_LIMITS.maxMultilineChars}. */
   maxMultilineChars?: number;
 }
 

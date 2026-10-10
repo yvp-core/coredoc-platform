@@ -1,9 +1,5 @@
 #!/usr/bin/env node
-/**
- * Agent runner entry point. Configuration comes from the environment only;
- * the runner holds the customer's model key, the workspace's runner token and
- * the bot's GitHub token, and nothing of the server's.
- */
+/** Configuration comes from the environment only; the runner holds no server credentials. */
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -15,9 +11,9 @@ import { type PackageRegistry, packageRegistries } from './package-registries.js
 import { secretMasker } from './mask-secrets.js';
 import { RunnerApiClient } from './runner-api.js';
 import { Runner } from './runner.js';
+import { RunnerStartupProblemCode } from '@coredoc/core/agent-runner';
 
-// Local development only: a developer's own Claude subscription token instead of an API key.
-// Products authenticate with the customer's API key; the dev compose service alone sets this switch.
+// Local development only (set by the dev compose service): a Claude subscription token instead of an API key.
 const DEV_SUBSCRIPTION =
   process.env.COREDOC_RUNNER_DEV_SUBSCRIPTION === '1' && Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim());
 const REQUIRED = [
@@ -87,7 +83,7 @@ if (missing.length > 0) {
 }
 
 const botToken = required('COREDOC_GITHUB_TOKEN');
-// The GitHub REST API the bot account is checked against at start-up; a GitHub Enterprise Server's is `https://<host>/api/v3`.
+// A GitHub Enterprise Server's is `https://<host>/api/v3`.
 const githubApiUrl = process.env.COREDOC_GITHUB_API_URL?.trim() || 'https://api.github.com';
 const runnerToken = required('COREDOC_RUNNER_TOKEN');
 const modelApiKey = required(DEV_SUBSCRIPTION ? 'CLAUDE_CODE_OAUTH_TOKEN' : 'ANTHROPIC_API_KEY');
@@ -108,7 +104,6 @@ const api = new RunnerApiClient({
   workspaceId: required('COREDOC_WORKSPACE_ID'),
   token: runnerToken,
 });
-// How long an idle runner waits between claims; the spec's 5 s unless set.
 const pollSeconds = Number(process.env.COREDOC_RUNNER_POLL_SECONDS);
 const runner = new Runner({
   api,
@@ -121,7 +116,7 @@ const runner = new Runner({
     modelApiKey,
     modelCredentialKind: DEV_SUBSCRIPTION ? 'subscription' : 'api_key',
     modelBaseUrl: process.env.ANTHROPIC_BASE_URL?.trim() || undefined,
-    // The bot account: its fine-grained token (Write role only) and the commit identity, its no-reply address.
+    // A fine-grained token with the Write role only; commits use the bot's no-reply address.
     bot: {
       token: botToken,
       name: process.env.COREDOC_GIT_AUTHOR_NAME?.trim() || 'Coredoc agent',
@@ -135,7 +130,7 @@ const runner = new Runner({
   secrets: [modelApiKey, botToken, runnerToken, ...registries.map((registry) => registry.token ?? '')],
   startupCheck: async () =>
     registryProblem
-      ? { versions, problem: { code: 'registry_config_invalid', detail: registryProblem } }
+      ? { versions, problem: { code: RunnerStartupProblemCode.RegistryConfigInvalid, detail: registryProblem } }
       : checkRunnerStartup({
           query,
           pluginPath,

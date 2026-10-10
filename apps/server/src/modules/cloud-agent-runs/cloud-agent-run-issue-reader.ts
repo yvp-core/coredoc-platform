@@ -11,15 +11,10 @@ import { buildPrdDocument, type PrdIssue } from './prd-document.js';
 import { RunFailureCode } from './run-states.js';
 
 const ISSUE_FIELDS = ['summary', 'description', 'labels', 'issuetype', 'status', 'project', 'parent'];
-/** In-process retries for rate limits and server errors before a read gives up. */
 const JIRA_ATTEMPTS = 4;
-/**
- * Waits are capped far below the usual 5 minutes: these reads run inside a
- * runner's claim request, which the runner times out after 30 seconds.
- */
+/** Far below the usual 5 minutes: these reads run inside a claim request the runner times out after 30 s. */
 const MAX_RETRY_WAIT_MS = 5_000;
 
-/** A run-level failure found while reading Jira: the run fails with `code`. */
 export class JiraReadFailure extends Error {
   constructor(
     readonly code:
@@ -63,12 +58,7 @@ function isEpic(issueType: unknown): boolean {
   return type.hierarchyLevel === 1 || text(type.name)?.toLowerCase() === 'epic';
 }
 
-/**
- * Reads a run's Jira issue through the workspace's Jira Delivery analytics
- * connector: the identity at manual start, and the PRD when a scope turn is
- * claimed (fresh every turn). Only issues in the connector's configured
- * projects are readable.
- */
+/** Only issues in the connector's configured projects are readable. */
 @Injectable()
 export class CloudAgentRunIssueReader {
   private readonly sleep: Sleep;
@@ -86,7 +76,6 @@ export class CloudAgentRunIssueReader {
     return { issueId: String(issue.id), issueKey: String(issue.key), jiraConnectorId: connector.id };
   }
 
-  /** The PRD document for a scope turn, with the issue's current key. */
   async readPrd(workspaceId: string, jiraIssueId: string): Promise<{ issueKey: string; markdown: string }> {
     const connector = await this.connector(workspaceId);
     const issue = await this.readIssue(connector, jiraIssueId, ISSUE_FIELDS);

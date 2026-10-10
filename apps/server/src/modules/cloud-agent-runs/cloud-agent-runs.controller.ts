@@ -43,11 +43,10 @@ import {
 } from './cloud-agent-runs.contract.js';
 
 /**
- * The human cloud agent runs API. Human sessions only, reads included: without
- * UserSessionGuard, routes with no permission requirement would admit any
- * member-created service token, a runner token among them. Every handler
- * declares a workspace role, because without one the role guard admits any
- * authenticated session.
+ * Human sessions only, reads included: without UserSessionGuard, routes with no
+ * permission requirement would admit any member-created service token, a runner
+ * token among them. Every handler declares a workspace role, because without
+ * one the role guard admits any authenticated session.
  */
 @Controller('workspaces/:workspaceId/cloud-agent-runs')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, UserSessionGuard)
@@ -140,7 +139,6 @@ export class CloudAgentRunsController {
     return this.runs.requestScopeChanges(workspaceId, runId, version, user.id, body.text);
   }
 
-  /** One answer per question; a second answer is refused with QUESTION_ALREADY_ANSWERED. */
   @Post(':runId/questions/:requestId/answer')
   @HttpCode(200)
   @WorkspaceRole('member')
@@ -155,7 +153,6 @@ export class CloudAgentRunsController {
     return this.runs.detail(workspaceId, runId);
   }
 
-  /** Any member, at any point before the run ends; a run that already ended is RUN_TERMINAL. */
   @Post(':runId/cancel')
   @HttpCode(200)
   @WorkspaceRole('member')
@@ -173,7 +170,6 @@ export class CloudAgentRunsController {
     return this.runs.rerun(workspaceId, user.id, runId);
   }
 
-  /** Per-turn timing, spend and tool calls, and the run's skill and tool counts. */
   @Get(':runId/activity')
   @WorkspaceRole('member')
   runActivity(
@@ -184,7 +180,6 @@ export class CloudAgentRunsController {
     return this.activity.activity(workspaceId, runId, role);
   }
 
-  /** Claude Code's session transcript (JSONL) from the latest state archive, masked and streamed as a download. */
   @Get(':runId/transcript')
   @WorkspaceRole('member')
   async transcript(

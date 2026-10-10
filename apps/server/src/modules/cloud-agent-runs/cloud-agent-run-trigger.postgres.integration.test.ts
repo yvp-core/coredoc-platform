@@ -21,12 +21,6 @@ import { CLOUD_AGENT_RUN_ARCHIVE_STORE } from './cloud-agent-run-archive.store.j
 import { cloudAgentRunsCoreProviders, CLOUD_AGENT_RUNS_CLOCK } from './cloud-agent-runs.module.js';
 import { InMemoryArchiveStore } from './cloud-agent-runs.test-support.js';
 
-/**
- * Starting runs, driven from outside: the human API (real guards) and the
- * trigger cron, on real PostgreSQL. Jira is a stateful in-memory fake behind
- * the existing client-factory seam; it answers a search the way Jira would,
- * by project and label. Each scenario gets its own workspace.
- */
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 const ENCRYPTION_KEY = randomBytes(32).toString('hex');
@@ -43,7 +37,6 @@ interface FakeIssue {
   labels: string[];
 }
 
-/** One Jira site: issues, plus every search it was asked. */
 class FakeJira {
   issues: FakeIssue[] = [];
   searches: Array<{ jql: string; fields: string[]; options: JiraSearchOptions }> = [];
@@ -161,11 +154,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
   const runsBase = (ws: string) => `/api/v1/workspaces/${ws}/cloud-agent-runs`;
   const trigger = () => app.get(CloudAgentRunTriggerCron).run();
 
-  /**
-   * A workspace ready for agent runs: Delivery analytics on, an active Jira
-   * connector with the given project keys and an active GitHub connector, two
-   * eligible repositories, and agent runs switched on by OWNER.
-   */
+  /** Active Jira and GitHub connectors, two eligible repositories, agent runs switched on by OWNER. */
   async function workspace(options: { projects?: string[]; settings?: Record<string, unknown> } = {}) {
     const slug = `cat-${RUN}-${workspaces.length}`;
     const { id } = await prisma.workspace.create({ data: { name: slug, slug, deliveryEnabled: true } });
@@ -396,7 +385,6 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
       .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
     expect(queued).toHaveLength(2);
     expect(queued.every((run) => run.currentTurn === null)).toBe(true);
-    // The started run is the one created first.
     expect(String(startedFirst[0]!.createdAt) < String(queued[0]!.createdAt)).toBe(true);
 
     await finish(startedFirst[0]!.id);

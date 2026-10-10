@@ -1,11 +1,9 @@
 /**
- * Claude Code's environment, built explicitly rather than inherited: it keeps
- * the bot's token and the runner token out of `env` output, transcripts and
- * commits. Hygiene, not a boundary — everything in the pod runs as one user.
+ * Built explicitly so the bot's and runner's tokens stay out of `env` output, transcripts and commits.
+ * Hygiene, not a boundary: everything in the pod runs as one user.
  */
 import type { TurnPaths } from './turn-paths.js';
 
-/** Host variables passed through when set: locale, proxies and CA bundles. */
 const PASSTHROUGH = [
   'LANG',
   'LC_ALL',

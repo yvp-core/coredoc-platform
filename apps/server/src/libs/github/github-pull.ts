@@ -14,7 +14,6 @@ export const strictPullSchema = z.object({
   merged_at: z.iso.datetime({ offset: true }).nullable(),
 });
 
-/** The strict read plus the head's repository (null when a fork was deleted) and branch. */
 export const strictPullWithHeadSchema = strictPullSchema.extend({
   head: z.object({ sha, ref: z.string().min(1), repo: z.object({ full_name: z.string() }).nullable() }),
 });

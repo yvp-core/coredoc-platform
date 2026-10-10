@@ -1,8 +1,6 @@
 /**
- * Pure presentation of cloud agent runs: polling cadence, timeline merging and
- * wording. Kept free of React so polling and merging are table-tested without
- * timers. Payloads are free-form on the wire, so nothing here may assume a
- * shape or throw on one it does not recognise.
+ * Kept free of React so polling and merging are table-tested without timers. Payloads are
+ * free-form on the wire, so nothing here may throw on a shape it does not recognise.
  */
 import type { AgentRun, AgentRunEvent, RunnerTokenStatus, RunStatus, TurnKind } from './types.js';
 
@@ -14,7 +12,6 @@ export function isTerminalStatus(status: RunStatus): boolean {
   return TERMINAL.includes(status);
 }
 
-/** Poll every 3 s while the run is non-terminal (or not loaded yet); stop at terminal. */
 export function pollInterval(status: RunStatus | undefined): number | false {
   return status && isTerminalStatus(status) ? false : POLL_INTERVAL_MS;
 }
@@ -66,7 +63,6 @@ export function spendText(spend: AgentRun['spend']): string {
   return `${base} (partial: ${turns} did not report spend)`;
 }
 
-/** When a turn waits in the queue, the run is waiting for an agent runner since then. */
 export function waitingForRunnerSince(run: Pick<AgentRun, 'currentTurn'>): string | null {
   return run.currentTurn?.state === 'queued' ? run.currentTurn.queuedAt : null;
 }
@@ -96,7 +92,6 @@ export const TASK_STATUS_LABELS: Record<AgentTaskStatus, string> = {
   completed: 'Done',
 };
 
-/** The agent's current tasks: the items of the latest todos event. */
 export function currentTasks(events: readonly AgentRunEvent[]): AgentTask[] {
   const latest = [...events].reverse().find((event) => event.type === 'todos');
   const items = latest?.payload?.items;
@@ -115,7 +110,6 @@ const RUNNER_REFUSALS: Record<string, string> = {
   runner_incompatible: 'Refused: this runner version is not supported. Upgrade the runner.',
 };
 
-/** Why a runner token is refused or claims nothing, with the runner's own reason for a failed start-up check. */
 export function runnerRefusalText(token: Pick<RunnerTokenStatus, 'refusal' | 'refusalDetail'>): string | null {
   if (!token.refusal) return null;
   if (token.refusal === 'startup_check_failed') {

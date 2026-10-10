@@ -44,7 +44,9 @@ import { WorkspaceRole } from '../../auth/decorators/workspace-role.decorator.js
 import { PermissionsGuard, TokenPermission } from '../../auth/permissions.guard.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
-import { CloudAgentTurnService, type RunnerPrincipal, type TurnLease } from './cloud-agent-turn.service.js';
+import { CloudAgentTurnArchiveService } from './cloud-agent-turn-archive.service.js';
+import { CloudAgentTurnService } from './cloud-agent-turn.service.js';
+import type { RunnerPrincipal, TurnLease } from './turn-lease.js';
 import { RunnerRateLimitGuard } from './runner-rate-limit.guard.js';
 
 type RunnerRequest = Request & { serviceTokenId?: string; serviceTokenWorkspaceId?: string };
@@ -59,17 +61,18 @@ function turnLease(request: RunnerRequest, turnId: string, token: string | undef
 }
 
 /**
- * The runner API: exact agent-runner tokens of the path's workspace only.
  * `@RequirePermission(AgentRunnerRun)` is what the AuthGuard fence keys on;
  * `@WorkspaceRole('admin')` refuses a token whose creator left or was demoted;
- * AgentRunnerTokenGuard refuses human sessions, which PermissionsGuard passes;
- * RunnerRateLimitGuard limits requests per runner token.
+ * AgentRunnerTokenGuard refuses human sessions, which PermissionsGuard passes.
  * Every `/turns/:turnId` route is fenced on the live lease token.
  */
 @Controller('workspaces/:workspaceId/agent-runner')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, AgentRunnerTokenGuard, RunnerRateLimitGuard)
 export class CloudAgentRunnerController {
-  constructor(private readonly turns: CloudAgentTurnService) {}
+  constructor(
+    private readonly turns: CloudAgentTurnService,
+    private readonly archives: CloudAgentTurnArchiveService,
+  ) {}
 
   @Post('claim')
   @HttpCode(200)
@@ -85,7 +88,6 @@ export class CloudAgentRunnerController {
     return assignment ?? undefined;
   }
 
-  /** A runner whose start-up check fails says why instead of claiming; settings show it. */
   @Post('startup-check')
   @HttpCode(200)
   @WorkspaceRole('admin')
@@ -138,7 +140,6 @@ export class CloudAgentRunnerController {
     return this.turns.proposeScope(turnLease(request, turnId, lease), body);
   }
 
-  /** An AskUserQuestion call; the answer says whether it is parked, answered at once or refused. */
   @Post('turns/:turnId/questions')
   @HttpCode(200)
   @WorkspaceRole('admin')
@@ -204,7 +205,7 @@ export class CloudAgentRunnerController {
     @Headers(RUNNER_LEASE_HEADER) lease: string | undefined,
     @Res() response: Response,
   ) {
-    const archive = await this.turns.downloadArchive(turnLease(request, turnId, lease));
+    const archive = await this.archives.download(turnLease(request, turnId, lease));
     response.set('Content-Type', 'application/gzip');
     response.send(archive);
   }
@@ -221,7 +222,7 @@ export class CloudAgentRunnerController {
   ) {
     const body = Buffer.isBuffer(request.body) ? request.body : (request.rawBody ?? Buffer.alloc(0));
     if (body.length === 0) throw new BadRequestException('Send the state archive as an application/octet-stream body');
-    return this.turns.uploadArchive(turnLease(request, turnId, lease), body);
+    return this.archives.upload(turnLease(request, turnId, lease), body);
   }
 
   @Post('turns/:turnId/complete')

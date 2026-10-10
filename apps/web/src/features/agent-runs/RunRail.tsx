@@ -1,9 +1,3 @@
-/**
- * The run page's left column: the stages with their start, duration and time
- * waiting for a person, the run total, then the artifact cards. Pull requests
- * and the Jira issue link out; the spec, product intent, skills and tools and
- * the trace open drawers.
- */
 import {
   AlignLeftIcon,
   ArrowUpRightIcon,

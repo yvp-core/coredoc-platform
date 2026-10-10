@@ -25,12 +25,6 @@ import { CLOUD_AGENT_RUNS_CLOCK, cloudAgentRunsCoreProviders } from './cloud-age
 import { CLOUD_AGENT_RUN_REPORT_CAPS } from './report-limits.js';
 import { FakeJira, InMemoryArchiveStore, paragraphDoc } from './cloud-agent-runs.test-support.js';
 
-/**
- * How runs stop: cancel, lost runners, budgets, report caps and retention,
- * driven through the human API, the runner API and the run sweep on real
- * PostgreSQL with real guards. The runner is a scripted fake; the clock is
- * injected so leases and limits expire without real time passing.
- */
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 const ADMIN = { id: `${RUN}-admin`, email: 'admin@example.com' };

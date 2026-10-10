@@ -1,10 +1,13 @@
-/**
- * The runner's GitHub REST calls, made with the bot's token. Server errors,
- * rate limits and network failures retry in process up to three times,
- * honouring Retry-After (capped); a redirect is a moved repository.
- */
-import type { AssignedRepository, RunnerFailureCode } from '@coredoc/core/agent-runner';
-import { defaultRetryDelay, GITHUB_ATTEMPTS, type RetryDelay, sleep, TurnFailure } from '../turn-failure.js';
+/** Server errors, rate limits and network failures retry in process, honouring Retry-After (capped). */
+import {
+  type AssignedRepository,
+  defaultRetryDelay,
+  type RetryDelay,
+  RunFailureCode,
+  type RunnerFailureCode,
+  RunnerStartupProblemCode,
+} from '@coredoc/core/agent-runner';
+import { GITHUB_ATTEMPTS, sleep, TurnFailure } from '../turn-failure.js';
 import type { StartupProblem } from '../runner.js';
 
 export interface ExistingPull {
@@ -12,7 +15,7 @@ export interface ExistingPull {
   open: boolean;
 }
 
-/** One create attempt: opened, refused for having no commits, or unclear (look it up before retrying). */
+/** `ambiguous`: look the pull request up before retrying. */
 export type CreateResult = { kind: 'created'; number: number } | { kind: 'no_commits' } | { kind: 'ambiguous' };
 
 const label = (repository: AssignedRepository) => `${repository.github.owner}/${repository.github.name}`;
@@ -47,34 +50,32 @@ export class GithubApi {
     this.retryDelay = options.retryDelay ?? defaultRetryDelay;
   }
 
-  /**
-   * Fails the run before any session starts when the bot is an admin or a
-   * maintainer of the repository, or cannot read it. This catches a
-   * misconfigured account; it is not a control against a compromised agent.
-   */
+  /** Catches a misconfigured bot account; it is not a control against a compromised agent. */
   async checkBotPermissions(repository: AssignedRepository): Promise<void> {
     const { owner, name } = repository.github;
     const label = `${owner}/${name}`;
     const response = await this.get(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, repository);
     if (response.status >= 300 && response.status < 400) {
-      throw new TurnFailure('repository_not_eligible', `GitHub reports that ${label} moved; update its remote.`);
+      throw new TurnFailure(
+        RunFailureCode.RepositoryNotEligible,
+        `GitHub reports that ${label} moved; update its remote.`,
+      );
     }
     if (!response.ok) {
       throw new TurnFailure(
-        'repository_not_eligible',
+        RunFailureCode.RepositoryNotEligible,
         `${label} is not readable with the bot's token (GitHub answered ${response.status}).`,
       );
     }
     const body = (await response.json().catch(() => ({}))) as { permissions?: Record<string, unknown> };
     if (body.permissions?.admin === true || body.permissions?.maintain === true) {
       throw new TurnFailure(
-        'repository_not_eligible',
+        RunFailureCode.RepositoryNotEligible,
         `The bot account has admin or maintain permission on ${label}; agent runs need an account with the Write role only.`,
       );
     }
   }
 
-  /** The repository's default branch, which a draft pull request targets. */
   async defaultBranch(repository: AssignedRepository, failure: RunnerFailureCode): Promise<string> {
     const response = await this.ok(await this.get(this.repoPath(repository), repository, failure), repository, failure);
     const body = (await response.json().catch(() => ({}))) as { default_branch?: unknown };
@@ -84,7 +85,6 @@ export class GithubApi {
     return body.default_branch;
   }
 
-  /** The run branch's pull request, open ones first; null when there is none. */
   async findPullByHead(
     repository: AssignedRepository,
     branch: string,
@@ -103,10 +103,7 @@ export class GithubApi {
     return pull ? { number: pull.number, open: pull.state === 'open' } : null;
   }
 
-  /**
-   * One create attempt, never retried here: after an ambiguous answer the
-   * caller looks the pull request up by head before trying again.
-   */
+  /** Never retried here: after an ambiguous answer the caller looks the pull request up by head first. */
   async createDraftPull(
     repository: AssignedRepository,
     pull: { title: string; body: string; head: string; base: string },
@@ -125,16 +122,22 @@ export class GithubApi {
       const body = (await response.json().catch(() => ({}))) as { message?: unknown; errors?: unknown };
       return /no commits between/i.test(JSON.stringify(body)) ? { kind: 'no_commits' } : { kind: 'ambiguous' };
     }
-    await this.ok(response, repository, 'delivery_failed');
+    await this.ok(response, repository, RunFailureCode.DeliveryFailed);
     return { kind: 'ambiguous' };
   }
 
-  /** Refreshes the body of a pull request the run reuses; a repeated update is harmless, so it retries. */
+  /** A repeated update is harmless, so it retries. */
   async updatePullBody(repository: AssignedRepository, number: number, body: string): Promise<void> {
     await this.ok(
-      await this.send('PATCH', `${this.repoPath(repository)}/pulls/${number}`, repository, 'delivery_failed', { body }),
+      await this.send(
+        'PATCH',
+        `${this.repoPath(repository)}/pulls/${number}`,
+        repository,
+        RunFailureCode.DeliveryFailed,
+        { body },
+      ),
       repository,
-      'delivery_failed',
+      RunFailureCode.DeliveryFailed,
     );
   }
 
@@ -156,7 +159,7 @@ export class GithubApi {
     throw new TurnFailure(failure, `GitHub refused a request for ${label(repository)} (HTTP ${response.status}).`);
   }
 
-  private get(path: string, repository: AssignedRepository, failure: RunnerFailureCode = 'github_error') {
+  private get(path: string, repository: AssignedRepository, failure: RunnerFailureCode = RunFailureCode.GithubError) {
     return this.send('GET', path, repository, failure);
   }
 
@@ -170,11 +173,7 @@ export class GithubApi {
     return this.fetchWithRetries(`${this.base(repository)}${path}`, repository.key, method, failure, body);
   }
 
-  /**
-   * The start-up check: why the bot account must not run, or null. An admin or
-   * maintainer of any repository it can see could change branch protection
-   * or merge, so the runner claims nothing until it has the Write role only.
-   */
+  /** An admin or maintainer could change branch protection or merge, so the bot must have the Write role only. */
   async botAccountProblem(apiBaseUrl: string): Promise<StartupProblem | null> {
     const base = apiBaseUrl.replace(/\/+$/, '');
     try {
@@ -183,7 +182,7 @@ export class GithubApi {
           `${base}/user/repos?per_page=${BOT_CHECK_PAGE_SIZE}&page=${page}`,
           'the bot account',
         );
-        if (!response.ok) return { code: 'bot_unreadable', detail: `HTTP ${response.status}` };
+        if (!response.ok) return { code: RunnerStartupProblemCode.BotUnreadable, detail: `HTTP ${response.status}` };
         const repositories = (await response.json().catch(() => [])) as Array<{
           full_name?: string;
           permissions?: Record<string, unknown>;
@@ -192,13 +191,19 @@ export class GithubApi {
           (repo) => repo.permissions?.admin === true || repo.permissions?.maintain === true,
         );
         if (elevated) {
-          return { code: 'bot_admin', ...(elevated.full_name ? { detail: elevated.full_name } : {}) };
+          return {
+            code: RunnerStartupProblemCode.BotAdmin,
+            ...(elevated.full_name ? { detail: elevated.full_name } : {}),
+          };
         }
         if (repositories.length < BOT_CHECK_PAGE_SIZE) return null;
       }
       return null;
     } catch (error) {
-      return { code: 'bot_unreadable', detail: error instanceof Error ? error.message : String(error) };
+      return {
+        code: RunnerStartupProblemCode.BotUnreadable,
+        detail: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -206,7 +211,7 @@ export class GithubApi {
     url: string,
     label: string,
     method = 'GET',
-    failure: RunnerFailureCode = 'github_error',
+    failure: RunnerFailureCode = RunFailureCode.GithubError,
     body?: unknown,
   ): Promise<Response> {
     let last = '';

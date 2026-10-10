@@ -1,9 +1,6 @@
 /**
- * Directories of a turn. The run's work and state directories are
- * deterministic absolute paths, identical in every turn and every pod:
- * Claude Code finds a session by its working directory, and the plugin keys
- * run state by absolute path. The per-turn home and temp hold tool caches and
- * git's global configuration and are never archived.
+ * The work and state paths are identical in every turn and pod: Claude Code finds a session by its
+ * working directory, and the plugin keys run state by absolute path. Home and temp are never archived.
  */
 import { existsSync, readdirSync } from 'node:fs';
 import { mkdir, readdir, rm } from 'node:fs/promises';
@@ -38,7 +35,6 @@ export async function createTurnDirectories(paths: TurnPaths): Promise<void> {
   }
 }
 
-/** True when the restored state holds the phase's session transcript, so the turn resumes it. */
 export function sessionExists(paths: TurnPaths, sessionId: string): boolean {
   const projects = join(paths.claudeConfig, 'projects');
   if (!existsSync(projects)) return false;

@@ -1,38 +1,21 @@
 /**
- * The server-owned secret-pattern list for run events: common credential
- * shapes are masked before an event is stored, so the run page does not show
- * a credential the agent read. It starts from the intent module's secret
- * pattern. The runner also masks the exact values it holds; what neither
- * catches can still reach the run page, a documented limitation.
- *
  * The text is runner-supplied, so every pattern must run in linear time on
- * hostile input and must mask a secret whole, however long:
- * - a repetition is bounded only where a required literal follows it (a URL
- *   scheme before `://`, a private-key type before `PRIVATE KEY`); a
- *   secret's own run is unbounded, so its tail is never left behind;
- * - private-key blocks are found with indexOf and JWTs by splitting a token
- *   run on its dots, both linear;
- * - each string is cut to the largest event payload first, and a token run
- *   the cut splits is dropped with it.
+ * hostile input and mask a secret whole: a repetition is bounded only where a
+ * required literal follows it, so a secret's own run is never cut short;
+ * private-key blocks and JWTs are found without regex backtracking.
  */
 
 const MASK = '[REDACTED]';
 
-/** No stored event payload is larger (a withheld workflow diff); the rest would be cut anyway. */
+/** The largest stored event payload (a withheld workflow diff). */
 export const MAX_REDACTED_CHARS = 64 * 1024;
 
-/**
- * Credential names whose assigned value is masked (`DB_PASSWORD=…`,
- * `"api_key": "…"`). Matched without a word boundary, so a name of any
- * length is caught by its suffix; the name itself is kept.
- */
+/** Matched without a word boundary, so `DB_PASSWORD` is caught by its suffix. */
 const SECRET_NAME =
   '(?:password|passwd|secret|api[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|private[_-]?key)';
 
-/** Each pattern is replaced whole, or keeps the groups named in its replacement. */
 const PATTERNS: ReadonlyArray<[RegExp, string]> = [
-  // Credentials in a URL's user-info part. The scheme is bounded (`://` follows it); user-info runs cannot
-  // overlap, because each starts after `://` and stops at the next `/`.
+  // URL user-info: the scheme is bounded because `://` follows it, and user-info runs cannot overlap.
   [/(\b[a-z][a-z0-9+.-]{0,31}:\/\/)[^\s/@:]+:[^\s/@]+@/gi, `$1${MASK}@`],
   [/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g, MASK],
   [/\bsk-[A-Za-z0-9_-]{16,}/g, MASK],
@@ -47,7 +30,6 @@ const PATTERNS: ReadonlyArray<[RegExp, string]> = [
 const PRIVATE_KEY_BEGIN = /-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----/y;
 const PRIVATE_KEY_END = /-----END [A-Z ]{0,40}PRIVATE KEY-----/y;
 
-/** The index where a marker found by `sticky` starts at or after `from`, and where it ends; null if none. */
 function findMarker(text: string, prefix: string, sticky: RegExp, from: number): [number, number] | null {
   for (let at = text.indexOf(prefix, from); at !== -1; at = text.indexOf(prefix, at + 1)) {
     sticky.lastIndex = at;
@@ -56,7 +38,7 @@ function findMarker(text: string, prefix: string, sticky: RegExp, from: number):
   return null;
 }
 
-/** Masks each private-key block; a block without its end marker is masked to the end of the text. */
+/** A block without its end marker is masked to the end of the text. */
 function maskPrivateKeys(text: string): string {
   let result = '';
   let from = 0;
@@ -70,13 +52,9 @@ function maskPrivateKeys(text: string): string {
   }
 }
 
-/** A maximal run of JWT characters, dots included; it never backtracks. */
 const TOKEN_RUN = /[A-Za-z0-9_.-]+/g;
 
-/**
- * Masks JWTs (`eyJ…` header, payload, signature) inside one token run: the
- * run is split on its dots, so each segment is read once.
- */
+/** Splits the run on its dots so each segment is read once. */
 function maskJwtsInRun(run: string): string {
   if (!run.includes('eyJ')) return run;
   const parts = run.split('.');
@@ -117,14 +95,9 @@ export function redactSecrets(text: string): string {
   return redacted;
 }
 
-/** A key that names a credential (`password`, `DB_PASSWORD`, `apiKey`): its value is masked whole. */
 const SECRET_KEY = new RegExp(`${SECRET_NAME}$`, 'i');
 
-/**
- * Masks each string, and the value of each key that names a credential: once
- * JSON is decoded, `{"password": "…"}` is two strings, which the
- * `name: value` pattern no longer sees together.
- */
+/** Decoded `{"password": "…"}` is two strings the `name: value` pattern no longer sees together. */
 function redactStrings<T>(value: T, redact: (text: string) => string): T {
   if (typeof value === 'string') return redact(value) as T;
   if (Array.isArray(value)) return value.map((item) => redactStrings(item, redact)) as T;
@@ -141,27 +114,16 @@ function redactStrings<T>(value: T, redact: (text: string) => string): T {
   return value;
 }
 
-/** Masks every string value in an event payload; keys, numbers and booleans are kept. */
 export function redactPayload<T>(value: T): T {
   return redactStrings(value, redactSecrets);
 }
 
-/** How far back from a window's end a cut is looked for. */
 const CUT_LOOKBACK = 8 * 1024;
 const TOKEN_CHAR = /[A-Za-z0-9_.~+/=-]/;
-/**
- * Where a masked secret can begin inside an unbroken token run: a token
- * pattern's leading literal, or a credential name before its `=`. (URL
- * user-info and `Bearer` contain a character no token run does.)
- */
+/** Where a secret can begin inside an unbroken token run; URL user-info and `Bearer` cannot occur in one. */
 const SECRET_START = new RegExp(`(?:gh[pousr]_|github_pat_|sk-|cdt_|AKIA|ASIA|xox[abprs]-|${SECRET_NAME})`, 'gi');
 
-/**
- * Where the window starting at `start` ends: after the last newline in its
- * tail, else after whitespace, else after a character no token contains. No
- * pattern but a private-key block spans a newline, and those are masked over
- * the whole text first.
- */
+/** Only private-key blocks span a newline, and those are masked over the whole text first. */
 function windowEnd(text: string, start: number): number {
   const end = start + MAX_REDACTED_CHARS;
   if (end >= text.length) return text.length;
@@ -176,11 +138,7 @@ function windowEnd(text: string, start: number): number {
   return last > start ? last : end;
 }
 
-/**
- * Masks text of any length without cutting it: private-key blocks over the
- * whole text, the other patterns window by window, each window ending on a
- * boundary no other pattern crosses. Linear, like redactSecrets.
- */
+/** Masks text of any length without cutting it, window by window on boundaries no pattern crosses. */
 export function redactLongText(text: string): string {
   if (text.length <= MAX_REDACTED_CHARS) return redactSecrets(text);
   const masked = maskPrivateKeys(text);
@@ -193,11 +151,7 @@ export function redactLongText(text: string): string {
   return redacted;
 }
 
-/**
- * Masks one line of a Claude Code transcript (JSONL). A JSON line is masked
- * string by string after decoding, so an escaped newline before a token does
- * not hide it; anything else is masked as text. Nothing is cut.
- */
+/** A JSON line is masked string by string after decoding, so an escaped newline cannot hide a token. */
 export function redactTranscriptLine(line: string): string {
   let parsed: unknown;
   try {

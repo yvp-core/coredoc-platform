@@ -1,7 +1,5 @@
 /**
- * Atlassian Document Format to markdown, for the PRD a scope turn hands to the
- * agent. Lossy on purpose: the agent needs the words and the structure, not
- * Jira's presentation. Text is not markdown-escaped, so literal markers the PRD
+ * Lossy on purpose. Text is not markdown-escaped, so literal markers the PRD
  * tooling writes (`[unverified]`) reach the agent unchanged; only table cell
  * pipes are escaped, because they would break the row.
  */
@@ -116,10 +114,7 @@ function isBlockNode(node: AdfNode): boolean {
   return typeof node.type === 'string' && BLOCK_TYPES.has(node.type);
 }
 
-/**
- * Legacy macros carry their body as nested ADF (as a JSON string or object in
- * their parameters); render that, else whatever text the node holds.
- */
+/** Legacy macros carry their body as nested ADF, a JSON string or object in their parameters. */
 function renderExtension(node: AdfNode): string {
   const parameters = asNode(node.attrs?.parameters) as Record<string, unknown>;
   for (const candidate of [parameters.adf, parameters.content, node.attrs?.content]) {

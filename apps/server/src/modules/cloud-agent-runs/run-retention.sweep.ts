@@ -1,14 +1,11 @@
 /**
- * The run sweep's retention job: machine-derived data (events, turns and
- * state archives) is deleted 30 days after a run ends, in bounded batches.
- * Human records — runs, spec versions, questions and answers, acceptances and
- * change requests — are never deleted here.
+ * Only machine-derived data (events, turns, state archives) is deleted; human
+ * records such as runs, spec versions and answers never are.
  */
 import type { SweepDeps } from './run-limits.sweep.js';
 
 export const RETENTION_DAYS = 30;
 const DAY_MS = 86_400_000;
-/** Rows per batch, and batches per table per tick; the next tick takes the rest. */
 const BATCH = 500;
 const MAX_BATCHES = 10;
 
@@ -83,7 +80,6 @@ async function pruneEvents(deps: SweepDeps, cutoff: Date): Promise<number> {
     DELETE FROM cloud_agent_run_events e USING selected WHERE e.id = selected.id`;
 }
 
-/** The ids whose archive (if any) is gone from the store. */
 async function withArchivesDeleted(
   deps: SweepDeps,
   rows: Array<{ id: string; state_archive_key: string | null }>,

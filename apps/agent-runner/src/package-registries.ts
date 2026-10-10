@@ -1,25 +1,18 @@
 /**
- * The runner's package-registry setting. Repositories may keep their own
- * registry configuration encrypted (a SOPS-encrypted `.npmrc`, say); the
- * runner never decrypts it. Instead each turn's home gets a user-level
- * registry configuration built from this setting, before the session starts.
- *
- * `COREDOC_PACKAGE_REGISTRIES` is a JSON object keyed by package scope
- * (`@acme`) or `default` (the unscoped registry, such as an internal mirror):
+ * The runner never decrypts a repository's own (e.g. SOPS-encrypted) registry config; each turn's
+ * home gets one built from `COREDOC_PACKAGE_REGISTRIES`, keyed by package scope or `default`:
  *
  *   { "@acme":   { "url": "https://npm.pkg.github.com", "credential": "github" },
  *     "@vendor": { "url": "https://npm.vendor.example/", "credential": "env:VENDOR_NPM_TOKEN" },
  *     "default": { "url": "https://npm-mirror.internal.example/" } }
  *
- * `github` is the bot's token (GitHub Packages accepts only a classic token
- * with package read); `env:NAME` reads a runner variable, normally from the
- * runner Secret; no credential means anonymous access.
+ * `github` is the bot's token (GitHub Packages accepts only a classic token with package read);
+ * `env:NAME` reads a runner variable; no credential means anonymous access.
  */
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export interface PackageRegistry {
-  /** `@scope`, or null for the default registry. */
   scope: string | null;
   /** Normalised with a trailing slash. */
   url: string;
@@ -98,11 +91,7 @@ function withSlash(url: string): string {
   return url.endsWith('/') ? url : `${url}/`;
 }
 
-/**
- * The user-level `.npmrc` for a turn's home, which npm, pnpm and yarn 1 all
- * read. It holds credentials, so it is owner-only, lives outside every work
- * tree and goes with the scratch volume at turn end.
- */
+/** npm, pnpm and yarn 1 all read it. It holds credentials, so it is owner-only and outside every work tree. */
 export async function writeUserRegistryConfig(home: string, registries: PackageRegistry[]): Promise<void> {
   if (registries.length === 0) return;
   const lines: string[] = [];

@@ -1,18 +1,14 @@
 /**
- * The runner's start-up check: start Claude Code through the SDK with the
- * plugin and ask for its initialize answer over the control protocol, which
- * needs no prompt and no model call (Claude Code sends its init message only
- * after a first user message). The runner claims nothing until it passes.
- * Plugin load errors surface in each session's init message instead.
+ * Uses the control protocol's initialize answer: no prompt and no model call (Claude Code sends its
+ * init message only after a first user message). Plugin load errors surface in each session's init.
  */
 import { readFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { RunnerVersions } from '@coredoc/core/agent-runner';
+import { RunnerStartupProblemCode, type RunnerVersions } from '@coredoc/core/agent-runner';
 import type { GithubApi } from '../github/github-api.js';
 import type { StartupProblem, StartupReport } from '../runner.js';
 
-/** The SDK's `query`, as the check uses it: a streaming prompt that sends nothing, then the initialize answer. */
 export type StartupQueryFn = (params: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => {
   initializationResult(): Promise<{ commands?: Array<{ name: string }> }>;
 };
@@ -39,7 +35,7 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
   if (!manifest) {
     return {
       versions: options.versions,
-      problem: { code: 'plugin_missing', detail: `No plugin manifest at ${options.pluginPath}.` },
+      problem: { code: RunnerStartupProblemCode.PluginMissing, detail: `No plugin manifest at ${options.pluginPath}.` },
     };
   }
   const versions: RunnerVersions = {
@@ -87,10 +83,13 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
     const skills = (init.commands ?? []).filter((command) => command.name.startsWith(`${manifest.name}:`));
     problem = skills.length
       ? null
-      : { code: 'plugin_skills_missing', detail: `Claude Code lists no skills from the plugin ${manifest.name}.` };
+      : {
+          code: RunnerStartupProblemCode.PluginSkillsMissing,
+          detail: `Claude Code lists no skills from the plugin ${manifest.name}.`,
+        };
   } catch (error) {
     problem = {
-      code: 'sdk_unusable',
+      code: RunnerStartupProblemCode.SdkUnusable,
       detail: abort.signal.aborted
         ? `Claude Code did not initialise within ${Math.round(timeoutMs / 1000)} s.`
         : error instanceof Error
@@ -105,10 +104,6 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
   return { versions, problem };
 }
 
-/**
- * Every start-up check: Claude Code and the plugin, then the bot account,
- * which must not be an admin or maintainer of any repository it can see.
- */
 export async function checkRunnerStartup(
   options: StartupCheckOptions & { github: GithubApi; githubApiUrl: string },
 ): Promise<StartupReport> {

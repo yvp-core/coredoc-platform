@@ -1,7 +1,7 @@
-import type { TurnAssignment } from '@coredoc/core/agent-runner';
+import { defaultRetryDelay, type TurnAssignment } from '@coredoc/core/agent-runner';
 import { type BotGithubOptions, botGithub, checkBotPermissions } from '../github/bot-github.js';
 import type { TurnExecutor, TurnIO, TurnResult } from '../runner.js';
-import { defaultRetryDelay, reportingFailures } from '../turn-failure.js';
+import { reportingFailures } from '../turn-failure.js';
 import { deliver } from './deliver.js';
 
 /** Delivery turns: no agent session and no scratch, only the bot check and draft pull requests. */

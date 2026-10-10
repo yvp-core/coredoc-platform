@@ -1,8 +1,6 @@
 /**
- * The two Jira comments an agent run posts, built directly as Atlassian
- * Document Format. They take only server-owned facts — fixed messages,
- * verified pull requests, the run link — so no agent-written text reaches
- * Jira. Each carries a run marker that a retry finds before posting again.
+ * Only server-owned facts go in, so no agent-written text reaches Jira. Each
+ * comment carries a run marker that a retry finds before posting again.
  */
 
 export interface CommentPullRequest {
@@ -21,7 +19,6 @@ const link = (value: string, href: string): AdfNode => ({
 });
 const paragraph = (...content: AdfNode[]): AdfNode => ({ type: 'paragraph', content });
 
-/** Identifies one run's comment of one kind among an issue's comments. */
 export function runMarker(runId: string, kind: 'done' | 'failure'): string {
   return `coredoc-agent-run:${runId}:${kind}`;
 }

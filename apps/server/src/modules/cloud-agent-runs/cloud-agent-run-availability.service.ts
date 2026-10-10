@@ -12,7 +12,6 @@ export interface AvailabilityReason {
 }
 
 export interface Availability {
-  /** Start, re-run, switching on and promotion need this. */
   available: boolean;
   reasons: AvailabilityReason[];
   /** The Jira trigger additionally needs a valid run owner and at least one project key. */
@@ -21,11 +20,7 @@ export interface Availability {
 
 const reason = (code: string, message: string): AvailabilityReason => ({ code, message });
 
-/**
- * Whether agent runs can start in a workspace, with every unmet condition
- * and its reason. Evaluated live; nothing is cached, so fixing a connector or
- * renewing the license takes effect at the next request or trigger tick.
- */
+/** Evaluated live, never cached, so a fix takes effect at the next request or trigger tick. */
 @Injectable()
 export class CloudAgentRunAvailability {
   constructor(

@@ -129,11 +129,9 @@ function openQuestion() {
   };
 }
 
-/** What an answer POST answers: success, or the question was answered by someone else first. */
 let answerReply: 'ok' | 'already_answered' = 'ok';
 
 let specs: ReturnType<typeof spec>[] = [];
-/** What a scope review POST answers: success, or a stale-version refusal. */
 let reviewAnswer: 'ok' | 'stale' = 'ok';
 
 let agentRunsEnabled = true;

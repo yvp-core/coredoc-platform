@@ -257,7 +257,7 @@ function AvailabilitySection({ settings }: { settings: AgentRunSettings }) {
   );
 }
 
-/** The values the form edits; the form remounts with fresh values when they change on the server. */
+/** The form remounts with fresh values when these change on the server. */
 function editableValues(settings: AgentRunSettings) {
   const { runnerTokens, availability, trigger, repositories, runOwner, enabled, ...values } = settings;
   return values;
@@ -279,7 +279,7 @@ const STATUS_EVENTS = [
 type StatusKey = (typeof STATUS_EVENTS)[number]['key'];
 type StatusValues = Record<StatusKey, string | null>;
 
-/** One event's Jira status: "No change", or a status the connector knows (the saved one is kept if it no longer lists it). */
+/** The saved status stays selectable even when the connector no longer lists it. */
 function StatusSelect({
   label,
   value,
@@ -333,7 +333,6 @@ function NumberField({
   );
 }
 
-/** Trigger label, Jira statuses, policies, budgets and model; saved in one update. */
 function SettingsForm({ wsId, settings }: { wsId: string; settings: AgentRunSettings }) {
   const queryClient = useQueryClient();
   const known = useQuery(agentRunJiraStatusesQueryOptions(wsId));
@@ -522,7 +521,6 @@ function RepositoriesSection({ repositories }: { repositories: RepositoryEligibi
   );
 }
 
-/** Admin settings for cloud agent runs: the switch, availability, the run owner, values, tokens and repositories. */
 export function AgentRunsPanel({ wsId }: { wsId: string }) {
   const queryClient = useQueryClient();
   const settings = useQuery(agentRunSettingsQueryOptions(wsId));

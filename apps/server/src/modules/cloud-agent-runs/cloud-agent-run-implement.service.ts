@@ -12,8 +12,8 @@ import type { CloudAgentRun, Prisma } from '../../generated/prisma/client.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
 import type { RunAssumption, RunRepository } from './cloud-agent-run-scope.service.js';
 import {
-  CloudAgentRunErrorCode,
   cloudAgentRunError,
+  CloudAgentRunErrorCode,
   RunEventCode,
   RunFailureCode,
   RunPhase,
@@ -25,7 +25,7 @@ import {
 import { appendRunEvents, type NewRunEvent, type Tx } from './run-store.js';
 import { failRun, queueTurn, setRunStatus } from './run-transitions.js';
 
-/** A run-level condition a claim re-checks; the run fails with the code instead of getting the turn. */
+/** The run fails with the code instead of getting the turn. */
 export class RunCheckFailure extends Error {
   constructor(
     readonly code:
@@ -39,7 +39,6 @@ export class RunCheckFailure extends Error {
   }
 }
 
-/** The adopted `submit_result` the run page and delivery read. */
 export interface RunResult {
   summary: string;
   repositories: Array<{ key: string; summary: string }>;
@@ -53,12 +52,6 @@ export function runRepositories(run: Pick<CloudAgentRun, 'repositories'>): RunRe
   return (Array.isArray(run.repositories) ? run.repositories : []) as unknown as RunRepository[];
 }
 
-/**
- * The implement phase on the server: what a claim hands the runner (clone
- * URLs, the run branch, the accepted spec), branch reservations, the stored
- * `submit_result`, and what the completion transaction records from the
- * end-of-turn push.
- */
 @Injectable()
 export class CloudAgentRunImplementService {
   constructor(
@@ -66,12 +59,8 @@ export class CloudAgentRunImplementService {
     private readonly resolver: GithubRepositoryResolver,
   ) {}
 
-  /**
-   * The repositories a turn may touch, through the shared resolver: the run's
-   * repositories in implement turns (one that stopped resolving fails the
-   * run), its seeds in scope turns (for the runner's bot permission check).
-   */
-  async repositoriesFor(run: CloudAgentRun, kind: string): Promise<AssignedRepository[]> {
+  /** Scope turns get the seeds, for the runner's bot permission check. */
+  async repositoriesFor(run: CloudAgentRun, kind: RunPhase): Promise<AssignedRepository[]> {
     if (kind === RunPhase.Implement) {
       const repositories = [...runRepositories(run)].sort((a, b) => a.mergeOrder - b.mergeOrder);
       const assigned: AssignedRepository[] = [];
@@ -112,7 +101,7 @@ export class CloudAgentRunImplementService {
     return seeds;
   }
 
-  /** The accepted spec and its acceptance record, which the plugin's implement route takes as approval. */
+  /** The plugin's implement route takes the acceptance record as approval. */
   async acceptedSpec(run: CloudAgentRun): Promise<TurnAssignment['acceptedSpec']> {
     const spec = await this.prisma.cloudAgentRunSpecVersion.findFirst({
       where: { workspaceId: run.workspaceId, runId: run.id, status: SpecStatus.Accepted },
@@ -134,7 +123,6 @@ export class CloudAgentRunImplementService {
     };
   }
 
-  /** Rules a `submit_result` must meet; each goes back to the agent to fix. */
   validateResult(run: CloudAgentRun, result: SubmitResult): string[] {
     const keys = new Set(runRepositories(run).map((repository) => repository.key));
     const unknown = [
@@ -146,7 +134,7 @@ export class CloudAgentRunImplementService {
     );
   }
 
-  /** Stored on the turn; the completion transaction adopts it. A repeated call replaces it. */
+  /** The completion transaction adopts it; a repeated call replaces it. */
   async saveResult(tx: Tx, turnId: string, result: SubmitResult): Promise<void> {
     await tx.cloudAgentRunTurn.update({
       where: { id: turnId },
@@ -154,7 +142,7 @@ export class CloudAgentRunImplementService {
     });
   }
 
-  /** Records that this run creates the run branch in a repository, before the runner's first push there. */
+  /** Recorded before the runner's first push to the repository. */
   async reserveBranch(tx: Tx, run: CloudAgentRun, key: string): Promise<void> {
     const repositories = runRepositories(run);
     const repository = repositories.find((candidate) => candidate.key === key);
@@ -190,11 +178,7 @@ export class CloudAgentRunImplementService {
     }
   }
 
-  /**
-   * Records the end-of-turn push: a reported head on a reserved run branch
-   * marks the repository touched. Withheld paths replace the previous turn's;
-   * a withheld workflow diff goes on the timeline with its larger cap.
-   */
+  /** Withheld paths replace the previous turn's; a withheld workflow diff gets its larger cap. */
   async recordReports(
     tx: Tx,
     run: CloudAgentRun,
@@ -248,12 +232,13 @@ export class CloudAgentRunImplementService {
     });
   }
 
-  /**
-   * An implement turn that recorded `submit_result`: the run adopts the
-   * result and moves to delivery when a repository was touched, or fails
-   * with `no_changes`. Null when the turn recorded no result.
-   */
-  async settleResult(tx: Tx, run: CloudAgentRun, turnId: string, at: Date): Promise<string | null> {
+  /** Fails the run with `no_changes` when no repository was touched. */
+  async settleResult(
+    tx: Tx,
+    run: CloudAgentRun,
+    turnId: string,
+    at: Date,
+  ): Promise<TurnOutcome | RunFailureCode | null> {
     const turn = await tx.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turnId }, select: { result: true } });
     if (!turn.result) return null;
     const result = turn.result as unknown as SubmitResult;
@@ -284,7 +269,6 @@ export class CloudAgentRunImplementService {
     return TurnOutcome.ResultSubmitted;
   }
 
-  /** A repository key through the shared resolver: its clone URL and API coordinates, or why it does not resolve. */
   async resolve(workspaceId: string, key: string): Promise<Pick<AssignedRepository, 'cloneUrl' | 'github'> | string> {
     try {
       const resolved = await this.resolver.resolve(workspaceId, key);

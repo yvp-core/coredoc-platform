@@ -6,7 +6,14 @@ import { GithubRepositoryResolver } from '../../libs/github/github-repository-re
 import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
 import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js';
 import type { UpdateSettingsInput } from './cloud-agent-runs.contract.js';
-import { CloudAgentRunErrorCode, cloudAgentRunError, RunnerRefusal } from './run-states.js';
+import {
+  cloudAgentRunError,
+  CloudAgentRunErrorCode,
+  QuestionsPolicy,
+  RunnerRefusal,
+  RunnerSeenAction,
+  ScopeAcceptancePolicy,
+} from './run-states.js';
 import { CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock } from './run-store.js';
 
 const ADMIN_ROLES = new Set(['admin', 'owner']);
@@ -22,8 +29,8 @@ function defaultSettings(workspaceId: string): AgentRunSettings {
     doneStatus: null,
     failedStatus: null,
     cancelledStatus: null,
-    questionsPolicy: 'pause',
-    scopeAcceptancePolicy: 'required',
+    questionsPolicy: QuestionsPolicy.Pause,
+    scopeAcceptancePolicy: ScopeAcceptancePolicy.Required,
     maxSpendUsd: 25,
     maxTurnDurationSeconds: 3 * 3600,
     maxActiveSeconds: 24 * 3600,
@@ -50,11 +57,7 @@ export class CloudAgentRunSettingsService {
     return (await this.prisma.agentRunSettings.findUnique({ where: { workspaceId } })) ?? defaultSettings(workspaceId);
   }
 
-  /**
-   * Switching on needs agent runs to be available, and records the caller as
-   * run owner; so does an explicit takeover. Saving anything else never
-   * changes the owner.
-   */
+  /** Switching on, or an explicit takeover, records the caller as run owner; nothing else changes it. */
   async update(workspaceId: string, actorId: string, input: UpdateSettingsInput) {
     const { enabled, takeOverOwnership, ...values } = input;
     const before = await this.get(workspaceId);
@@ -84,10 +87,7 @@ export class CloudAgentRunSettingsService {
     return this.view(workspaceId);
   }
 
-  /**
-   * The statuses the workspace's Jira connector already knows, from its
-   * Delivery analytics status map: the choices for the status settings.
-   */
+  /** From the connector's Delivery analytics status map. */
   async jiraStatuses(workspaceId: string): Promise<{ statuses: string[] }> {
     const state = await this.jira.state(workspaceId);
     if (state.status === 'missing') return { statuses: [] };
@@ -99,11 +99,6 @@ export class CloudAgentRunSettingsService {
     return { statuses: statuses.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })) };
   }
 
-  /**
-   * The settings page: values, availability and trigger readiness with
-   * reasons, the run owner with its validity, every runner token with its last
-   * report, and the repositories with their keys and eligibility.
-   */
   async view(workspaceId: string) {
     const settings = await this.get(workspaceId);
     const [availability, repositories] = await Promise.all([
@@ -169,7 +164,7 @@ export class CloudAgentRunSettingsService {
           !creator || !ADMIN_ROLES.has(creator.role)
             ? RunnerRefusal.CreatorNotAdmin
             : seen?.refusedReason
-              ? seen.lastAction === 'startup_check'
+              ? seen.lastAction === RunnerSeenAction.StartupCheck
                 ? RunnerRefusal.StartupCheckFailed
                 : RunnerRefusal.RunnerIncompatible
               : null;
