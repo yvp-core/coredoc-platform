@@ -1292,7 +1292,9 @@ describe('Response Formatter', () => {
       });
 
       it('lists only contributing repos and collapses the rest', () => {
-        const els: CodeElementInfo[] = [{ name: 'f', filePath: 'a.ts', startLine: 1, type: 'function', id: 'h1:function:a.ts:f' }];
+        const els: CodeElementInfo[] = [
+          { name: 'f', filePath: 'a.ts', startLine: 1, type: 'function', id: 'h1:function:a.ts:f' },
+        ];
         const body = formatCodeElementList(els, 'R', multi()).data as string;
         expect(body).toContain('> snapshot alpha@abcdef1 · 2024-01-15');
         expect(body).toContain('> 2 other repos in scope · parsed 2024-01-10–2024-01-20 · see describe_repository');
