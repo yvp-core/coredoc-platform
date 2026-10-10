@@ -65,7 +65,7 @@ export function docsDir(outputBase: string, projectId: string, repoName: string)
  * `coredoc-output/`, whose layout migration deletes entries no project claims —
  * a live database inside a directory with an orphan sweep is a data-loss trap.
  */
-export const PROJECT_DB_DIRNAME = 'coredoc.db.d';
+const PROJECT_DB_DIRNAME = 'coredoc.db.d';
 
 /** Mirrors `schema/coredoc.schema.json`'s project id constraint. */
 const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;

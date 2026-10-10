@@ -5,9 +5,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ParsedRepo } from '@coredoc/core/types';
 import { afterAll, describe, expect, it } from 'vitest';
-import { entitySourceCount, externalCallsSourceCount, queueSourceCount } from './score.js';
 import { emittedLocationsFromRepo, operatedEntityCount } from './scoring/score-core.js';
-import { tsSourceSignals } from './scoring/ts-signals.js';
+import {
+  entitySourceCount,
+  externalCallsSourceCount,
+  queueSourceCount,
+  tsSourceSignals,
+} from './scoring/ts-signals.js';
 import type { EntityRule, ExtractionProfile } from './types.js';
 
 /**

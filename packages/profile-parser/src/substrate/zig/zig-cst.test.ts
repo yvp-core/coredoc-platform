@@ -28,11 +28,11 @@ import {
   isTypeConstructor,
   namedChildrenOfType,
   parameterFacts,
-  parseZig,
   referencesSelf,
   returnTypeText,
   returnedContainer,
 } from './zig-cst.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 const SOURCE = `const std = @import("std");
 
@@ -66,7 +66,7 @@ fn make() type {
 `;
 
 async function root(): Promise<TsNode> {
-  return await parseZig(SOURCE);
+  return await parseSource('zig', SOURCE);
 }
 
 function varDecl(node: TsNode, name: string): TsNode {
@@ -140,7 +140,7 @@ describe('zig-cst', () => {
   it('reports the phantom field of an empty container as no field at all', async () => {
     // `struct {}` / `enum {}` parse with ONE zero-width `container_field` whose `name` is an
     // empty `identifier`; trusting it emitted a property named '' (and a colliding id).
-    const r = await parseZig('const Empty = struct {};\nconst Nothing = enum {};\n');
+    const r = await parseSource('zig', 'const Empty = struct {};\nconst Nothing = enum {};\n');
     const empty = containerOf(varDecl(r, 'Empty')) as TsNode;
     const nothing = containerOf(varDecl(r, 'Nothing')) as TsNode;
     expect(namedChildrenOfType(empty, 'container_field')).toHaveLength(1);
@@ -151,7 +151,7 @@ describe('zig-cst', () => {
   it('tells an identifier-typed tuple element from a typeless union member by the container', async () => {
     // Both shapes are `[name=identifier]` with no `type` field; only the parent container
     // distinguishes them, since a struct field is never typeless in Zig.
-    const r = await parseZig('const T = struct { Foo, Foo };\nconst U = union(enum) { a, b: u32 };\n');
+    const r = await parseSource('zig', 'const T = struct { Foo, Foo };\nconst U = union(enum) { a, b: u32 };\n');
     const t = containerOf(varDecl(r, 'T')) as TsNode;
     expect(namedChildrenOfType(t, 'container_field').map(fieldFacts)).toEqual([
       { kind: 'positional', typeText: 'Foo', defaultValue: undefined },
@@ -165,7 +165,7 @@ describe('zig-cst', () => {
   });
 
   it('reports a tuple field as positional, carrying the type the grammar labelled `name`', async () => {
-    const r = await parseZig('const Pair = struct { []const u8, u32 };\n');
+    const r = await parseSource('zig', 'const Pair = struct { []const u8, u32 };\n');
     const pair = containerOf(varDecl(r, 'Pair')) as TsNode;
     expect(namedChildrenOfType(pair, 'container_field').map(fieldFacts)).toEqual([
       { kind: 'positional', typeText: '[]const u8', defaultValue: undefined },
@@ -231,7 +231,7 @@ test "in a test block" {
 `;
 
 async function exprRoot(): Promise<TsNode> {
-  return await parseZig(EXPR_SOURCE);
+  return await parseSource('zig', EXPR_SOURCE);
 }
 
 /** The n-th `call_expression` in source order (`try`/`@…` wrappers included). */
@@ -336,7 +336,7 @@ describe('MAX_CST_DEPTH — recursion cap (DoS)', () => {
     // Node depth is attacker-controlled: one `binary_expression` per operand. Uncapped, this
     // overflows the stack and takes the whole parse down.
     const chain = Array(6000).fill('"a"').join(' ++ ');
-    const root = await parseZig(`const sql = ${chain};\n`);
+    const root = await parseSource('zig', `const sql = ${chain};\n`);
     const concat = (root.descendantsOfType('binary_expression') as TsNode[])[0];
 
     expect(() => sqlText(concat)).not.toThrow();

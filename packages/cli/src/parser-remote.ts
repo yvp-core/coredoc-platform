@@ -8,7 +8,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'node:crypto';
-import { getToken, getServerUrl } from './auth.js';
+import { gunzipSync, gzipSync } from 'node:zlib';
+import { authHeaders, getServerUrl } from './auth.js';
 
 // =============================================================================
 // Types
@@ -73,7 +74,6 @@ export async function createParserArchive(baseDir: string, files: string[]): Pro
   tarChunks.push(Buffer.alloc(1024, 0));
 
   const tarBuffer = Buffer.concat(tarChunks);
-  const { gzipSync } = await import('node:zlib');
   return normalizeGzipHeader(gzipSync(tarBuffer));
 }
 
@@ -131,28 +131,8 @@ function createTarHeader(fileName: string, size: number): Buffer {
 /**
  * Extract a tar.gz archive to a directory.
  */
-async function extractTarGz(data: Buffer, targetDir: string): Promise<void> {
-  const { createGunzip } = await import('node:zlib');
-  const { Readable, Writable } = await import('node:stream');
-  const { pipeline } = await import('node:stream/promises');
-
-  const gunzipped: Buffer[] = [];
-  const gunzip = createGunzip();
-  const input = new Readable({
-    read() {
-      this.push(data);
-      this.push(null);
-    },
-  });
-  const collector = new Writable({
-    write(chunk, _encoding, cb) {
-      gunzipped.push(chunk);
-      cb();
-    },
-  });
-
-  await pipeline(input, gunzip, collector);
-  const tarData = Buffer.concat(gunzipped);
+function extractTarGz(data: Buffer, targetDir: string): void {
+  const tarData = gunzipSync(data);
 
   fs.mkdirSync(targetDir, { recursive: true });
 
@@ -188,18 +168,6 @@ async function extractTarGz(data: Buffer, targetDir: string): Promise<void> {
     // Advance past file content + padding
     offset += Math.ceil(size / 512) * 512;
   }
-}
-
-// =============================================================================
-// Auth helpers
-// =============================================================================
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const token = await getToken();
-  if (!token) {
-    throw new Error('Not authenticated. Run: coredoc login (or set COREDOC_TOKEN env var)');
-  }
-  return { Authorization: `Bearer ${token}` };
 }
 
 // =============================================================================
@@ -241,10 +209,10 @@ export async function pushParserToServer(
 
   // Check remote version before uploading
   const serverUrl = options.serverUrl ?? (await getServerUrl());
-  const authHeaders = options.authToken ? { Authorization: `Bearer ${options.authToken}` } : await getAuthHeaders();
+  const auth = options.authToken ? { Authorization: `Bearer ${options.authToken}` } : await authHeaders();
 
   const metaUrl = `${serverUrl}/api/v1/workspaces/${workspaceId}/parsers/${repoName}/meta`;
-  const metaRes = await fetch(metaUrl, { headers: authHeaders });
+  const metaRes = await fetch(metaUrl, { headers: auth });
   if (metaRes.ok) {
     const remoteMeta = (await metaRes.json()) as { version?: string };
     if (remoteMeta.version) {
@@ -262,7 +230,7 @@ export async function pushParserToServer(
       const uploadUrl = `${serverUrl}/api/v1/workspaces/${workspaceId}/parsers/${repoName}`;
       const uploadRes = await fetch(uploadUrl, {
         method: 'POST',
-        headers: { ...authHeaders, 'Content-Type': 'application/octet-stream' },
+        headers: { ...auth, 'Content-Type': 'application/octet-stream' },
         body: tarGz,
       });
 
@@ -284,7 +252,7 @@ export async function pushParserToServer(
   const uploadUrl = `${serverUrl}/api/v1/workspaces/${workspaceId}/parsers/${repoName}`;
   const uploadRes = await fetch(uploadUrl, {
     method: 'POST',
-    headers: { ...authHeaders, 'Content-Type': 'application/octet-stream' },
+    headers: { ...auth, 'Content-Type': 'application/octet-stream' },
     body: tarGz,
   });
 
@@ -308,12 +276,12 @@ export async function pullParserFromServer(options: ParserPullOptions): Promise<
   const { workspaceId, repoName, targetDir } = options;
 
   const serverUrl = await getServerUrl();
-  const authHeaders = await getAuthHeaders();
+  const auth = await authHeaders();
 
   console.log(`Fetching parser for "${repoName}"...`);
 
   const url = `${serverUrl}/api/v1/workspaces/${workspaceId}/parsers/${repoName}`;
-  const res = await fetch(url, { headers: authHeaders });
+  const res = await fetch(url, { headers: auth });
 
   if (!res.ok) {
     if (res.status === 404) {
@@ -329,7 +297,7 @@ export async function pullParserFromServer(options: ParserPullOptions): Promise<
 
   // Extract to target directory
   const parserDir = path.join(targetDir, repoName);
-  await extractTarGz(buffer, parserDir);
+  extractTarGz(buffer, parserDir);
 
   console.log(`Parser extracted to ${parserDir} (v${version})`);
   return { version };
@@ -344,10 +312,10 @@ export async function pullParserFromServer(options: ParserPullOptions): Promise<
  */
 export async function listRemoteParsers(workspaceId: string): Promise<RemoteParserInfo[]> {
   const serverUrl = await getServerUrl();
-  const authHeaders = await getAuthHeaders();
+  const auth = await authHeaders();
 
   const url = `${serverUrl}/api/v1/workspaces/${workspaceId}/parsers`;
-  const res = await fetch(url, { headers: authHeaders });
+  const res = await fetch(url, { headers: auth });
 
   if (!res.ok) {
     throw new Error(`Failed to list parsers (${res.status}): ${await res.text()}`);

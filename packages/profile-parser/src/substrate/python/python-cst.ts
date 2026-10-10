@@ -14,7 +14,7 @@
  *      hundreds of distinct functions and corrupt the call graph (spec Decision 2026-07-24).
  */
 import type { StableIdGenerator } from '@coredoc/core';
-import { TreeSitterLoader, type TsNode } from '../../tree-sitter/tree-sitter-loader.js';
+import { type TsNode } from '../../tree-sitter/tree-sitter-loader.js';
 import { makeFileScopeDiscoverer } from '../cst-kit/file-scope.js';
 import { makeScopeChainId } from '../cst-kit/scope.js';
 import { makeStringValueReader } from '../cst-kit/strings.js';
@@ -28,11 +28,6 @@ export interface PythonFile {
   relPath: string;
   source: string;
   root: TsNode;
-}
-
-/** Parse Python source and return the root node. The loader memoises the Parser per grammar. */
-export async function parsePython(source: string): Promise<TsNode> {
-  return (await TreeSitterLoader.getInstance().getParser('python')).parse(source).rootNode;
 }
 
 // tree-sitter-python node types the substrate depends on.
@@ -261,28 +256,13 @@ export const PY_SOURCE_EXTENSIONS = ['.py', '.pyi'] as const;
 /** Default include globs — every Python source extension, repo-wide. */
 export const DEFAULT_PY_INCLUDES: string[] = ['**/*.py', '**/*.pyi'];
 
-/** Whether a repo-relative path is a Python source this substrate parses. */
-export function isPythonSourcePath(rel: string): boolean {
-  return PY_SOURCE_EXTENSIONS.some((ext) => rel.endsWith(ext));
-}
-
 /**
- * Enumerate Python sources in scope: the gitignore-honoring repo walk (`enumerateRepoFiles`)
- * filtered to `.py`/`.pyi` + the profile's include/exclude globs. An empty `include` defaults to
+ * Python sources in scope: the gitignore-honoring repo walk (`enumerateRepoFiles`) filtered to
+ * `.py`/`.pyi` + the profile's include/exclude globs. An empty `include` defaults to
  * `DEFAULT_PY_INCLUDES`; the effective exclude is `DEFAULT_PY_EXCLUDES` plus the profile's
- * `exclude` unless `excludeDefaults === false`, when only the profile's `exclude` applies. Sorted
- * for deterministic output.
+ * `exclude` unless `excludeDefaults === false`, when only the profile's `exclude` applies. Shared
+ * by the parser and the scorer.
  */
-export function discoverPythonFiles(
-  root: string,
-  include: string[],
-  exclude: string[] = [],
-  excludeDefaults?: boolean,
-): string[] {
-  return discoverPythonFileScope(root, include, exclude, excludeDefaults).included;
-}
-
-/** The scorer-facing source scope, derived by the same discovery policy as the parser. */
 export const discoverPythonFileScope = makeFileScopeDiscoverer({
   extensions: PY_SOURCE_EXTENSIONS,
   defaultInclude: DEFAULT_PY_INCLUDES,

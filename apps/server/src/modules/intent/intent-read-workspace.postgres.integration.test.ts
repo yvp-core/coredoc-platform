@@ -8,7 +8,7 @@
  * nodes with their reasons, search, relation
  * writes, and relation cleanup when a feature is deleted.
  */
-import 'dotenv/config';
+import '../../config/load-env.js';
 import type { ExecutionContext, INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';

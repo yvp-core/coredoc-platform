@@ -183,23 +183,6 @@ export function lookupSdkByPackage(modulePath: string): SdkPackage | undefined {
 }
 
 /**
- * Framework HTTP helper names that mean "make an HTTP request to my own
- * backend with this path". Plugins must opt in by calling
- * `tryEmitFrameworkHttpCall(ctx, { helperNames })` — we do NOT auto-detect
- * these because identifiers like `get`/`post` collide with countless
- * non-HTTP usages.
- */
-export const FRAMEWORK_HTTP_HELPER_DEFAULTS: ReadonlyArray<string> = [
-  'get',
-  'post',
-  'put',
-  'patch',
-  'delete',
-  'head',
-  'options',
-];
-
-/**
  * Match-shape returned by the in-parser SDK detector when a call site
  * resolves to a known SDK package.
  */

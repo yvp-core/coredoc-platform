@@ -24,7 +24,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Segmented } from '@/components/ui/segmented';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { runnerRefusalText, runnerVersionsText } from '@/features/agent-runs/agent-run-presentation';
 import type {
@@ -266,9 +266,6 @@ function editableValues(settings: AgentRunSettings) {
 const HOUR = 3600;
 const DAY = 86_400;
 
-/** Radix Select items need a non-empty value; this one stands for "no transition". */
-const NO_CHANGE = '__no_change__';
-
 const STATUS_EVENTS = [
   { key: 'startedStatus', label: 'Started status' },
   { key: 'doneStatus', label: 'Done status' },
@@ -295,18 +292,13 @@ function StatusSelect({
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-[13px] font-medium text-ink-2">{label}</span>
-      <Select value={value ?? NO_CHANGE} onValueChange={(next) => onChange(next === NO_CHANGE ? null : next)}>
-        <SelectTrigger aria-label={label}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={NO_CHANGE}>No change</SelectItem>
-          {options.map((status) => (
-            <SelectItem key={status} value={status}>
-              {status}
-            </SelectItem>
-          ))}
-        </SelectContent>
+      <Select value={value ?? ''} onValueChange={(next) => onChange(next || null)} aria-label={label}>
+        <option value="">No change</option>
+        {options.map((status) => (
+          <option key={status} value={status}>
+            {status}
+          </option>
+        ))}
       </Select>
     </div>
   );
@@ -549,7 +541,7 @@ export function AgentRunsPanel({ wsId }: { wsId: string }) {
             checked={enabled}
             disabled={settings.isPending || update.isPending}
             aria-label="Enable agent runs"
-            onCheckedChange={(next) => update.mutate({ wsId, enabled: next })}
+            onChange={(event) => update.mutate({ wsId, enabled: event.target.checked })}
           />
         }
       />

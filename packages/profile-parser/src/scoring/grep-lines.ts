@@ -4,7 +4,8 @@
 // Every `*-signals.ts` counts denominators the same way — run `grep -rEcH` over the profile's
 // include roots, sum the per-file `path:count` lines, drop the ones under test/vendor/build
 // noise — and each one owns a different noise pattern and a different error policy. Only the
-// LINE READING is shared here; the patterns and the failure handling stay with each language.
+// LINE READING (and the ERE literal escapes) is shared here; the patterns and the failure
+// handling stay with each language.
 //
 // `-H` is load-bearing: GNU grep omits the `path:` prefix when the operand is a single
 // explicit FILE (BSD grep prints it under -r regardless), and this parser drops any line
@@ -42,4 +43,20 @@ export function sumGrepCounts(out: string, roots: string[], noise: RegExp): numb
     if (!noise.test(rel)) total += Number(m[1]);
   }
   return total;
+}
+
+/** Escape ERE metacharacters in a literal (e.g. `models.Model` → `models\.Model`). */
+export function escapeEre(s: string): string {
+  return s.replace(/[.[\]{}()*+?^$|\\/]/g, '\\$&');
+}
+
+/** A case-insensitive ERE for an ASCII literal — POSIX ERE has no `(?i)` and `grep -E` has no `-i` here. */
+export function caseInsensitiveEre(word: string): string {
+  return [...word]
+    .map((ch) => {
+      const lower = ch.toLowerCase();
+      const upper = ch.toUpperCase();
+      return lower === upper ? escapeEre(ch) : `[${lower}${upper}]`;
+    })
+    .join('');
 }

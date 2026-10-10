@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { DEFAULT_PY_EXCLUDES, discoverPythonFiles } from './python-cst.js';
+import { DEFAULT_PY_EXCLUDES, discoverPythonFileScope } from './python-cst.js';
 
 /** A repo tree with the standard Python noise dirs plus real sources under app/. */
 const TREE = [
@@ -35,9 +35,9 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-describe('discoverPythonFiles — S3 file discovery & exclusions', () => {
+describe('discoverPythonFileScope — S3 file discovery & exclusions', () => {
   it('returns ONLY normal .py/.pyi sources under the default excludes', () => {
-    const files = discoverPythonFiles(root, []);
+    const files = discoverPythonFileScope(root, []).included;
     expect(files).toEqual(['app/stubs.pyi', 'app/x.py', 'app/y.py']);
     // A stub under an excluded tree stays excluded — the extension is not a bypass.
     expect(files).not.toContain('venv/lib/z.pyi');
@@ -58,7 +58,7 @@ describe('discoverPythonFiles — S3 file discovery & exclusions', () => {
   });
 
   it('excludeDefaults:false restores venv/migrations/pb2 (node_modules stays pruned by the enumerator floor)', () => {
-    const files = discoverPythonFiles(root, [], [], false);
+    const files = discoverPythonFileScope(root, [], [], false).included;
     expect(files).toContain('venv/lib/z.py');
     expect(files).toContain('.venv/lib/z2.py');
     expect(files).toContain('site-packages/pkg/s.py');
@@ -71,16 +71,16 @@ describe('discoverPythonFiles — S3 file discovery & exclusions', () => {
   });
 
   it('a profile exclude EXTENDS the defaults', () => {
-    const files = discoverPythonFiles(root, [], ['**/y.py', '**/*.pyi']);
+    const files = discoverPythonFileScope(root, [], ['**/y.py', '**/*.pyi']).included;
     expect(files).toEqual(['app/x.py']);
   });
 
   it('an include of only **/*.py leaves stubs out (the profile decides)', () => {
-    expect(discoverPythonFiles(root, ['**/*.py'])).toEqual(['app/x.py', 'app/y.py']);
+    expect(discoverPythonFileScope(root, ['**/*.py']).included).toEqual(['app/x.py', 'app/y.py']);
   });
 
   it('an explicit include narrows the scope', () => {
-    const files = discoverPythonFiles(root, ['app/x.py']);
+    const files = discoverPythonFileScope(root, ['app/x.py']).included;
     expect(files).toEqual(['app/x.py']);
   });
 

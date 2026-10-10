@@ -61,7 +61,7 @@ import { useCatalogueList } from './use-catalogue-list.js';
 import { useDocumentReview } from './use-document-review.js';
 import { useTreeWrites } from './use-tree-writes.js';
 
-export interface IntentPanelProps {
+interface IntentPanelProps {
   workspaceId: string;
   role: string;
   selectedItemId: string | null;

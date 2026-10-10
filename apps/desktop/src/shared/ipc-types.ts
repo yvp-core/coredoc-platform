@@ -17,12 +17,44 @@ import type {
   NodeDetail,
   NeighborPage,
   VizNodePage,
-  DeadCodePage,
   GraphCapabilities,
   WorkspaceRepoRef,
   CypherGraphResult,
 } from '@coredoc/core';
-import type { AgentRunAnswer, AgentRunEventEnvelope, AgentRunSnapshot } from './agent-run-types';
+import {
+  type AnalyticsWindow,
+  AnalyticsWindowKind,
+  type CanonicalArtifactCheckpoint,
+  type CanonicalArtifactItem,
+  type CanonicalArtifactKind,
+  type CanonicalArtifactRevisionsResponse,
+  type CanonicalCodeChangeItem,
+  type CanonicalCursorPage,
+  type CanonicalDeliveryLifecycle,
+  type CanonicalDeliveryOutcome,
+  type CanonicalDeliverySummary,
+  type CanonicalExternalRefItem,
+  type CanonicalExternalRefStateFactItem,
+  type CanonicalReworkSignalItem,
+  type CanonicalRunItem,
+  type CanonicalShipEvidenceItem,
+  type CanonicalStageOccurrenceItem,
+  type CanonicalTaskDetail,
+  type CanonicalTaskSummariesResponse,
+  type CanonicalWorkflowOutcome,
+  type DeliveryLifecycleFilter,
+  type FeedbackIssueType,
+  type FeedbackMisleadingMetadata,
+  type FeedbackRecordsFilter,
+  type FeedbackReviewStatus,
+  type FeedbackSessionIssueArea,
+  type FeedbackSessionIssueType,
+  FeedbackSort,
+  MAX_ANALYTICS_DAYS,
+  SortOrder,
+  type WorkspaceUsageAnalytics,
+} from '@coredoc/core/browser/analytics';
+import type { AgentRunAnswer, AgentRunEventEnvelope } from './agent-run-types';
 import type {
   IntentAnchorRefreshInput,
   IntentAnchorRefreshResponse,
@@ -59,7 +91,7 @@ import type {
   IntentTreeResponse,
 } from './intent-types';
 
-export type { AgentRunAnswer, AgentRunEventEnvelope, AgentRunSnapshot };
+export type { AgentRunAnswer, AgentRunEventEnvelope };
 
 // =============================================================================
 // Config IPC
@@ -95,7 +127,6 @@ export interface CoredocConfigSerialized {
   sharedPackages?: SharedPackageSerialized[];
   output: OutputConfigSerialized;
   parserStorage: string;
-  agentMode: 'interactive' | 'auto';
   exclude?: string[];
 }
 
@@ -108,15 +139,6 @@ export interface ProjectConfigSerialized {
   sharedPackages?: SharedPackageSerialized[];
   cloud?: CloudSyncState;
 }
-
-/**
- * Workspace cloud state machine:
- * - LocalOnly: full local workflow not yet complete on all repos
- * - TeamUnlocked: all repos completed workflow, Team MCP button visible
- * - CloudOwner: workspace marked cloud:true, owner can sync
- * - CloudMember: user is member (not owner), read-only + MCP config
- */
-export type WorkspaceCloudState = 'LocalOnly' | 'TeamUnlocked' | 'CloudOwner' | 'CloudMember';
 
 export type { CloudSyncState };
 
@@ -570,26 +592,6 @@ export interface DocsListResult {
   error?: string;
 }
 
-export interface DocContentResult {
-  success: boolean;
-  content?: string;
-  error?: string;
-}
-
-export interface DocsPromptOption {
-  prompt: string;
-  label: string;
-  category: string;
-  domain?: 'mobile' | 'blockchain';
-}
-
-export interface DocsPromptCatalogResult {
-  success: boolean;
-  prompts?: DocsPromptOption[];
-  sourceDagPath?: string;
-  error?: string;
-}
-
 // =============================================================================
 // Graph explorer IPC
 // =============================================================================
@@ -612,7 +614,6 @@ export type {
   NodeDetail,
   NeighborPage,
   VizNodePage,
-  DeadCodePage,
   GraphCapabilities,
   WorkspaceRepoRef,
   CypherGraphResult,
@@ -834,32 +835,10 @@ export interface DialogSelectTemplateFileResult {
 // Observability IPC (cloud dashboards + Claude Code OTLP telemetry)
 // =============================================================================
 
-/** One day bucket in a metrics timeseries — mirrors MetricsService TimeseriesPoint. */
-export interface TimeseriesPoint {
-  date: string;
-  value: number;
-}
-
-/**
- * Workspace usage analytics — mirrors the server `usage-analytics.contract.ts`
- * 1:1. One aggregate read per (workspace, days) backs the Analytics Usage view;
- * every field is projected at the MAIN trust boundary before it crosses IPC.
- */
-
-/** Mirrors the server `UsageWindow` — one UTC-day-aligned basis for every composed read (BR-16). */
-/** Mirror of the server's analytics window ceiling (LIM-4): the largest day-selector value. */
-export const MAX_ANALYTICS_DAYS = 90;
-
-/** Selector the analytics reads are requested under: a rolling day count, or an explicit UTC calendar range. */
-export enum AnalyticsWindowKind {
-  Days = 'days',
-  Custom = 'custom',
-}
-
-export type AnalyticsWindow =
-  | { kind: AnalyticsWindowKind.Days; days: number }
-  /** `since`/`until` are inclusive UTC calendar days, `YYYY-MM-DD`. */
-  | { kind: AnalyticsWindowKind.Custom; since: string; until: string };
+// The Usage and Delivery v2 wire DTOs are shared with the web app. Every field is
+// projected at the MAIN trust boundary before it crosses IPC; the declarations
+// below are the desktop-only additions and the IPC shapes that differ from the wire.
+export * from '@coredoc/core/browser/analytics';
 
 const UTC_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86_400_000;
@@ -902,204 +881,6 @@ export function analyticsWindowParams(window: AnalyticsWindow): Record<string, s
     : { since: window.since, until: window.until };
 }
 
-export interface UsageWindow {
-  days: number;
-  since: string;
-  until: string;
-  previousSince: string;
-}
-
-/** Mirrors the server `UsageCounter` — current window against the preceding window of equal length. */
-export interface UsageCounter {
-  current: number;
-  previous: number;
-}
-
-/** Mirrors the server `UsageSpend` — price-map estimate with explicit unpriced counters (BR-1, LIM-1). */
-export interface UsageSpend {
-  currentUsd: number | null;
-  previousUsd: number | null;
-  unpricedSessions: number;
-  sessionsWithoutUsage: number;
-}
-
-/** Mirrors the server `UsageDevelopers`. */
-export interface UsageDevelopers {
-  current: number;
-  usingCoredoc: number;
-}
-
-/** Mirrors the server `UsageToolRow` — one MCP tool's call quality (BR-3). */
-export interface UsageToolRow {
-  toolName: string;
-  calls: number;
-  errorRate: number;
-  avgMs: number;
-  /** null when no classified (result_count IS NOT NULL) calls exist for the tool */
-  emptyRate: number | null;
-  classifiedCalls: number;
-}
-
-/**
- * Mirrors the server `UsageAdoption`: server-observed MCP figures plus one session median.
- * Host `coredocToolCalls` telemetry is not a source (no supported host emits it).
- */
-export interface UsageAdoption {
-  developersUsingCoredoc: number;
-  developersActive: number;
-  totalCoredocCalls: number;
-  coredocSuccessRate: number | null;
-  avgCallLatencyMs: number | null;
-  medianTokensPerSession: number | null;
-}
-
-/** Mirrors the server `UsageMemberRow` — adoption reach per member (Usage view only, ADR blameless). */
-export interface UsageMemberRow {
-  userId: string | null;
-  userEmail: string | null;
-  displayName: string | null;
-  sessions: number;
-  tokens: number;
-  estimatedCostUsd: number | null;
-  unpricedSessions: number;
-  coredocCalls: number;
-  topTool: string | null;
-  lastActiveAt: string | null;
-}
-
-/**
- * Mirrors the server `SpendPoint` — a day with sessions but no priced spend is
- * `null`, never 0 (BR-17); `unpricedSessions` and `sessionsWithoutUsage` carry
- * the two distinct reasons why.
- */
-export interface SpendPoint {
-  date: string;
-  value: number | null;
-  unpricedSessions: number;
-  sessionsWithoutUsage: number;
-}
-
-/** `GET analytics/usage` response — mirrors the server `WorkspaceUsageAnalytics`. */
-export interface WorkspaceUsageAnalytics {
-  window: UsageWindow;
-  priceMap: { version: string; basis: string };
-  kpis: { mcpCalls: UsageCounter; sessions: UsageCounter; developers: UsageDevelopers; spend: UsageSpend };
-  /** current window only, one point per UTC day, oldest first, zero-filled (spend: BR-17) */
-  series: { mcpCalls: TimeseriesPoint[]; sessions: TimeseriesPoint[]; spendUsd: SpendPoint[] };
-  /** ordered by calls desc */
-  tools: UsageToolRow[];
-  adoption: UsageAdoption;
-  /** ordered by coredocCalls desc, then email */
-  members: UsageMemberRow[];
-  /** the server `RoadmapView`, unchanged shape */
-  feedback: FeedbackRoadmap;
-}
-
-/** Provider-neutral work-item identity recorded with a workflow run. */
-export interface ActivityWorkflowWorkItem {
-  provider: string;
-  externalId: string;
-  externalKey: string | null;
-  linked: boolean;
-}
-
-// =============================================================================
-// Feedback
-// =============================================================================
-
-/** Mirrors the server `IssueType` union (`feedback.types.ts`). */
-export type FeedbackIssueType = 'noise' | 'incomplete' | 'wrong' | 'misleading_description' | 'slow';
-
-/** Mirrors the server `RankedIssue`. */
-export interface FeedbackRankedIssue {
-  tool: string;
-  issueType: FeedbackIssueType;
-  count: number;
-  severityScore: number;
-}
-
-/** Mirrors the server `RankedNeed`. */
-export interface FeedbackRankedNeed {
-  need: string;
-  count: number;
-}
-
-/** Mirrors the server `SessionIssueArea` (`feedback.types.ts`). */
-export type FeedbackSessionIssueArea =
-  | 'workflow-routing'
-  | 'skill-instructions'
-  | 'task-context'
-  | 'mcp-transport'
-  | 'agent-behavior'
-  | 'host-environment'
-  | 'capture'
-  | 'other';
-
-/** Mirrors the server `SessionIssueType`. */
-export type FeedbackSessionIssueType =
-  | 'confusing'
-  | 'missing'
-  | 'wrong'
-  | 'blocked'
-  | 'slow'
-  | 'hallucination'
-  | 'missing_context';
-
-/** Mirrors the server `RankedSessionIssue`: a non-tool problem, ranked by area. */
-export interface FeedbackRankedSessionIssue {
-  area: FeedbackSessionIssueArea;
-  issueType: FeedbackSessionIssueType;
-  count: number;
-  severityScore: number;
-}
-
-/** Mirrors the server `ReviewSummary`: how many drafts a user actually saw. */
-export interface FeedbackReviewSummary {
-  unreviewed: number;
-  confirmed: number;
-  amended: number;
-  /** Mean agent-minus-user rating; positive means the agent over-rated itself. */
-  avgSelfAssessmentGap: number | null;
-  gapCount: number;
-}
-
-/** Mirrors the server `RatingTrendPoint`. */
-export interface FeedbackRatingTrendPoint {
-  month: string;
-  /** Mean agent self-rating for the month; null when no session in it carried one. */
-  avgRating: number | null;
-  count: number;
-  avgUserRating: number | null;
-  userCount: number;
-}
-
-/** `GET mcp-feedback/roadmap` response — mirrors the server `RoadmapView`. */
-export interface FeedbackRoadmap {
-  feedbackCount: number;
-  topIssues: FeedbackRankedIssue[];
-  topSessionIssues: FeedbackRankedSessionIssue[];
-  topMissingTools: FeedbackRankedNeed[];
-  ratingTrend: FeedbackRatingTrendPoint[];
-  reviews: FeedbackReviewSummary;
-}
-
-/** `GET mcp-feedback/correlation` row — mirrors the server `IssueCostCorrelation`. */
-export interface FeedbackIssueCostCorrelation {
-  tool: string;
-  issueType: FeedbackIssueType;
-  flaggedSessionCount: number;
-  medianFlaggedTokens: number;
-  medianAllTokens: number;
-  medianFlaggedActiveTimeSec: number;
-  medianAllActiveTimeSec: number;
-}
-
-/**
- * Mirrors the server `ReviewStatus`: whether a human saw the agent's draft.
- * `amended` means the user changed the rating or added notes.
- */
-export type FeedbackReviewStatus = 'unreviewed' | 'confirmed' | 'amended';
-
 /** Mirrors the server `FeedbackToolIssue`. Server optionals arrive as null across IPC. */
 export interface FeedbackToolIssue {
   tool: string;
@@ -1126,12 +907,6 @@ export interface FeedbackSessionIssue {
 export interface FeedbackMissingCapability {
   need: string;
   useCase: string | null;
-}
-
-/** Mirrors the server `MisleadingMetadata`. */
-export interface FeedbackMisleadingMetadata {
-  toolOrAttr: string;
-  why: string;
 }
 
 /** One stored record — mirrors the server `FeedbackRecord`. */
@@ -1165,33 +940,6 @@ export interface FeedbackRecordsPage {
   window: { days: number; since: string; until: string };
 }
 
-/** Sortable columns of the records read — mirrors the server `FeedbackSort`. */
-export enum FeedbackSort {
-  CreatedAt = 'createdAt',
-  OverallRating = 'overallRating',
-  UserRating = 'userRating',
-}
-
-export enum SortOrder {
-  Asc = 'asc',
-  Desc = 'desc',
-}
-
-/**
- * Every knob of the records read in one object: the server AND-s the filters and
- * pages with OFFSET, so the whole thing is one query key and one IPC argument.
- * `mine` is self-scope sugar and is mutually exclusive with `userId` (MAIN rejects both).
- */
-export interface FeedbackRecordsFilter {
-  area: FeedbackSessionIssueArea | null;
-  userId: string | null;
-  mine: boolean;
-  sort: FeedbackSort;
-  order: SortOrder;
-  page: number;
-  limit: number;
-}
-
 /** Page size of the records list. Fixed: the footer states "1–25 of N", not a picker. */
 export const FEEDBACK_RECORDS_PAGE_SIZE = 25;
 
@@ -1208,12 +956,6 @@ export const DEFAULT_FEEDBACK_RECORDS_FILTER: FeedbackRecordsFilter = {
 // =============================================================================
 // Canonical Delivery v2 IPC (JWT-only admin timeline + explicit artifact drilldown)
 // =============================================================================
-
-export type CanonicalDeliveryLifecycle = 'active' | 'completed' | 'abandoned';
-export type CanonicalDeliveryOutcome = 'success' | 'failed' | 'blocked' | 'abandoned';
-export type CanonicalWorkflowOutcome = CanonicalDeliveryOutcome | 'unknown';
-export type CanonicalArtifactKind = 'spec' | 'design' | 'implementation_issue';
-export type CanonicalArtifactCheckpoint = 'run-finish' | 'session-end' | 'session-start-reconcile';
 
 export interface CanonicalTaskExternalRef {
   provider: string;
@@ -1286,273 +1028,6 @@ export interface CanonicalDeliveryTask {
 
 export interface CanonicalDeliveryTasksResponse {
   tasks: CanonicalDeliveryTask[];
-}
-
-export interface CanonicalArtifactRevision extends CanonicalArtifactRevisionMetadata {
-  markdown: string;
-}
-
-export interface CanonicalArtifactRevisionsResponse {
-  artifact: Pick<CanonicalDeliveryArtifact, 'id' | 'taskId' | 'repositoryKey' | 'kind'>;
-  revisions: CanonicalArtifactRevision[];
-}
-
-// Additive bounded reads used by the Desktop C7 timeline. Keep these separate
-// from the legacy eager task shape above until every external v2 consumer has
-// completed the rollout.
-export type CanonicalAuthority =
-  | { kind: 'coredoc' }
-  | {
-      kind: 'external_ref';
-      externalRefId: string;
-      provider: string;
-      externalId: string;
-      externalKey: string | null;
-      connected: boolean;
-      /** Tracker-issue creation instant; null for refs never observed with one. */
-      sourceCreatedAt: string | null;
-    };
-
-export interface CanonicalTaskCounts {
-  externalRefs: number;
-  workflowRuns: number;
-  codeChanges: number;
-  /** Linked code changes already merged — the numerator of the partial-ship chip. */
-  mergedCodeChanges: number;
-  /** Linked code changes still open (drafts included); any of these blocks `shipped`. */
-  openCodeChanges: number;
-  shipEvidence: number;
-  reworkSignals: number;
-  artifacts: number;
-}
-
-/**
- * Ship state of one task (server rule, mirrored here for rendering only):
- * ship evidence with no open code change is `shipped`, ship evidence with at
- * least one open code change is `partial`, anything else is `none`.
- */
-export type CanonicalShipState = 'none' | 'partial' | 'shipped';
-
-export interface CanonicalTaskSummary {
-  id: string;
-  /** Jira summary (authority) or PR-title fallback; null for pre-title rows. */
-  title: string | null;
-  repositoryKey: string | null;
-  lifecycle: CanonicalDeliveryLifecycle;
-  authority: CanonicalAuthority;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-  everShipped: boolean;
-  lastShippedAt: string | null;
-  shipState: CanonicalShipState;
-  counts: CanonicalTaskCounts;
-}
-
-export interface CanonicalTaskDetail extends CanonicalTaskSummary {
-  fineEventRetention: {
-    policyDays: 90;
-    purgedThroughReceivedAt: string | null;
-  };
-  /** Session cost rollup joined via the task's workflow runs (S9). */
-  estimatedCost: {
-    totalUsd: number | null;
-    sessions: number;
-    unpricedSessions: number;
-    /**
-     * Sessions with no usage telemetry at all (never priced, never marked
-     * unpriced) — distinct from `unpricedSessions`, which had usage but no
-     * price-map entry. Invariant: `sessions === priced + unpricedSessions +
-     * sessionsWithoutUsage`.
-     */
-    sessionsWithoutUsage: number;
-  };
-}
-
-export interface CanonicalTaskSummariesResponse {
-  tasks: CanonicalTaskSummary[];
-  nextCursor: string | null;
-}
-
-export interface CanonicalCursorPage<T> {
-  items: T[];
-  nextCursor: string | null;
-}
-
-/**
- * Delivery summary read — mirrors the server `canonical-delivery-read.contract.ts`
- * additions 1:1. One aggregate read per (workspace, days, lifecycle) backs the
- * Analytics Delivery view; medians carry their sample size (BR-11).
- */
-export type DeliveryLifecycleFilter = 'all' | 'shipped' | 'active' | 'rework' | 'runs';
-
-/** Mirrors the server `SampledMedian` — `value` is null when the sample is empty. */
-export interface SampledMedian {
-  value: number | null;
-  sampleSize: number;
-}
-
-/** Mirrors the server `DeliveryStageMedian` — claimed stage time per stage (BR-8). */
-export interface DeliveryStageMedian {
-  stageId: string;
-  claimedMs: SampledMedian;
-  /** Occurrences started whose stage finish never arrived within the staleness window. */
-  incomplete: number;
-  /** Occurrences started, still unfinished, young enough that the finish may still arrive. */
-  inProgress: number;
-}
-
-/** The rework sources a task can carry; `stage_reentry` is an iteration fact and never counted here. */
-export type DeliveryReworkSourceKind = Exclude<CanonicalReworkSignalKind, 'stage_reentry'>;
-
-/** Mirrors the server `DeliveryReworkBySource` — non-causal counts per source (BR-9). */
-export interface DeliveryReworkBySource {
-  kind: DeliveryReworkSourceKind;
-  signals: number;
-  tasks: number;
-}
-
-/** `GET delivery/v2/summary` response — mirrors the server `CanonicalDeliverySummary`. */
-export interface CanonicalDeliverySummary {
-  window: {
-    days: number;
-    since: string;
-    until: string;
-    lifecycle: DeliveryLifecycleFilter;
-    /** The resolved member the read is scoped to (`mine=true` resolves to the caller), or null for the whole workspace. */
-    userId: string | null;
-  };
-  tasks: { matching: number; shipped: number; partiallyShipped: number; withRework: number; active: number };
-  leadTimeMs: SampledMedian;
-  reviewStageMs: SampledMedian;
-  costPerShippedTaskUsd: SampledMedian & { unpricedTasks: number };
-  /** stageId order = first seen */
-  stages: DeliveryStageMedian[];
-  unclaimedMs: SampledMedian;
-  reviewWaitMs: SampledMedian;
-  editVerifyRoundsPerRun: SampledMedian;
-  rework: { bySource: DeliveryReworkBySource[] };
-}
-
-export interface CanonicalExternalRefItem {
-  id: string;
-  provider: string;
-  externalId: string;
-  externalKey: string | null;
-  externalUrl: string | null;
-  externalState: string | null;
-  connectorId: string | null;
-  sourceUpdatedAt: string | null;
-  lastObservedAt: string | null;
-  isAuthority: boolean;
-  stateFactCount: number;
-}
-
-export interface CanonicalExternalRefStateFactItem {
-  id: string;
-  fromState: string | null;
-  toState: string;
-  sourceRef: string;
-  occurredAt: string;
-  sourceUpdatedAt: string;
-  receivedAt: string;
-  actorId: string | null;
-}
-
-export interface CanonicalRunVerification {
-  runs: number | null;
-  failures: number | null;
-  editVerifyRounds: number | null;
-}
-
-export interface CanonicalRunItem {
-  runId: string;
-  workflowId: string | null;
-  intent: string | null;
-  risk: string | null;
-  scale: string | null;
-  repositoryKey: string | null;
-  startedAt: string | null;
-  finishedAt: string | null;
-  outcome: CanonicalWorkflowOutcome | null;
-  verification: CanonicalRunVerification | null;
-  workItems: ActivityWorkflowWorkItem[];
-}
-
-export interface CanonicalStageOccurrenceItem {
-  occurrenceId: string;
-  runId: string;
-  stageId: string;
-  attempt: number;
-  startedAt: string | null;
-  finishedAt: string | null;
-  outcome: CanonicalDeliveryOutcome | null;
-}
-
-export interface CanonicalCodeChangeItem {
-  id: string;
-  provider: string;
-  repoExternalId: string;
-  externalId: string;
-  number: number | null;
-  title: string | null;
-  state: 'open' | 'merged' | 'closed';
-  isDraft: boolean;
-  sourceBranch: string | null;
-  targetBranch: string | null;
-  /**
-   * PR lifecycle marks from the GitHub normalizer. Additive on the server: an
-   * older server omits them and the projector reads the absence as `null`.
-   */
-  createdAtSource: string | null;
-  readyForReviewAt: string | null;
-  firstReviewAt: string | null;
-  approvedAt: string | null;
-  mergedAt: string | null;
-  updatedAt: string;
-  externalUrl: string | null;
-  reviewCount: number | null;
-  commentCount: number | null;
-  associationSource: 'external_ref' | 'issue_key' | 'run_id';
-  associationSourceValue: string;
-}
-
-export interface CanonicalShipEvidenceItem {
-  id: string;
-  source: 'github_pr_merged' | 'connector_transition' | 'coredoc';
-  sourceKey: string;
-  occurredAt: string;
-  receivedAt: string;
-  actorId: string | null;
-  provider: string | null;
-  repoExternalId: string | null;
-  externalId: string | null;
-}
-
-/** `stage_reentry` is legacy: no longer produced, and no rework figure counts it. */
-export type CanonicalReworkSignalKind =
-  | 'stage_reentry'
-  | 'tracker_reopened'
-  | 'review_changes_requested'
-  | 'review_commented';
-
-export interface CanonicalReworkSignalItem {
-  id: string;
-  kind: CanonicalReworkSignalKind;
-  sourceKey: string;
-  sourceRef: string;
-  occurredAt: string;
-  observedAt: string;
-}
-
-export interface CanonicalArtifactItem {
-  id: string;
-  repositoryKey: string;
-  kind: CanonicalArtifactKind;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-  revisionCount: number;
 }
 
 export const CANONICAL_DELIVERY_AUTHORIZATION_REQUIRED = 'CANONICAL_DELIVERY_AUTHORIZATION_REQUIRED';
@@ -1633,11 +1108,9 @@ export const IpcChannels = {
   DIALOG_SELECT_TEMPLATE_FILE: 'dialog:selectTemplateFile',
 
   // State
-  STATE_GET: 'state:get',
   STATE_GET_ALL: 'state:getAll',
   STATE_GET_DETAIL: 'state:getDetail',
   STATE_GET_STATUS: 'state:getStatus',
-  STATE_REFRESH: 'state:refresh',
 
   // Shell
   SHELL_OPEN_PATH: 'shell:openPath',
@@ -1657,13 +1130,10 @@ export const IpcChannels = {
   // PTY
   PTY_DATA: 'pty:data',
   PTY_EXIT: 'pty:exit',
-  PTY_WRITE: 'pty:write',
-  PTY_RESIZE: 'pty:resize',
 
   // Agent runs (profile authoring)
   AGENT_RUN_EVENT: 'agentRun:event',
   AGENT_RUN_ANSWER: 'agentRun:answer',
-  AGENT_RUN_GET_STATE: 'agentRun:getState',
 
   // MCP configuration
   MCP_GET_INFO: 'mcp:getInfo',
@@ -1687,9 +1157,6 @@ export const IpcChannels = {
 
   // Docs
   DOCS_LIST: 'docs:list',
-  DOCS_READ: 'docs:read',
-  DOCS_PROMPTS: 'docs:prompts',
-  DOCS_DELETE: 'docs:delete',
 
   // Review
   REVIEW_GET_GRAPH_DATA: 'review:getGraphData',
@@ -1705,8 +1172,6 @@ export const IpcChannels = {
   GRAPH_REPOS: 'graph:repos',
   GRAPH_OVERVIEW: 'graph:overview',
   GRAPH_EDGES_AMONG: 'graph:edgesAmong',
-  GRAPH_CROSS_REPO: 'graph:crossRepo',
-  GRAPH_DEAD_CODE: 'graph:deadCode',
   GRAPH_CAPABILITIES: 'graph:capabilities',
   GRAPH_CYPHER: 'graph:cypher',
   GRAPH_GENERATE_CYPHER: 'graph:generateCypher',
@@ -1728,45 +1193,13 @@ export const IpcChannels = {
   UPDATE_GET_APP_VERSION: 'update:getAppVersion',
 
   // Workspace & Auth
-  WORKSPACE_LOGIN: 'workspace:login',
-  WORKSPACE_LOGOUT: 'workspace:logout',
-  WORKSPACE_GET_AUTH_STATUS: 'workspace:getAuthStatus',
-  WORKSPACE_LIST_WORKSPACES: 'workspace:listWorkspaces',
-  WORKSPACE_CREATE_WORKSPACE: 'workspace:createWorkspace',
-  WORKSPACE_DELETE_WORKSPACE: 'workspace:deleteWorkspace',
-  WORKSPACE_LIST_MEMBERS: 'workspace:listMembers',
-  WORKSPACE_INVITE_MEMBER: 'workspace:inviteMember',
-  WORKSPACE_REMOVE_MEMBER: 'workspace:removeMember',
-  WORKSPACE_LIST_INVITES: 'workspace:listInvites',
-  WORKSPACE_REVOKE_INVITE: 'workspace:revokeInvite',
-  WORKSPACE_RESEND_INVITE: 'workspace:resendInvite',
-  WORKSPACE_UPDATE_MEMBER_ROLE: 'workspace:updateMemberRole',
-  WORKSPACE_LIST_REPOS: 'workspace:listRepos',
-  WORKSPACE_CONNECT_REPO: 'workspace:connectRepo',
-  WORKSPACE_DISCONNECT_REPO: 'workspace:disconnectRepo',
-  WORKSPACE_PULL_CONFIG: 'workspace:pullConfig',
-  WORKSPACE_AUTH_CHANGE: 'workspace:authChange',
   WORKSPACE_GET_SERVER_CONFIG: 'workspace:getServerConfig',
   WORKSPACE_SET_SERVER_URL: 'workspace:setServerUrl',
   WORKSPACE_GET_SERVER_COMPAT: 'workspace:getServerCompat',
 
   // Cloud Sync
-  WORKSPACE_ENABLE_CLOUD: 'workspace:enableCloud',
-  WORKSPACE_SET_CI_CD_ENABLED: 'workspace:setCiCdEnabled',
-  WORKSPACE_SET_INTENT_RELEASE_TRIGGER: 'workspace:setIntentReleaseTrigger',
-  WORKSPACE_SET_PRODUCTION_BRANCH: 'workspace:setProductionBranch',
-  WORKSPACE_SET_REPO_RELEASE_TRIGGER: 'workspace:setRepoReleaseTrigger',
-  WORKSPACE_SYNC_TO_CLOUD: 'workspace:syncToCloud',
-  WORKSPACE_GET_REPO_STATE: 'workspace:getRepoState',
-  WORKSPACE_GET_MCP_CONFIG: 'workspace:getMcpConfig',
-  WORKSPACE_UPDATE_NAME: 'workspace:updateName',
-  WORKSPACE_LIST_TOKENS: 'workspace:listTokens',
-  WORKSPACE_CREATE_TOKEN: 'workspace:createToken',
-  WORKSPACE_GET_TOKEN_VALUE: 'workspace:getTokenValue',
-  WORKSPACE_REVOKE_TOKEN: 'workspace:revokeToken',
 
   // Parser Upload
-  WORKSPACE_UPLOAD_PARSERS: 'workspace:uploadParsers',
 
   // Telemetry
   TELEMETRY_GET_STATUS: 'telemetry:getStatus',
@@ -1778,8 +1211,6 @@ export const IpcChannels = {
   OBSERVABILITY_OPEN_DASHBOARD: 'observability:openDashboard',
 
   // Feedback
-  OBSERVABILITY_GET_FEEDBACK_ROADMAP: 'observability:getFeedbackRoadmap',
-  OBSERVABILITY_GET_FEEDBACK_CORRELATION: 'observability:getFeedbackCorrelation',
   OBSERVABILITY_GET_FEEDBACK_RECORDS: 'observability:getFeedbackRecords',
 
   // Canonical Delivery
@@ -1805,7 +1236,6 @@ export const IpcChannels = {
 
   // Cloud Project
   CLOUD_PROJECT_STATES: 'cloud:projectStates',
-  CLOUD_DOCS_GENERATE: 'cloud:docsGenerate',
 
   // Invited-User Onboarding
   ONBOARDING_LIST_SEEN: 'onboarding:listSeen',
@@ -1862,11 +1292,9 @@ export interface ElectronAPI {
   removeRepository: (projectId: string, repoName: string) => Promise<RemoveRepositoryResult>;
 
   // State
-  getRepoState: (projectId: string, name: string) => Promise<RepoState | null>;
   getRepoDetailState: (projectId: string, name: string) => Promise<RepoDetailState | null>;
   getRepoStatusState: (projectId: string, name: string) => Promise<RepoStatusState | null>;
   getAllStates: () => Promise<AllStatesResult>;
-  refreshState: () => Promise<void>;
 
   // Shell
   openPath: (filePath: string) => Promise<string>;
@@ -1886,13 +1314,10 @@ export interface ElectronAPI {
   // PTY
   onPtyData: (callback: (data: PtyData) => void) => () => void;
   onPtyExit: (callback: (data: PtyExit) => void) => () => void;
-  writePty: (id: string, data: string) => Promise<boolean>;
-  resizePty: (id: string, cols: number, rows: number) => Promise<boolean>;
 
   // Agent runs (profile authoring)
   onAgentRunEvent: (callback: (data: AgentRunEventEnvelope) => void) => () => void;
   answerAgentRun: (id: string, answer: AgentRunAnswer) => Promise<boolean>;
-  getAgentRunState: (id: string) => Promise<AgentRunSnapshot | null>;
 
   // MCP configuration
   getMcpInfo: (projectId: string) => Promise<McpInfoResult>;
@@ -1915,20 +1340,7 @@ export interface ElectronAPI {
   deleteProjectSessions: (projectId: string) => Promise<{ success: boolean; error?: string }>;
 
   // Docs
-  listDocs: (projectId: string, repoNames: string[], dagPath?: string, workspaceId?: string) => Promise<DocsListResult>;
-  readDoc: (
-    projectId: string,
-    repoName: string,
-    relativePath: string,
-    workspaceId?: string,
-  ) => Promise<DocContentResult>;
-  listDocsPrompts: (dagPath?: string) => Promise<DocsPromptCatalogResult>;
-  deleteDoc: (
-    projectId: string,
-    repoName: string,
-    relativePath: string,
-    workspaceId?: string,
-  ) => Promise<{ success: boolean; error?: string }>;
+  listDocs: (projectId: string, repoNames: string[], workspaceId?: string) => Promise<DocsListResult>;
 
   // Review
   getGraphReviewData: (
@@ -1970,14 +1382,6 @@ export interface ElectronAPI {
     scope: GraphScope,
     nodeIds: string[],
   ) => Promise<{ success: boolean; data?: { edges: VizEdge[]; truncated: boolean }; error?: string }>;
-  graphCrossRepo: (
-    scope: GraphScope,
-    args: { scopeRepo?: string; limit?: number },
-  ) => Promise<{ success: boolean; data?: NeighborPage; error?: string }>;
-  graphDeadCode: (
-    scope: GraphScope,
-    args: { types?: string[]; scopeRepo?: string; limit?: number },
-  ) => Promise<{ success: boolean; data?: DeadCodePage; error?: string }>;
   graphCapabilities: (scope: GraphScope) => Promise<{ success: boolean; data?: GraphCapabilities; error?: string }>;
   graphCypher: (
     scope: GraphScope,
@@ -2024,14 +1428,6 @@ export interface ElectronAPI {
   openObservabilityDashboard: (workspaceSlug: string) => Promise<{ success: boolean; error?: string }>;
 
   // Feedback
-  getFeedbackRoadmap: (
-    workspaceId: string,
-    days: number,
-  ) => Promise<{ success: boolean; data?: FeedbackRoadmap; error?: string }>;
-  getFeedbackCorrelation: (
-    workspaceId: string,
-    days: number,
-  ) => Promise<{ success: boolean; data?: FeedbackIssueCostCorrelation[]; error?: string }>;
   /** One paged, filtered read of the raw feedback records behind the roadmap aggregates. */
   getFeedbackRecords: (
     workspaceId: string,
@@ -2221,7 +1617,6 @@ export interface ElectronAPI {
     gitUrl?: string,
   ) => Promise<{ id: string; repoKey: string; repoName: string; gitUrl: string | null; createdAt: string }>;
   workspaceDisconnectRepo: (workspaceId: string, repoId: string) => Promise<void>;
-  workspacePullConfig: (workspaceId: string) => Promise<unknown>;
   onAuthChange: (
     callback: (status: { isLoggedIn: boolean; email: string | null; userId: string | null; reason?: string }) => void,
   ) => () => void;
@@ -2243,7 +1638,6 @@ export interface ElectronAPI {
     repos: SyncToCloudRepoInput[],
     force?: boolean,
   ) => Promise<SyncToCloudResult>;
-  workspaceGetRepoState: (workspaceId: string, repoName: string) => Promise<RepoStateResponse | null>;
   workspaceCheckCloudDelta: (
     workspaceId: string,
     repos: Array<{ repoName: string; parsedRepoPath: string }>,
@@ -2286,11 +1680,6 @@ export interface ElectronAPI {
 
   // Cloud Project
   getCloudRepoStates: (workspaceId: string) => Promise<CloudRepoState[]>;
-  generateCloudDoc: (
-    workspaceId: string,
-    repoName: string,
-    promptName: string,
-  ) => Promise<{ success: boolean; error?: string }>;
 
   // Invited-User Onboarding
   onboardingListSeen: (userId: string) => Promise<string[]>;

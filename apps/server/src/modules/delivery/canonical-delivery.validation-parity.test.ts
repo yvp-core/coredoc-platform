@@ -16,7 +16,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AuthGuard } from '../../auth/auth.guard.js';
-import { JwtOnlyGuard } from '../../auth/jwt-only.guard.js';
+import { UserSessionGuard } from '../../auth/user-session.guard.js';
 import { PermissionsGuard } from '../../auth/permissions.guard.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import type { PrismaService } from '../../database/prisma.service.js';
@@ -310,7 +310,7 @@ describe('delivery v2 write-route validation parity', () => {
       .useValue({ canActivate: () => true })
       .overrideGuard(PermissionsGuard)
       .useValue({ canActivate: () => true })
-      .overrideGuard(JwtOnlyGuard)
+      .overrideGuard(UserSessionGuard)
       .useValue({ canActivate: () => true })
       .compile();
 

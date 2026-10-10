@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import '../../config/load-env.js';
 import { randomBytes } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -7,7 +7,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { RUNNER_LEASE_HEADER, RUNNER_PROTOCOL_VERSION } from '@coredoc/core/agent-runner';
 import { AuthService } from '../../auth/auth.service.js';
-import { STORAGE_CONFIG, storageConfigFromEnv } from '../../config/app-config.js';
+import { STORAGE_CONFIG, configFromEnv } from '../../config/app-config.js';
 import { ControlPlaneService } from '../../database/control-plane.service.js';
 import { buildPrismaAdapter } from '../../database/create-prisma-client.js';
 import { encrypt } from '../../database/encryption.js';
@@ -99,7 +99,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
     });
 
     const users = new Map([ADMIN, MEMBER].map((user) => [user.id, user]));
-    const storage = storageConfigFromEnv();
+    const storage = configFromEnv().storage;
     const moduleRef = await Test.createTestingModule({
       controllers: [CloudAgentRunsController, CloudAgentRunnerController, TokensController],
       providers: [

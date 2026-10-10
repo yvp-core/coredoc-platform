@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { type PythonFile, type TsNode, defName, parsePython } from './python-cst.js';
+import { type PythonFile, type TsNode, defName } from './python-cst.js';
 import { buildModelBaseResolver, isAbstractModel } from './python-model-bases.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 async function pf(relPath: string, source: string): Promise<PythonFile> {
-  return { relPath, source, root: await parsePython(source) };
+  return { relPath, source, root: await parseSource('python', source) };
 }
 
 /** The named class node in a parsed file (first definition wins, like the resolver's index). */

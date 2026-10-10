@@ -9,7 +9,6 @@ import {
   nextPanel,
   panelForAction,
   RUNNING_DRAWER_ACTIONS,
-  setTerminalVisible,
   togglePanel,
 } from './docked-panel.js';
 
@@ -136,24 +135,6 @@ describe('workspace-running', () => {
 
   it('still yields the slot to a review, which blocks the pipeline on a human', () => {
     expect(nextPanel(REVIEW, { source: 'auto', panel: RUNNING })).toEqual(REVIEW);
-  });
-
-  it('dismisses the terminal column without closing the drawer', () => {
-    expect(setTerminalVisible(RUNNING, false)).toEqual({
-      kind: 'workspace-running',
-      repoName: 'api',
-      terminalVisible: false,
-    });
-  });
-
-  it('re-opens the terminal column it dismissed', () => {
-    const hidden = setTerminalVisible(RUNNING, false);
-    expect(setTerminalVisible(hidden, true)).toEqual(RUNNING);
-  });
-
-  it('ignores a terminal-visibility change on any other kind', () => {
-    expect(setTerminalVisible(TERMINAL, false)).toEqual(TERMINAL);
-    expect(setTerminalVisible(CLOSED, true)).toEqual(CLOSED);
   });
 
   it('is closed by a user request like any other kind', () => {

@@ -14,7 +14,7 @@
  * the constraints live in the schema, and neither needs a guard stack to be
  * exercised. The HTTP surface is covered by the repos controller's own tests.
  */
-import 'dotenv/config';
+import '../../config/load-env.js';
 import { BadRequestException } from '@nestjs/common';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ControlPlaneService } from '../../database/control-plane.service.js';

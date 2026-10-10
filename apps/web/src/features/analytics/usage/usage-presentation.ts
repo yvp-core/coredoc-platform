@@ -23,7 +23,7 @@ import type {
   WorkspaceUsageAnalytics,
 } from '../types.js';
 import type { LineChartPoint } from '../charts/LineChart.js';
-import { NO_DATA, formatNumber, plural } from '../format.js';
+import { NO_DATA, formatNumber, plural } from '@coredoc/core/browser/format';
 
 /** The marker a spend figure carries when the price map could not price it (LIM-1). */
 export const UNPRICED_MARKER = 'Unpriced';
@@ -93,7 +93,7 @@ export function formatMs(avgMs: number): string {
   return `${Math.round(avgMs)} ms`;
 }
 
-export interface ToolPills {
+interface ToolPills {
   error: { tone: 'danger' | 'ok'; text: string };
   /** `absent` = no classified calls, so there is no empty rate to state (BR-3, AC-3). */
   empty: { tone: 'warn' | 'ok' | 'absent'; text: string };
@@ -241,7 +241,7 @@ export function sparkFromSeries(points: ReadonlyArray<TimeseriesPoint | SpendPoi
 
 export type UsageMetric = 'calls' | 'sessions' | 'spend';
 
-export interface UsageMetricDef {
+interface UsageMetricDef {
   title: string;
   subtitle: string;
   /** Column header for the "view as table" rendering. */
@@ -292,7 +292,7 @@ export const METRIC_OPTIONS: ReadonlyArray<{ value: UsageMetric; label: string }
 // Adoption facts
 // ---------------------------------------------------------------------------
 
-export interface AdoptionFact {
+interface AdoptionFact {
   label: string;
   value: string;
 }
@@ -342,7 +342,7 @@ export function memberInitials(row: UsageMemberRow): string {
   return letters.toUpperCase();
 }
 
-export type MemberSpendPresentation = { kind: 'amount'; text: string } | { kind: 'unpriced' } | { kind: 'unavailable' };
+type MemberSpendPresentation = { kind: 'amount'; text: string } | { kind: 'unpriced' } | { kind: 'unavailable' };
 
 export function memberSpendPresentation(row: UsageMemberRow): MemberSpendPresentation {
   if (row.estimatedCostUsd !== null) return { kind: 'amount', text: `$${row.estimatedCostUsd.toFixed(2)}` };

@@ -58,6 +58,7 @@ import {
   type DeliverySummaryTaskRow,
   foldDeliverySummary,
 } from './delivery-summary.fold.js';
+import { isUniqueViolation } from '../../libs/coerce.js';
 
 const TASK_SELECT = {
   id: true,
@@ -259,10 +260,6 @@ interface ArtifactPageKey {
 
 type CanonicalTaskSummaryRow = Prisma.DeliveryTaskGetPayload<{ select: typeof CANONICAL_TASK_SUMMARY_SELECT }>;
 type CanonicalTaskContextRow = Prisma.DeliveryTaskGetPayload<{ select: typeof CANONICAL_TASK_CONTEXT_SELECT }>;
-
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2002';
-}
 
 function taskIdentityConflict(message: string): never {
   throw new ConflictException({

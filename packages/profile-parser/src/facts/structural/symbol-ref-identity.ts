@@ -146,9 +146,9 @@ export class SymbolIdentityResolver {
         kinds.add(kind);
         declared.set(name, kinds);
       };
-      for (const e of f.enums ?? []) add(e.name, DeclKind.Enum);
+      for (const e of f.enums) add(e.name, DeclKind.Enum);
       for (const c of f.classes ?? []) add(c.name, DeclKind.Class);
-      for (const i of f.interfaces ?? []) add(i.name, DeclKind.Interface);
+      for (const i of f.interfaces) add(i.name, DeclKind.Interface);
       this.declarations.set(f.path, declared);
     }
     this.workspaceNames = new Set(opts.workspacePackageNames);

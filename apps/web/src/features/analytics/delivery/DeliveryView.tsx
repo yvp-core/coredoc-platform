@@ -18,10 +18,10 @@ import { QueryBoundary } from '@/components/query-boundary';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Segmented } from '@/components/ui/segmented';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { hasAdminAccess } from '@/lib/roles';
-import { WindowSelector } from '../WindowSelector.js';
+import { DateRangePicker } from '@/components/ui/date-range-picker';
 import type { AnalyticsWindow, DeliveryLifecycleFilter } from '../types.js';
 import { DeliveryKpis } from './DeliveryKpis.js';
 import { ReworkCard } from './ReworkCard.js';
@@ -29,9 +29,6 @@ import { StageMediansCard } from './StageMediansCard.js';
 import { TaskList } from './TaskList.js';
 import { TaskTrace } from './TaskTrace.js';
 import { LIFECYCLE_OPTIONS, populationCaption } from './delivery-presentation.js';
-
-/** The "no member picked" value: Radix Select has no empty-string item value. */
-const ALL_MEMBERS = 'all';
 
 /** Every Delivery v2 read is any workspace member on a signed-in (JWT) session; service tokens get 403. */
 const AUTHORIZATION_NOTICE = 'Delivery analytics are not available to this account';
@@ -91,7 +88,7 @@ export function DeliveryView({
   // the KPI slot only, and the user must still be able to switch lifecycle.
   const filters = (
     <div className="flex flex-wrap items-center gap-2.5">
-      <WindowSelector analyticsWindow={analyticsWindow} onChange={onWindowChange} />
+      <DateRangePicker value={analyticsWindow} onChange={onWindowChange} />
       <Segmented
         value={lifecycle}
         onChange={(next) => {
@@ -102,24 +99,21 @@ export function DeliveryView({
       />
       {canPickMember ? (
         <Select
-          value={userId ?? ALL_MEMBERS}
-          onValueChange={(value) => setUserId(value === ALL_MEMBERS ? null : value)}
+          value={userId ?? ''}
+          onValueChange={(value) => setUserId(value || null)}
+          className="w-[190px]"
+          aria-label="Member"
         >
-          <SelectTrigger className="w-[190px]" aria-label="Member">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_MEMBERS}>All members</SelectItem>
-            {members.map((member) => (
-              <SelectItem key={member.userId} value={member.userId}>
-                {member.displayName ?? member.email}
-              </SelectItem>
-            ))}
-          </SelectContent>
+          <option value="">All members</option>
+          {members.map((member) => (
+            <option key={member.userId} value={member.userId}>
+              {member.displayName ?? member.email}
+            </option>
+          ))}
         </Select>
       ) : (
         <Label className="gap-1.5" htmlFor="delivery-mine">
-          <Switch id="delivery-mine" checked={mine} onCheckedChange={setMine} />
+          <Switch id="delivery-mine" checked={mine} onChange={(event) => setMine(event.target.checked)} />
           Only my tasks
         </Label>
       )}

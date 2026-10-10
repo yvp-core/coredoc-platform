@@ -157,27 +157,6 @@ export interface IntentEvidenceResult {
   repos: RepoSnapshotEvidence[];
 }
 
-/**
- * Read the caller's checkout state for one repo root.
- *
- * Reuses `captureGitInfo` — the SAME capture the parse path records
- * `gitCommitHash` from — so the two commits being compared are produced by one
- * implementation. Kept out of {@link resolveIntentEvidence} so resolution stays
- * injectable and free of process/filesystem access.
- *
- * Any failure (not a git repo, git unavailable, unreadable status) degrades to
- * `{ dirty: true }` with no commit: an unverifiable checkout must read as
- * `unknown` freshness, never as a clean match.
- */
-export async function readObservedCheckout(repoRoot: string): Promise<ObservedCheckout> {
-  // Lazy import: `@coredoc/core/utils` pulls in the git/child-process helpers,
-  // which nothing else in this package needs at module load.
-  const { captureGitInfo } = await import('@coredoc/core/utils');
-  const info = await captureGitInfo(repoRoot);
-  if (!info) return { dirty: true };
-  return { commit: info.commitHash, dirty: info.isDirty };
-}
-
 /** Shortest observed commit that can name a snapshot commit by prefix (BR-1). */
 const MIN_ABBREVIATED_COMMIT = 7;
 
@@ -202,9 +181,9 @@ const MIN_ABBREVIATED_COMMIT = 7;
 function computeFreshness(graphCommit: string | undefined, observed: ObservedCheckout | undefined): SnapshotFreshness {
   if (!observed) return SnapshotFreshness.Unverified;
   if (!graphCommit || !observed.commit) return SnapshotFreshness.Unknown;
-  // Normalised here, not at the call sites: `readObservedCheckout` takes its
-  // commit from git and the server parser lowercases its own, so one comparison
-  // owns the casing for both. The echoed `observedCommit` stays as supplied.
+  // Normalised here, not at the call sites: an observed commit comes from git
+  // and the server parser lowercases its own, so one comparison owns the casing
+  // for both. The echoed `observedCommit` stays as supplied.
   const observedCommit = observed.commit.toLowerCase();
   // Below MIN_ABBREVIATED_COMMIT an "abbreviation" names too many commits to be
   // one, so it is not a match — the db package does not lean on the server's
@@ -317,9 +296,8 @@ async function resolveAnchor(
 
 /**
  * Resolve the code anchors of one project's intent items against its active
- * graph. `observedCheckouts` is supplied by the caller (see
- * {@link readObservedCheckout}) so this function stays pure with respect to the
- * filesystem and git.
+ * graph. `observedCheckouts` is supplied by the caller so this function stays
+ * pure with respect to the filesystem and git.
  */
 export async function resolveIntentEvidence(input: IntentEvidenceInput): Promise<IntentEvidenceResult> {
   const repoNames = [...new Set(input.items.flatMap((item) => item.codeAnchors ?? []).map((anchor) => anchor.repo))];

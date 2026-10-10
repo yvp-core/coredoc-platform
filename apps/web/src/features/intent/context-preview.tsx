@@ -1,14 +1,11 @@
 // "Preview as": the panel owns the choice (component state, never persisted).
 
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select } from '@/components/ui/select';
 import { Chip } from './items-list.js';
 import type { DimensionValueSelection, IntentDimension } from './types.js';
 
-/** Select value for "no value chosen"; not a slug, so it cannot collide with a value id. */
-const ANY = '__any__';
-
-export interface IntentContextPreviewProps {
+interface IntentContextPreviewProps {
   dimensions: readonly IntentDimension[] | null;
   value: DimensionValueSelection;
   onChange: (next: DimensionValueSelection) => void;
@@ -74,20 +71,17 @@ export function IntentContextPreview({
           return (
             <Select
               key={dimension.id}
-              value={typeof chosen === 'string' ? chosen : ANY}
-              onValueChange={(next) => set(dimension.id, next === ANY ? null : next)}
+              value={typeof chosen === 'string' ? chosen : ''}
+              onValueChange={(next) => set(dimension.id, next || null)}
+              aria-label={dimension.title}
+              className="h-7 w-[150px]"
             >
-              <SelectTrigger aria-label={dimension.title} className="h-7 w-[150px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ANY}>Any {dimension.title.toLowerCase()}</SelectItem>
-                {dimension.values.map((option) => (
-                  <SelectItem key={option.id} value={option.id}>
-                    {option.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
+              <option value="">Any {dimension.title.toLowerCase()}</option>
+              {dimension.values.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.title}
+                </option>
+              ))}
             </Select>
           );
         })}

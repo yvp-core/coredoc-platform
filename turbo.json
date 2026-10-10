@@ -27,22 +27,22 @@
     "@coredoc/cli#build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "tsconfig.tsbuildinfo", "*.tsbuildinfo"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/load-root-env.mjs"]
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/gen-build-env.mjs"]
+    },
+    "@coredoc/mcp#build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "tsconfig.tsbuildinfo", "*.tsbuildinfo"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/gen-build-env.mjs"]
     },
     "@coredoc/desktop#build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "tsconfig.tsbuildinfo", "*.tsbuildinfo"],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/scripts/load-root-env.mjs",
-        "$TURBO_ROOT$/skills/author-profile/**"
-      ]
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/skills/author-profile/**"]
     },
     "@coredoc/server#test": {
       "dependsOn": ["^build"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/scripts/license-tool.mjs",
         "$TURBO_ROOT$/vendor/coredoc-workflows-runtime/**"
       ]
     },

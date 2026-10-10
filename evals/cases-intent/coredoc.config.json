@@ -19,7 +19,6 @@
     "prettyPrint": true
   },
   "parserStorage": "./coredoc-parsers",
-  "agentMode": "interactive",
   "exclude": [
     "**/node_modules/**",
     "**/dist/**",

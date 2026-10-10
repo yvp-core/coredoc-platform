@@ -233,53 +233,6 @@ export class MetricsService {
   }
 
   /**
-   * Get push metrics history for a specific repo within a time window.
-   */
-  // biome-ignore lint/suspicious/noExplicitAny: Prisma returns dynamic JSON fields
-  async getRepoMetricsHistory(workspaceId: string, repoKey: string, days: number = 30): Promise<any[]> {
-    const since = new Date();
-    since.setDate(since.getDate() - days);
-
-    return this.prisma.pushMetric.findMany({
-      where: {
-        workspaceId,
-        repoKey,
-        pushedAt: { gte: since },
-      },
-      orderBy: { pushedAt: 'desc' },
-      take: 100,
-      // Rows are returned verbatim by the controller. Keep an allow-list so a
-      // future internal column cannot silently become part of the public API;
-      // executionToken is intentionally absent.
-      select: {
-        id: true,
-        workspaceId: true,
-        repoKey: true,
-        repoName: true,
-        commitHash: true,
-        pushedByUserId: true,
-        pushMode: true,
-        pushedAt: true,
-        pushDurationMs: true,
-        diffSkippedPct: true,
-        totalNodes: true,
-        totalEdges: true,
-        nodesByType: true,
-        edgesByType: true,
-        entrypointCount: true,
-        entityCount: true,
-        externalCallCount: true,
-        componentCount: true,
-        nodesAdded: true,
-        nodesUpdated: true,
-        nodesDeleted: true,
-        nodesWithSummaries: true,
-        nodesWithEmbeddings: true,
-      },
-    });
-  }
-
-  /**
    * Get aggregated workspace summary from latest push per repo.
    */
   async getWorkspaceSummary(workspaceId: string): Promise<{

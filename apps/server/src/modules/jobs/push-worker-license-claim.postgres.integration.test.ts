@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import '../../config/load-env.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildPrismaAdapter } from '../../database/create-prisma-client.js';
 import type { PrismaService } from '../../database/prisma.service.js';

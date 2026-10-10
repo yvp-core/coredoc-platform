@@ -21,7 +21,6 @@ import {
   getOperationsRepository,
   openProjectDatabase,
   replaceProjectLadybugGraphFile,
-  resetBackendState,
 } from './backend-factory.js';
 import { LadybugDriver } from './ladybug/driver.js';
 import { SqliteDriver } from './sqlite/driver.js';
@@ -279,30 +278,6 @@ describe('openProjectDatabase', () => {
 
     expect(existsSync(`${ladybugPath}.writer.lock`)).toBe(false);
     await expect(getDriver('ladybug')).resolves.toBeInstanceOf(LadybugDriver);
-  });
-
-  it('refuses to reset state while a Ladybug driver still owns a live lease', async () => {
-    const ladybugPath = join(workspace, 'coredoc.db.d', 'reset-live.lbdb');
-    process.env.COREDOC_LADYBUG_PATH = ladybugPath;
-    const driver = await getDriver('ladybug');
-
-    let resetFailure: unknown;
-    try {
-      resetBackendState();
-    } catch (error) {
-      resetFailure = error;
-    }
-
-    if (resetFailure === undefined) {
-      // The RED implementation loses the factory owner, so close the captured
-      // native handle explicitly before the assertion fails.
-      await driver.close();
-    } else {
-      await closeAllDrivers();
-    }
-
-    expect(resetFailure).toBeInstanceOf(Error);
-    expect((resetFailure as Error).message).toMatch(/closeAllDrivers/i);
   });
 
   it('does not reuse a Ladybug operations sidecar after switching to SQLite', async () => {

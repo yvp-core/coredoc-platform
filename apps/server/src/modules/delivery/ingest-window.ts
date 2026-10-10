@@ -17,6 +17,8 @@
  * The DTO layer rejects a body that sets both.
  */
 
+import { asRecord } from '../../libs/coerce.js';
+
 /** Default ingest window when a connector's config carries neither `since` nor `lookbackDays`. */
 export const DEFAULT_LOOKBACK_DAYS = 30;
 
@@ -73,8 +75,4 @@ export function storedIngestWindow(config: unknown): { since: string } | { lookb
     return { lookbackDays: Math.floor(lookbackDays) };
   }
   return null;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }

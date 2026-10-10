@@ -1,6 +1,6 @@
 import { parse } from 'yaml';
 import { z } from 'zod';
-import { type AuthConfig, authConfigFromEnv } from '../../config/app-config.js';
+import { type AuthConfig, configFromEnv } from '../../config/app-config.js';
 
 // The latest stable GitHub Release holds the notarized desktop builds and the
 // electron-builder updater manifest (product `server-v*` releases are never
@@ -17,7 +17,7 @@ export class DesktopReleaseError extends Error {
   }
 }
 
-function desktopReleasesUrl(auth: AuthConfig = authConfigFromEnv()): string {
+function desktopReleasesUrl(auth: AuthConfig = configFromEnv().auth): string {
   const configured = (auth.desktopReleasesUrl?.trim() || DEFAULT_DESKTOP_RELEASES_URL).replace(/\/+$/, '');
   let url: URL;
   try {

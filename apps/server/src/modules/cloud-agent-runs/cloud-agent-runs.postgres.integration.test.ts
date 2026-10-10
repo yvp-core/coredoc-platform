@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import '../../config/load-env.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import type { IncomingMessage } from 'node:http';
@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { RUNNER_LEASE_HEADER, RUNNER_PROTOCOL_VERSION } from '@coredoc/core/agent-runner';
 import { AuthService } from '../../auth/auth.service.js';
 import { TokenPermission } from '../../auth/token-permissions.js';
-import { STORAGE_CONFIG, storageConfigFromEnv } from '../../config/app-config.js';
+import { STORAGE_CONFIG, configFromEnv } from '../../config/app-config.js';
 import { ControlPlaneService } from '../../database/control-plane.service.js';
 import { buildPrismaAdapter } from '../../database/create-prisma-client.js';
 import { encrypt } from '../../database/encryption.js';
@@ -106,7 +106,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
       ],
     });
     const users = new Map([ADMIN, MEMBER, DEMOTED].map((user) => [user.id, user]));
-    const storage = storageConfigFromEnv();
+    const storage = configFromEnv().storage;
     const moduleRef = await Test.createTestingModule({
       // ReposController stands in for an existing permission-less member route; only its guards matter.
       controllers: [CloudAgentRunsController, CloudAgentRunnerController, TokensController, ReposController],

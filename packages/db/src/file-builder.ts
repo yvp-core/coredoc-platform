@@ -89,22 +89,6 @@ export interface GraphFileBuildResult {
   deduplicatedEdgeCount: number;
 }
 
-interface Writer {
-  initialize(signal?: AbortSignal): Promise<void>;
-  writeNodes(nodes: GraphNode[], componentIndex: number, signal?: AbortSignal): Promise<void>;
-  writeEdges(edges: GraphEdge[], componentIndex: number, signal?: AbortSignal): Promise<void>;
-  writeUnresolvedCalls(
-    repoId: string,
-    records: readonly UnresolvedCallRecord[],
-    componentIndex: number,
-    signal?: AbortSignal,
-  ): Promise<void>;
-  finalize(signal?: AbortSignal): Promise<void>;
-  inspect(repoIds: string[], signal?: AbortSignal): Promise<{ nodeCount: number; edgeCount: number }>;
-  resolverRepository(): GraphBuildResolverRepository;
-  close(): Promise<void>;
-}
-
 interface StagedEdges {
   path: string;
   componentIndex: number;
@@ -258,7 +242,7 @@ function resolverFacade(repository: IGraphRepository): GraphBuildResolverReposit
   });
 }
 
-class LadybugFileWriter implements Writer {
+class LadybugFileWriter {
   private readonly driver: LadybugDriver;
   private readonly repository: LadybugRepository;
 

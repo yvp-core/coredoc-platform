@@ -20,7 +20,7 @@ import { contextConditionText } from './intent-presentation.js';
 import type { ContextCondition, IntentContextMatch, IntentItemSource } from './types.js';
 
 /** One field, as the predecessor and the successor state it. */
-export interface IntentDiffRow {
+interface IntentDiffRow {
   label: string;
   before: string;
   after: string;
@@ -45,7 +45,7 @@ const formatArray = (values: readonly unknown[]): string => values.map(formatSca
  * Flatten a payload into `key -> printable value`, dotted through nested
  * objects. A payload is free-form, so this asserts no kind-specific shape.
  */
-export function flattenPayload(payload: unknown, prefix = ''): Record<string, string> {
+function flattenPayload(payload: unknown, prefix = ''): Record<string, string> {
   if (payload === null || payload === undefined) return {};
   if (Array.isArray(payload)) return { [prefix === '' ? 'value' : prefix]: formatArray(payload) };
   if (typeof payload !== 'object') return { [prefix === '' ? 'value' : prefix]: formatScalar(payload) };
@@ -97,7 +97,7 @@ export function supersedeDiffRows(predecessor: IntentContextMatch, successor: In
   return rows.map((row) => ({ ...row, changed: row.before !== row.after }));
 }
 
-export interface IntentSupersedeDiffProps {
+interface IntentSupersedeDiffProps {
   predecessorId: string;
   /** The predecessor's currently loaded version; absent when it could not be read. */
   predecessorVersion?: number;

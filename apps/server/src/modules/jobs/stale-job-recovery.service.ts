@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { WORKERS_CONFIG, type WorkersConfig, workersConfigFromEnv } from '../../config/app-config.js';
+import { WORKERS_CONFIG, type WorkersConfig, configFromEnv } from '../../config/app-config.js';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PushWorkerService } from './push-worker.service.js';
 
@@ -9,7 +9,7 @@ export class StaleJobRecoveryService {
 
   constructor(
     private readonly worker: PushWorkerService,
-    @Optional() @Inject(WORKERS_CONFIG) private readonly workers: WorkersConfig = workersConfigFromEnv(),
+    @Optional() @Inject(WORKERS_CONFIG) private readonly workers: WorkersConfig = configFromEnv().workers,
   ) {}
 
   /**

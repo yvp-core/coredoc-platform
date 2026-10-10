@@ -23,10 +23,3 @@ export class MetricsApiModule {}
   providers: [MetricsRetentionCron],
 })
 export class MetricsWorkerScheduleModule {}
-
-/** Compatibility composition for repository-local consumers. */
-@Module({
-  imports: [MetricsCoreModule, MetricsApiModule, MetricsWorkerScheduleModule],
-  exports: [MetricsCoreModule],
-})
-export class MetricsModule {}

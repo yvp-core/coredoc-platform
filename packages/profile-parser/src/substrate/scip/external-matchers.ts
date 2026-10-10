@@ -3,7 +3,7 @@
  * import maps, and registry-anchored SDK detection.
  */
 import { type SdkPackage, lookupSdkByPackage } from '@coredoc/core/base-parser/sdk-registry';
-import type { StructuralCall, StructuralFile } from '../../facts/index.js';
+import type { StructuralCall, StructuralFile } from '../../facts/structural/ts-structural.js';
 import { regexFromSource } from '../regex-util.js';
 import type { ExternalCallFact, SubstrateLoc } from '../interface.js';
 

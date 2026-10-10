@@ -222,8 +222,6 @@ describe('records list', () => {
     }
   });
 
-  // The option list itself lives in a Radix portal that happy-dom cannot open
-  // (no pointer capture), so the label and its hint are asserted at the source.
   it('labels the MCP area as covering tool issues too', () => {
     expect(humanizeArea('mcp-transport')).toBe('MCP tools & transport');
     expect(AREA_HINTS['mcp-transport']).toBe(

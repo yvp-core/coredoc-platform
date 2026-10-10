@@ -1,6 +1,6 @@
 /**
- * Telemetry channels — the two transports events can ship over — plus the
- * static event→channel routing map. Channels are dumb transports: given an
+ * Telemetry channels — the two transports events can ship over. Channels are
+ * dumb transports: given an
  * event name, distinct id, and props, ship them (anon) or no-op (cloud
  * stub). Deriving `distinctId`, opt-in gating, and BaseProps merging are the
  * client's job (P0.5), not this file's (SRP).
@@ -11,14 +11,14 @@ import { EventName } from './events.js';
 /** PostHog's own default ingestion host, used when neither an env nor a bundled host is configured. */
 const DEFAULT_POSTHOG_HOST = 'https://us.i.posthog.com';
 
-// Opt-in diagnostic trace (COREDOC_TELEMETRY_DEBUG=1). OFF by default: nothing
-// logs, zero behavior change. STDERR only. `[pid:...]` on every line
-// distinguishes the MAIN process (which emits agent_run) from the WORKER
-// process/thread. A local copy of the gated helper (index.ts has its own) so
-// channels.ts stays free of a circular import back into index. Its own INSTANCE
-// nonce means a duplicated bundle shows the same log line under two different ids.
+// Opt-in diagnostic trace (COREDOC_TELEMETRY_DEBUG=1), shared with index.ts. OFF
+// by default: nothing logs, zero behavior change. STDERR only (never stdout) so
+// it surfaces in the desktop worker's PTY output without polluting the JSON
+// stream. `[pid:...]` on every line distinguishes the MAIN process (which emits
+// agent_run) from the WORKER process/thread. INSTANCE is a module-load-time
+// nonce: if two copies of this module get bundled, their logs carry different ids.
 const INSTANCE = Math.random().toString(36).slice(2, 8);
-function dbg(msg: string): void {
+export function dbg(msg: string): void {
   if (process.env.COREDOC_TELEMETRY_DEBUG === '1') {
     console.error(`${new Date().toISOString()} [pid:${process.pid}] [coredoc-tel ${INSTANCE}] ${msg}`);
   }
@@ -258,7 +258,7 @@ export class AnonChannel {
   }
 }
 
-/** Mirrors `initTelemetry`'s `ctx.channels.cloud` shape (P0.5) — apiBase/workspaceId/getToken. */
+/** Per-run cloud attribution passed to `emitAgentRun` — apiBase/workspaceId/getToken. */
 export interface CloudChannelConfig {
   apiBase: string;
   workspaceId: string;
@@ -268,9 +268,8 @@ export interface CloudChannelConfig {
 /**
  * Cloud channel — attributed, per-workspace agent-run telemetry.
  *
- * Ships ONLY {@link EventName.AgentRun} (the sole `routeChannel === 'both'`
- * event) to a dedicated `POST /api/v1/workspaces/:id/agent-runs` endpoint;
- * every other event is a no-op — the explicit event guard is fail-safe, never
+ * Ships ONLY {@link EventName.AgentRun} to a dedicated
+ * `POST /api/v1/workspaces/:id/agent-runs` endpoint; every other event is a no-op — the explicit event guard is fail-safe, never
  * a silent broadening of what leaves the machine. Like {@link AnonChannel} it
  * NEVER throws into the caller: an absent config, a null token (unauthenticated
  * desktop), a non-2xx response, and network errors are all swallowed.
@@ -278,8 +277,7 @@ export interface CloudChannelConfig {
  * One emit ≈ one run and the server upserts on `(workspaceId, runId)`, so a
  * dropped emit is simply lost and any retry would be idempotent — there is
  * deliberately no retry queue / batching / persistence (YAGNI). `fetch` is
- * injectable for tests; the config shape is unchanged from the P0 stub so the
- * `initTelemetry` caller is untouched.
+ * injectable for tests.
  */
 export class CloudChannel {
   private readonly config: CloudChannelConfig | undefined;
@@ -372,19 +370,5 @@ export class CloudChannel {
     } finally {
       clearTimeout(timer);
     }
-  }
-}
-
-/**
- * Pure event→channel routing map — no side effects, no state. Static
- * per-event-class routing (spec §5.2): `AgentRun` goes to both channels;
- * everything else (including `push_*`, revisit later) stays anon-only in P0.
- */
-export function routeChannel(event: EventName): 'anon' | 'cloud' | 'both' {
-  switch (event) {
-    case EventName.AgentRun:
-      return 'both';
-    default:
-      return 'anon';
   }
 }

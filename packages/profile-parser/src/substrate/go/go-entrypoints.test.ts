@@ -11,9 +11,10 @@
 import type { CliEntrypointDetails, GrpcEntrypointDetails, HttpEntrypointDetails } from '@coredoc/core';
 import { StableIdGenerator } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
-import { type GoFile, parseGo } from './go-cst.js';
+import { type GoFile } from './go-cst.js';
 import { extractGoEntrypoints } from './go-entrypoints.js';
 import type { GoModule } from './go-modules.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 const ID = new StableIdGenerator('/demo', 'demo');
 
@@ -30,7 +31,7 @@ function mod(...dependencies: string[]): GoModule[] {
 }
 
 async function gf(relPath: string, source: string): Promise<GoFile> {
-  return { relPath, source, root: await parseGo(source) };
+  return { relPath, source, root: await parseSource('go', source) };
 }
 
 /** Every http entrypoint as `METHOD /full/path`, sorted — the shape a client actually calls. */

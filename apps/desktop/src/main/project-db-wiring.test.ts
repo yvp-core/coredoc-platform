@@ -54,13 +54,6 @@ vi.mock('electron', () => ({
   app: { getAppPath: () => '/tmp/app', getPath: () => '/tmp/home', isPackaged: false },
   BrowserWindow: class {},
 }));
-vi.mock('./pty-manager.js', () => ({
-  writePty: noop,
-  resizePty: noop,
-  spawnPty: noop,
-  killPty: noop,
-  killAllPtys: noop,
-}));
 vi.mock('./cloud-docs-manager.js', () => ({ runCloudDocsCommand: noop }));
 vi.mock('./agent-run/agent-run-service.js', () => ({ startAgentRun: noop, registerAgentRunHandlers: noop }));
 vi.mock('./telemetry-manager.js', () => ({ buildCloudChannelConfig: () => ({}) }));

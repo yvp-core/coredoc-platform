@@ -13,7 +13,7 @@
  */
 
 import { useState } from 'react';
-import { IntentAttemptKeys, type IntentWriteForm } from './intent-attempt-keys.js';
+import { IntentAttemptKeys, type IntentWriteForm } from '@coredoc/core/browser/intent-attempt-keys';
 
 /** {@link IntentWriter.run} was refused because another write holds the latch. */
 export class IntentWriteBusyError extends Error {

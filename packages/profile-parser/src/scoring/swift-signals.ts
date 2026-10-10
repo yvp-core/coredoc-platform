@@ -8,11 +8,7 @@ import { discoverSwiftFileScope } from '../substrate/swift/swift-parser.js';
 import { absoluteSourceFiles, grepCountInFiles } from './explicit-source-files.js';
 import type { SourceSignals } from './score-core.js';
 import type { SwiftProfile } from '../types/swift-profile.js';
-
-/** Escape a string for safe inclusion in a grep ERE (base-class identifiers). */
-function ereEscape(s: string): string {
-  return s.replace(/[.[\]{}()*+?^$|\\/]/g, '\\$&');
-}
+import { escapeEre } from './grep-lines.js';
 
 /**
  * Swift source-signal denominators from the repo on disk:
@@ -32,7 +28,7 @@ export function swiftSourceSignals(
   ).included,
 ): SourceSignals {
   const baseClasses = profile.entities?.baseClasses ?? ['Object'];
-  const alt = baseClasses.map(ereEscape).join('|');
+  const alt = baseClasses.map(escapeEre).join('|');
   const sourceFiles = absoluteSourceFiles(repoRoot, includedSourceFiles);
   // A class whose inheritance list names a base as a WHOLE WORD — the `[^A-Za-z0-9_]` guards
   // stop `Object` from matching inside `NSObject` / `NSManagedObject`. `[^{]*` keeps the match

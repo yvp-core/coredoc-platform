@@ -6,6 +6,8 @@
 // JiraAuthError (401/403) is permanent, JiraRateLimitError (429) and plain
 // Error are transient and ride the queue's BACKOFF_MS retries.
 
+import { asRecord } from '../../libs/coerce.js';
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 const PAGE_SIZE = 100;
 const MAX_BASE_URL_CHARS = 512;
@@ -78,10 +80,6 @@ export interface JiraChangelogResult {
   total: number | null;
   nextStartAt: number | null;
   incomplete: boolean;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function nonNegativeInteger(value: unknown): number | null {

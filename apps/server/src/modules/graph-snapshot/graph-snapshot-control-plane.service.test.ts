@@ -7,7 +7,7 @@ import type {
   GraphSnapshotRepositoryManifest,
   WorkspaceRepoArtifactDescriptor,
   WorkspaceRepoArtifactKind,
-} from './graph-snapshot.types.js';
+} from '../../libs/pipeline/graph-snapshot.types.js';
 import { GraphSnapshotControlPlaneService } from './graph-snapshot-control-plane.service.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';

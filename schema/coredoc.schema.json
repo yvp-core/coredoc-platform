@@ -4,7 +4,7 @@
   "title": "Coredoc Configuration",
   "description": "Configuration schema for coredoc-platform",
   "type": "object",
-  "required": ["version", "projects", "output", "parserStorage", "agentMode"],
+  "required": ["version", "projects", "output", "parserStorage"],
   "properties": {
     "$schema": {
       "type": "string",
@@ -35,11 +35,6 @@
     "parserStorage": {
       "type": "string",
       "description": "Directory to store generated parsers"
-    },
-    "agentMode": {
-      "type": "string",
-      "enum": ["interactive", "auto"],
-      "description": "Agent interaction mode"
     },
     "exclude": {
       "type": "array",

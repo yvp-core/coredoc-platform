@@ -1,6 +1,5 @@
 import { Outlet, useRouteContext } from '@tanstack/react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { TooltipProvider } from '@/components/ui/tooltip';
 
 // The QueryClient itself lives on router context (created once per
 // createAppRouter() call — see router.tsx) so route loaders/beforeLoad
@@ -12,9 +11,7 @@ export function RootLayout() {
   const { queryClient } = useRouteContext({ from: '__root__' });
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider delayDuration={200}>
-        <Outlet />
-      </TooltipProvider>
+      <Outlet />
     </QueryClientProvider>
   );
 }

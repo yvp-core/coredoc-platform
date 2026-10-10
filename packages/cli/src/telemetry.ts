@@ -24,14 +24,7 @@
  * as the grouping key, so the free-text is dropped rather than softened.
  */
 
-import {
-  type BaseProps,
-  type ErrorCode,
-  EventName,
-  __resetTelemetryForTests,
-  shutdownTelemetry as coreShutdown,
-  track,
-} from '@coredoc/core/telemetry';
+import { type BaseProps, type ErrorCode, EventName, track } from '@coredoc/core/telemetry';
 
 export { classifyError } from '@coredoc/core/telemetry';
 
@@ -166,14 +159,4 @@ export function buildTelemetryShowText(installId: string): string {
     '  - Git commit messages or environment variables',
     '  - Any personally identifiable information',
   ].join('\n');
-}
-
-/** Reset the shared client's module state (for testing). */
-export function resetTelemetryClient(): void {
-  __resetTelemetryForTests();
-}
-
-/** Bounded flush of the shared client. */
-export async function shutdownTelemetry(): Promise<void> {
-  await coreShutdown();
 }

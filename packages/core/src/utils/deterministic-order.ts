@@ -15,8 +15,3 @@ export function compareCodeUnits(left: string, right: string): number {
   if (left > right) return 1;
   return 0;
 }
-
-/** `compareCodeUnits` applied to a named field — the common `sort(byCodeUnits('id'))` shape. */
-export function byCodeUnits<T>(key: (value: T) => string): (left: T, right: T) => number {
-  return (left, right) => compareCodeUnits(key(left), key(right));
-}

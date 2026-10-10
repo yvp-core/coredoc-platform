@@ -156,7 +156,7 @@ export function structuralToNodes(
     g.addClass(node);
   }
 
-  for (const iface of file.interfaces ?? []) {
+  for (const iface of file.interfaces) {
     const id = idGen.interfaceId(file.path, iface.name);
     const node: InterfaceNode = {
       id,
@@ -184,7 +184,7 @@ export function structuralToNodes(
     g.addInterface(node);
   }
 
-  for (const ta of file.typeAliases ?? []) {
+  for (const ta of file.typeAliases) {
     const id = idGen.typeAliasId(file.path, ta.name);
     const node: TypeAliasNode = {
       id,
@@ -205,7 +205,7 @@ export function structuralToNodes(
     g.addTypeAlias(node);
   }
 
-  for (const en of file.enums ?? []) {
+  for (const en of file.enums) {
     const id = idGen.enumId(file.path, en.name);
     const node: EnumNode = {
       id,
@@ -225,7 +225,7 @@ export function structuralToNodes(
     g.addEnum(node);
   }
 
-  for (const v of file.variables ?? []) {
+  for (const v of file.variables) {
     const id = idGen.variableId(file.path, v.name);
     const node: VariableNode = {
       id,
@@ -267,7 +267,7 @@ export function structuralToNodes(
   // Value-position enum-member references (`Status.Locked`). The enum stays UNRESOLVED here —
   // `assemble` keeps only references naming an emitted enum, and the storage layer resolves the
   // (name, importedFrom) pair to the declaring enum node.
-  for (const ref of file.enumMemberRefs ?? []) {
+  for (const ref of file.enumMemberRefs) {
     const sourceId = resolveEnclosingId(ref, file, idGen);
     if (!sourceId) continue; // module-level references have no function node to source the edge at
     g.addEnumMemberRef({
@@ -289,7 +289,7 @@ export function structuralToNodes(
   // it would leave the singleton-per-module shape with no incoming usage at all. The class stays
   // UNRESOLVED here — the identity pass proves the declaring module, `assemble` keeps only
   // references naming an emitted class, and the storage layer links the node.
-  for (const ref of file.classRefs ?? []) {
+  for (const ref of file.classRefs) {
     const sourceId =
       (ref.refKind === 'construction' ? resolveEnclosingId(ref, file, idGen) : undefined) ?? idGen.fileId(file.path);
     g.addClassRef({

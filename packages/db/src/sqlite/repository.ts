@@ -81,6 +81,8 @@ import {
   lowCoverageRepoNames,
   UNRESOLVED_CALL_DEFAULT_LIMIT,
   UNRESOLVED_CALL_LIMIT,
+  MAX_TRAVERSAL_DEPTH,
+  clampTraversalDepth,
 } from '../graph-query-defaults.js';
 import { type ExternalCallRow, externalCallInfoFromRow } from '../external-call-row.js';
 import {
@@ -433,14 +435,6 @@ function parseProperties(propsStr: string | null): Record<string, unknown> {
  */
 function normalizeNodeType(type: string): NodeType {
   return type.toLowerCase().replace('alias', '_alias') as NodeType;
-}
-
-const MAX_TRAVERSAL_DEPTH = 10;
-
-function clampTraversalDepth(value: number): number {
-  const integer = Math.floor(Number(value));
-  if (!Number.isFinite(integer)) return 1;
-  return Math.min(MAX_TRAVERSAL_DEPTH, Math.max(1, integer));
 }
 
 /** Common column projection for entity-node rows (findEntity / listEntities). */

@@ -87,6 +87,14 @@ export interface Substrate<P extends ScipProfile, F extends SourceFile = ParsedS
   extract(ctx: SubstrateContext<P, F>): Promise<SubstrateFacts>;
 }
 
+/** A provider's `sourceFiles` + `parse` for a substrate run through `parseSubstrate`. */
+export function substrateEntry<P extends ScipProfile, F extends SourceFile>(substrate: Substrate<P, F>) {
+  return {
+    sourceFiles: (profile: P, repoRoot: string) => substrate.scope(profile, repoRoot),
+    parse: (profile: P, opts: ParseOptions) => parseSubstrate(substrate, profile, opts),
+  };
+}
+
 export async function parseSubstrate<P extends ScipProfile, F extends SourceFile>(
   substrate: Substrate<P, F>,
   profile: P,
@@ -128,7 +136,7 @@ export async function parseSubstrate<P extends ScipProfile, F extends SourceFile
         const enhanced = await optionalAnalysis(
           scip.language,
           files.length ? profile.substrate.analysis : { mode: 'basic' },
-          () => scip.run(root, { outDir: opts.scipOutDir ?? opts.cacheDir }),
+          () => scip.run(root, { outDir: opts.scipOutDir }),
           (path) => mergeScipCallFacts(loadOptionalScip(path), scip.facts(files, idGen), basic.calls, basic.stats),
         );
         analysis = enhanced.analysis;

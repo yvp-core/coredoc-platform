@@ -14,8 +14,6 @@ import type { IDatabaseDriver, ITransaction, DatabaseBackend } from '../types.js
 // Module State
 // =============================================================================
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let neo4jModule: any = null;
 let driver: Driver | null = null;
 let isShuttingDown = false;
 
@@ -49,16 +47,18 @@ export interface Neo4jSessionOptions {
 // Neo4j Module Loading
 // =============================================================================
 
-/**
- * Lazy-load the neo4j-driver module.
- * This allows the package to work without neo4j-driver installed.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function getNeo4jModule(): Promise<any> {
+// Resolve neo4j-driver lazily via a synchronous require so that merely importing
+// this module — which `@coredoc/db`'s index statically re-exports, so it loads at
+// startup in every consumer — never eagerly pulls in the optional neo4j-driver
+// dependency (that eager require crashed the packaged desktop app, which ships
+// SQLite only). Only reached once the Neo4j backend is actually in use.
+const nodeRequire = createRequire(import.meta.url);
+let neo4jModule: typeof import('neo4j-driver') | null = null;
+
+function getNeo4jModule(): typeof import('neo4j-driver') {
   if (!neo4jModule) {
     try {
-      const mod = await import('neo4j-driver');
-      neo4jModule = mod.default ?? mod;
+      neo4jModule = nodeRequire('neo4j-driver') as typeof import('neo4j-driver');
     } catch {
       throw new Error('neo4j-driver is not installed. Install it with: npm install neo4j-driver');
     }
@@ -80,7 +80,7 @@ async function getNeo4jModule(): Promise<any> {
  *
  * @throws Error if NEO4J_PASSWORD is not set
  */
-export function getConnectionConfig(): Neo4jConnectionConfig {
+function getConnectionConfig(): Neo4jConnectionConfig {
   const uri = process.env.NEO4J_URI || 'bolt://localhost:7687';
   const user = process.env.NEO4J_USER || 'neo4j';
   const password = process.env.NEO4J_PASSWORD;
@@ -92,13 +92,6 @@ export function getConnectionConfig(): Neo4jConnectionConfig {
   }
 
   return { uri, user, password };
-}
-
-/**
- * Get a masked connection string for logging (hides password)
- */
-export function getMaskedConnectionString(config: Neo4jConnectionConfig): string {
-  return `${config.uri} (user: ${config.user})`;
 }
 
 // =============================================================================
@@ -118,7 +111,7 @@ export async function getDriver(): Promise<Driver> {
     return driver;
   }
 
-  const neo4j = await getNeo4jModule();
+  const neo4j = getNeo4jModule();
   const config = getConnectionConfig();
 
   driver = neo4j.driver(config.uri, neo4j.auth.basic(config.user, config.password), {
@@ -138,13 +131,6 @@ export async function getDriver(): Promise<Driver> {
   }) as Driver;
 
   return driver!;
-}
-
-/**
- * Check if the driver is currently initialized
- */
-export function isDriverInitialized(): boolean {
-  return driver !== null;
 }
 
 /**
@@ -176,18 +162,14 @@ export async function closeDriver(): Promise<void> {
 }
 
 /**
- * Verify connectivity to the Neo4j database.
+ * Verify connectivity to the Neo4j database configured by the environment.
  *
- * @param config - Optional connection config (uses env vars if not provided)
  * @throws Error if connection fails
  */
-export async function verifyConnectivity(config?: Neo4jConnectionConfig): Promise<void> {
-  const neo4j = await getNeo4jModule();
-  const effectiveConfig = config || getConnectionConfig();
-  const testDriver = neo4j.driver(
-    effectiveConfig.uri,
-    neo4j.auth.basic(effectiveConfig.user, effectiveConfig.password),
-  );
+async function verifyConnectivity(): Promise<void> {
+  const neo4j = getNeo4jModule();
+  const config = getConnectionConfig();
+  const testDriver = neo4j.driver(config.uri, neo4j.auth.basic(config.user, config.password));
 
   try {
     await testDriver.verifyConnectivity();
@@ -258,79 +240,6 @@ export async function withReadTransaction<T>(
 }
 
 // =============================================================================
-// Batch Operations
-// =============================================================================
-
-/**
- * Default batch size for UNWIND operations
- */
-export const DEFAULT_BATCH_SIZE = 500;
-
-/**
- * Execute a batch operation using UNWIND.
- *
- * @param items - Array of items to process
- * @param query - Cypher query with `$batch` parameter for UNWIND
- * @param options - Session options and batch size
- * @returns Total number of items processed
- */
-export async function executeBatch<T>(
-  items: T[],
-  query: string,
-  options: Neo4jSessionOptions & { batchSize?: number } = {},
-): Promise<number> {
-  if (items.length === 0) {
-    return 0;
-  }
-
-  const { batchSize = DEFAULT_BATCH_SIZE, ...sessionOptions } = options;
-  let processed = 0;
-
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-
-    await withWriteTransaction(async (tx) => {
-      await tx.run(query, { batch });
-    }, sessionOptions);
-
-    processed += batch.length;
-  }
-
-  return processed;
-}
-
-// =============================================================================
-// Process Exit Handlers
-// =============================================================================
-
-let exitHandlersRegistered = false;
-
-/**
- * Register process exit handlers to close the driver gracefully.
- * Safe to call multiple times - subsequent calls are no-ops.
- */
-export function registerExitHandlers(): void {
-  if (exitHandlersRegistered) {
-    return;
-  }
-
-  const handleExit = async (signal: string): Promise<void> => {
-    if (driver) {
-      await closeDriver();
-    }
-    if (signal === 'SIGINT' || signal === 'SIGTERM') {
-      process.exit(0);
-    }
-  };
-
-  process.on('SIGINT', () => handleExit('SIGINT'));
-  process.on('SIGTERM', () => handleExit('SIGTERM'));
-  process.on('beforeExit', () => handleExit('beforeExit'));
-
-  exitHandlersRegistered = true;
-}
-
-// =============================================================================
 // Vector Index Management
 // =============================================================================
 
@@ -341,43 +250,15 @@ export function registerExitHandlers(): void {
  * @throws Error if index creation fails
  */
 export async function createVectorIndexes(dimensions: number = 768): Promise<void> {
-  // Create vector index for Function nodes
+  const specs = [
+    { name: 'function_embedding', label: 'Function' },
+    { name: 'entrypoint_embedding', label: 'Entrypoint' },
+  ];
   await withSession(async (session) => {
-    const existingIndexes = await session.run('SHOW INDEXES WHERE name = $name', {
-      name: 'function_embedding',
-    });
-
-    if (existingIndexes.records.length === 0) {
+    for (const { name, label } of specs) {
       await session.run(
-        `
-        CREATE VECTOR INDEX function_embedding IF NOT EXISTS
-        FOR (f:Function) ON (f.embedding)
-        OPTIONS {indexConfig: {
-          \`vector.dimensions\`: $dimensions,
-          \`vector.similarity_function\`: 'cosine'
-        }}
-        `,
-        { dimensions },
-      );
-    }
-  });
-
-  // Create vector index for Entrypoint nodes
-  await withSession(async (session) => {
-    const existingIndexes = await session.run('SHOW INDEXES WHERE name = $name', {
-      name: 'entrypoint_embedding',
-    });
-
-    if (existingIndexes.records.length === 0) {
-      await session.run(
-        `
-        CREATE VECTOR INDEX entrypoint_embedding IF NOT EXISTS
-        FOR (e:Entrypoint) ON (e.embedding)
-        OPTIONS {indexConfig: {
-          \`vector.dimensions\`: $dimensions,
-          \`vector.similarity_function\`: 'cosine'
-        }}
-        `,
+        `CREATE VECTOR INDEX ${name} IF NOT EXISTS FOR (n:${label}) ON (n.embedding)
+         OPTIONS {indexConfig: {\`vector.dimensions\`: $dimensions, \`vector.similarity_function\`: 'cosine'}}`,
         { dimensions },
       );
     }
@@ -441,36 +322,6 @@ export async function ensureGraphIndexes(): Promise<void> {
     // prevent. Block until every index is ONLINE so the first push uses them.
     await session.run('CALL db.awaitIndexes(300)');
   });
-}
-
-/**
- * Get server information from the Neo4j database.
- */
-export async function getServerInfo(): Promise<{
-  address: string;
-  agent: string;
-  protocolVersion: number;
-}> {
-  const d = await getDriver();
-  const serverInfo = await d.getServerInfo();
-
-  return {
-    address: serverInfo.address || 'unknown',
-    agent: serverInfo.agent || 'unknown',
-    protocolVersion: serverInfo.protocolVersion || 0,
-  };
-}
-
-/**
- * Check if the database is available and responding.
- */
-export async function isDatabaseAvailable(): Promise<boolean> {
-  try {
-    await verifyConnectivity();
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 // =============================================================================
@@ -538,20 +389,9 @@ function convertNeo4jValue(value: unknown): unknown {
 }
 
 // neo4j-driver's `int()` converts JS numbers into the 64-bit Integer that Cypher
-// LIMIT/SKIP require. Resolve it lazily via a synchronous require so that merely
-// importing this module — which `@coredoc/db`'s index statically re-exports, so it
-// loads at startup in every consumer — never eagerly pulls in the optional
-// neo4j-driver dependency (that eager require crashed the packaged desktop app,
-// which ships SQLite only). Only reached once the Neo4j backend is actually in
-// use, where the dependency is guaranteed present.
-const nodeRequire = createRequire(import.meta.url);
-let neo4jInt: ((value: string | number) => unknown) | null = null;
-
+// LIMIT/SKIP require.
 export function toInt(value: string | number) {
-  if (!neo4jInt) {
-    neo4jInt = (nodeRequire('neo4j-driver') as { int: (v: string | number) => unknown }).int;
-  }
-  return neo4jInt(value);
+  return getNeo4jModule().int(value);
 }
 
 // =============================================================================

@@ -2,7 +2,7 @@
  * Pure presentation vocabulary for the intent knowledge base.
  *
  * Kept out of the components so the mapping from a wire value to a badge or a
- * label is testable on its own, matching `observability-format.ts` /
+ * label is testable on its own, matching `@coredoc/core/browser/format` /
  * `capture-health-state.ts` in the neighbouring feature.
  *
  * The two trust markers stay SEPARATE here as well: {@link anchorStatusLabel}
@@ -29,7 +29,7 @@ import {
 import { IntentItemScope } from './intent-panel-state.js';
 
 /** The badge variants this feature uses, from `components/ui/badge.tsx`. */
-export type IntentBadgeVariant =
+type IntentBadgeVariant =
   | 'accepted'
   | 'candidate'
   | 'rejected'
@@ -208,7 +208,7 @@ export function humanizeIntentKey(key: string): string {
 }
 
 /** One row of the per-kind details grid. `values` carries a list-valued field. */
-export interface IntentDetailField {
+interface IntentDetailField {
   key: string;
   label: string;
   value: string | null;
@@ -307,7 +307,7 @@ export function variantWhenText(when: DimensionValueSelection | undefined): stri
 }
 
 /** One numbered step of a flow payload, with its branch conditions. */
-export interface IntentFlowStep {
+interface IntentFlowStep {
   id: string;
   actor: string | null;
   action: string | null;
@@ -345,7 +345,7 @@ export function intentFlowSteps(payload: unknown): IntentFlowStep[] | null {
 }
 
 /** One row of a `business_rule` payload's `variants` table. */
-export interface IntentPayloadVariant {
+interface IntentPayloadVariant {
   when: DimensionValueSelection | undefined;
   /**
    * The raw `when` value, kept ONLY when sanitizing it lost entries — a
@@ -423,7 +423,7 @@ export function variantWhenCell(variant: IntentPayloadVariant): string {
 }
 
 /** One group of an item's inherited tree conditions, labelled by the level it came from. */
-export interface InheritedConditionGroup {
+interface InheritedConditionGroup {
   source: 'domain' | 'feature';
   clauses: TreeCondition[];
 }
@@ -467,7 +467,7 @@ type Registry = readonly IntentDimension[] | null | undefined;
 const dimensionOf = (dimensions: Registry, id: string) => dimensions?.find((dimension) => dimension.id === id);
 
 /** A dimension value's title from the registry, falling back to its id. */
-export function dimensionValueTitle(dimensions: Registry, dimensionId: string, valueId: string): string {
+function dimensionValueTitle(dimensions: Registry, dimensionId: string, valueId: string): string {
   return dimensionOf(dimensions, dimensionId)?.values.find((value) => value.id === valueId)?.title ?? valueId;
 }
 
@@ -516,7 +516,7 @@ export function canonicalPreviewContext(selection: DimensionValueSelection): str
 }
 
 /** A dimension a node's conditions use, with the titles of the values its clauses name. */
-export interface ConditionDimension {
+interface ConditionDimension {
   id: string;
   title: string;
   values: string[];

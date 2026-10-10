@@ -10,7 +10,7 @@ import { WelcomeStep, welcomeTitle } from './invited-onboarding/WelcomeStep';
 import { McpStep } from './invited-onboarding/McpStep';
 import { LinkRepositoriesStep } from './invited-onboarding/LinkRepositoriesStep';
 import { Field } from './ui/field';
-import { Label } from './ui';
+import { Label } from './ui/label';
 import { Checkbox } from './ui/checkbox';
 import type { LinkedRepo } from '../../shared/ipc-types';
 

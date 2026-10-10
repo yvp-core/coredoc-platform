@@ -5,6 +5,7 @@ import {
   MAX_STATE_ARCHIVE_BYTES,
   RunFailureCode,
   RunnerStartupProblemCode,
+  defaultRetryDelay,
   type TurnAssignment,
   TurnKind,
   type TurnOutcome,
@@ -12,11 +13,11 @@ import {
 import { Git, gitEnvironment } from '../git/git.js';
 import { SecretScanner } from '../git/secret-scan.js';
 import { type Clone, TurnGit } from '../git/turn-git.js';
-import { type BotGithubOptions, checkBotPermissions, requireBot } from '../github/bot-github.js';
+import { type BotGithubOptions, botGithub, checkBotPermissions, requireBot } from '../github/bot-github.js';
 import { type PackageRegistry, writeUserRegistryConfig } from '../package-registries.js';
 import type { RunnerApiClient } from '../runner-api.js';
 import type { TurnExecutor, TurnIO, TurnResult } from '../runner.js';
-import { DeliveryExecutor } from '../delivery/delivery-executor.js';
+import { deliver } from '../delivery/deliver.js';
 import { failedOutcome as failed, reportingFailures, TurnFailure } from '../turn-failure.js';
 import { classifyModelFailure } from './model-failure.js';
 import { implementPrompt, runPreamble, scopePrompt } from './prompts.js';
@@ -85,15 +86,19 @@ const TOOL_DEFERRED = 'tool_deferred';
 
 export class ClaudeExecutor implements TurnExecutor {
   private readonly log: (message: string) => void;
-  private readonly delivery: DeliveryExecutor;
 
   constructor(private readonly options: ClaudeExecutorOptions) {
     this.log = options.log ?? (() => undefined);
-    this.delivery = new DeliveryExecutor(options);
   }
 
   async run(turn: TurnAssignment, io: TurnIO): Promise<TurnResult> {
-    if (turn.turn.kind === TurnKind.Delivery) return this.delivery.run(turn, io);
+    if (turn.turn.kind === TurnKind.Delivery) {
+      // No agent session and no scratch: only the bot check and draft pull requests.
+      return reportingFailures(async () => {
+        await checkBotPermissions(this.options, turn.repositories);
+        return deliver(turn, io, botGithub(this.options), this.options.retryDelay ?? defaultRetryDelay);
+      });
+    }
     // Fail closed: a session never starts without a spend budget and a duration limit to bound it.
     const unbounded = missingLimit(turn);
     if (unbounded) return { spend: null, outcome: unbounded };

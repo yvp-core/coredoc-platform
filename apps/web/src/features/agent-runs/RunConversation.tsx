@@ -1,5 +1,6 @@
 /** Only what a person needs to follow the run; raw agent activity stays in the trace. */
 import { Button } from '@/components/ui/button';
+import { plural } from '@coredoc/core/browser/format';
 import { IntentMarkdown } from '@/features/intent/intent-markdown';
 import { formatRelativeTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
@@ -20,7 +21,6 @@ const OUTCOME_NOTES: Record<string, string> = {
   repository_requested: 'asked for a repository',
 };
 
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
 function turnMeta(turn: AgentRunTurnActivity, now: Date): string {

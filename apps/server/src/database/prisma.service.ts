@@ -9,7 +9,7 @@ import { Injectable, OnModuleInit, OnApplicationShutdown, Logger } from '@nestjs
 import { PrismaClient } from '../generated/prisma/client.js';
 import pg from 'pg';
 import { buildPrismaAdapter, prismaLogLevels } from './create-prisma-client.js';
-import { miscConfigFromEnv } from '../config/app-config.js';
+import { configFromEnv } from '../config/app-config.js';
 
 // Store pool outside the class to avoid property shadowing issues with PrismaClient
 const poolRegistry = new WeakMap<PrismaService, pg.Pool>();
@@ -30,7 +30,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnAppli
   }
 
   async onModuleInit(): Promise<void> {
-    if (!miscConfigFromEnv().databaseUrl) {
+    if (!configFromEnv().misc.databaseUrl) {
       this.logger.warn('DATABASE_URL not set — Prisma client not connected');
       return;
     }

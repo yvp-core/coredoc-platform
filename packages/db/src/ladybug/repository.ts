@@ -32,6 +32,10 @@ import {
   SYMBOL_SEARCH_LIMIT,
   deadCodeUsageEdges,
   lowCoverageRepoNames,
+  MAX_TRAVERSAL_DEPTH,
+  clampTraversalDepth,
+  normalizeCypherScalar,
+  toNumber,
 } from '../graph-query-defaults.js';
 import { parseAppliedGraphSnapshot } from '../graph-snapshot.js';
 import { ByteMultiPatternMatcher } from '../multi-pattern.js';
@@ -167,15 +171,8 @@ interface EdgeIndex {
 type StoredNode = GraphNode;
 type StoredEdge = GraphEdge;
 
-const MAX_TRAVERSAL_DEPTH = 10;
 const CALLER_LIMIT = 100;
 const STORED_NODE_TYPES = new Set<string>(Object.values(NodeType));
-
-function toNumber(value: unknown): number {
-  if (typeof value === 'bigint') return Number(value);
-  const converted = Number(value);
-  return Number.isFinite(converted) ? converted : 0;
-}
 
 function parseObject(value: unknown): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
@@ -266,12 +263,6 @@ function decodeEdge(type: EdgeType, row: EdgeRow): StoredEdge {
 
 function edgeIdentity(sourceId: string, targetId: string, type: EdgeType): string {
   return JSON.stringify([sourceId, targetId, type]);
-}
-
-function clampDepth(value: number, fallback = 1): number {
-  const integer = Math.floor(Number(value));
-  if (!Number.isFinite(integer)) return fallback;
-  return Math.min(MAX_TRAVERSAL_DEPTH, Math.max(1, integer));
 }
 
 function stringProp(node: StoredNode, key: string): string | undefined {
@@ -465,9 +456,6 @@ function repoClause(alias: string, repoHashes: readonly string[], includeReposit
 /** Query-scoped bound for a caller-supplied Cypher read. */
 const CYPHER_TIMEOUT_MS = 5_000;
 
-const CYPHER_COMPOSITE_CELL_ERROR =
-  'Cypher rows shape supports scalar cells only; project scalar fields (e.g. RETURN n.name) or use resultShape "graph"';
-
 /**
  * Kùzu internal element identity (`_id`, `_src`, `_dst` on node/rel values).
  * Relationship endpoints are expressed as these, never as our node ids, so the
@@ -506,29 +494,6 @@ function isLadybugRelValue(value: unknown): value is LadybugRelValue {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
   return typeof candidate._label === 'string' && candidate._src !== undefined && candidate._dst !== undefined;
-}
-
-/**
- * Normalize one Cypher cell into a JSON-safe scalar.
- *
- * The Neo4j repository carries an equivalent function for its own value types
- * (Neo4j `Integer` objects); this one is deliberately local and Kùzu-specific —
- * two call sites do not justify a shared abstraction, and the two value models
- * have nothing in common beyond the output contract.
- */
-function normalizeLadybugCypherScalar(value: unknown): CypherScalar {
-  if (value === null || value === undefined) return null;
-  const kind = typeof value;
-  if (kind === 'string' || kind === 'boolean' || kind === 'number') return value as CypherScalar;
-  if (kind === 'bigint') {
-    const integer = value as bigint;
-    return integer >= BigInt(Number.MIN_SAFE_INTEGER) && integer <= BigInt(Number.MAX_SAFE_INTEGER)
-      ? Number(integer)
-      : integer.toString();
-  }
-  // Maps, lists, temporal/interval values, nodes and relationships all arrive as
-  // objects — none of them fit the scalar wire contract.
-  throw new Error(CYPHER_COMPOSITE_CELL_ERROR);
 }
 
 interface LadybugCypherGraphAccumulator {
@@ -1304,7 +1269,7 @@ export class LadybugRepository
    * only through an inferred hop currently renders unflagged on this backend.
    */
   async getTransitiveCallers(targetId: string, depth: number, repoHashes: string[]): Promise<CallerInfo[]> {
-    const boundedDepth = clampDepth(depth);
+    const boundedDepth = clampTraversalDepth(depth);
     const query = `
       MATCH path = (caller:${LADYBUG_NODE_TABLE})-[:CALLS*1..${boundedDepth}]->(target:${LADYBUG_NODE_TABLE} {id: $targetId})
       WHERE caller.id <> target.id AND ${repoClause('caller', repoHashes)}
@@ -1378,7 +1343,7 @@ export class LadybugRepository
   }
 
   async getReachingEntrypoints(targetId: string, depth: number, repoHashes: string[]): Promise<EntrypointInfo[]> {
-    const boundedDepth = clampDepth(depth + 3);
+    const boundedDepth = clampTraversalDepth(depth + 3);
     type EntrypointRow = NodeRow & { handlerId: string; handlerName: string };
     const rows = await this.driver.withReadTransaction(async (tx) => {
       const direct = await tx.run<EntrypointRow>(
@@ -1489,7 +1454,7 @@ export class LadybugRepository
   }
 
   async getCallTree(rootId: string, depth: number, repoHashes: string[]): Promise<CallTreeNode[]> {
-    const boundedDepth = clampDepth(depth);
+    const boundedDepth = clampTraversalDepth(depth);
     const rows = await this.driver.withReadTransaction(async (tx) => {
       const rootRows = await tx.run<NodeRow & { className: string | null }>(
         `MATCH (f:${LADYBUG_NODE_TABLE} {id: $rootId}) WHERE f.type = $functionType AND ${repoClause('f', repoHashes)} ` +
@@ -2182,7 +2147,7 @@ export class LadybugRepository
   }
 
   async getSubgraph(rootId: string, params: SubgraphParams, repoHashes: string[]): Promise<NeighborsResult> {
-    const depth = Math.min(5, clampDepth(params.depth));
+    const depth = Math.min(5, clampTraversalDepth(params.depth));
     const nodeCap = clampLimit(params.nodeCap, SUBGRAPH_NODE_CAP.max, SUBGRAPH_NODE_CAP.fallback);
     const edgeTypes = params.edgeTypes?.length
       ? [...new Set(params.edgeTypes.map(assertEdgeType))]
@@ -3000,7 +2965,7 @@ export class LadybugRepository
             truncated = true;
             break;
           }
-          rows.push(columns.map((column) => normalizeLadybugCypherScalar(row[column])));
+          rows.push(columns.map((column) => normalizeCypherScalar(row[column])));
         }
         return { columns, rows, truncated };
       },

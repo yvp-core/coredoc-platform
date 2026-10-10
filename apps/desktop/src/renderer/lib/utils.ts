@@ -34,3 +34,28 @@ export function formatNumber(num: number | undefined): string {
   if (num === undefined) return '-';
   return num.toLocaleString();
 }
+
+const DATE_TIME_PARTS = new Intl.DateTimeFormat('en-US', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true,
+});
+
+function dateParts(date: Date): Partial<Record<Intl.DateTimeFormatPartTypes, string>> {
+  return Object.fromEntries(DATE_TIME_PARTS.formatToParts(date).map((part) => [part.type, part.value]));
+}
+
+/** `05.01.2026` */
+export function formatDate(date: Date): string {
+  const p = dateParts(date);
+  return `${p.day}.${p.month}.${p.year}`;
+}
+
+/** `05.01.2026 / 1:03 PM` */
+export function formatDateTime(date: Date): string {
+  const p = dateParts(date);
+  return `${p.day}.${p.month}.${p.year} / ${p.hour}:${p.minute} ${p.dayPeriod}`;
+}

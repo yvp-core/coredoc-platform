@@ -96,18 +96,9 @@ they're safe to allow without prompting. Pick whichever is convenient:
 
 ## Bundled scripts
 
-Beyond the skill, the plugin ships two small, dependency-free dev
-helpers under `scripts/`. Both are **opt-in** and documented in full (purpose,
-install, usage) in [`docs/dev-tooling.md`](../../docs/dev-tooling.md).
-
-- **`validate-commit-message.mjs`** — enforces the team commit convention:
-  Conventional Commits, a 72-char ceiling, no vague subjects, and a mandatory
-  Jira reference `ABC-<number>` in the subject. Enable it by uncommenting the
-  line in `.husky/commit-msg`:
-
-  ```sh
-  node plugins/coredoc/scripts/validate-commit-message.mjs --file "$1" || exit 1
-  ```
+Beyond the skill, the plugin ships one small, dependency-free, **opt-in** dev
+helper under `scripts/`, documented in full in
+[`docs/dev-tooling.md`](../../docs/dev-tooling.md).
 
 - **`coredoc-statusline.sh`** — a non-blocking status line showing context-window
   and 5h/7d rate-limit usage, model, branch, and directory. Install it the easy

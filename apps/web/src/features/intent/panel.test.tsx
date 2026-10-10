@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, cleanup, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { IntentPanel } from './panel.js';
 
@@ -208,14 +209,12 @@ it('refuses oversized matching sets without partially changing the basket', asyn
 it('filters production states before paging and keeps the filter for bulk selection', async () => {
   await mount();
   await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
-  fireEvent.keyDown(screen.getByRole('combobox', { name: 'Production status' }), { key: 'ArrowDown' });
-  fireEvent.click(await screen.findByRole('option', { name: 'Planned' }));
+  await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Production status' }), 'Planned');
   await screen.findByRole('checkbox', { name: 'Select Rule 224 for delivery' });
   expect(screen.queryByRole('checkbox', { name: 'Select Rule 0 for delivery' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Select all matching rules' }));
   await screen.findByText('5 rules selected');
-  fireEvent.keyDown(screen.getByRole('combobox', { name: 'Production status' }), { key: 'ArrowDown' });
-  fireEvent.click(await screen.findByRole('option', { name: 'All production states' }));
+  await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Production status' }), 'All production states');
   await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
   expect(screen.getByText('5 rules selected')).toBeInTheDocument();
 });
@@ -262,8 +261,7 @@ it('shows condition chips on browse rows', async () => {
 it('previews the list as a reader context through the context read, and clears back', async () => {
   await mount();
   await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
-  fireEvent.keyDown(await screen.findByRole('combobox', { name: 'Country' }), { key: 'ArrowDown' });
-  fireEvent.click(await screen.findByRole('option', { name: 'Brazil' }));
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Country' }), 'Brazil');
 
   expect(await screen.findByText('3 rules hidden by these conditions')).toBeInTheDocument();
   expect(screen.getByText('US-only rule')).toBeInTheDocument();
@@ -312,8 +310,7 @@ it('previews every selected kind through the context read, not a browser-side fi
   await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
   fireEvent.click(screen.getByRole('button', { name: 'Use case' }));
   fireEvent.click(screen.getByRole('button', { name: 'Business rule' }));
-  fireEvent.keyDown(await screen.findByRole('combobox', { name: 'Country' }), { key: 'ArrowDown' });
-  fireEvent.click(await screen.findByRole('option', { name: 'Brazil' }));
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Country' }), 'Brazil');
 
   expect(await screen.findByText('US-only rule')).toBeInTheDocument();
   expect(contextListUrls().at(-1)?.searchParams.getAll('kind')).toEqual(['business_rule,use_case']);
@@ -322,8 +319,7 @@ it('previews every selected kind through the context read, not a browser-side fi
 it('labels the hidden count as a lower bound once a second preview page has loaded', async () => {
   await mount();
   await screen.findByRole('checkbox', { name: 'Select Rule 0 for delivery' });
-  fireEvent.keyDown(await screen.findByRole('combobox', { name: 'Country' }), { key: 'ArrowDown' });
-  fireEvent.click(await screen.findByRole('option', { name: 'Brazil' }));
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Country' }), 'Brazil');
 
   expect(await screen.findByText('3 rules hidden by these conditions')).toBeInTheDocument();
 
@@ -342,8 +338,7 @@ it('disables "select all matching" while a context preview is active, so hidden 
   const selectAllButton = screen.getByRole('button', { name: 'Select all matching rules' });
   expect(selectAllButton).toBeEnabled();
 
-  fireEvent.keyDown(await screen.findByRole('combobox', { name: 'Country' }), { key: 'ArrowDown' });
-  fireEvent.click(await screen.findByRole('option', { name: 'Brazil' }));
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Country' }), 'Brazil');
   await screen.findByText('3 rules hidden by these conditions');
 
   expect(selectAllButton).toBeDisabled();

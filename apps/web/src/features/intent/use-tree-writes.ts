@@ -18,7 +18,7 @@ import {
   updateIntentDomain,
   updateIntentFeature,
 } from '@/api/queries/intent';
-import { IntentWriteForm } from './intent-attempt-keys.js';
+import { IntentWriteForm } from '@coredoc/core/browser/intent-attempt-keys';
 import { messageOf } from './intent-presentation.js';
 import type { IntentWriter } from './intent-writer.js';
 import type { IntentTreeEditorProps } from './tree-editor.js';
@@ -28,7 +28,7 @@ type Input<K extends keyof IntentTreeEditorProps> = IntentTreeEditorProps[K] ext
   ? I
   : never;
 
-export interface TreeWritesInput {
+interface TreeWritesInput {
   workspaceId: string;
   writer: IntentWriter;
   /** Rows are the truth: after any write, everything intent-scoped is re-read. */

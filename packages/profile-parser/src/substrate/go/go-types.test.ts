@@ -14,10 +14,11 @@
  * fabricates an edge.
  */
 import { describe, expect, it } from 'vitest';
-import { type GoFile, SELECTOR_EXPRESSION, type TsNode, parseGo } from './go-cst.js';
+import { type GoFile, SELECTOR_EXPRESSION, type TsNode } from './go-cst.js';
 import { buildPackageIndex } from './go-imports.js';
 import type { GoModule } from './go-modules.js';
 import { type GoTypeEnv, buildGoTypeEnv } from './go-types.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 const MODULES: GoModule[] = [
   {
@@ -30,7 +31,7 @@ const MODULES: GoModule[] = [
 ];
 
 async function gf(relPath: string, source: string): Promise<GoFile> {
-  return { relPath, source, root: await parseGo(source) };
+  return { relPath, source, root: await parseSource('go', source) };
 }
 
 function envOf(files: GoFile[]): GoTypeEnv {

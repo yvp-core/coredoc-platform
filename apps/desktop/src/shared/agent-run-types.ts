@@ -84,11 +84,3 @@ export interface AgentRunAnswer {
   requestId: string;
   answers: string[][];
 }
-
-/** Snapshot for renderer reload recovery (AGENT_RUN_GET_STATE). */
-export interface AgentRunSnapshot {
-  phase: AgentRunPhase;
-  todos: AgentTodoItem[];
-  pendingQuestion: { requestId: string; questions: AgentRunQuestion[] } | null;
-  rawLog: string;
-}

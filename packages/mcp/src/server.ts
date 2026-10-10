@@ -242,11 +242,6 @@ export function cypherDialect(): CypherDialect | null {
   return null;
 }
 
-/** Whether `run_cypher_query` is listed and dispatchable in this process. */
-export function cypherToolEnabled(): boolean {
-  return cypherDialect() !== null;
-}
-
 /**
  * The `run_cypher_query` tool definition for the ACTIVE dialect: the shared
  * schema plus a description rendered for the backend that will serve it (single

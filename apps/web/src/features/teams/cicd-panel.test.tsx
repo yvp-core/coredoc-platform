@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CiCdPanel } from './CiCdPanel';
 
@@ -67,10 +68,9 @@ describe('Release trigger settings', () => {
   it('patches the workspace with the chosen trigger', async () => {
     mount();
     const select = await screen.findByRole('combobox', { name: 'Intent release trigger' });
-    // The control is disabled until the trigger read lands; a disabled trigger swallows the keydown.
+    // The control is disabled until the trigger read lands.
     await waitFor(() => expect(select).toBeEnabled());
-    fireEvent.keyDown(select, { key: 'ArrowDown' });
-    fireEvent.click(await screen.findByRole('option', { name: 'On merge' }));
+    await userEvent.selectOptions(select, 'On merge');
     await waitFor(() => expect(patches).toHaveLength(1));
     expect(patches[0]).toEqual({ url: '/api/v1/workspaces/ws1', body: { intentReleaseTrigger: 'merge' } });
   });
@@ -90,15 +90,13 @@ describe('Release trigger settings', () => {
     mount();
     const select = await screen.findByRole('combobox', { name: 'Release trigger for backend' });
     await waitFor(() => expect(select).toBeEnabled());
-    fireEvent.keyDown(select, { key: 'ArrowDown' });
-    fireEvent.click(await screen.findByRole('option', { name: 'Manual' }));
+    await userEvent.selectOptions(select, 'Manual');
     await waitFor(() => expect(patches).toHaveLength(1));
     expect(patches[0]).toEqual({
       url: '/api/v1/workspaces/ws1/repos/backend',
       body: { intentReleaseTrigger: 'manual' },
     });
-    fireEvent.keyDown(select, { key: 'ArrowDown' });
-    fireEvent.click(await screen.findByRole('option', { name: 'Default (On merge)' }));
+    await userEvent.selectOptions(select, 'Default (On merge)');
     await waitFor(() => expect(patches).toHaveLength(2));
     expect(patches[1]).toEqual({
       url: '/api/v1/workspaces/ws1/repos/backend',
@@ -139,7 +137,7 @@ describe('Release trigger settings', () => {
     expect(await screen.findByText('Release trigger unavailable')).toBeInTheDocument();
     const select = screen.getByRole('combobox', { name: 'Intent release trigger' });
     expect(select).toBeDisabled();
-    expect(select).not.toHaveTextContent('Manual');
+    expect(select).toHaveDisplayValue('Unavailable');
   });
 
   it('keeps the trigger read-only for a member', async () => {

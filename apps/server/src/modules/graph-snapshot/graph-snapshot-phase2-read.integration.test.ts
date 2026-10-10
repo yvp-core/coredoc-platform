@@ -15,7 +15,7 @@ import {
 import { GraphSnapshotBuildService } from './graph-snapshot-artifact.service.js';
 import { GraphSnapshotControlPlaneService } from './graph-snapshot-control-plane.service.js';
 import { createGraphSnapshotIdentity } from './graph-snapshot-manifest.js';
-import type { GraphSnapshotManifestV1 } from './graph-snapshot.types.js';
+import type { GraphSnapshotManifestV1 } from '../../libs/pipeline/graph-snapshot.types.js';
 
 const roots: string[] = [];
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
@@ -187,7 +187,6 @@ function createCache(storage: R2StorageService, cacheDir: string): WorkspaceFile
     maxTotalBufferPoolBytes: 128 * 1024 * 1024,
     maxCacheBytes: 64 * 1024 * 1024,
     downloadTimeoutMs: 5_000,
-    storageFormatVersion: GRAPH_FILE_FORMAT_COMPATIBILITY.storageFormatVersion,
     budgets: {
       maxDbSizeBytes: 64 * 1024 * 1024,
       bufferPoolBytes: 64 * 1024 * 1024,

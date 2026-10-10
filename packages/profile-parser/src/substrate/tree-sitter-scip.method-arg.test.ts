@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bareStringVerb } from './tree-sitter-scip.js';
+import { bareStringVerb } from './scip/url-topic-helpers.js';
 
 /**
  * `methodArg` primitive — reads the HTTP verb from a POSITIONAL string-literal

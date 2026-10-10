@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { Test } from '@nestjs/testing';
-import { DeliveryModule } from './delivery.module.js';
+import { DeliveryApiModule } from './delivery.module.js';
 import { DeliveryService } from './delivery.service.js';
 import { PrismaService } from '../../database/prisma.service.js';
 
-describe('DeliveryModule DI', () => {
+describe('DeliveryApiModule DI', () => {
   it('compiles the real module graph (guards against unresolvable constructor tokens)', async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [DeliveryModule] })
+    const moduleRef = await Test.createTestingModule({ imports: [DeliveryApiModule] })
       .overrideProvider(PrismaService)
       .useValue({} as PrismaService)
       .compile();
@@ -15,7 +15,7 @@ describe('DeliveryModule DI', () => {
   });
 
   it('registers the retained connector orchestration service', async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [DeliveryModule] })
+    const moduleRef = await Test.createTestingModule({ imports: [DeliveryApiModule] })
       .overrideProvider(PrismaService)
       .useValue({} as PrismaService)
       .compile();

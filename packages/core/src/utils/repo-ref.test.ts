@@ -38,7 +38,6 @@ const fakeConfig: CoredocConfig = {
   ],
   output: { dir: './out', format: 'json' },
   parserStorage: './parsers',
-  agentMode: 'interactive',
 };
 
 describe('path helpers', () => {
@@ -185,7 +184,6 @@ describe('resolveRepoRef', () => {
       projects: [],
       output: { dir: './out', format: 'json' },
       parserStorage: './parsers',
-      agentMode: 'interactive',
     };
     expect(() => resolveRepoRef(emptyConfig, 'svc-a')).toThrow(/No repos are configured/);
   });

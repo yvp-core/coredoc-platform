@@ -10,7 +10,7 @@
 import { StableIdGenerator } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
 import { CodeGraph } from '../facts/graph/graph-builder.js';
-import type { BaselineResult } from '../facts/index.js';
+import type { BaselineResult } from '../facts/pipeline.js';
 import type { ExtractionProfile } from '../types.js';
 import { SubstrateProfileEngine } from './engine.js';
 import type { CallSite, SubstrateClass, Substrate } from './interface.js';

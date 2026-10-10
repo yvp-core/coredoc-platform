@@ -8,13 +8,13 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { useMemo, useState } from 'react';
 import { createIntentComment, intentCommentsQueryOptions, setIntentCommentStatus } from '@/api/queries/intent';
 import { membersQueryOptions } from '@/api/queries/members';
-import { IntentWriteForm } from './intent-attempt-keys.js';
+import { IntentWriteForm } from '@coredoc/core/browser/intent-attempt-keys';
 import { formatIntentTimestamp, messageOf } from './intent-presentation.js';
 import { useIntentWriter } from './intent-writer.js';
 import { Chip } from './items-list.js';
 import type { IntentComment, IntentCommentStatus, IntentCommentTarget, IntentCommentThread } from './types.js';
 
-export interface IntentCommentsProps {
+interface IntentCommentsProps {
   workspaceId: string;
   target: IntentCommentTarget;
 }

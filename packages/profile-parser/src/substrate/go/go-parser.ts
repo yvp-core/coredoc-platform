@@ -15,7 +15,7 @@
  * Each `.go` file is parsed ONCE (single cached Parser instance in go-cst) and its CST root is
  * reused across every extractor — never re-parsed per concern.
  */
-import { goScipCallFacts } from './scip-calls.js';
+import { scipCallFacts } from '../../facts/scip/call-facts.js';
 import { runScipGo } from './scip-run.js';
 import {
   type ClassNode,
@@ -33,6 +33,7 @@ import {
   type StableIdGenerator,
   type TypeAliasNode,
 } from '@coredoc/core';
+import { toFileNodes } from '../file-nodes.js';
 import type { GoProfile } from '../../types.js';
 import { indexGoDefs, resolveGoCalls } from './go-callgraph.js';
 import {
@@ -61,25 +62,18 @@ import {
 } from './go-cst.js';
 import { extractGoDbOps } from './go-dbops.js';
 import { extractGoEgress } from './go-egress.js';
-import { type GoSchemaFile, extractGoEntities } from './go-entities.js';
+import { extractGoEntities } from './go-entities.js';
 import { extractGoEntrypoints } from './go-entrypoints.js';
 import { buildImportTable, buildPackageIndex } from './go-imports.js';
 import { type GoModule, discoverGoModules, moduleOwnerPath } from './go-modules.js';
 import { buildGoTypeEnv } from './go-types.js';
 import type { Substrate } from '../parse-substrate.js';
+import { posix } from 'node:path';
+import { repoDir } from '../glob.js';
 
 // =============================================================================
 // Structure — modules → Packages, sources → FileNodes, type decls → type nodes
 // =============================================================================
-
-/**
- * The directory of a repo-relative path — a Go package IS a directory ('' at the repo root, the
- * same spelling `go-imports.ts` and `go-egress.ts` use, so package keys join across the modules).
- */
-function dirOf(rel: string): string {
-  const i = rel.lastIndexOf('/');
-  return i === -1 ? '' : rel.slice(0, i);
-}
 
 /**
  * A Go package `Package` node — one per DIRECTORY.
@@ -130,46 +124,6 @@ function directoryToPackage(
     version: mod?.goVersion,
     language: 'go',
     dependencies: mod && mod.path === dir ? Object.fromEntries([...mod.dependencies].map((d) => [d, '*'])) : undefined,
-  };
-}
-
-/** A `FileNode` for one parsed source, assigned to its own directory's package. */
-function toFileNode(file: GoFile, packageId: string, idGen: StableIdGenerator): FileNode {
-  const contentHash = idGen.contentHash(file.source);
-  return {
-    id: idGen.fileId(file.relPath),
-    versionedId: idGen.versionedFileId(file.relPath, contentHash),
-    path: file.relPath,
-    extension: '.go',
-    packageId,
-    language: 'go',
-    contentHash,
-    loc: file.source.split('\n').filter((l) => {
-      const t = l.trim();
-      return t.length > 0 && !t.startsWith('//');
-    }).length,
-  };
-}
-
-/**
- * A `FileNode` for a plain-SQL schema file that backs an emitted entity. It lives outside the
- * `.go` scope but inside the graph — the Rust substrate's `toSchemaFileNode` makes the same call,
- * with the honest `language: 'sql'`.
- */
-function toSchemaFileNode(file: GoSchemaFile, packageId: string, idGen: StableIdGenerator): FileNode {
-  const contentHash = idGen.contentHash(file.source);
-  return {
-    id: idGen.fileId(file.relPath),
-    versionedId: idGen.versionedFileId(file.relPath, contentHash),
-    path: file.relPath,
-    extension: '.sql',
-    packageId,
-    language: 'sql',
-    contentHash,
-    loc: file.source.split('\n').filter((l) => {
-      const t = l.trim();
-      return t.length > 0 && !t.startsWith('--');
-    }).length,
   };
 }
 
@@ -265,7 +219,7 @@ function interfaceMembers(ifaceNode: TsNode, relPath: string): InterfaceNode['me
 function enumMembersByType(files: GoFile[]): Map<string, EnumMember[]> {
   const out = new Map<string, EnumMember[]>();
   for (const file of files) {
-    const dir = dirOf(file.relPath);
+    const dir = repoDir(file.relPath);
     for (const decl of file.root.descendantsOfType(CONST_DECLARATION) as TsNode[]) {
       const specs =
         namedChildrenOfType(decl, CONST_SPEC).length > 0
@@ -312,7 +266,7 @@ function methodIdsByPackageType(files: GoFile[], idGen: StableIdGenerator): Map<
     for (const decl of root.descendantsOfType(METHOD_DECLARATION) as TsNode[]) {
       const typeName = receiverTypeName(decl);
       if (!typeName) continue;
-      const key = `${dirOf(relPath)}#${typeName}`;
+      const key = `${repoDir(relPath)}#${typeName}`;
       const ids = out.get(key) ?? [];
       const id = goFunctionId(idGen, relPath, decl);
       if (!ids.includes(id)) ids.push(id);
@@ -342,7 +296,7 @@ function extractTypeNodes(
   const typeAliases: TypeAliasNode[] = [];
 
   for (const { relPath, root } of files) {
-    const dir = dirOf(relPath);
+    const dir = repoDir(relPath);
     // `type_spec` is `type X …`; `type_alias` is `type X = Y`. Both name a type, and neither
     // nests, so there is no Rust-style scope chain to build.
     const specs = [
@@ -451,7 +405,23 @@ export const goSubstrate: Substrate<GoProfile, GoFile> = {
       profile.substrate.exclude ?? [],
       profile.substrate.excludeDefaults,
     ),
-  scip: { language: 'go', run: runScipGo, facts: goScipCallFacts },
+  scip: {
+    language: 'go',
+    run: runScipGo,
+    facts: scipCallFacts({
+      definitions: ['function_declaration', 'method_declaration', 'func_literal'],
+      call: 'call_expression',
+      defaultPositionEncoding: 1,
+      functionId: goFunctionId,
+      callee(call) {
+        let token = call.childForFieldName('function');
+        if (token?.type === 'generic_type') token = token.childForFieldName('type');
+        const isMethodCall = token?.type === 'selector_expression';
+        if (isMethodCall) token = token.childForFieldName('field');
+        return { token, isMethodCall };
+      },
+    }),
+  },
 
   async extract({ root, name, profile, idGen, files, skipped, enhanceCalls }) {
     // ENTITIES run first: the DDL source reads `.sql` migrations outside the `.go` scope, and those
@@ -472,7 +442,7 @@ export const goSubstrate: Substrate<GoProfile, GoFile> = {
     const moduleByPath = new Map(modules.map((m) => [m.path, m]));
     const filesByDir = new Map<string, GoFile[]>();
     for (const file of files) {
-      const dir = dirOf(file.relPath) || '.';
+      const dir = posix.dirname(file.relPath);
       const list = filesByDir.get(dir) ?? [];
       list.push(file);
       filesByDir.set(dir, list);
@@ -509,7 +479,7 @@ export const goSubstrate: Substrate<GoProfile, GoFile> = {
     }
     // A migrations directory with no `.go` file of its own still owns the `.sql` FileNodes.
     for (const sf of schemaFiles) {
-      const dir = dirOf(sf.relPath) || '.';
+      const dir = posix.dirname(sf.relPath);
       if (packages.some((p) => p.path === dir)) continue;
       const ownerPath = moduleOwnerPath(sf.relPath, modules);
       const mod = ownerPath ? moduleByPath.get(ownerPath) : undefined;
@@ -528,9 +498,11 @@ export const goSubstrate: Substrate<GoProfile, GoFile> = {
     const index = indexGoDefs(files, idGen);
     const fnById = new Map<string, FunctionNode>(index.byId);
 
+    const packageIdFor = (relPath: string) => idGen.packageId(posix.dirname(relPath));
+    // `.sql` schema files back emitted entities: outside the `.go` scope but inside the graph.
     const fileNodes: FileNode[] = [
-      ...files.map((f) => toFileNode(f, idGen.packageId(dirOf(f.relPath) || '.'), idGen)),
-      ...schemaFiles.map((sf) => toSchemaFileNode(sf, idGen.packageId(dirOf(sf.relPath) || '.'), idGen)),
+      ...toFileNodes(files, idGen, { language: 'go', commentPrefix: '//', packageIdFor }),
+      ...toFileNodes(schemaFiles, idGen, { language: 'sql', commentPrefix: '--', packageIdFor }),
     ];
     const { classes, interfaces, enums, typeAliases } = extractTypeNodes(
       files,

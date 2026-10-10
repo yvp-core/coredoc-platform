@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bareStringMethodName } from './tree-sitter-scip.js';
+import { bareStringMethodName } from './scip/url-topic-helpers.js';
 
 /**
  * `methodNameArg` primitive — reads a dynamic-dispatch SDK method NAME from a

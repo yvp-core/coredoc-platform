@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
-import { formatRelativeTime } from '../lib/utils';
+import { formatDate, formatRelativeTime } from '../lib/utils';
 import type { Project, RepositoryStatus } from '../types/project';
 import { isLoadingStatus } from '../types/project';
 import { MenuDots, Pen, SlashCircle, TrashBinTrash } from '@solar-icons/react';
@@ -23,16 +23,12 @@ const MAX_VISIBLE_REPOS = 3;
  * Shows "Graph sync: DD.MM.YYYY" format.
  */
 function formatSyncDate(timestamp: string | undefined): string {
-  if (!timestamp) {
+  const date = timestamp ? new Date(timestamp) : undefined;
+  if (!date || Number.isNaN(date.getTime())) {
     return 'Not synced yet';
   }
 
-  const date = new Date(timestamp);
-  const day = date.getDate().toString().padStart(2, '0');
-  const month = (date.getMonth() + 1).toString().padStart(2, '0');
-  const year = date.getFullYear();
-
-  return `Graph sync: ${day}.${month}.${year}`;
+  return `Graph sync: ${formatDate(date)}`;
 }
 
 export function ProjectCard({ project, onRename, onDelete }: ProjectCardProps) {

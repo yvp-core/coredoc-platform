@@ -22,7 +22,7 @@ import type { ZigProfile } from './zig-profile.js';
  * One language-scoped slice of the repo: a full single-language profile minus
  * `parserId` (inherited from the composite; stamped on before provider dispatch)
  * plus a unique `name` that attributes scorecard sections, merge errors, and
- * per-target incremental cache subdirectories.
+ * per-target SCIP output subdirectories.
  * New languages extend the union here (one wiring point, like providers/index.ts).
  */
 export type TargetProfile = (

@@ -20,12 +20,8 @@ import {
   type AgentRunAnswer,
   type AgentRunEvent,
   type AgentRunQuestion,
-  type AgentRunSnapshot,
-  type AgentTodoItem,
 } from '../../shared/agent-run-types.js';
 import type { AgentRunAdapter, AgentRunIO, AgentRunRequest } from './types.js';
-
-const RAW_LOG_CAP = 1_000_000; // ~1 MB ring cap on the buffered transcript
 
 interface PendingQuestion {
   requestId: string;
@@ -51,8 +47,6 @@ interface Session {
   phase: AgentRunPhase;
   /** Error the adapter reported on its own Done event. */
   error?: string;
-  todos: AgentTodoItem[];
-  rawLog: string;
   pending: PendingQuestion | null;
   questionSeq: number;
   /** Count of AskUserQuestion round-trips shown to the user this run. */
@@ -78,20 +72,11 @@ function safeSend(win: BrowserWindow, channel: string, data: unknown): void {
   }
 }
 
-/** Fold an event into the session snapshot so a renderer reload can rehydrate. */
+/** Fold an event into the session state the run's completion reads. */
 function fold(session: Session, event: AgentRunEvent): void {
   switch (event.type) {
     case AgentRunEventType.Phase:
       session.phase = event.phase;
-      break;
-    case AgentRunEventType.Todos:
-      session.todos = event.items;
-      break;
-    case AgentRunEventType.Raw:
-      session.rawLog += `${event.text}\n`;
-      if (session.rawLog.length > RAW_LOG_CAP) {
-        session.rawLog = session.rawLog.slice(session.rawLog.length - RAW_LOG_CAP);
-      }
       break;
     case AgentRunEventType.QuestionResolved:
       if (session.pending?.requestId === event.requestId) session.pending = null;
@@ -132,8 +117,6 @@ export async function startAgentRun(
     mainWindow,
     abortController: request.abortController,
     phase: AgentRunPhase.Starting,
-    todos: [],
-    rawLog: '',
     pending: null,
     questionSeq: 0,
     interventions: 0,
@@ -228,20 +211,6 @@ export async function startAgentRun(
   });
 }
 
-/** Snapshot for renderer reload recovery. */
-export function getAgentRunState(id: string): AgentRunSnapshot | null {
-  const session = sessions.get(id);
-  if (!session) return null;
-  return {
-    phase: session.phase,
-    todos: session.todos,
-    pendingQuestion: session.pending
-      ? { requestId: session.pending.requestId, questions: session.pending.questions }
-      : null,
-    rawLog: session.rawLog,
-  };
-}
-
 /** Resolve an outstanding AskUserQuestion. Returns false if there was nothing to answer. */
 function answerAgentRun(id: string, answer: AgentRunAnswer): boolean {
   const session = sessions.get(id);
@@ -257,5 +226,4 @@ export function registerAgentRunHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(IpcChannels.AGENT_RUN_ANSWER, (_event, id: string, answer: AgentRunAnswer) =>
     answerAgentRun(id, answer),
   );
-  ipcMain.handle(IpcChannels.AGENT_RUN_GET_STATE, (_event, id: string) => getAgentRunState(id));
 }

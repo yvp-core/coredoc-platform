@@ -3,34 +3,23 @@
 //
 // A thin wrapper over `parseSubstrate(zigSubstrate)` (the bespoke tree-sitter-CST
 // substrate): types, functions, `@import` edges, Tier-B calls, `cli` entrypoints, egress,
-// raw-SQL entities/ops, constants and aliases. No SCIP: Zig has no wired semantic-index
-// prerequisite, so `discovery` omits `scipPrereqs` and the parse never throws on a missing index.
+// raw-SQL entities/ops, constants and aliases. No SCIP: Zig has no SCIP indexer, so every
+// collection comes from the tree-sitter CST and the parse never throws on a missing index.
 // =============================================================================
 import { zigSourceSignals } from '../scoring/zig-signals.js';
 import type { ScoreContext, SourceSignals } from '../scoring/score-core.js';
-import { parseSubstrate } from '../substrate/parse-substrate.js';
+import { substrateEntry } from '../substrate/parse-substrate.js';
 import { zigSubstrate } from '../substrate/zig/zig-parser.js';
 import type { ZigProfile } from '../types/zig-profile.js';
+import { hasLanguage } from './registry.js';
 import type { LanguageProvider } from './types.js';
-
-/** A Zig extraction profile: has parserId+substrate and language 'zig'. */
-function isZigProfile(v: unknown): v is ZigProfile {
-  if (typeof v !== 'object' || v === null) return false;
-  if (!('parserId' in v) || !('substrate' in v)) return false;
-  return (v as ZigProfile).substrate?.language === 'zig';
-}
 
 export const zigProvider: LanguageProvider<ZigProfile> = {
   language: 'zig',
-  discovery: {
-    extensions: ['.zig'],
-    // No scipPrereqs: Zig has no SCIP indexer, so every collection comes from the
-    // tree-sitter CST — the parse never throws on a missing index.
-  },
-  isProfile: isZigProfile,
+  discovery: { extensions: ['.zig'] },
+  isProfile: (v): v is ZigProfile => hasLanguage(v, 'zig'),
 
-  sourceFiles: (profile, repoRoot) => zigSubstrate.scope(profile, repoRoot),
-  parse: (profile, opts) => parseSubstrate(zigSubstrate, profile, opts),
+  ...substrateEntry(zigSubstrate),
 
   sourceSignals(ctx: ScoreContext): SourceSignals {
     return zigSourceSignals(ctx);

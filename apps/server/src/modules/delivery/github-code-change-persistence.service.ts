@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import { CodeChangeState, DeliveryProvider, Prisma } from '../../generated/prisma/client.js';
 import type { NormalizedCodeChange } from './github-normalizer.js';
+import { asRecord as record, toDate } from '../../libs/coerce.js';
 
 const CONCURRENT_WRITE_RETRY_LIMIT = 1;
 
@@ -19,21 +20,10 @@ interface PersistGithubCodeChangeInput {
   refreshEqual?: boolean;
 }
 
-/** ISO string -> Date, or null for absent/unparseable input. */
-function toDate(value: string | undefined): Date | null {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date : null;
-}
-
 function toEpoch(value: unknown): number | null {
   if (typeof value !== 'string') return null;
   const epoch = new Date(value).getTime();
   return Number.isFinite(epoch) ? epoch : null;
-}
-
-function record(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function isConcurrentWrite(error: unknown): boolean {

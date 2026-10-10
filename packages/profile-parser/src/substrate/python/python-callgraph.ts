@@ -178,11 +178,6 @@ export function indexPythonDefs(files: PythonFile[], idGen: StableIdGenerator): 
   return { byId, byName, methodsByClass, defByFileName };
 }
 
-/** Enumerate every `function_definition` across the files as a `FunctionNode` (`[...byId.values()]`). */
-export function collectPythonDefs(files: PythonFile[], idGen: StableIdGenerator): FunctionNode[] {
-  return [...indexPythonDefs(files, idGen).byId.values()];
-}
-
 // =============================================================================
 // Tier-B call resolver (Step 7, S7)
 // =============================================================================

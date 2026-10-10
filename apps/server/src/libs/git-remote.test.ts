@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { GitRemoteNormalizationErrorCode, isNormalizedGitRemote, normalizeGitRemote } from './git-remote.js';
+import { GitRemoteNormalizationErrorCode, normalizeGitRemote } from './git-remote.js';
 
 function normalized(input: string): string | undefined {
   const result = normalizeGitRemote(input);
@@ -145,9 +145,9 @@ describe('normalizeGitRemote', () => {
         expect(result.normalizedRemote.length).toBeLessThanOrEqual(2_048);
         // And the idempotence the CHECK-as-shape-check relies on.
         expect(
-          isNormalizedGitRemote(result.normalizedRemote),
+          normalized(result.normalizedRemote),
           `idempotence: ${JSON.stringify(input)} -> ${JSON.stringify(result.normalizedRemote)}`,
-        ).toBe(true);
+        ).toBe(result.normalizedRemote);
       } else {
         expect(result.status).toBe('invalid');
       }
@@ -162,7 +162,6 @@ describe('normalizeGitRemote', () => {
     ]) {
       const once = normalized(input) as string;
       expect(normalized(once)).toBe(once);
-      expect(isNormalizedGitRemote(once)).toBe(true);
       expect(satisfiesStorageCheck(once)).toBe(true);
     }
   });

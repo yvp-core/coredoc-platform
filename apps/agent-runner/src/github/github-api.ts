@@ -1,4 +1,5 @@
 /** Server errors, rate limits and network failures retry in process, honouring Retry-After (capped). */
+import { setTimeout as sleep } from 'node:timers/promises';
 import {
   type AssignedRepository,
   defaultRetryDelay,
@@ -7,7 +8,7 @@ import {
   type RunnerFailureCode,
   RunnerStartupProblemCode,
 } from '@coredoc/core/agent-runner';
-import { GITHUB_ATTEMPTS, sleep, TurnFailure } from '../turn-failure.js';
+import { GITHUB_ATTEMPTS, TurnFailure } from '../turn-failure.js';
 import type { StartupProblem } from '../runner.js';
 
 export interface ExistingPull {

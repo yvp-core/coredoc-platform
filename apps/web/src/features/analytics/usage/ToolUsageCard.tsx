@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
 import { MagnitudeBar } from '../charts/MagnitudeBar.js';
-import { formatNumber } from '../format.js';
+import { formatNumber } from '@coredoc/core/browser/format';
 import type { UsageToolRow } from '../types.js';
 import { formatMs, toolPills } from './usage-presentation.js';
 

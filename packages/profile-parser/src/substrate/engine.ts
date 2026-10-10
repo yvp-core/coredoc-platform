@@ -12,7 +12,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isSentinelEntityName } from '../entity-sentinels.js';
-import { assemble, tagExportedMonikers } from '../facts/index.js';
+import { assemble } from '../facts/pipeline.js';
+import { tagExportedMonikers } from '../facts/scip/to-edges.js';
 import { isLanguageBuiltinCall } from './builtin-calls.js';
 import { escapeRegExp, regexFromSource, requirePathToRel } from './regex-util.js';
 import { type PrismaModel, loadPrismaModels } from './engine/prisma-schema.js';
@@ -52,7 +53,7 @@ import {
   singularize,
   snakeCase,
 } from './engine/text-helpers.js';
-import type { BaselineResult } from '../facts/index.js';
+import type { BaselineResult } from '../facts/pipeline.js';
 import type { CodeGraph } from '../facts/graph/graph-builder.js';
 import type {
   CallResolutionStats,
@@ -104,48 +105,8 @@ import type {
   SubstrateClass,
   SubstrateFunction,
   SubstrateLoc,
-  VueSubstrate,
 } from './interface.js';
 import { markUnresolved } from '../unresolved-sentinel.js';
-
-/** Does this substrate parse `.vue` script blocks (and so offer Vue SFC sites)? */
-function isVueSubstrate(s: Substrate): s is Substrate & VueSubstrate {
-  return typeof (s as Partial<VueSubstrate>).vueComponentSites === 'function';
-}
-
-// ── re-exports (preserve the free-helper surface other modules may import) ────
-export { regexFromSource, requirePathToRel } from './regex-util.js';
-export { type PrismaModel, loadPrismaModels, parsePrismaSchema } from './engine/prisma-schema.js';
-export {
-  HTTP_VERBS,
-  canonicalizeParams,
-  deriveNextRoutePath,
-  extractParams,
-  httpMethodFromCallee,
-  joinPaths,
-  joinRoutePath,
-  normalizeSegment,
-  packageLocalRouteRootIndex,
-} from './engine/path-helpers.js';
-export {
-  arrowTarget,
-  boolEntry,
-  boolEntryOpt,
-  decoName,
-  firstStringArg,
-  firstWrappedMemberArg,
-  objectEntryString,
-  objectPropFromText,
-  optionString,
-  parseCypherOp,
-  parseSqlOp,
-  parseSqlStatement,
-  queryText,
-  receiverPatternMatches,
-  resolveDecoratorFieldType,
-  singularize,
-  snakeCase,
-} from './engine/text-helpers.js';
 
 /**
  * Version-hash seed for an entity node. Folds the column/relation content into
@@ -407,12 +368,7 @@ export class SubstrateProfileEngine {
       functionalInExtensions: rule.functionalInExtensions,
       classComponents: rule.classComponents,
     });
-    if (rule.vueSfc) {
-      if (!isVueSubstrate(this.substrate)) {
-        throw new Error('components.vueSfc requires a Vue-capable substrate (tree-sitter TS/JS)');
-      }
-      sites.push(...this.substrate.vueComponentSites());
-    }
+    if (rule.vueSfc) sites.push(...this.substrate.vueComponentSites());
     // Phase 1: id of every component so child resolution can validate (no fabrication).
     const validIds = new Set(sites.map((s) => this.substrate.idGen.componentId(s.file, s.name)));
     this.validComponentIds = validIds;
@@ -452,16 +408,16 @@ export class SubstrateProfileEngine {
         validIds.has(this.substrate.idGen.componentId(filePath, declaredName));
       // A Vue template tag has no SCIP occurrence (`.vue` is never indexed) — resolve it
       // through the script block's imports instead.
-      const vueSub = s.file.endsWith('.vue') && isVueSubstrate(this.substrate) ? this.substrate : undefined;
-      const resolved = vueSub
-        ? vueSub.resolveVueTagByImport(s.file, tag.name, rule.imports)
+      const vue = s.file.endsWith('.vue');
+      const resolved = vue
+        ? this.substrate.resolveVueTagByImport(s.file, tag.name, rule.imports)
         : this.substrate.resolveJsxTagBySCIP(s.file, tag.name, tag.line, isValid);
       let componentId: string | undefined;
       if (resolved) {
         const cand = this.substrate.idGen.componentId(resolved.filePath, resolved.declaredName);
         if (validIds.has(cand)) {
           componentId = cand;
-          if (vueSub) this.frontendStats.resolvedByVueImport++;
+          if (vue) this.frontendStats.resolvedByVueImport++;
           else this.frontendStats.resolvedBySCIP++;
         }
       }
@@ -469,7 +425,7 @@ export class SubstrateProfileEngine {
       // ROUTE lane has always had. A child tag imported from a package barrel is a
       // document-`local` symbol to SCIP, so without this tier every shadcn-idiom child
       // reference stays a name-only stub. Same validator, so still 0 fabricated ids.
-      if (!componentId && !vueSub) {
+      if (!componentId && !vue) {
         const byImport = this.substrate.resolveJsxTagByImport(s.file, tag.name, rule.imports);
         const cand = byImport ? this.substrate.idGen.componentId(byImport.filePath, byImport.declaredName) : undefined;
         if (cand && validIds.has(cand)) {

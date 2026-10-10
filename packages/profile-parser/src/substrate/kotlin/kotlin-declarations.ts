@@ -70,7 +70,6 @@ import {
   namedChildren,
   namedChildrenOfType,
   parameterFacts,
-  parseKotlin,
   propertyFacts,
   receiverTypeOf,
   returnTypeOf,
@@ -82,6 +81,7 @@ import {
   type KotlinDeclKind,
   type TsNode,
 } from './kotlin-cst.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 /** One parsed file, kept only until the last lane has run. */
 export interface KotlinFile {
@@ -92,7 +92,7 @@ export interface KotlinFile {
 
 /** Parse one file's source into a `KotlinFile`. */
 export async function toKotlinFile(relPath: string, source: string): Promise<KotlinFile> {
-  return { relPath, source, root: await parseKotlin(source) };
+  return { relPath, source, root: await parseSource('kotlin', source) };
 }
 
 /** A type declaration in the FQCN index. */

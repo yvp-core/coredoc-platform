@@ -7,14 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { FunctionNode, SourceLocation } from '@coredoc/core/types';
-import type { FunctionSummary, SummaryOutput } from './types';
-import {
-  buildSummarizeMetadata,
-  buildValidSummaryMap,
-  resolveLlmConfig,
-  runSummarize,
-  type SummarizeOptions,
-} from './index';
+import type { SummaryOutput } from './types';
+import { buildSummarizeMetadata, resolveLlmConfig, runSummarize, type SummarizeOptions } from './index';
 
 // The full (non-dry) run below writes the summaries artifact. Stub the three collaborators that
 // would otherwise reach the LLM subprocess or the operations database — the assertions are about
@@ -24,23 +18,22 @@ vi.mock('../operations-tracker.js', () => ({
   trackOperation: async (_p: string, _r: string, _o: string, fn: () => Promise<unknown>) => fn(),
 }));
 vi.mock('../db-scope.js', () => ({ bindProjectDatabase: async () => undefined }));
-vi.mock('./summarizer.js', () => ({
-  FunctionSummarizer: class {
-    async summarize(fn: FunctionNode) {
-      summarized.push(fn.id);
-      return {
-        functionId: fn.id,
-        versionedId: fn.versionedId,
-        detailed_summary: 'd',
-        purpose: 'p',
-        business_logic: [],
-        side_effects: [],
-        data_handling: '',
-        confidence_level: 'high',
-        unknowns: [],
-        generatedAt: new Date().toISOString(),
-      };
-    }
+vi.mock('../ci/ci-summarizer.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../ci/ci-summarizer.js')>()),
+  summarizeFunction: async (fn: FunctionNode) => {
+    summarized.push(fn.id);
+    return {
+      functionId: fn.id,
+      versionedId: fn.versionedId,
+      detailed_summary: 'd',
+      purpose: 'p',
+      business_logic: [],
+      side_effects: [],
+      data_handling: '',
+      confidence_level: 'high',
+      unknowns: [],
+      generatedAt: new Date().toISOString(),
+    };
   },
 }));
 
@@ -59,88 +52,6 @@ function makeFn(id: string, version: string, name = id): FunctionNode {
     sourceCode: 'function ' + name + '() {}',
   } as FunctionNode;
 }
-
-function makeSummary(id: string, version: string): FunctionSummary {
-  return {
-    functionId: id,
-    versionedId: id + '@' + version,
-    detailed_summary: 'x',
-    purpose: 'x',
-    business_logic: [],
-    side_effects: [],
-    data_handling: '',
-    confidence_level: 'high',
-    unknowns: [],
-    generatedAt: new Date().toISOString(),
-  };
-}
-
-function makeExisting(summaries: FunctionSummary[]): SummaryOutput {
-  return {
-    repoId: 'repo1',
-    repoName: 'repo1',
-    generatedAt: new Date().toISOString(),
-    summarizerVersion: '1.0.0',
-    summaries,
-    stats: {
-      totalFunctions: summaries.length,
-      summarized: summaries.length,
-      skippedCached: 0,
-      failedSummarization: 0,
-      processingTimeMs: 0,
-    },
-  };
-}
-
-describe('buildValidSummaryMap', () => {
-  it('keeps entries whose versionedId matches the current function', () => {
-    const fns = [makeFn('fn:a', 'v1'), makeFn('fn:b', 'v1')];
-    const existing = makeExisting([makeSummary('fn:a', 'v1'), makeSummary('fn:b', 'v1')]);
-
-    const map = buildValidSummaryMap(existing, fns);
-
-    expect(map.size).toBe(2);
-    expect(map.get('fn:a')).toBeDefined();
-    expect(map.get('fn:b')).toBeDefined();
-  });
-
-  it('drops entries whose versionedId is stale', () => {
-    const fns = [makeFn('fn:a', 'v2')];
-    const existing = makeExisting([makeSummary('fn:a', 'v1')]);
-
-    const map = buildValidSummaryMap(existing, fns);
-
-    expect(map.size).toBe(0);
-  });
-
-  it('drops entries for functionIds that no longer exist in the parsed repo', () => {
-    const fns = [makeFn('fn:a', 'v1')];
-    const existing = makeExisting([makeSummary('fn:a', 'v1'), makeSummary('fn:gone', 'v1')]);
-
-    const map = buildValidSummaryMap(existing, fns);
-
-    expect(map.size).toBe(1);
-    expect(map.get('fn:a')).toBeDefined();
-    expect(map.get('fn:gone')).toBeUndefined();
-  });
-
-  it('returns an empty map when existing is null', () => {
-    const fns = [makeFn('fn:a', 'v1')];
-
-    const map = buildValidSummaryMap(null, fns);
-
-    expect(map.size).toBe(0);
-  });
-
-  it('returns an empty map when existing has no summaries', () => {
-    const fns = [makeFn('fn:a', 'v1')];
-    const existing = makeExisting([]);
-
-    const map = buildValidSummaryMap(existing, fns);
-
-    expect(map.size).toBe(0);
-  });
-});
 
 describe('resolveLlmConfig', () => {
   const ORIGINAL_ENV = process.env;

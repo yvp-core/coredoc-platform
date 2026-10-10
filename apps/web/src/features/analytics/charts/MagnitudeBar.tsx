@@ -5,7 +5,7 @@
  */
 
 import { cn } from '@/lib/utils';
-import { magnitudeWidth } from './chart-geometry.js';
+import { magnitudeWidth } from '@coredoc/core/browser/chart-geometry';
 
 export type MagnitudeTone = 'brand' | 'muted' | 'rework' | 'danger';
 

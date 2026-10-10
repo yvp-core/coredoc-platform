@@ -2,6 +2,24 @@ import { describe, expect, it } from 'vitest';
 import type { ReExport, StructuralFile, StructuralImport, ValueBinding } from '../structural/ts-structural.js';
 import { buildRepoValueResolver, resolverFromStructuralFiles } from './resolver.js';
 
+/** A StructuralFile with every collection empty; fixtures spread it and override what they test. */
+const EMPTY_FILE: Omit<StructuralFile, 'path' | 'language'> = {
+  classes: [],
+  functions: [],
+  interfaces: [],
+  typeAliases: [],
+  enums: [],
+  variables: [],
+  localBindings: [],
+  imports: [],
+  dynamicImports: [],
+  calls: [],
+  enumMemberRefs: [],
+  classRefs: [],
+  valueBindings: [],
+  reExports: [],
+};
+
 const bindings: ValueBinding[] = [
   { name: 'TOPIC', filePath: 'a.ts', kind: 'literal', literal: 'orders', isExported: true },
   {
@@ -212,6 +230,7 @@ describe('resolverFromStructuralFiles', () => {
       {
         path: 'src/constants.ts',
         language: 'typescript',
+        ...EMPTY_FILE,
         classes: [],
         functions: [],
         calls: [],
@@ -229,6 +248,7 @@ describe('resolverFromStructuralFiles', () => {
       {
         path: 'src/h.ts',
         language: 'typescript',
+        ...EMPTY_FILE,
         classes: [],
         functions: [],
         calls: [],
@@ -253,6 +273,7 @@ describe('resolverFromStructuralFiles', () => {
       {
         path: 'src/constants/index.ts',
         language: 'typescript',
+        ...EMPTY_FILE,
         classes: [],
         functions: [],
         calls: [],
@@ -270,6 +291,7 @@ describe('resolverFromStructuralFiles', () => {
       {
         path: 'src/h.ts',
         language: 'typescript',
+        ...EMPTY_FILE,
         classes: [],
         functions: [],
         calls: [],
@@ -295,6 +317,7 @@ describe('resolverFromStructuralFiles', () => {
       {
         path: 'src/constants/topic.const.ts',
         language: 'typescript',
+        ...EMPTY_FILE,
         classes: [],
         functions: [],
         calls: [],
@@ -313,6 +336,7 @@ describe('resolverFromStructuralFiles', () => {
       {
         path: 'src/constants/index.ts',
         language: 'typescript',
+        ...EMPTY_FILE,
         classes: [],
         functions: [],
         calls: [],
@@ -324,6 +348,7 @@ describe('resolverFromStructuralFiles', () => {
       {
         path: 'src/h.ts',
         language: 'typescript',
+        ...EMPTY_FILE,
         classes: [],
         functions: [],
         calls: [],
@@ -342,21 +367,5 @@ describe('resolverFromStructuralFiles', () => {
     const resolver = resolverFromStructuralFiles(files);
     // Only resolvable if reExports is wired through from the StructuralFile into the resolver.
     expect(resolver.resolve('TOPIC', 'src/h.ts')).toBe('orders');
-  });
-
-  it('tolerates files missing valueBindings (legacy fixtures)', () => {
-    const files: StructuralFile[] = [
-      {
-        path: 'src/legacy.ts',
-        language: 'typescript',
-        classes: [],
-        functions: [],
-        calls: [],
-        imports: [],
-        // valueBindings intentionally omitted (optional field)
-      },
-    ];
-    const resolver = resolverFromStructuralFiles(files);
-    expect(resolver.resolve("'/lit'", 'src/legacy.ts')).toBe('/lit');
   });
 });

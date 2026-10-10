@@ -9,15 +9,8 @@ import { runProfile } from '../substrate/run.js';
 import { applySourceFileScope } from '../substrate/source-file-scope.js';
 import { tsSourceSignals, tsStructuralChecks } from '../scoring/ts-signals.js';
 import type { ExtractionProfile } from '../types/profile.js';
+import { hasLanguage } from './registry.js';
 import type { LanguageProvider, ParseOptions } from './types.js';
-
-/** A TS/JS extraction profile: has parserId+substrate and language ts|js. */
-function isExtractionProfile(v: unknown): v is ExtractionProfile {
-  if (typeof v !== 'object' || v === null) return false;
-  if (!('parserId' in v) || !('substrate' in v)) return false;
-  const lang = (v as ExtractionProfile).substrate?.language;
-  return lang === 'ts' || lang === 'js';
-}
 
 export const typescriptProvider: LanguageProvider<ExtractionProfile> = {
   language: 'ts',
@@ -25,7 +18,7 @@ export const typescriptProvider: LanguageProvider<ExtractionProfile> = {
   discovery: {
     extensions: TS_JS_SOURCE_EXTENSIONS,
   },
-  isProfile: isExtractionProfile,
+  isProfile: (v): v is ExtractionProfile => hasLanguage(v, 'ts', 'js'),
 
   sourceFiles(profile: ExtractionProfile, repoRoot: string) {
     const plan = discover(repoRoot);
@@ -39,8 +32,6 @@ export const typescriptProvider: LanguageProvider<ExtractionProfile> = {
 
   async parse(profile: ExtractionProfile, opts: ParseOptions): Promise<ParsedRepo> {
     const { repo } = await runProfile(profile, opts.repoRoot, opts.repoName, opts.repoKey, {
-      incremental: opts.incremental,
-      cacheDir: opts.cacheDir,
       scipOutDir: opts.scipOutDir,
     });
 

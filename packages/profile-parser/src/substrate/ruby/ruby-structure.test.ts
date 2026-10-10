@@ -5,7 +5,7 @@ import type { ClassNode, ParsedRepo } from '@coredoc/core';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { checkReferentialIntegrity } from '../../integrity/referential-integrity.js';
 import type { RubyProfile } from '../../types/ruby-profile.js';
-import { discoverRubyFiles } from './ruby-parser.js';
+import { discoverRubyFileScope } from './ruby-parser.js';
 
 /**
  * Structure nodes of the Ruby substrate: a FileNode per parsed source, a ClassNode per
@@ -28,7 +28,7 @@ describe('ruby substrate structure nodes', () => {
   }, 60_000);
 
   it('emits a file node for every path the substrate parsed', () => {
-    const parsedPaths = discoverRubyFiles(FIXTURE, [], []);
+    const parsedPaths = discoverRubyFileScope(FIXTURE, [], []).included;
 
     expect(new Set(repo.files.map((f) => f.path))).toEqual(new Set(parsedPaths));
     expect(repo.files.map((f) => f.path)).toContain('config/settings.rb'); // no def, no class
@@ -79,7 +79,7 @@ describe('ruby substrate structure nodes', () => {
 
   it('reports statistics counted from the emitted nodes', () => {
     expect(repo.stats.parsedFiles).toBe(repo.files.length);
-    expect(repo.stats.totalFiles).toBe(discoverRubyFiles(FIXTURE, [], []).length);
+    expect(repo.stats.totalFiles).toBe(discoverRubyFileScope(FIXTURE, [], []).included.length);
     expect(repo.stats.skippedFiles).toBe(0);
     expect(repo.stats.totalClasses).toBe(repo.classes.length);
     expect(repo.stats.totalFunctions).toBe(repo.functions.length);

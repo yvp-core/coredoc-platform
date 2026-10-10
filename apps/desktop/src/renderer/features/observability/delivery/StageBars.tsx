@@ -8,7 +8,7 @@
  * from the shared pure `magnitudeWidth`.
  */
 
-import { magnitudeWidth } from '../charts/chart-geometry';
+import { magnitudeWidth } from '@coredoc/core/browser/chart-geometry';
 import type { StageBarEntry } from './delivery-presentation';
 
 export function StageBars({ entries, ariaLabel }: { entries: ReadonlyArray<StageBarEntry>; ariaLabel: string }) {

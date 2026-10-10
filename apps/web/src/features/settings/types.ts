@@ -4,7 +4,7 @@ export interface DeliverySettings {
 }
 
 /** The `config` JSON the server persists per connector (delivery.service.ts upsert*). */
-export interface DeliveryConnectorConfig {
+interface DeliveryConnectorConfig {
   repos?: string[];
   projects?: string[];
   since?: string;

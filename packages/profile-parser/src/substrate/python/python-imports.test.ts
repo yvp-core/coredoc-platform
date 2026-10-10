@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { type PythonFile, parsePython } from './python-cst.js';
+import { type PythonFile } from './python-cst.js';
 import { buildImportTable, buildModuleIndex, resolveImportedTarget, resolveModuleToFile } from './python-imports.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 async function file(relPath: string, source: string): Promise<PythonFile> {
-  return { relPath, source, root: await parsePython(source) };
+  return { relPath, source, root: await parseSource('python', source) };
 }
 
 describe('buildImportTable — per-file import policy (T3/eng)', () => {

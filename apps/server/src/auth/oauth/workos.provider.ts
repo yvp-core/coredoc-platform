@@ -33,7 +33,7 @@ import { Logger } from '@nestjs/common';
 import OAuth2Strategy from 'passport-oauth2';
 import type { OAuthProviderConfig, OAuthUserProfile } from '@rekog/mcp-nest';
 import { emailDomain, joinUrl, parseCsv } from './provider-utils.js';
-import { type AuthConfig, authConfigFromEnv } from '../../config/app-config.js';
+import { type AuthConfig, configFromEnv } from '../../config/app-config.js';
 
 const gateLogger = new Logger('WorkOSLoginGate');
 
@@ -92,7 +92,7 @@ function makeWorkOSStrategy(authkitDomain: string): typeof OAuth2Strategy {
  * `profileMapper` is surfaced by the SDK as "Authentication failed"
  * (fail closed) — same gate mechanism as the GitHub provider.
  */
-export function buildWorkOSProvider(auth: AuthConfig = authConfigFromEnv()): OAuthProviderConfig {
+export function buildWorkOSProvider(auth: AuthConfig = configFromEnv().auth): OAuthProviderConfig {
   const rawDomain = auth.workos.authkitDomain?.trim();
   if (!rawDomain) {
     throw new Error(

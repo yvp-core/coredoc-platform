@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { AUTH_CONFIG, type AuthConfig, authConfigFromEnv } from '../config/app-config.js';
+import { AUTH_CONFIG, type AuthConfig, configFromEnv } from '../config/app-config.js';
 
 const WORKOS_API_BASE_URL = 'https://api.workos.com';
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -43,7 +43,7 @@ export class WorkOSInvitationsService {
   private readonly enabled: boolean;
   private readonly apiKey: string | null;
 
-  constructor(@Optional() @Inject(AUTH_CONFIG) auth: AuthConfig = authConfigFromEnv()) {
+  constructor(@Optional() @Inject(AUTH_CONFIG) auth: AuthConfig = configFromEnv().auth) {
     this.enabled = auth.upstream === 'workos';
     const apiKey = auth.workos.apiKey?.trim();
     const authkitClientId = auth.workos.authkitClientId?.trim();

@@ -23,7 +23,7 @@
  */
 
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { STORAGE_CONFIG, type StorageConfig, storageConfigFromEnv } from '../../config/app-config.js';
+import { STORAGE_CONFIG, type StorageConfig, configFromEnv } from '../../config/app-config.js';
 import { Tool } from '@rekog/mcp-nest';
 import type { Context } from '@rekog/mcp-nest';
 import type { Request } from 'express';
@@ -81,7 +81,7 @@ export class CypherTools extends BaseCoredocTool {
   constructor(
     wsContext: WorkspaceMcpContextService,
     metricsService: MetricsService,
-    @Optional() @Inject(STORAGE_CONFIG) private readonly storage: StorageConfig = storageConfigFromEnv(),
+    @Optional() @Inject(STORAGE_CONFIG) private readonly storage: StorageConfig = configFromEnv().storage,
   ) {
     super(wsContext, metricsService);
   }

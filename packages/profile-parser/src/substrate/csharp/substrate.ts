@@ -509,12 +509,7 @@ export async function parseCSharp(profile: CSharpProfile, opts: CSharpParseOptio
       const preparedPath = hosted && 'path' in hosted ? hosted.path : opts.preparedCSharpIndex;
       const { index, manifest } = preparedPath
         ? readCSharpIndex(opts.repoRoot, preparedPath)
-        : await prepareCSharpIndex(
-            opts.repoRoot,
-            projects,
-            opts.scipOutDir ?? opts.cacheDir,
-            profile.substrate.defines,
-          );
+        : await prepareCSharpIndex(opts.repoRoot, projects, opts.scipOutDir, profile.substrate.defines);
       for (const [file, hash] of substrate.sourceHashes) {
         if (manifest.sourceHashes[file] !== hash)
           throw new Error(`C# source changed since semantic indexing: ${file}. Run parse again.`);

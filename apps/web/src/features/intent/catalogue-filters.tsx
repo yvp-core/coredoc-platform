@@ -9,11 +9,11 @@ import { intentSourceOptions, type IntentSourceOption } from '@/api/queries/inte
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select } from '@/components/ui/select';
 import { messageOf } from './intent-presentation.js';
 import { effectivityLabels, type IntentEffectivity } from './release-types.js';
 
-export interface IntentCatalogueFiltersProps {
+interface IntentCatalogueFiltersProps {
   workspaceId: string;
   effectivity: IntentEffectivity | '';
   onEffectivityChange: (effectivity: IntentEffectivity | '') => void;
@@ -35,20 +35,17 @@ export function IntentCatalogueFilters({
         <div className="space-y-1 text-xs text-ink-3">
           <span className="block">Production status</span>
           <Select
-            value={effectivity || 'all'}
-            onValueChange={(value) => onEffectivityChange(value === 'all' ? '' : (value as IntentEffectivity))}
+            value={effectivity}
+            onValueChange={(value) => onEffectivityChange(value as IntentEffectivity | '')}
+            aria-label="Production status"
+            className="w-[220px]"
           >
-            <SelectTrigger aria-label="Production status" className="w-[220px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All production states</SelectItem>
-              {Object.entries(effectivityLabels).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
+            <option value="">All production states</option>
+            {Object.entries(effectivityLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </Select>
         </div>
         <Button variant="outline" size="default" onClick={() => setOpen(!open)}>

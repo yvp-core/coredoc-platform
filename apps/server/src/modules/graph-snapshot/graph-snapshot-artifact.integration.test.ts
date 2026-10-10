@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { R2StorageService } from '../../database/r2-storage.service.js';
 import { GraphSnapshotBuildService } from './graph-snapshot-artifact.service.js';
 import { createGraphSnapshotIdentity } from './graph-snapshot-manifest.js';
-import type { GraphSnapshotManifestV1 } from './graph-snapshot.types.js';
+import type { GraphSnapshotManifestV1 } from '../../libs/pipeline/graph-snapshot.types.js';
 
 const roots: string[] = [];
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';

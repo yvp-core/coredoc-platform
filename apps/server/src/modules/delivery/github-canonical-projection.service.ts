@@ -5,6 +5,7 @@ import { DeliveryProvider, type Prisma } from '../../generated/prisma/client.js'
 import { GithubIntentReleaseService } from '../intent/github-intent-release.service.js';
 import { normalizePullRequest, type NormalizedReworkReview } from './github-normalizer.js';
 import { unpackRawPayload } from './raw-payload-codec.js';
+import { asArray, asRecord, asString, isUniqueViolation } from '../../libs/coerce.js';
 
 // v2: stamp DeliveryTask.title from the PR title as a fallback when the task has
 // no title yet (GitHub is not the title authority — Jira re-stamps unconditionally
@@ -66,22 +67,6 @@ interface ProjectionCodeChange {
   repoExternalId: string;
   externalId: string;
   mergedAt: Date | null;
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2002';
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
 }
 
 function associationRank(source: string): number {

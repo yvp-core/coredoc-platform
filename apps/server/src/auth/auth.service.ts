@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { AUTH_CONFIG, type AuthConfig, authConfigFromEnv } from '../config/app-config.js';
+import { AUTH_CONFIG, type AuthConfig, configFromEnv } from '../config/app-config.js';
 import { jwtVerify } from 'jose';
 import type { AuthUser } from './decorators/current-user.decorator.js';
 
@@ -17,7 +17,7 @@ export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly secret: Uint8Array;
 
-  constructor(@Optional() @Inject(AUTH_CONFIG) auth: AuthConfig = authConfigFromEnv()) {
+  constructor(@Optional() @Inject(AUTH_CONFIG) auth: AuthConfig = configFromEnv().auth) {
     const secret = auth.jwtSecret;
     if (!secret) {
       this.logger.warn('OAUTH_JWT_SECRET is not set — access-token verification will fail');

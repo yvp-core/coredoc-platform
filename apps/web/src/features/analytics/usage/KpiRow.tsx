@@ -5,7 +5,7 @@
  */
 
 import { KpiCard } from '@/components/kpi-card';
-import { formatNumber, formatUsd } from '../format.js';
+import { formatNumber, formatUsd } from '@coredoc/core/browser/format';
 import type { WorkspaceUsageAnalytics } from '../types.js';
 import {
   type DeltaDirection,

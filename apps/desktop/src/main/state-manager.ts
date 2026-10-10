@@ -2,7 +2,7 @@
  * State Manager - Tracks repo pipeline state by checking file existence
  */
 
-import { IpcMain, BrowserWindow } from 'electron';
+import { IpcMain } from 'electron';
 import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -431,44 +431,9 @@ export function getAllStates(): AllStatesResult {
 }
 
 /**
- * Set up file watcher for auto-refresh (optional)
- */
-let watcher: fs.FSWatcher | null = null;
-
-export function startWatching(mainWindow: BrowserWindow): void {
-  const outputDir = getOutputDir();
-  if (!outputDir || !fs.existsSync(outputDir)) return;
-
-  // Stop existing watcher
-  stopWatching();
-
-  try {
-    watcher = fs.watch(outputDir, { recursive: true }, (_eventType, _filename) => {
-      // Debounce and notify renderer of state change
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('state:changed');
-      }
-    });
-  } catch (error) {
-    console.error('Failed to start file watcher:', error);
-  }
-}
-
-export function stopWatching(): void {
-  if (watcher) {
-    watcher.close();
-    watcher = null;
-  }
-}
-
-/**
  * Register IPC handlers for state operations
  */
-export function registerStateHandlers(ipcMain: IpcMain, mainWindow: BrowserWindow): void {
-  ipcMain.handle(IpcChannels.STATE_GET, (_event, projectId: string, name: string) => {
-    return getRepoState(projectId, name);
-  });
-
+export function registerStateHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(IpcChannels.STATE_GET_DETAIL, (_event, projectId: string, name: string) => {
     return getRepoDetailState(projectId, name);
   });
@@ -478,12 +443,6 @@ export function registerStateHandlers(ipcMain: IpcMain, mainWindow: BrowserWindo
   });
 
   ipcMain.handle(IpcChannels.STATE_GET_ALL, () => {
-    return getAllStates();
-  });
-
-  ipcMain.handle(IpcChannels.STATE_REFRESH, () => {
-    // Re-read all states and start watching
-    startWatching(mainWindow);
     return getAllStates();
   });
 }

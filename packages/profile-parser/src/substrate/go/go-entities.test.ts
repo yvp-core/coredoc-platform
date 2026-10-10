@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { StableIdGenerator } from '@coredoc/core';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type GoFile, parseGo } from './go-cst.js';
+import { type GoFile } from './go-cst.js';
 import { extractGoEntities } from './go-entities.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 const ID = new StableIdGenerator('/demo', 'demo');
 const roots: string[] = [];
@@ -14,7 +15,7 @@ afterEach(() => {
 });
 
 async function gf(relPath: string, source: string): Promise<GoFile> {
-  return { relPath, source, root: await parseGo(source) };
+  return { relPath, source, root: await parseSource('go', source) };
 }
 
 /** Go struct tags are backtick-delimited, so fixtures are line arrays rather than template literals. */

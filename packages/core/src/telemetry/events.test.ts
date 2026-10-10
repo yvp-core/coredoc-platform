@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { EventName, ErrorCode, StepName, SCHEMA_VERSION } from './events.js';
+import { EventName, ErrorCode, SCHEMA_VERSION } from './events.js';
 
 describe('EventName', () => {
   it('has snake_case string values', () => {
@@ -19,13 +19,6 @@ describe('ErrorCode', () => {
 
   it('has no duplicate values', () => {
     const values = Object.values(ErrorCode);
-    expect(new Set(values).size).toBe(values.length);
-  });
-});
-
-describe('StepName', () => {
-  it('has no duplicate values', () => {
-    const values = Object.values(StepName);
     expect(new Set(values).size).toBe(values.length);
   });
 });

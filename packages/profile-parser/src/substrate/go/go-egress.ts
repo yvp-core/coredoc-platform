@@ -88,6 +88,8 @@ import {
   receiverTypeName,
 } from './go-cst.js';
 import { type GoImportTable, buildImportTable, defaultLocalName } from './go-imports.js';
+import { toPathTemplate } from '../scip/url-topic-helpers.js';
+import { repoDir } from '../glob.js';
 
 /**
  * Client packages whose calls are egress. `net/http` is the stdlib client every Go service already
@@ -567,19 +569,6 @@ function renderTemplate(tokens: UrlToken[]): string {
   return out;
 }
 
-/** Normalize a raw template to a path: strip a leading `http(s)://host`; require a leading `/`. */
-function toPathTemplate(raw: string): string | undefined {
-  let out = raw;
-  const m = /^https?:\/\/[^/]+(\/.*)?$/i.exec(out);
-  if (m) {
-    // A host-only URL has no joinable route → SKIP. Emitting a bare '/' would be a bogus edge that
-    // pollutes the cross-repo route join.
-    if (!m[1]) return undefined;
-    out = m[1];
-  }
-  return out.startsWith('/') ? out : undefined;
-}
-
 // =============================================================================
 // Call shapes
 // =============================================================================
@@ -757,12 +746,6 @@ function sdkEdge(
 // Entry point
 // =============================================================================
 
-/** The directory of a repo-relative path — a Go package IS a directory ('' at the repo root). */
-function dirOf(rel: string): string {
-  const i = rel.lastIndexOf('/');
-  return i === -1 ? '' : rel.slice(0, i);
-}
-
 /**
  * Extract outbound calls across `files` into `ExternalCallEdge`s: HTTP client calls carry a
  * joinable path template with `serviceName: ''`, registry SDK calls carry the service name and no
@@ -782,7 +765,7 @@ export function extractGoEgress(
   // so a call in `service.go` can see a type declared in `types.go`.
   const fieldsByDir = new Map<string, Map<string, Map<string, string>>>();
   for (const { file, qualifiers } of resolved) {
-    const dir = dirOf(file.relPath);
+    const dir = repoDir(file.relPath);
     const merged = fieldsByDir.get(dir) ?? new Map<string, Map<string, string>>();
     for (const [structName, fields] of collectFields(file, qualifiers)) {
       const existing = merged.get(structName);
@@ -796,7 +779,7 @@ export function extractGoEgress(
     const scope: FileScope = {
       qualifiers,
       bindings: collectBindings(file, qualifiers),
-      fields: fieldsByDir.get(dirOf(file.relPath)) ?? new Map(),
+      fields: fieldsByDir.get(repoDir(file.relPath)) ?? new Map(),
     };
 
     for (const call of file.root.descendantsOfType(CALL_EXPRESSION) as TsNode[]) {

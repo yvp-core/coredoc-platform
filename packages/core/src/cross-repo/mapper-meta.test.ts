@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { readMapperMeta, writeMapperMeta, appendRegenHistory, type MapperMeta } from './mapper-meta.js';
+import { readMapperMeta, writeMapperMeta, type MapperMeta } from './mapper-meta.js';
 
 function tmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'mapper-meta-'));
@@ -14,7 +14,6 @@ const sampleMeta: MapperMeta = {
   inputsHash: 'sha256:abc',
   baselineResolutionRate: 0.8,
   baselineEdgeIds: ['e1', 'e2'],
-  regenHistory: [],
 };
 
 describe('mapper-meta', () => {
@@ -28,26 +27,6 @@ describe('mapper-meta', () => {
 
   it('returns null when the file does not exist', () => {
     expect(readMapperMeta(path.join(tmpDir(), 'nope.json'))).toBeNull();
-  });
-
-  it('caps regenHistory at 20 entries, oldest dropped first', () => {
-    const dir = tmpDir();
-    const file = path.join(dir, 'mapper.meta.json');
-    let meta = sampleMeta;
-    writeMapperMeta(file, meta);
-    for (let i = 0; i < 25; i++) {
-      meta = appendRegenHistory(meta, {
-        at: `2026-05-${(i + 1).toString().padStart(2, '0')}T00:00:00Z`,
-        rate: 0.5 + i * 0.01,
-        trigger: 'manual',
-        edgesAdded: 1,
-        edgesRemoved: 0,
-      });
-    }
-    writeMapperMeta(file, meta);
-    const got = readMapperMeta(file);
-    expect(got?.regenHistory).toHaveLength(20);
-    expect(got?.regenHistory[0]?.at).toBe('2026-05-06T00:00:00Z');
   });
 
   it('throws when meta is JSON-valid but structurally wrong', () => {

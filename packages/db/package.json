@@ -15,14 +15,6 @@
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
     },
-    "./sqlite": {
-      "types": "./dist/sqlite/index.d.ts",
-      "import": "./dist/sqlite/index.js"
-    },
-    "./neo4j": {
-      "types": "./dist/neo4j/index.d.ts",
-      "import": "./dist/neo4j/index.js"
-    },
     "./ladybug": {
       "types": "./dist/ladybug/index.d.ts",
       "import": "./dist/ladybug/index.js"
@@ -30,6 +22,10 @@
     "./file-builder": {
       "types": "./dist/file-builder.d.ts",
       "import": "./dist/file-builder.js"
+    },
+    "./route-path": {
+      "types": "./dist/route-path.d.ts",
+      "import": "./dist/route-path.js"
     },
     "./graph-file": {
       "types": "./dist/graph-file.d.ts",
@@ -60,9 +56,6 @@
     "@types/node": "^22.0.0",
     "typescript": ">=5.0.0",
     "vitest": "^1.2.0"
-  },
-  "peerDependencies": {
-    "typescript": ">=5.0.0"
   },
   "publishConfig": {
     "access": "restricted"

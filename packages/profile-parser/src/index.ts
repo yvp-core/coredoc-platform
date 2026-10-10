@@ -4,7 +4,7 @@ export * from './types.js';
 export * from './providers/index.js';
 export { SubstrateProfileEngine } from './substrate/engine.js';
 export { TreeSitterScipSubstrate } from './substrate/tree-sitter-scip.js';
-export { runProfile, runSubstrate, runSubstrateWithEngine } from './substrate/run.js';
+export { runProfile } from './substrate/run.js';
 export { parseMultiTarget } from './multi/orchestrate.js';
 export { mergeParsedRepos, type TargetResult } from './multi/merge.js';
 export { scoreProfile } from './score.js';

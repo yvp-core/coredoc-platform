@@ -39,6 +39,7 @@ COPY packages/db/ ./packages/db/
 COPY packages/mcp/ ./packages/mcp/
 COPY apps/server/ ./apps/server/
 COPY tsconfig.json ./
+COPY scripts/gen-build-env.mjs ./scripts/
 
 # Generate Prisma v7 client (outputs to apps/server/src/generated/prisma/)
 RUN cd apps/server && npx prisma generate
@@ -84,8 +85,8 @@ RUN cd /app/node_modules/.pnpm && rm -rf @biomejs+* turbo@* turbo-* @vitest+* vi
 # apps/web/dist crosses into the production stage, so the web dependency
 # graph (vite/rollup/esbuild/react/tailwind/happy-dom/testing-library) never
 # lands in the runtime node_modules. The SPA is served single-origin by the
-# server (apps/server/src/libs/spa-serving.ts). @coredoc/core is a web
-# devDependency (types only, not value-imported), so it needs no build here.
+# server (apps/server/src/libs/spa-serving.ts). The web app value-imports
+# @coredoc/core/browser/*, which resolves to core's dist, so core is built here.
 # =============================================================================
 FROM node:22-bookworm-slim AS web-deps
 
@@ -102,6 +103,7 @@ COPY apps/web/package.json ./apps/web/
 RUN pnpm install --frozen-lockfile --filter @coredoc/web...
 
 COPY packages/core/ ./packages/core/
+RUN pnpm --filter @coredoc/core build
 COPY apps/web/ ./apps/web/
 
 FROM web-deps AS web-build

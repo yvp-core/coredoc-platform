@@ -196,12 +196,6 @@ export interface WorkspaceRepo {
   createdAt: string;
 }
 
-export interface WorkspaceConfig {
-  workspace: Workspace;
-  repos: WorkspaceRepo[];
-  members: WorkspaceMember[];
-}
-
 // Workspaces
 export const listWorkspaces = () => apiRequest<Workspace[]>('GET', '/api/v1/workspaces');
 export const createWorkspace = (name: string, slug: string) =>
@@ -322,10 +316,6 @@ export const updateRepo = (
 export const disconnectRepo = (workspaceId: string, repoId: string) =>
   apiRequest<void>('DELETE', `/api/v1/workspaces/${workspaceId}/repos/${repoId}`);
 
-// Config
-export const pullWorkspaceConfig = (workspaceId: string) =>
-  apiRequest<WorkspaceConfig>('GET', `/api/v1/workspaces/${workspaceId}/config`);
-
 // Cloud Sync
 export const enableCloud = (workspaceId: string, opts?: { ciCdEnabled?: boolean }) =>
   apiRequest<Workspace>('POST', `/api/v1/workspaces/${workspaceId}/cloud/enable`, opts ?? {});
@@ -383,18 +373,6 @@ export const getUsageAnalytics = (workspaceId: string, window: import('../shared
   apiRequest<import('../shared/ipc-types.js').WorkspaceUsageAnalytics>(
     'GET',
     `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/analytics/usage?${new URLSearchParams(analyticsWindowParams(window)).toString()}`,
-  );
-
-export const getFeedbackRoadmap = (workspaceId: string, days: number) =>
-  apiRequest<import('../shared/ipc-types.js').FeedbackRoadmap>(
-    'GET',
-    `/api/v1/workspaces/${workspaceId}/mcp-feedback/roadmap?days=${days}`,
-  );
-
-export const getFeedbackCorrelation = (workspaceId: string, days: number) =>
-  apiRequest<import('../shared/ipc-types.js').FeedbackIssueCostCorrelation[]>(
-    'GET',
-    `/api/v1/workspaces/${workspaceId}/mcp-feedback/correlation?days=${days}`,
   );
 
 /**

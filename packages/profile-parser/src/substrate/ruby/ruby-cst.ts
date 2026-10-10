@@ -4,7 +4,7 @@
  * extractors all build on these primitives.
  */
 import type { StableIdGenerator } from '@coredoc/core';
-import { TreeSitterLoader, type TsNode } from '../../tree-sitter/tree-sitter-loader.js';
+import { type TsNode, parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 import { makeScopeChainId } from '../cst-kit/scope.js';
 import { makeStringValueReader } from '../cst-kit/strings.js';
 import { nearestAncestor } from '../cst-kit/walk.js';
@@ -15,11 +15,6 @@ export type { TsNode };
 
 /** tree-sitter-ruby node types that represent a method call. */
 export const CALL_TYPES = ['call', 'command', 'command_call', 'method_call'] as const;
-
-/** Parse Ruby source and return the root node. The loader memoises the Parser per grammar. */
-export async function parseRuby(source: string): Promise<TsNode> {
-  return (await TreeSitterLoader.getInstance().getParser('ruby')).parse(source).rootNode;
-}
 
 /**
  * Free the WASM-side tree that owns `root`. Re-exported from the shared tree-sitter helper — the one
@@ -34,13 +29,13 @@ export { releaseParsedTree };
  * rejection). web-tree-sitter never GCs trees and its Emscripten heap is hard-capped at 2GB, so a
  * missed release is a latent `Aborted()` on a large repo — and the hand-written
  * `parse → try → finally release` pairing that guards it was repeated at ten call sites, where
- * omitting it is invisible until the OOM. Use this instead of `parseRuby` + `finally` so the
+ * omitting it is invisible until the OOM. Use this instead of `parseSource` + `finally` so the
  * release cannot be forgotten.
  *
  * `fn` must return PLAIN DATA: the tree is gone by the time the result is observed.
  */
 export async function withParsedRuby<T>(source: string, fn: (root: TsNode) => T | Promise<T>): Promise<T> {
-  const root = await parseRuby(source);
+  const root = await parseSource('ruby', source);
   try {
     return await fn(root);
   } finally {

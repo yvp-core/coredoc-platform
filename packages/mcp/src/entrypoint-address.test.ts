@@ -9,7 +9,6 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { entrypointAddressTokens as dbEntrypointAddressTokens } from '@coredoc/db';
 import {
   entrypointAddressLabel,
   entrypointAddressTokens,
@@ -134,42 +133,5 @@ describe('entrypointAddressTokens', () => {
 
   it('returns nothing for an entrypoint with no address', () => {
     expect(entrypointAddressTokens({ type: 'cli' })).toEqual([]);
-  });
-});
-
-// The field list is written twice — here and in `@coredoc/db`'s `route-path.ts`
-// (see this module's header for why it cannot yet be collapsed). The two orders
-// differ deliberately (the MCP one is label-first because `explain` reads
-// `tokens[0]`), but the SET must stay identical: a field added to one and not
-// the other makes an entrypoint filterable but unnameable, or the reverse.
-describe('parity with the @coredoc/db token twin', () => {
-  const fixtures: EntrypointAddressable[] = [
-    { type: 'http', fullPath: '/v3/users/:id', path: '/:id' },
-    { type: 'graphql', fieldName: 'createUser' },
-    { type: 'queue', topic: 'TOPIC_CONST', topicValue: 'orders.v1' },
-    { type: 'queue', destination: 'QUEUE_CONST', destinationValue: 'billing-jobs' },
-    { type: 'event', destination: 'EVT', eventName: 'user.created' },
-    { type: 'cron', schedule: '0 3 * * *' },
-    { type: 'cli', command: 'sync --all' },
-    { type: 'mobile', className: 'MainActivity' },
-    { type: 'websocket', eventName: 'message' },
-    {
-      type: 'http',
-      fullPath: '/a',
-      path: '/b',
-      fieldName: 'f',
-      destination: 'd',
-      destinationValue: 'dv',
-      topic: 't',
-      topicValue: 'tv',
-      eventName: 'e',
-      command: 'c',
-      schedule: 's',
-      className: 'cn',
-    },
-  ];
-
-  it.each(fixtures)('covers the same address fields for $type', (ep) => {
-    expect(new Set(entrypointAddressTokens(ep))).toEqual(new Set(dbEntrypointAddressTokens(ep)));
   });
 });
