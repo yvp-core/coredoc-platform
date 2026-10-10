@@ -47,6 +47,7 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
   await mkdir(options.scratchRoot, { recursive: true });
   const dir = await mkdtemp(join(options.scratchRoot, 'startup-'));
   await mkdir(join(dir, 'claude'), { recursive: true });
+  await mkdir(join(dir, 'tmp'), { recursive: true });
   const silent: AsyncIterable<SDKUserMessage> = {
     [Symbol.asyncIterator]: () => ({
       next: () =>
@@ -70,6 +71,8 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
         env: {
           PATH: process.env.PATH ?? '',
           HOME: dir,
+          // The root filesystem is read-only in the pod; Claude Code otherwise writes under /tmp.
+          TMPDIR: join(dir, 'tmp'),
           CLAUDE_CONFIG_DIR: join(dir, 'claude'),
           DISABLE_AUTOUPDATER: '1',
         },

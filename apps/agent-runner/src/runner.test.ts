@@ -15,18 +15,21 @@ const VERSIONS = { runner: '1.1.0-test' };
 /** An executor that keeps the turn busy until the runner aborts it or `release` is called. */
 function blockingExecutor(): TurnExecutor & { release: () => void; aborted: boolean } {
   let release = (): void => undefined;
+  // Created up front, so a release that comes while emit is still in flight is not lost.
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   const executor = {
     aborted: false,
     release: () => release(),
     async run(_turn: TurnAssignment, io: Parameters<TurnExecutor['run']>[1]) {
       await io.emit([{ type: 'phase', phase: 'scoping' }]);
-      await new Promise<void>((resolve) => {
-        release = resolve;
-        io.signal.addEventListener('abort', () => {
-          executor.aborted = true;
-          resolve();
-        });
+      const aborted = new Promise<void>((resolve) => {
+        // A heartbeat can end the session while emit is still in flight.
+        if (io.signal.aborted) resolve();
+        else io.signal.addEventListener('abort', () => resolve(), { once: true });
       });
+      await Promise.race([released, aborted.then(() => (executor.aborted = true))]);
       return { spend: null };
     },
   };

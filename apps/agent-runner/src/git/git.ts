@@ -88,6 +88,8 @@ export class Git {
           stderr: Buffer.concat(stderr).toString('utf8'),
         }),
       );
+      // Git can exit before reading its input; the exit code reports that, not an unhandled EPIPE.
+      child.stdin.on('error', () => undefined);
       child.stdin.end(options.input ?? '');
     });
     if (result.code !== 0 && !options.allowFailure) throw new GitError(args, result);
