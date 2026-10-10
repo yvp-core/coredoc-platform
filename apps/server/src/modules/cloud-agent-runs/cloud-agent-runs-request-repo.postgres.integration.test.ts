@@ -26,7 +26,7 @@ import { CLOUD_AGENT_RUN_ARCHIVE_STORE } from './cloud-agent-run-archive.store.j
 import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CLOUD_AGENT_RUNS_CLOCK, cloudAgentRunsCoreProviders } from './cloud-agent-runs.module.js';
-import { FakeJira, InMemoryArchiveStore, paragraphDoc } from './cloud-agent-runs.test-support.js';
+import { FakeJira, InMemoryArchiveStore, paragraphDoc, setAgentRunsEnabled } from './cloud-agent-runs.test-support.js';
 
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
@@ -150,10 +150,12 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: request_repo (PostgreSQL 
     await app.init();
     await app.listen(0, '127.0.0.1');
 
+    await setAgentRunsEnabled(prisma, workspaceId);
+
     await api()
       .put(`${runsBase()}/settings`)
       .set('Authorization', human(ADMIN))
-      .send({ enabled: true, maxStartedRuns: 50 })
+      .send({ takeOverOwnership: true, maxStartedRuns: 50 })
       .expect(200);
     const minted = await api()
       .post(`/api/v1/workspaces/${workspaceId}/tokens`)

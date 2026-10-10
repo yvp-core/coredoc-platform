@@ -2,6 +2,7 @@ import { Readable } from 'node:stream';
 import type { JiraClient, JiraComment, JiraTransition } from '../delivery/jira-client.js';
 import { JiraAuthError, JiraNotFoundError, JiraRateLimitError } from '../delivery/jira-client.js';
 import { GithubApiError, type GithubClient } from '../../libs/github/github-client.js';
+import type { PrismaClient } from '../../generated/prisma/client.js';
 import type { CloudAgentRunArchiveStore } from './cloud-agent-run-archive.store.js';
 
 export interface FakeJiraIssue {
@@ -270,4 +271,13 @@ export class InMemoryArchiveStore implements CloudAgentRunArchiveStore {
   async delete(key: string): Promise<void> {
     this.objects.delete(key);
   }
+}
+
+/** The API cannot switch agent runs on or off; an operator sets the flag in the database. */
+export async function setAgentRunsEnabled(prisma: PrismaClient, workspaceId: string, enabled = true): Promise<void> {
+  await prisma.agentRunSettings.upsert({
+    where: { workspaceId },
+    create: { workspaceId, enabled },
+    update: { enabled },
+  });
 }

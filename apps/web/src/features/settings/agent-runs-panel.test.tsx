@@ -60,7 +60,7 @@ beforeEach(() => {
         const body = init?.body ? JSON.parse(String(init.body)) : undefined;
         writes.push({ method, path, body });
         if (path === SETTINGS_PATH) {
-          // The server records the caller as run owner when switching on.
+          // The server records the caller as run owner on a takeover.
           settings = { ...settings, ...body, runOwner: { userId: 'u1', email: 'admin@x.test', valid: true } };
           return new Response(JSON.stringify(settings));
         }
@@ -100,12 +100,21 @@ function mount() {
 }
 
 describe('AgentRunsPanel', () => {
-  it('enabling agent runs records the admin as run owner', async () => {
+  it('offers no way to switch agent runs on from the web', async () => {
     mount();
-    await screen.findByText(/Agent runs are off/);
-    fireEvent.click(screen.getByRole('switch', { name: 'Enable agent runs' }));
+    await screen.findByText(/Agent runs are not enabled for this workspace/);
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Take over ownership' })).not.toBeInTheDocument();
+  });
 
-    await waitFor(() => expect(writes).toEqual([{ method: 'PUT', path: SETTINGS_PATH, body: { enabled: true } }]));
+  it('an enabled workspace without a run owner lets an admin take ownership', async () => {
+    settings = { ...settings, enabled: true };
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'Take over ownership' }));
+
+    await waitFor(() =>
+      expect(writes).toEqual([{ method: 'PUT', path: SETTINGS_PATH, body: { takeOverOwnership: true } }]),
+    );
     expect(await screen.findByText(/Jira-triggered runs act as admin@x.test/)).toBeInTheDocument();
   });
 

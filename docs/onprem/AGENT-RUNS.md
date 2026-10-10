@@ -285,13 +285,24 @@ documented path. The single-VM Compose topology has no runner.
 
 ## 6. Turn on agent runs and check the runner
 
-Under **Settings → Agent runs** (workspace admins):
+Agent runs are switched on per workspace in the database, by whoever
+operates the Coredoc server. The API and the web app cannot change it:
+
+```sql
+INSERT INTO agent_run_settings (workspace_id, enabled, updated_at)
+VALUES ('<workspace id>', true, now())
+ON CONFLICT (workspace_id) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now();
+```
+
+Set `enabled = false` the same way to switch them off. Runs already started
+finish; no new runs start or trigger.
+
+Then, under **Settings → Agent runs** (workspace admins):
 
 1. Check **availability**: every unmet condition from §2 is listed with its
-   reason. Switching on needs all of them.
-2. Switch agent runs on. The admin who does so is recorded as the **run
-   owner**: Jira-triggered runs act as that member, who must stay a current
-   member.
+   reason. Runs start only when all of them are met.
+2. Select **Take over ownership**. That admin becomes the **run owner**:
+   Jira-triggered runs act as that member, who must stay a current member.
 3. Review the settings: trigger label (default `coredoc-agent`), the Jira
    statuses for started, done, failed and cancelled runs (each optional),
    questions policy, scope acceptance, spend per run, turn and run time

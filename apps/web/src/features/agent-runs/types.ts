@@ -286,7 +286,7 @@ export interface AgentRunSettings {
   maxStartedRuns: number;
   maxRepositories: number;
   model: string | null;
-  /** Start, re-run, switching on and promotion need this. */
+  /** Start, re-run and promotion need this. */
   availability: { available: boolean; reasons: AvailabilityReason[] };
   /** The Jira trigger additionally needs a valid run owner and a project key. */
   trigger: { ready: boolean; projectKeys: string[]; reasons: AvailabilityReason[] };
@@ -297,7 +297,6 @@ export interface AgentRunSettings {
 export type AgentRunSettingsUpdate = Partial<
   Pick<
     AgentRunSettings,
-    | 'enabled'
     | 'triggerLabel'
     | 'startedStatus'
     | 'doneStatus'

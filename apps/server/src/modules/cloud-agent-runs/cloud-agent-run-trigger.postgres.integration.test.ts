@@ -19,7 +19,7 @@ import { CloudAgentRunTriggerCron } from './cloud-agent-run-trigger.cron.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE } from './cloud-agent-run-archive.store.js';
 import { cloudAgentRunsCoreProviders, CLOUD_AGENT_RUNS_CLOCK } from './cloud-agent-runs.module.js';
-import { InMemoryArchiveStore } from './cloud-agent-runs.test-support.js';
+import { InMemoryArchiveStore, setAgentRunsEnabled } from './cloud-agent-runs.test-support.js';
 
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
@@ -192,10 +192,11 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
       ],
     });
     for (const key of ['orders-api', 'billing-api']) await repository(id, key);
+    await setAgentRunsEnabled(prisma, id);
     await api()
       .put(`${runsBase(id)}/settings`)
       .set('Authorization', human(OWNER))
-      .send({ enabled: true, ...options.settings })
+      .send({ takeOverOwnership: true, ...options.settings })
       .expect(200);
     return { id, jira };
   }
@@ -421,18 +422,6 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     await finish(started.id);
     await trigger();
     expect((await runs(id)).find((run) => run.id === waiting.id)).toMatchObject({ status: 'queued' });
-
-    await api()
-      .put(`${runsBase(id)}/settings`)
-      .set('Authorization', human(OWNER))
-      .send({ enabled: false })
-      .expect(200);
-    const switchOn = await api()
-      .put(`${runsBase(id)}/settings`)
-      .set('Authorization', human(OWNER))
-      .send({ enabled: true })
-      .expect(400);
-    expect(switchOn.body.code).toBe('AGENT_RUNS_UNAVAILABLE');
   });
 
   it('while the license is expired nothing is created or promoted; queued runs start after renewal', async () => {

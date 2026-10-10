@@ -37,7 +37,6 @@ const jiraStatusName = (field: string) =>
 
 export const UpdateSettingsSchema = z
   .object({
-    enabled: z.boolean().optional(),
     takeOverOwnership: z.literal(true).optional(),
     triggerLabel: z
       .string()
