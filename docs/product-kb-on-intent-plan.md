@@ -191,7 +191,7 @@ because a queue card shows an item out of the node it belongs to. Prototypes tha
 - Bulk import: `POST intent/import/workspace` takes `CloudIntentWorkspaceDocumentV1`
   (`intent-workspace-import.ts`): tree, dimensions, relations, items at accepted / candidate /
   superseded, sources with title and url, and release evidence (one baseline, plans), into an
-  empty workspace in one transaction, up to 5,000 items; archived domains and features keep
+  empty workspace in one transaction, up to 20,000 items; archived domains and features keep
   their flag.
 - Round trip (3.2): `GET intent/export/workspace` returns the content as that same document
   (`intent-workspace-export.ts`), checked with the import's validator before it is returned.

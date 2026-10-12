@@ -30,11 +30,13 @@ export const INTENT_CONTENT_LIMITS = {
   maxMultilineChars: 500,
   /**
    * Import walks a whole workspace document in one request. Its node count is
-   * an order of magnitude above a single mutation's, so import passes this
+   * two orders of magnitude above a single mutation's, so import passes this
    * budget explicitly rather than the default one — a legitimate full-size
-   * document must not be refused as oversized structure.
+   * document must not be refused as oversized structure. Sized from a real
+   * knowledge base: day.io's tree of ~4,000 items with their sources and body
+   * lines walks as ~110,000 nodes, and the base keeps growing.
    */
-  maxImportStructureNodes: 100_000,
+  maxImportStructureNodes: 400_000,
 } as const;
 
 // Verbatim from the archive. Matches PEM private-key headers, `key: value`
