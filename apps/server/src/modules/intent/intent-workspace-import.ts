@@ -82,11 +82,17 @@ import {
 
 export const CLOUD_INTENT_WORKSPACE_FORMAT_VERSION = 1;
 
+/**
+ * Sized from a real knowledge base with headroom: day.io's product tree imports
+ * ~4,000 items over ~200 features with ~700 relations, and grows as areas are
+ * digitised. The structure-node and body budgets scale with it
+ * (`maxImportStructureNodes`, `INTENT_IMPORT_BODY_LIMIT`).
+ */
 export const INTENT_WORKSPACE_IMPORT_LIMITS = {
-  items: 5_000,
+  items: 20_000,
   domains: 500,
-  features: 2_000,
-  relations: 5_000,
+  features: 5_000,
+  relations: 20_000,
   /** Refusals reported in one answer. */
   details: 20,
 } as const;
