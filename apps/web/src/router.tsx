@@ -102,6 +102,13 @@ const workspaceAnalyticsRoute = createRoute({
 const workspaceIntentRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: '/intent',
+  // The tree node and open item live in the URL so a link to them can be shared.
+  validateSearch: (search: Record<string, unknown>): { domain?: string; feature?: string; item?: string } => {
+    const text = (value: unknown) => (typeof value === 'string' && value !== '' ? value : undefined);
+    const domain = text(search.domain);
+    // A feature is only addressable under its domain.
+    return { domain, feature: domain ? text(search.feature) : undefined, item: text(search.item) };
+  },
   component: WorkspaceIntent,
 });
 

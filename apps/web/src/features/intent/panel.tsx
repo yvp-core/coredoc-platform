@@ -1,8 +1,9 @@
 /**
  * The intent knowledge base surface.
  *
- * This component owns the browse layout, the tree selection and the delivery
- * selection; the catalogue list, the tree writes, the anchor refresh and the
+ * This component owns the browse layout and the delivery selection; the tree
+ * selection and the open item come from the caller (the route keeps them in
+ * the URL). The catalogue list, the tree writes, the anchor refresh and the
  * document review each live in their own hook, and release controls own their
  * versioned previews and writes. Two boundaries are deliberate:
  *
@@ -37,7 +38,6 @@ import { DeliverySelectionBar } from './delivery-selection-bar.js';
 import { IntentDocumentView } from './document-view.js';
 import { IntentEmptyState } from './empty-state.js';
 import {
-  INTENT_ROOT_SELECTION,
   IntentBrowseState,
   intentBrowseState,
   intentTreeCounts,
@@ -64,27 +64,24 @@ import { useTreeWrites } from './use-tree-writes.js';
 export interface IntentPanelProps {
   workspaceId: string;
   role: string;
+  selection: IntentTreeSelection;
   selectedItemId: string | null;
-  onSelectItem: (id: string | null) => void;
+  /** One call per change, so the tree node and the item move together. */
+  onFocus: (selection: IntentTreeSelection, itemId: string | null) => void;
 }
 
-export function IntentPanel({
-  workspaceId: id,
-  role,
-  selectedItemId,
-  onSelectItem: setSelectedItemId,
-}: IntentPanelProps) {
+export function IntentPanel({ workspaceId: id, role, selection, selectedItemId, onFocus }: IntentPanelProps) {
   const queryClient = useQueryClient();
   const canEdit = hasIntentAccess(role);
 
   const [includeArchived, setIncludeArchived] = useState(false);
-  const [selection, setSelection] = useState<IntentTreeSelection>(INTENT_ROOT_SELECTION);
   const [deliverySelection, setDeliverySelection] = useState<ReleaseSelectionItem[]>([]);
   const [expandedDomainId, setExpandedDomainId] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [centerView, setCenterView] = useState<'document' | 'list'>('document');
   const [treeCollapsed, setTreeCollapsed] = useState(false);
   const [onlyPending, setOnlyPending] = useState(false);
+  const setSelectedItemId = (itemId: string | null) => onFocus(selection, itemId);
 
   /** Rows are the truth: after any write, everything intent-scoped is re-read. */
   const invalidateIntent = () => queryClient.invalidateQueries({ queryKey: ['intent'] });
@@ -173,10 +170,7 @@ export function IntentPanel({
     detailMatch,
     writer,
     invalidateIntent,
-    onOpen: (next, itemId) => {
-      setSelection(next);
-      setSelectedItemId(itemId);
-    },
+    onOpen: onFocus,
   });
   // A selected domain/feature with no rule open gets the node panel in the third column.
   const nodeCount =
@@ -199,10 +193,7 @@ export function IntentPanel({
     if (feature) onSelect({ domainId: feature.domainId, featureId: feature.id });
   };
 
-  const onSelect = (next: IntentTreeSelection) => {
-    setSelection(next);
-    setSelectedItemId(null);
-  };
+  const onSelect = (next: IntentTreeSelection) => onFocus(next, null);
 
   const { filter, setFilter } = catalogue;
   const toggleOpenQuestions = () => setFilter((current) => ({ ...current, openQuestions: !current.openQuestions }));
