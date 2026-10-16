@@ -1910,3 +1910,38 @@ describe('Neo4jRepository limit clamping', () => {
     expect(Number(driver.calls[driver.calls.length - 1]!.params.limit)).toBe(1000);
   });
 });
+
+// Neo4j does not order a node's labels, so `labels(n)[0]` can be the shared
+// `CodeNode` label, which normalizeNodeType maps to its Function fallback: a
+// class DTO came back from explain/search_symbols as a function with no fields.
+describe('Neo4jRepository — node type comes from the per-kind label, never CodeNode', () => {
+  it('findCode and listSymbolsInFile skip CodeNode when reading the type label', async () => {
+    const { repo, driver } = makeRepo();
+
+    await repo.findCode({ pattern: 'TeamsDto' }, ['hash']);
+    await repo.listSymbolsInFile('src/teams.dto.ts', ['hash']);
+
+    for (const { query } of driver.calls) {
+      expect(query).not.toContain('labels(n)[0]');
+      expect(query).toContain("[l IN labels(n) WHERE l <> 'CodeNode'][0] as type");
+    }
+  });
+
+  it('getTypeUsages types a dependent whose labels list CodeNode first', async () => {
+    const { repo, driver } = makeRepo();
+    driver.responder = () => [
+      {
+        src: { id: 'hash:class:a.ts:TeamsDto', name: 'TeamsDto', filePath: 'a.ts', startLine: 6 },
+        srcLabels: ['CodeNode', 'Class'],
+        usage: null,
+        via: null,
+        useKind: null,
+        member: null,
+        ambiguous: null,
+      },
+    ];
+
+    const [usage] = await repo.getTypeUsages('hash:class:b.ts:SupervisorDto', ['hash']);
+    expect(usage!.type).toBe(NodeType.Class);
+  });
+});

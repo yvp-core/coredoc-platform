@@ -580,7 +580,7 @@ export class Neo4jRepository implements IGraphRepository {
         AND n.name =~ $pattern
       RETURN n.id as id,
              n.name as name,
-             labels(n)[0] as type,
+             [l IN labels(n) WHERE l <> 'CodeNode'][0] as type,
              n.filePath as filePath,
              n.startLine as startLine,
              n.endLine as endLine,
@@ -629,7 +629,7 @@ export class Neo4jRepository implements IGraphRepository {
         AND (n.filePath = $filePath OR n.filePath ENDS WITH $suffix)
       RETURN n.id as id,
              n.name as name,
-             labels(n)[0] as type,
+             [l IN labels(n) WHERE l <> 'CodeNode'][0] as type,
              n.filePath as filePath,
              n.startLine as startLine,
              n.endLine as endLine,
@@ -1754,7 +1754,7 @@ export class Neo4jRepository implements IGraphRepository {
 
     return results.map((row) => {
       const node = row.src;
-      const label = row.srcLabels?.[0] ?? '';
+      const label = row.srcLabels?.find((l) => l !== 'CodeNode') ?? '';
       return {
         id: node.id as string,
         name: node.name as string,
