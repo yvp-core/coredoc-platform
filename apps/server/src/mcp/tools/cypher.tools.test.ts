@@ -18,7 +18,8 @@ import type { WorkspaceDbPoolService } from '../../database/workspace-db-pool.se
 import type { WorkspaceFileCacheService } from '../../database/workspace-file-cache.service.js';
 import type { MetricsService } from '../../modules/metrics/metrics.service.js';
 import { WorkspaceMcpContextService } from '../workspace-mcp-context.service.js';
-import { CypherTools, HOSTED_CYPHER_DESCRIPTION } from './cypher.tools.js';
+import { storageConfigFromEnv } from '../../config/app-config.js';
+import { CypherTools, HOSTED_CYPHER_DESCRIPTION, hostedCypherDescription } from './cypher.tools.js';
 
 const VERSION = {
   workspaceId: 'ws-1',
@@ -248,9 +249,29 @@ describe('CypherTools (hosted run_cypher_query)', () => {
     expect(result.content[0].text).toContain('"backend": "turso"');
   });
 
-  it('documents the Ladybug dialect only — hosted can never serve a Neo4j graph', () => {
+  it('documents the Ladybug dialect on a process without the Neo4j backend', () => {
     expect(HOSTED_CYPHER_DESCRIPTION).toBe(buildCypherDescription({ dialects: ['ladybug'] }));
-    expect(HOSTED_CYPHER_DESCRIPTION).toContain('Ladybug/Kùzu');
-    expect(HOSTED_CYPHER_DESCRIPTION).not.toContain('Query shape (Neo4j)');
+    expect(hostedCypherDescription({ dbBackend: '' })).not.toContain('Query shape (Neo4j)');
+  });
+
+  // On-prem: legacy-plane workspaces are read from the shared Neo4j graph, so a
+  // Ladybug description sent agents to `MATCH (n:GraphNode)`, which matched nothing.
+  it('documents the Neo4j dialect only on a Neo4j process', () => {
+    expect(hostedCypherDescription({ dbBackend: 'neo4j' })).toBe(buildCypherDescription({ dialects: ['neo4j'] }));
+  });
+
+  it('reports neo4j, not the stored turso label, when a Neo4j process answers', async () => {
+    const wsContext = new WorkspaceMcpContextService(deps.workspaceDbPool, deps.controlPlane, deps.fileCache);
+    tool = new CypherTools(wsContext, { recordMcpQuery } as unknown as MetricsService, {
+      ...storageConfigFromEnv(),
+      dbBackend: 'neo4j',
+      allowCypher: true,
+    });
+    useTurso(cypherRepository());
+
+    const result = await call({ query: 'MATCH (n:Function) RETURN n.name AS name', format: 'raw' });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0].text).toContain('"backend": "neo4j"');
   });
 });
