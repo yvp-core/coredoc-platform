@@ -29,30 +29,42 @@ uppercase-snake-case), each `FROM GraphNode TO GraphNode`:
 MATCH (a:GraphNode)-[r:CALLS]->(b:GraphNode) WHERE a.name = 'createBooking' RETURN b.name, b.type
 ```
 
-### Neo4j (on-prem, local-only — never hosted)
+### Neo4j (on-prem)
 
-Per-type **labels** — the node type is the label, not a property:
+Per-type **labels** in PascalCase — the node type is the label, not a property
+(`Function`, `Class`, `Interface`, `TypeAlias`, `Enum`, `Entity`, `Entrypoint`,
+`Component`, `Route`, `StateStore`, `Variable`, `ExternalCall`, `File`, `Package`,
+`Repository`):
 
 ```cypher
-MATCH (n:function {name: 'createBooking'}) RETURN n.name AS name, n.filePath AS file
+MATCH (n:Function {name: 'createBooking'}) RETURN n.name AS name, n.filePath AS file
 ```
 
-Every node also carries the shared `CodeNode` label, useful for label-agnostic queries:
+Every node also carries the shared `CodeNode` label, useful for label-agnostic queries.
+There is no `type` property; read the kind from the labels:
 
 ```cypher
-MATCH (n:CodeNode) WHERE n.name CONTAINS 'Booking' RETURN n.type, n.name
+MATCH (n:CodeNode) WHERE n.name CONTAINS 'Booking'
+RETURN [l IN labels(n) WHERE l <> 'CodeNode'][0] AS kind, n.name AS name
+```
+
+There is no `repoId` property either: a node id starts with its repository's id, so one
+repo is an id-prefix filter:
+
+```cypher
+MATCH (r:Repository {name: 'day-core'}) MATCH (n:Function)
+WHERE n.id STARTS WITH r.id + ':' RETURN count(n) AS functions
 ```
 
 Edge types are Neo4j relationship types, same names as `EdgeType` members:
 
 ```cypher
-MATCH (a)-[r:CALLS]->(b) RETURN b.name, labels(b)
+MATCH (a:Function {name: 'createBooking'})-[:CALLS]->(b) RETURN b.name AS name
 ```
 
-**Hosted MCP only ever serves Ladybug/Kùzu dialect** (the hosted graph backend is
-`file_snapshot`→Ladybug; `turso` is deprecated legacy for not-yet-migrated workspaces;
-Neo4j is local-only). If you're on hosted, use the Ladybug shape above regardless of
-what this doc says about Neo4j.
+**Which dialect you get** is in the `run_cypher_query` description and in the
+`Cypher rows via <backend>` line of every response: the hosted MCP on an on-prem Neo4j
+deployment serves Neo4j; file-snapshot workspaces serve Ladybug/Kùzu.
 
 ## `GraphNode` / rel-table columns (Ladybug/Kùzu)
 
@@ -112,7 +124,7 @@ GraphNode(id, type, name, properties, summary, embedding, repoId, filePath, star
 
 ## `properties` is a JSON *string*, not queryable columns
 
-Loud gotcha: on both dialects, `properties` is a **JSON string column** on `GraphNode` and
+Loud gotcha (Ladybug/Kùzu; Neo4j node properties are flat, e.g. `n.isAsync`): `properties` is a **JSON string column** on `GraphNode` and
 on every rel table — it is NOT expanded into native, queryable graph properties. You
 **cannot** do `WHERE n.properties.isAsync = true` in Cypher.
 
