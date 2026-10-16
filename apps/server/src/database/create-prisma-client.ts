@@ -17,9 +17,10 @@ import pg from 'pg';
 
 export type PrismaLogLevel = 'query' | 'warn' | 'error';
 
-/** Log levels: verbose in development, quiet otherwise. */
+/** Log levels: every query in development unless `PRISMA_QUERY_LOG=false`; quiet otherwise. */
 export function prismaLogLevels(): PrismaLogLevel[] {
-  return miscConfigFromEnv().nodeEnv === 'development' ? ['query', 'warn', 'error'] : ['warn', 'error'];
+  const misc = miscConfigFromEnv();
+  return misc.nodeEnv === 'development' && misc.prismaQueryLog ? ['query', 'warn', 'error'] : ['warn', 'error'];
 }
 
 /**

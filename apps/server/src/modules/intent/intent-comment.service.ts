@@ -1,7 +1,3 @@
-/**
- * Comment threads on features and items. A thread is a root comment, which
- * carries the `open`/`resolved` status, and its replies, which carry none.
- */
 import { Injectable } from '@nestjs/common';
 import {
   IntentAuditEntityKind,
@@ -27,7 +23,6 @@ import { intentNotFound, intentStateError } from './intent-state-errors.js';
 
 type CommentTarget = { kind: 'feature' | 'item'; id: string };
 
-/** The column that names each kind of target. */
 const TARGET_COLUMN = { feature: 'featureId', item: 'itemId' } as const;
 
 export interface IntentCommentView {

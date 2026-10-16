@@ -159,6 +159,8 @@ run() {
 # --- 3. push ----------------------------------------------------------------
 SERVER_REPO=""
 SERVER_TAG=""
+RUNNER_REPO=""
+RUNNER_TAG=""
 NEO4J_TAG=""
 PUSHED=0
 
@@ -209,6 +211,10 @@ for TARBALL in images/*.tar; do
       SERVER_REPO="${TARGET_PREFIX}/${IMAGE_NAME}"
       SERVER_TAG="$IMAGE_TAG"
       ;;
+    coredoc-agent-runner)
+      RUNNER_REPO="${TARGET_PREFIX}/${IMAGE_NAME}"
+      RUNNER_TAG="$IMAGE_TAG"
+      ;;
     neo4j) NEO4J_TAG="$IMAGE_TAG" ;;
   esac
   PUSHED=$((PUSHED + 1))
@@ -237,6 +243,16 @@ if [ -n "$SERVER_REPO" ]; then
 image:
   repository: ${SERVER_REPO}
   tag: "${SERVER_TAG}"
+EOF
+fi
+if [ -n "$RUNNER_REPO" ]; then
+  cat <<EOF
+# The optional agent runner (agentRunner.enabled). Point this at your derived
+# image instead once you add your repositories' toolchains to it.
+agentRunner:
+  image:
+    repository: ${RUNNER_REPO}
+    tag: "${RUNNER_TAG}"
 EOF
 fi
 if [ -n "$NEO4J_TAG" ]; then

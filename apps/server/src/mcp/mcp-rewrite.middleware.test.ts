@@ -801,3 +801,26 @@ describe('McpRewriteMiddleware — auth kind and service-token permissions on th
     expect(req.userWorkspaceRole).toBe('owner');
   });
 });
+
+describe('McpRewriteMiddleware — agent runner tokens work only on the runner API', () => {
+  it.each([
+    ['workspace-scoped', `/api/v1/workspaces/${WS_A}/mcp`],
+    ['direct root', '/mcp'],
+  ])('refuses an exact agent-runner token on the %s path with 403', async (_name, url) => {
+    const controlPlane = makeControlPlane({
+      getServiceTokenByHash: vi
+        .fn()
+        .mockResolvedValue(serviceTokenRow({ permissions: [TokenPermission.AgentRunnerRun] })),
+      getMember: vi.fn().mockResolvedValue({ role: 'owner' }),
+    });
+    const middleware = new McpRewriteMiddleware(makeAuthService(), controlPlane);
+    const res = makeRes();
+    const next = vi.fn();
+
+    await middleware.use(makeReq(url, bearer(CDT_TOKEN)), res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toEqual({ error: 'Agent runner tokens may access only the agent runner API' });
+  });
+});

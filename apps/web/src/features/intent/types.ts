@@ -300,7 +300,6 @@ export interface IntentItemsQuery {
   scopeFeatureId?: string;
   /** Only live decisions whose choice is still open. */
   openQuestions?: 'true';
-  /** Only items with at least one open comment thread. */
   openComments?: 'true';
   authority?: IntentAuthority;
   kind?: IntentItemKind;

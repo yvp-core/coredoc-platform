@@ -87,6 +87,78 @@ pnpm server:dev
 pnpm server:build
 ```
 
+### Local stack with Docker Compose
+
+`apps/server/docker-compose.yml` runs Postgres, Neo4j, the server, the web app
+and the agent runner. The server, web app and runner run in watch mode.
+
+Prerequisites:
+
+- Docker Desktop. On Apple Silicon, turn on Settings → General → "Use Rosetta
+  for x86_64/amd64 emulation on Apple Silicon". The runner image is
+  linux/amd64 only, and under qemu the Claude Code binary aborts.
+- `apps/server/.env`, filled in from `apps/server/.env.example`. Compose passes
+  it to the server and overrides `DATABASE_URL` and `NEO4J_URI` for the
+  container network.
+
+```bash
+cd apps/server
+docker compose up --build        # add -d to run in the background
+```
+
+Migrations (`prisma migrate deploy`) run before the server starts.
+
+| URL | Service |
+| --- | --- |
+| http://localhost:5173 | Web app (Vite with HMR; proxies `/api`, `/mcp` and the OAuth paths to the server) |
+| http://localhost:3000 | Server (API, MCP) |
+| http://localhost:7474 | Neo4j browser |
+| `localhost:5432` | Postgres (`coredoc` / `coredoc`) |
+
+Enable the agent runner:
+
+1. Sign in at http://localhost:5173. Create a runner token in Settings → Agent
+   runs. The token is shown only once.
+2. Copy the example settings: `cp agent-runner.env.example agent-runner.env`
+   (git ignores the copy). Fill in the workspace ID, the runner token, an
+   Anthropic API key, the bot's GitHub token and its commit email. To find the
+   workspace ID, open http://localhost:5173/api/v1/workspaces while signed in
+   and copy the workspace's `id`.
+3. Run `docker compose up -d agent-runner`. Compose recreates the runner with
+   the new settings.
+
+Until `agent-runner.env` holds a token, the runner logs `not configured` with
+the missing variables and waits. It does not exit, so it does not restart in a
+loop.
+
+Watch the logs:
+
+```bash
+docker compose logs -f                                # every service
+docker compose logs -f coredoc-server agent-runner    # a few services
+```
+
+`docker compose down` stops the stack. The Postgres and Neo4j data stays in
+`apps/server/data`.
+
+Known limits:
+
+- Only edits under `apps/server/src`, `apps/web/src` and `apps/agent-runner/src`
+  reload. Changes to `packages/*` (core, db, mcp), a `package.json`, the
+  lockfile or a Dockerfile need `docker compose up -d --build <service>`.
+  Prisma schema and migration changes apply when the server restarts.
+- TypeScript's watcher reacts to content changes, not to a bare `touch`.
+- Without Rosetta (qemu), Claude Code aborts. The runner logs `sdk_unusable`
+  and claims no turns. With a token, it also reports the problem in
+  Settings → Agent runs.
+- The runner runs under amd64 emulation on Apple Silicon, so it builds and
+  runs slower there.
+- The dev runner is not the production image. It has the full dev
+  dependencies and a writable root filesystem. Use
+  `scripts/images/check-images.sh` to check the production image.
+- Neo4j starts with a 4 GB heap. The server uses it only when `.env` sets
+  `NEO4J_PASSWORD` (`asd123A!` for this container).
+
 ## CLI Usage
 
 For power users and CI pipelines, the CLI is available directly:

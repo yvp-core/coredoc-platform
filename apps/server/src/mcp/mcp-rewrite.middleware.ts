@@ -41,11 +41,21 @@ import type { Request, Response, NextFunction } from 'express';
 import { createHash } from 'node:crypto';
 import type { AuthUser } from '../auth/decorators/current-user.decorator.js';
 import { AuthService } from '../auth/auth.service.js';
-import { isExactTelemetryPurpose } from '../auth/token-permissions.js';
+import { isExactAgentRunnerPurpose, isExactTelemetryPurpose } from '../auth/token-permissions.js';
 import { ControlPlaneService } from '../database/control-plane.service.js';
 import { serverUrl } from '../auth/oauth/server-url.js';
 import { McpAuthKind, type AuthenticatedMcpRequest } from './mcp-auth-context.js';
 import { McpToolset, mcpToolsetContext, parseToolsetParam } from './mcp-toolset.js';
+
+/**
+ * Exact-purpose machine tokens never reach MCP: telemetry tokens are write-only
+ * ingest credentials, runner tokens work only on the agent runner API.
+ */
+function exactPurposeRefusal(permissions: readonly string[]): string | null {
+  if (isExactTelemetryPurpose(permissions)) return 'Telemetry tokens may access only telemetry ingestion endpoints';
+  if (isExactAgentRunnerPurpose(permissions)) return 'Agent runner tokens may access only the agent runner API';
+  return null;
+}
 
 /** Header a client sets to pick one of several accessible workspaces. */
 export const WORKSPACE_HEADER = 'x-coredoc-workspace';
@@ -129,8 +139,9 @@ export class McpRewriteMiddleware implements NestMiddleware {
           this.unauthorized(res, 'Invalid or expired service token', true);
           return;
         }
-        if (isExactTelemetryPurpose(serviceToken.permissions)) {
-          res.status(403).json({ error: 'Telemetry tokens may access only telemetry ingestion endpoints' });
+        const refusal = exactPurposeRefusal(serviceToken.permissions);
+        if (refusal) {
+          res.status(403).json({ error: refusal });
           return;
         }
         // Enforce workspace scope
@@ -196,8 +207,9 @@ export class McpRewriteMiddleware implements NestMiddleware {
         this.unauthorized(res, 'Invalid or expired service token', true);
         return;
       }
-      if (isExactTelemetryPurpose(serviceToken.permissions)) {
-        res.status(403).json({ error: 'Telemetry tokens may access only telemetry ingestion endpoints' });
+      const refusal = exactPurposeRefusal(serviceToken.permissions);
+      if (refusal) {
+        res.status(403).json({ error: refusal });
         return;
       }
 

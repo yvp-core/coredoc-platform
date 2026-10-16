@@ -12,7 +12,45 @@ const MAX_BASE_URL_CHARS = 512;
 const MAX_NEXT_PAGE_URL_CHARS = 4_096;
 
 export class JiraAuthError extends Error {}
-export class JiraRateLimitError extends Error {}
+export class JiraRateLimitError extends Error {
+  /** From `Retry-After` (seconds) when Jira sent one; callers cap the wait. */
+  constructor(
+    message: string,
+    readonly retryAfterMs: number | null = null,
+  ) {
+    super(message);
+  }
+}
+/**
+ * Jira answers 404 or 400, not 401/403, for an issue the connector's user may not
+ * see. Permanent for agent-run reads; a plain Error to the importer's classifier.
+ */
+export class JiraNotFoundError extends Error {}
+/**
+ * Any other non-2xx answer, with its status: 409, 413 and 422 are rejections,
+ * 5xx are transient. Still a plain Error to the importer's classifier.
+ */
+export class JiraApiError extends Error {
+  constructor(
+    readonly status: number,
+    path: string,
+  ) {
+    super(`Jira API ${status} for ${path}`);
+  }
+}
+
+/** One comment as listed; the body is Atlassian Document Format. */
+export interface JiraComment {
+  id: string;
+  body: unknown;
+}
+
+export interface JiraTransition {
+  id: string;
+  name?: string;
+  hasScreen?: boolean;
+  to?: { id?: string; name?: string };
+}
 
 export interface JiraIssue {
   [k: string]: unknown;
@@ -21,6 +59,8 @@ export interface JiraIssue {
 export interface JiraSearchOptions {
   maxPages?: number;
   nextPageToken?: string | null;
+  /** Default true (the importer reads changelogs); false leaves `expand` out of the request. */
+  expandChangelog?: boolean;
 }
 
 export interface JiraIssueSearchResult {
@@ -113,13 +153,22 @@ export class JiraClient {
       throw new JiraAuthError(`Jira auth/permission failure (${res.status}) for ${path}`);
     }
     if (res.status === 429) {
-      throw new JiraRateLimitError(`Jira rate limit (429) for ${path}`);
+      const seconds = Number(res.headers.get('retry-after'));
+      throw new JiraRateLimitError(
+        `Jira rate limit (429) for ${path}`,
+        Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : null,
+      );
+    }
+    if (res.status === 404 || res.status === 400) {
+      throw new JiraNotFoundError(`Jira API ${res.status} for ${path}`);
     }
     if (!res.ok) {
       // Provider bodies may contain tenant/project details. Status + the fixed
       // request path are sufficient for retry classification and safe logging.
-      throw new Error(`Jira API ${res.status} for ${path}`);
+      throw new JiraApiError(res.status, path);
     }
+    // A successful transition answers 204 with no body.
+    if (res.status === 204) return undefined;
     return res.json();
   }
 
@@ -135,7 +184,7 @@ export class JiraClient {
         fields,
         // `expand` is a comma-separated STRING on /search/jql (the removed
         // /search endpoint took an array; live Jira Cloud 400s on the array).
-        expand: 'changelog',
+        ...(options.expandChangelog === false ? {} : { expand: 'changelog' }),
       };
       if (nextPageToken) body.nextPageToken = nextPageToken;
       const res = asRecord(await this.request('/rest/api/3/search/jql', { method: 'POST', body }));
@@ -145,6 +194,60 @@ export class JiraClient {
       if (!nextPageToken) break;
     }
     return { items: out, nextPageToken: nextPageToken ?? null };
+  }
+
+  async getIssue(issueIdOrKey: string, fields: string[]): Promise<JiraIssue> {
+    const query = new URLSearchParams({ fields: fields.join(',') });
+    return asRecord(await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}?${query}`));
+  }
+
+  async addComment(issueIdOrKey: string, body: unknown): Promise<{ id: string }> {
+    const res = asRecord(
+      await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/comment`, {
+        method: 'POST',
+        body: { body },
+      }),
+    );
+    if (typeof res.id !== 'string') throw new Error('Jira comment response is missing its id');
+    return { id: res.id };
+  }
+
+  /** `complete` is false when `maxPages` stopped the listing before the last comment. */
+  async listComments(issueIdOrKey: string, maxPages = 20): Promise<{ comments: JiraComment[]; complete: boolean }> {
+    const out: JiraComment[] = [];
+    let startAt = 0;
+    for (let page = 0; page < maxPages; page++) {
+      const query = new URLSearchParams({
+        startAt: String(startAt),
+        maxResults: String(PAGE_SIZE),
+        orderBy: 'created',
+      });
+      const res = asRecord(
+        await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/comment?${query}`),
+      );
+      const comments = (Array.isArray(res.comments) ? res.comments : []).map(asRecord);
+      for (const comment of comments) {
+        if (typeof comment.id === 'string') out.push({ id: comment.id, body: comment.body });
+      }
+      startAt += comments.length;
+      const total = nonNegativeInteger(res.total);
+      if (comments.length === 0 || (total === null ? comments.length < PAGE_SIZE : startAt >= total)) {
+        return { comments: out, complete: true };
+      }
+    }
+    return { comments: out, complete: false };
+  }
+
+  async listTransitions(issueIdOrKey: string): Promise<JiraTransition[]> {
+    const res = asRecord(await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/transitions`));
+    return (Array.isArray(res.transitions) ? res.transitions : []) as JiraTransition[];
+  }
+
+  async transitionIssue(issueIdOrKey: string, transitionId: string): Promise<void> {
+    await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/transitions`, {
+      method: 'POST',
+      body: { transition: { id: transitionId } },
+    });
   }
 
   async listChangelog(issueIdOrKey: string, options: JiraChangelogOptions = {}): Promise<JiraChangelogResult> {

@@ -14,6 +14,7 @@
 #                      tagged commit (the suite itself runs on PRs + main pushes)
 #   2. server image  — ghcr.io/yvp-core/coredoc-server:{version} + :latest
 #   3. cli image     — ghcr.io/yvp-core/coredoc-cli:{version} + :latest
+#      runner image  — ghcr.io/yvp-core/coredoc-agent-runner:{version} + :latest
 #   4. cli bundle    — release assets behind GET /api/v1/cli/bundle
 #   5. chart         — helm chart to oci://ghcr.io/yvp-core/charts/coredoc
 #   6. airgap kit    — coredoc-onprem-{version}.tar.gz attached to a GitHub
@@ -362,6 +363,110 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
+  # Agent runner image — apps/agent-runner/Dockerfile, linux/amd64 only (the
+  # plugin's bundled runtime has no other Linux build). Customers run it, or an
+  # image derived from it, as the chart's optional agentRunner Deployment.
+  # ---------------------------------------------------------------------------
+  runner-image:
+    needs: [prepare, test]
+    runs-on: ubuntu-latest
+    # See the note on server-image: airgap-kit pulls this image by digest.
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    # See the note on server-image: job-level permissions replace the
+    # workflow-level block; id-token: write enables cosign keyless signing.
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Stamp workspace versions from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#server-v}" node -e '
+            const fs = require("fs");
+            const version = process.env.VERSION;
+            const manifests = [
+              "package.json",
+              ...["apps", "packages"].flatMap((dir) =>
+                fs.readdirSync(dir).map((name) => `${dir}/${name}/package.json`),
+              ).filter((p) => fs.existsSync(p)),
+            ];
+            for (const file of manifests) {
+              const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+              pkg.version = version;
+              fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+            }
+            console.log(`stamped ${manifests.length} manifests to ${version}`);
+          '
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push agent runner image
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: apps/agent-runner/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: |
+            ghcr.io/yvp-core/coredoc-agent-runner:${{ needs.prepare.outputs.version }}
+            ghcr.io/yvp-core/coredoc-agent-runner:latest
+          cache-from: type=gha,scope=agent-runner
+          cache-to: type=gha,scope=agent-runner,mode=max
+
+      # Before signing, so a runner that cannot start Claude Code or load the
+      # plugin never becomes a signed release.
+      - name: Check agent runner image
+        env:
+          IMAGE: ghcr.io/yvp-core/coredoc-agent-runner@${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE"
+          scripts/images/check-images.sh - "$IMAGE"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Sign agent runner image (keyless, by digest)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "ghcr.io/yvp-core/coredoc-agent-runner@${DIGEST}"
+
+      # syft writes to output-file without creating parent directories.
+      - name: Prepare SBOM directory
+        run: mkdir -p sboms
+
+      - name: Generate agent runner SBOM (SPDX JSON)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ghcr.io/yvp-core/coredoc-agent-runner@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sboms/coredoc-agent-runner-${{ needs.prepare.outputs.version }}.spdx.json
+          upload-artifact: false
+
+      - name: Upload agent runner SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom-agent-runner
+          path: sboms/
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
   # CLI bundle — the download channel behind `GET /api/v1/cli/bundle`, which is
   # how cloud customers' CI gets the CLI. The server resolves it from this
   # tag's GitHub Release (cli-bundle.service.ts): coredoc-cli.mjs,
@@ -537,10 +642,11 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Air-gap kit — everything an offline install needs, in one tarball:
-  #   images/  coredoc-server, coredoc-cli, and the Neo4j image the chart pins
+  #   images/  coredoc-server, coredoc-cli, coredoc-agent-runner, and the Neo4j
+  #            image the chart pins
   #   chart/   the packaged chart .tgz + values-example.yaml
   #   docs/    docs/onprem/*.md
-  #   sboms/   SPDX JSON for the server + CLI images
+  #   sboms/   SPDX JSON for the server, CLI and agent runner images
   #   mirror.sh    pushes images/*.tar into the customer's own registry
   #   digests.txt  upstream digest each images/*.tar was pulled by — the join
   #                key to the cosign signatures and SBOMs on ghcr.io
@@ -550,7 +656,7 @@ jobs:
   # Attached to a GitHub Release for the tag with generated notes.
   # ---------------------------------------------------------------------------
   airgap-kit:
-    needs: [prepare, server-image, cli-image, cli-bundle, chart]
+    needs: [prepare, server-image, cli-image, runner-image, cli-bundle, chart]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -588,12 +694,13 @@ jobs:
           # `:${VERSION}` tag points at by the time this job runs.
           SERVER_DIGEST: ${{ needs.server-image.outputs.digest }}
           CLI_DIGEST: ${{ needs.cli-image.outputs.digest }}
+          RUNNER_DIGEST: ${{ needs.runner-image.outputs.digest }}
         run: |
           set -euo pipefail
           VERSION="${{ needs.prepare.outputs.version }}"
 
-          if [ -z "${SERVER_DIGEST}" ] || [ -z "${CLI_DIGEST}" ]; then
-            echo "::error::server-image/cli-image did not report a pushed digest — refusing to build a kit from mutable tags."
+          if [ -z "${SERVER_DIGEST}" ] || [ -z "${CLI_DIGEST}" ] || [ -z "${RUNNER_DIGEST}" ]; then
+            echo "::error::server-image/cli-image/runner-image did not report a pushed digest — refusing to build a kit from mutable tags."
             exit 1
           fi
 
@@ -609,6 +716,7 @@ jobs:
 
           SERVER_REF="ghcr.io/yvp-core/coredoc-server:${VERSION}"
           CLI_REF="ghcr.io/yvp-core/coredoc-cli:${VERSION}"
+          RUNNER_REF="ghcr.io/yvp-core/coredoc-agent-runner:${VERSION}"
 
           # Pull by digest, then apply the friendly tag locally before saving:
           # `docker save <tag>` writes that tag into the archive's manifest.json
@@ -617,12 +725,15 @@ jobs:
           # digest ref directly would produce an untagged archive.)
           docker pull "ghcr.io/yvp-core/coredoc-server@${SERVER_DIGEST}"
           docker pull "ghcr.io/yvp-core/coredoc-cli@${CLI_DIGEST}"
+          docker pull "ghcr.io/yvp-core/coredoc-agent-runner@${RUNNER_DIGEST}"
           docker pull "${NEO4J_IMAGE}"
           docker tag "ghcr.io/yvp-core/coredoc-server@${SERVER_DIGEST}" "${SERVER_REF}"
           docker tag "ghcr.io/yvp-core/coredoc-cli@${CLI_DIGEST}" "${CLI_REF}"
+          docker tag "ghcr.io/yvp-core/coredoc-agent-runner@${RUNNER_DIGEST}" "${RUNNER_REF}"
 
           docker save "${SERVER_REF}"  -o "${KIT}/images/coredoc-server-${VERSION}.tar"
           docker save "${CLI_REF}"     -o "${KIT}/images/coredoc-cli-${VERSION}.tar"
+          docker save "${RUNNER_REF}"  -o "${KIT}/images/coredoc-agent-runner-${VERSION}.tar"
           docker save "${NEO4J_IMAGE}" -o "${KIT}/images/neo4j-2026.05.0.tar"
 
           # Which upstream bytes each tarball came from — the join key between a
@@ -639,6 +750,7 @@ jobs:
             echo "# image reference -> digest of the bytes in images/*.tar"
             echo "${SERVER_REF} ${SERVER_DIGEST}"
             echo "${CLI_REF} ${CLI_DIGEST}"
+            echo "${RUNNER_REF} ${RUNNER_DIGEST}"
             echo "${NEO4J_IMAGE} ${NEO4J_DIGEST}"
           } > "${KIT}/digests.txt"
 

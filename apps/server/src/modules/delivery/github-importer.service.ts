@@ -18,7 +18,8 @@ import { CODE_CHANGE_NORM_VERSION, normalizePullRequest } from './github-normali
 import { resolveWindowStart } from './ingest-window.js';
 import { packRawPayload } from './raw-payload-codec.js';
 
-type ClientFactory = (token: string, baseUrl?: string) => GithubClient;
+export type GithubClientFactory = (token: string, baseUrl?: string) => GithubClient;
+type ClientFactory = GithubClientFactory;
 
 /**
  * Optional DI token for a custom GithubClient factory. No provider registers it,

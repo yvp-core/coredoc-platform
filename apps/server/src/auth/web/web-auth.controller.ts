@@ -280,6 +280,8 @@ export class WebAuthController {
         // Per actor: the web gates the Intent nav and route on this, so a role
         // outside the TEMPORARY `INTENT_ROLES` list sees intent as off.
         intentEnabled: intentEnabledForActor(w.intentEnabled, w.role, this.intent),
+        // Gates the Agent runs nav: enabled, or the workspace already has runs.
+        agentRunsEnabled: w.agentRunsEnabled,
       })),
     };
   }

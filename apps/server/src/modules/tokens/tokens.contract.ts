@@ -19,6 +19,8 @@ export enum TokenScope {
   IntentAgent = 'intent-agent',
   /** Refused here; minted only by the member-only telemetry-token endpoint. */
   Telemetry = 'telemetry',
+  /** Cloud agent runner credential — AGENT_RUNNER_TOKEN_PERMISSIONS, the runner API only. */
+  AgentRunner = 'agent-runner',
 }
 
 export const CreateTokenSchema = z.object({

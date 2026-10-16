@@ -11,7 +11,7 @@ import type { Request } from 'express';
 import { Reflector } from '@nestjs/core';
 import type { AuthUser } from './decorators/current-user.decorator.js';
 import { PERMISSION_KEY } from './decorators/require-permission.decorator.js';
-import { isExactTelemetryPurpose, TokenPermission } from './token-permissions.js';
+import { isExactAgentRunnerPurpose, isExactTelemetryPurpose, TokenPermission } from './token-permissions.js';
 import { AuthService } from './auth.service.js';
 import { ControlPlaneService } from '../database/control-plane.service.js';
 import { CSRF_HEADER, CSRF_HEADER_VALUE, SESSION_COOKIE } from './web/web-auth.constants.js';
@@ -49,6 +49,7 @@ export class AuthGuard implements CanActivate {
         // Service token — resolve via SHA-256 hash lookup
         request.user = await this.resolveServiceToken(token, request);
         this.enforceExactTelemetryPurpose(context, request);
+        this.enforceExactAgentRunnerPurpose(context, request);
         request.authVia = 'bearer';
         return true;
       }
@@ -84,6 +85,19 @@ export class AuthGuard implements CanActivate {
     }
   }
 
+  /** A runner token works only on handlers that require the runner permission (the runner API). */
+  private enforceExactAgentRunnerPurpose(context: ExecutionContext, request: AuthRequest): void {
+    if (!isExactAgentRunnerPurpose(request.serviceTokenPermissions)) return;
+
+    const required = this.reflector.getAllAndOverride<string[] | undefined>(PERMISSION_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (!required?.includes(TokenPermission.AgentRunnerRun)) {
+      throw new ForbiddenException('Agent runner tokens may access only the agent runner API');
+    }
+  }
+
   private async activateFromCookie(sessionCookie: string, request: AuthRequest): Promise<boolean> {
     try {
       request.user = await this.authService.verifyAccessToken(sessionCookie);
@@ -106,6 +120,10 @@ export class AuthGuard implements CanActivate {
 
     if (!serviceToken) {
       throw new UnauthorizedException('Invalid or expired service token');
+    }
+    // A cloud agent run's per-turn token is an MCP credential only.
+    if (serviceToken.owningTurnId) {
+      throw new ForbiddenException('Agent turn tokens may access only the MCP endpoint');
     }
 
     // Store the workspace ID and permissions from the service token for downstream guards

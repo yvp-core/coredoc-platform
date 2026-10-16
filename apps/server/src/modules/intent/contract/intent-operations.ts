@@ -203,7 +203,6 @@ export const DeleteIntentNodeRelationSchema = z
 
 export const IntentCommentStatus = ['open', 'resolved'] as const;
 
-/** What a comment thread is about: a feature or an item. */
 export const IntentCommentTargetSchema = z
   .object({ kind: z.enum(['feature', 'item']).describe("'feature' or 'item'"), id: slugId() })
   .strict();

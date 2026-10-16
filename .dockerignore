@@ -18,3 +18,8 @@ coredoc.db*
 coredoc-output
 coredoc-parsers
 coredoc-sessions
+
+# Local secrets. apps/server/.env and agent-runner.env sit inside directories the
+# Dockerfiles COPY wholesale; compose passes them at run time instead.
+**/.env
+**/agent-runner.env

@@ -4,6 +4,9 @@
  * Raw HTML is not rendered and Mermaid runs with `securityLevel: 'strict'`:
  * intent text is workspace content, imported or written by agents. Mermaid is
  * loaded on first use, so pages without a diagram do not pay for it.
+ *
+ * `noRemote` is for agent-written text: nothing remote is fetched; images show
+ * their alt text and URL as plain text, and links show their target.
  */
 
 import { cn } from '@/lib/utils';
@@ -94,19 +97,46 @@ const COMPONENTS: Components = {
 /** `inline` drops the outer paragraph so a one-line statement can sit beside its marks. */
 const INLINE_COMPONENTS: Components = { ...COMPONENTS, p: ({ children }) => <>{children}</> };
 
+const NO_REMOTE_OVERRIDES: Components = {
+  img: ({ alt, src }) => (
+    <span className="rounded bg-surface-2 px-1 text-[12.5px] text-ink-3">
+      [image: {alt || 'untitled'}] {typeof src === 'string' ? src : ''}
+    </span>
+  ),
+  a: ({ children, href }) => (
+    <>
+      <a href={href} target="_blank" rel="noreferrer noopener" className="text-blue underline-offset-2 hover:underline">
+        {children}
+      </a>
+      {href && String(children) !== href ? <span className="text-ink-4"> ({href})</span> : null}
+    </>
+  ),
+};
+const NO_REMOTE_COMPONENTS: Components = { ...COMPONENTS, ...NO_REMOTE_OVERRIDES };
+const NO_REMOTE_INLINE_COMPONENTS: Components = { ...INLINE_COMPONENTS, ...NO_REMOTE_OVERRIDES };
+
 export function IntentMarkdown({
   text,
   inline = false,
+  noRemote = false,
   className,
 }: {
   text: string;
   inline?: boolean;
+  noRemote?: boolean;
   className?: string;
 }) {
   const Wrapper = inline ? 'span' : 'div';
+  const components = noRemote
+    ? inline
+      ? NO_REMOTE_INLINE_COMPONENTS
+      : NO_REMOTE_COMPONENTS
+    : inline
+      ? INLINE_COMPONENTS
+      : COMPONENTS;
   return (
     <Wrapper className={cn(className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={inline ? INLINE_COMPONENTS : COMPONENTS}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {text}
       </ReactMarkdown>
     </Wrapper>

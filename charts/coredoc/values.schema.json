@@ -114,6 +114,79 @@
       "properties": {
         "posthogKey": { "type": "string" }
       }
+    },
+    "agentRunner": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": { "type": "string", "minLength": 1 },
+            "tag": { "type": "string" },
+            "digest": { "type": "string", "pattern": "^$|^sha256:[0-9a-f]{64}$" },
+            "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+          }
+        },
+        "replicas": { "type": "integer", "minimum": 0 },
+        "existingSecret": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "apiUrl": { "type": "string", "pattern": "^$|^https?://.+" },
+        "githubApiUrl": { "type": "string", "pattern": "^$|^https://.+" },
+        "gitAuthor": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "email": { "type": "string" }
+          }
+        },
+        "modelBaseUrl": { "type": "string", "pattern": "^$|^https?://.+" },
+        "packageRegistries": {
+          "type": "object",
+          "description": "Package scope (@name) or \"default\" -> { url, credential? }; credential is \"github\" or \"env:<Secret key>\".",
+          "propertyNames": { "pattern": "^(default|@[a-z0-9][a-z0-9._-]*)$" },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "url": { "type": "string", "pattern": "^https?://.+" },
+              "credential": { "type": "string", "pattern": "^(github|env:[A-Za-z_][A-Za-z0-9_]*)$" }
+            },
+            "required": ["url"],
+            "additionalProperties": false
+          }
+        },
+        "proxy": {
+          "type": "object",
+          "properties": {
+            "httpsProxy": { "type": "string" },
+            "httpProxy": { "type": "string" },
+            "noProxy": { "type": "string" }
+          }
+        },
+        "caBundle": {
+          "type": "object",
+          "properties": {
+            "configMap": { "type": "string" },
+            "key": { "type": "string", "minLength": 1 }
+          }
+        },
+        "scratch": {
+          "type": "object",
+          "properties": {
+            "sizeLimit": { "type": "string", "minLength": 1 },
+            "medium": { "enum": ["", "Memory"] }
+          }
+        },
+        "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
+        "env": { "type": "object" },
+        "networkPolicy": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "egress": { "type": "array" }
+          }
+        }
+      }
     }
   },
   "required": ["server"],

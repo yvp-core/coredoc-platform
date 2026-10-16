@@ -93,6 +93,45 @@ jobs:
           TURBO_CONCURRENCY: 2
         run: pnpm test
 
+  # The deployable images: the agent runner image builds on every pull request,
+  # and both images are checked against what the runner design promises — the
+  # server never contains the Agent SDK, the runner is linux/amd64, non-root,
+  # root-owned, carries the pinned SDK and plugin, and passes its own start-up
+  # check with a read-only root filesystem — each within its size budget
+  # (scripts/images/check-images.sh). Nothing is pushed; release.yml publishes.
+  images:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build server image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          target: production
+          load: true
+          tags: coredoc-server:ci
+          cache-from: type=gha,scope=server
+
+      - name: Build agent runner image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: apps/agent-runner/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: coredoc-agent-runner:ci
+          cache-from: type=gha,scope=agent-runner
+          cache-to: type=gha,scope=agent-runner,mode=max
+
+      - name: Check images
+        run: scripts/images/check-images.sh coredoc-server:ci coredoc-agent-runner:ci
+
   # The server's Postgres integration suites self-skip when their
   # *_TEST_DATABASE_URL is unset, so `pnpm test` above proves nothing about
   # them — schema, migration and Prisma-behaviour regressions land silently.

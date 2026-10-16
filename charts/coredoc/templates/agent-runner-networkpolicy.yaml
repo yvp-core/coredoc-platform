@@ -1,0 +1,42 @@
+{{- if and .Values.agentRunner.enabled .Values.agentRunner.networkPolicy.enabled }}
+{{- $policy := .Values.agentRunner.networkPolicy }}
+# The runner accepts no connections. Its egress is DNS, the in-cluster
+# Coredoc server, and the operator's list (the model API or gateway, GitHub,
+# package registries, or an egress proxy in front of them).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "coredoc.agentRunner.fullname" . }}
+  labels:
+    {{- include "coredoc.agentRunner.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "coredoc.agentRunner.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml $policy.dns.namespaceSelector | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml $policy.dns.podSelector | nindent 14 }}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "coredoc.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 3000
+    {{- with $policy.egress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

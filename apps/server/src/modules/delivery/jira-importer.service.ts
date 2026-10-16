@@ -43,7 +43,8 @@ const BASE_FIELDS = [
   'project',
 ];
 
-const PROJECT_KEY_RE = /^[A-Z][A-Z0-9]{1,9}$/;
+/** Only these project keys ever reach a JQL clause, which Jira reads unquoted. */
+export const PROJECT_KEY_RE = /^[A-Z][A-Z0-9]{1,9}$/;
 const ISSUE_KEY_RE = /^[A-Z][A-Z0-9_]+-\d+$/;
 /** Stays under the client's 100-issue search page, so one `key in (...)` call suffices. */
 const SOURCE_CREATED_BACKFILL_BATCH = 50;
@@ -61,7 +62,7 @@ const PER_ISSUE_CANONICAL_CONFLICT_CODES: ReadonlySet<string> = new Set([
   'REWORK_SIGNAL_CONFLICT',
 ]);
 
-type JiraClientFactory = (opts: { baseUrl: string; email: string; apiToken: string }) => JiraClient;
+export type JiraClientFactory = (opts: { baseUrl: string; email: string; apiToken: string }) => JiraClient;
 
 interface IssuesContinuation {
   queryCursor: string | null;

@@ -107,7 +107,6 @@ export interface IntentDocumentItem {
   version: number;
   effectivity: Effectivity;
   openQuestion: boolean;
-  /** Open comment threads on the item. */
   openCommentCount: number;
   proposedSuccessorOfId: string | null;
   appliesWhen: unknown[];

@@ -34,6 +34,10 @@
     "./telemetry": {
       "types": "./dist/telemetry/index.d.ts",
       "import": "./dist/telemetry/index.js"
+    },
+    "./agent-runner": {
+      "types": "./dist/agent-runner/index.d.ts",
+      "import": "./dist/agent-runner/index.js"
     }
   },
   "scripts": {

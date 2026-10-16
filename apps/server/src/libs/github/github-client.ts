@@ -158,6 +158,11 @@ export class GithubClient {
     return this.get(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`);
   }
 
+  /** Strict repository read (the default branch, among others); errors propagate. */
+  async getRepositoryMetadata(owner: string, repo: string): Promise<unknown> {
+    return this.get(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`);
+  }
+
   async compareCommits(owner: string, repo: string, base: string, head: string): Promise<{ status: string }> {
     const body = await this.get(
       `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}?per_page=1`,

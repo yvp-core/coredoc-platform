@@ -16,7 +16,7 @@ export const tokensQueryOptions = (wsId: string) =>
 // in queries/members.ts — see the doc comment there for the full rationale.
 
 /** Curated scopes the server maps to a fixed permission list (CreateTokenDto). */
-export type TokenScope = 'ci' | 'intent-agent';
+export type TokenScope = 'ci' | 'intent-agent' | 'agent-runner';
 
 export function createToken(params: {
   wsId: string;

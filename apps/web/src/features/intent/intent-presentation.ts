@@ -573,7 +573,6 @@ function stripRefsOutsideCode(text: string): string {
     .replace(/[ \t]+$/gm, '');
 }
 
-/** "2 open comments", or `null` when there are none. */
 export function openCommentsLabel(count: number | undefined): string | null {
   if (!count) return null;
   return `${count} open ${count === 1 ? 'comment' : 'comments'}`;

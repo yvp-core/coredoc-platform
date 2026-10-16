@@ -10,6 +10,7 @@ chart configures maps 1:1 onto the env documented there.
 
 - Upgrades: [UPGRADE.md](UPGRADE.md)
 - Resource sizing: [SIZING.md](SIZING.md)
+- Cloud agent runs and the agent runner (optional): [AGENT-RUNS.md](AGENT-RUNS.md)
 
 ---
 
@@ -21,6 +22,9 @@ chart configures maps 1:1 onto the env documented there.
   as an in-cluster subchart (`neo4j.enabled=true`, default), or bring your own.
 - **Prisma migration Job** — a separate lifecycle-hook Job (never run on
   container boot).
+- **Agent runner** (optional, `agentRunner.enabled=false` by default) — a
+  separate Deployment for cloud agent runs, with its own image and Secret and
+  none of the server's. See [AGENT-RUNS.md](AGENT-RUNS.md).
 
 It does **not** deploy Postgres (control plane) or object storage — those are
 external prerequisites by design.
@@ -83,6 +87,13 @@ cosign verify \
   --certificate-identity-regexp "$COSIGN_IDENTITY" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   ghcr.io/yvp-core/charts/coredoc:<version>
+
+# Only if you run cloud agent runs (AGENT-RUNS.md): verify the base of your
+# derived runner image.
+cosign verify \
+  --certificate-identity-regexp "$COSIGN_IDENTITY" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/yvp-core/coredoc-agent-runner:<version>
 ```
 
 A failed verification means the artifact was not produced by this repo's
@@ -101,9 +112,9 @@ cosign download attestation ghcr.io/yvp-core/coredoc-server:<version>
 ```
 
 For scanners that want a plain file, every GitHub Release attaches standalone
-SPDX documents — `coredoc-server-<version>.spdx.json` and
-`coredoc-cli-<version>.spdx.json` — and the air-gap kit carries the same files
-under `sboms/` (§10).
+SPDX documents — `coredoc-server-<version>.spdx.json`,
+`coredoc-cli-<version>.spdx.json` and `coredoc-agent-runner-<version>.spdx.json`
+— and the air-gap kit carries the same files under `sboms/` (§10).
 
 Pin the verified digest in your values so the cluster deploys exactly those
 bytes (a digest beats `image.tag` when both are set):
@@ -434,10 +445,12 @@ Each release attaches an air-gap kit to the GitHub Release:
 `coredoc-onprem-<version>.tar.gz`, containing:
 
 ```
-images/  coredoc-server-<version>.tar, coredoc-cli-<version>.tar, neo4j-2026.05.0.tar
+images/  coredoc-server-<version>.tar, coredoc-cli-<version>.tar,
+         coredoc-agent-runner-<version>.tar, neo4j-2026.05.0.tar
 chart/   coredoc-<version>.tgz, values-example.yaml
-docs/    INSTALL.md, UPGRADE.md, SIZING.md
-sboms/   coredoc-server-<version>.spdx.json, coredoc-cli-<version>.spdx.json
+docs/    INSTALL.md, UPGRADE.md, SIZING.md, AGENT-RUNS.md
+sboms/   coredoc-server-<version>.spdx.json, coredoc-cli-<version>.spdx.json,
+         coredoc-agent-runner-<version>.spdx.json
 mirror.sh
 digests.txt
 SHA-256SUMS
@@ -486,6 +499,12 @@ themselves with `cosign` (§3.1) on a connected host.
    image:
      repository: registry.internal/coredoc-server
      tag: "<version>"
+   # Printed only for the optional agent runner; point it at your derived
+   # image once you build one (AGENT-RUNS.md §3).
+   agentRunner:
+     image:
+       repository: registry.internal/coredoc-agent-runner
+       tag: "<version>"
    neo4j:
      image:
        registry: registry.internal
@@ -522,6 +541,10 @@ An installed Coredoc server makes exactly these outbound connections:
 - **The configured LLM provider, if any** — only for CLI/CI parse+summarize
   runs you configure (`COREDOC_LLM_*` in your CI); the server itself does not
   call an LLM.
+- **Your Jira Cloud site and the GitHub connector's API host**
+  (`api.github.com` or your GitHub Enterprise Server host) — only when a
+  workspace adds Delivery analytics connectors. Cloud agent runs use the same
+  two hosts for their trigger, issue reads, comments and pull request checks.
 - **Your git host** — only if you enable `config.enableSourceModule`.
 - **`github.com` + `objects.githubusercontent.com`** — the desktop updater
   manifest (`latest-mac.yml`) on the latest stable Desktop GitHub Release of
@@ -530,10 +553,16 @@ An installed Coredoc server makes exactly these outbound connections:
   Blocking it returns 502 on that route and leaves everything else working.
   Set `server.env.DESKTOP_RELEASES_URL` to point at your own mirror of the
   manifest + DMGs if that host is outside your egress allowlist.
-- **Nothing else.** No telemetry unless you opt in: the PostHog client
+- **Nothing else from the server.** No telemetry unless you opt in: the PostHog client
   initializes only when `COREDOC_POSTHOG_KEY` **and** `COREDOC_POSTHOG_HOST`
   are both set (key via `telemetry.posthogKey`, host via `server.env`); with
   the defaults both are unset and no telemetry leaves the cluster.
+
+The optional **agent runner** (cloud agent runs) is the one component that
+calls an LLM: it reaches the model API or your gateway, GitHub, your package
+registries and the Coredoc API, and sends the file contents the agent reads to
+the model API. Its egress list and NetworkPolicy are in
+[AGENT-RUNS.md §7](AGENT-RUNS.md#7-egress).
 
 ## 12. Desktop fleet configuration (MDM)
 

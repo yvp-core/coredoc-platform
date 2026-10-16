@@ -55,7 +55,6 @@ export interface IntentAnchorRefreshState {
 export interface IntentItemDetailProps {
   itemId: string | null;
   productionState?: ReactNode;
-  /** The item's comment threads, shown after its details. */
   comments?: ReactNode;
   match: IntentContextMatch | null;
   graph: IntentGraphEvidence | null;

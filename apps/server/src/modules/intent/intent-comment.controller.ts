@@ -1,7 +1,3 @@
-/**
- * Comment threads on features and items, under the intent route prefix. Same
- * gates as the tree routes: member reads, member writes on a user session only.
- */
 import { Body, Controller, Get, Param, Post, Query, UseFilters, UseGuards } from '@nestjs/common';
 import type { z } from 'zod';
 import { AuthGuard } from '../../auth/auth.guard.js';

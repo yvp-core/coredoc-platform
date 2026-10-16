@@ -6,6 +6,7 @@ import { PageHead } from '@/components/page-head';
 import { RoleBadge } from '@/components/role-badge';
 import { ThemeSelect } from '@/components/theme-toggle';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
+import { AgentRunsPanel } from '@/features/settings/AgentRunsPanel';
 import { DeliveryPanel } from '@/features/settings/DeliveryPanel';
 import { GeneralPanel } from '@/features/settings/GeneralPanel';
 import { hasAdminAccess } from '@/lib/roles';
@@ -43,6 +44,7 @@ export function WorkspaceSettings() {
       </Card>
       {/* Both delivery endpoints are admin-gated, so a member has nothing to read here. */}
       {canManage && <DeliveryPanel wsId={workspace.id} />}
+      {canManage && <AgentRunsPanel wsId={workspace.id} />}
     </div>
   );
 }

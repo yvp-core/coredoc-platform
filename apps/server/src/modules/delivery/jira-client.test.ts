@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { JiraClient, JiraAuthError, JiraRateLimitError } from './jira-client.js';
+import { JiraApiError, JiraClient, JiraAuthError, JiraNotFoundError, JiraRateLimitError } from './jira-client.js';
 
 /** Build a mock `Response`-like object with a JSON body + header support. */
 function jsonResponse(body: unknown, init?: { status?: number; headers?: Record<string, string> }): Response {
@@ -110,6 +110,16 @@ describe('JiraClient.searchIssues', () => {
     expect(out).toEqual({ items: [{ id: 'later' }], nextPageToken: 'opaque-next' });
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body.nextPageToken).toBe('opaque-resume');
+  });
+
+  it('case 3c: expandChangelog false leaves changelog expansion out of the request', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ issues: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await makeClient().searchIssues('project = FOO', ['labels'], { expandChangelog: false });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body).not.toHaveProperty('expand');
   });
 });
 
@@ -428,5 +438,135 @@ describe('JiraClient tolerance', () => {
 
     expect(() => makeClient(baseUrl)).toThrow(/Jira baseUrl/);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('JiraClient reads for agent runs', () => {
+  it('getIssue GETs one issue with explicit fields, the description included', async () => {
+    const issue = { id: '10001', key: 'PROJ-1', fields: { summary: 'Export', description: { type: 'doc' } } };
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(issue));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(makeClient().getIssue('PROJ-1', ['summary', 'description'])).resolves.toEqual(issue);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://acme.atlassian.net/rest/api/3/issue/PROJ-1?fields=summary%2Cdescription',
+    );
+  });
+
+  it.each([
+    404, 400,
+  ])('maps %s to a permanent not-found error, since Jira hides missing permission that way', async (status) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse({ errorMessages: ['secret'] }, { status })));
+    const error = await makeClient()
+      .getIssue('PROJ-404', ['summary'])
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(JiraNotFoundError);
+    expect((error as Error).message).not.toContain('secret');
+  });
+
+  it('carries the Retry-After delay on a rate-limit error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(jsonResponse({}, { status: 429, headers: { 'retry-after': '7' } })),
+    );
+    const error = await makeClient()
+      .getIssue('PROJ-1', ['summary'])
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(JiraRateLimitError);
+    expect((error as JiraRateLimitError).retryAfterMs).toBe(7_000);
+  });
+
+  it('searches without changelog expansion when asked, leaving the importer default unchanged', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ issues: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await makeClient().searchIssues('parent = PROJ-1 ORDER BY rank', ['summary'], { expandChangelog: false });
+    await makeClient().searchIssues('project = PROJ', ['summary']);
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).not.toHaveProperty('expand');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string).expand).toBe('changelog');
+  });
+});
+
+describe('JiraClient writes for agent runs', () => {
+  const adf = { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }] };
+
+  it('adds a comment with an ADF body and returns the id from the 201 body', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ id: '10500', body: adf }, { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(makeClient().addComment('10001', adf)).resolves.toEqual({ id: '10500' });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://acme.atlassian.net/rest/api/3/issue/10001/comment');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ body: adf });
+  });
+
+  it('lists every page of an issue’s comments', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ startAt: 0, total: 3, comments: [{ id: '1' }, { id: '2' }] }))
+      .mockResolvedValueOnce(jsonResponse({ startAt: 2, total: 3, comments: [{ id: '3' }] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const listed = await makeClient().listComments('10001');
+    expect(listed).toMatchObject({ complete: true });
+    expect(listed.comments.map((comment) => comment.id)).toEqual(['1', '2', '3']);
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      'https://acme.atlassian.net/rest/api/3/issue/10001/comment?startAt=2&maxResults=100&orderBy=created',
+    );
+  });
+
+  it('stops a long discussion at the page cap and says the listing is incomplete', async () => {
+    const total = 2_150;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const startAt = Number(new URL(url).searchParams.get('startAt'));
+        const ids = Array.from({ length: Math.min(100, total - startAt) }, (_, index) => ({
+          id: String(startAt + index),
+        }));
+        return jsonResponse({ startAt, total, comments: ids });
+      }),
+    );
+
+    const listed = await makeClient().listComments('10001');
+    expect(listed.complete).toBe(false);
+    expect(listed.comments).toHaveLength(2_000);
+    expect(listed.comments.at(-1)?.id).toBe('1999');
+  });
+
+  it('lists transitions with their target status and screen flag', async () => {
+    const transitions = [{ id: '31', name: 'Done', hasScreen: false, to: { id: '10002', name: 'Done' } }];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse({ transitions })));
+    await expect(makeClient().listTransitions('10001')).resolves.toEqual(transitions);
+  });
+
+  it('transitions an issue, reading the 204 answer without parsing a body', async () => {
+    const noContent = {
+      status: 204,
+      ok: true,
+      headers: { get: () => null },
+      json: async () => {
+        throw new SyntaxError('Unexpected end of JSON input');
+      },
+      text: async () => '',
+    } as unknown as Response;
+    const fetchMock = vi.fn().mockResolvedValueOnce(noContent);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(makeClient().transitionIssue('10001', '31')).resolves.toBeUndefined();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://acme.atlassian.net/rest/api/3/issue/10001/transitions');
+    expect(JSON.parse(init.body as string)).toEqual({ transition: { id: '31' } });
+  });
+
+  it.each([409, 413, 422, 503])('a %s answer carries its status for the caller to classify', async (status) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse({ errorMessages: ['secret'] }, { status })));
+    const error = await makeClient()
+      .transitionIssue('10001', '31')
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(JiraApiError);
+    expect((error as JiraApiError).status).toBe(status);
+    expect((error as Error).message).not.toContain('secret');
   });
 });

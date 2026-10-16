@@ -404,7 +404,7 @@ describe('WebAuthController', () => {
     it('returns the current user + their workspace memberships', async () => {
       const user: AuthUser = { id: 'user_1', email: 'a@b.com' };
       controlPlane.listWorkspacesForUser.mockResolvedValue([
-        { id: 'ws_1', name: 'Acme', slug: 'acme', role: 'admin', intentEnabled: true },
+        { id: 'ws_1', name: 'Acme', slug: 'acme', role: 'admin', intentEnabled: true, agentRunsEnabled: true },
       ]);
 
       const result = await controller.me(user);
@@ -413,7 +413,9 @@ describe('WebAuthController', () => {
       expect(controlPlane.listWorkspacesForUser).toHaveBeenCalledWith('user_1');
       expect(result).toEqual({
         user,
-        workspaces: [{ id: 'ws_1', name: 'Acme', slug: 'acme', role: 'admin', intentEnabled: true }],
+        workspaces: [
+          { id: 'ws_1', name: 'Acme', slug: 'acme', role: 'admin', intentEnabled: true, agentRunsEnabled: true },
+        ],
       });
     });
 
@@ -433,9 +435,9 @@ describe('WebAuthController', () => {
       const result = await rollout.me({ id: 'user_1', email: 'a@b.com' });
 
       expect(result.workspaces).toEqual([
-        { id: 'ws_pm', name: 'Acme', slug: 'acme', role: 'product', intentEnabled: true },
-        { id: 'ws_dev', name: 'Beta', slug: 'beta', role: 'member', intentEnabled: false },
-        { id: 'ws_off', name: 'Gamma', slug: 'gamma', role: 'owner', intentEnabled: false },
+        expect.objectContaining({ id: 'ws_pm', intentEnabled: true }),
+        expect.objectContaining({ id: 'ws_dev', intentEnabled: false }),
+        expect.objectContaining({ id: 'ws_off', intentEnabled: false }),
       ]);
     });
 

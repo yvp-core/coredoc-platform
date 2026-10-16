@@ -127,7 +127,6 @@ export enum IntentErrorCode {
   SourceNotFound = 'source_not_found',
   /** No relation joins the two named nodes. */
   NodeRelationNotFound = 'node_relation_not_found',
-  /** The named comment does not exist in this workspace. */
   CommentNotFound = 'comment_not_found',
   /** A reply names a comment that is itself a reply; threads are one level deep. */
   CommentReplyToReply = 'comment_reply_to_reply',
