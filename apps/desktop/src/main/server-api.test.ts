@@ -212,45 +212,6 @@ describe('invitation wrappers', () => {
   });
 });
 
-describe('feedback read wrappers', () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    getValidTokensMock.mockResolvedValue({ accessToken: 'jwt-abc' });
-    fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('getFeedbackRoadmap GETs the mcp-feedback/roadmap path with `days`', async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ feedbackCount: 0, topIssues: [], topMissingTools: [], ratingTrend: [] }),
-    });
-    const { getFeedbackRoadmap } = await import('./server-api.js');
-
-    await getFeedbackRoadmap('ws-1', 30);
-
-    expect(fetchMock.mock.calls[0][0]).toBe('https://api.example/api/v1/workspaces/ws-1/mcp-feedback/roadmap?days=30');
-  });
-
-  it('getFeedbackCorrelation GETs the mcp-feedback/correlation path with `days`', async () => {
-    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => [] });
-    const { getFeedbackCorrelation } = await import('./server-api.js');
-
-    await getFeedbackCorrelation('ws-1', 7);
-
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://api.example/api/v1/workspaces/ws-1/mcp-feedback/correlation?days=7',
-    );
-  });
-});
-
 describe('intent context read wire shape', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 

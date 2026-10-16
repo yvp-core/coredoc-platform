@@ -13,9 +13,6 @@
 // CLI:
 //   tsx harness/rejudge-cases.ts --from <runDir> --judge <claude:<model>|codex:<model>>
 //        [--case=a,b] [--arm=withMcp] [--concurrency=6] [--dry]
-//
-// Sibling of harness/rejudge.ts, which re-judges the *planning* eval — a
-// different artifact layout (records.jsonl + specs/) and a pairwise judge.
 import {
   existsSync,
   mkdirSync,

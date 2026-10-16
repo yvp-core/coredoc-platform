@@ -20,7 +20,7 @@
  * Pool `forks` + `--no-file-parallelism` (see `scripts/test-postgres-integration.sh`):
  * the Ladybug native module.
  */
-import 'dotenv/config';
+import '../../config/load-env.js';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

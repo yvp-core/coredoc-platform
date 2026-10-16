@@ -18,7 +18,6 @@ const savedEnvironment = vi.hoisted(() => {
 });
 import { Test } from '@nestjs/testing';
 import { ApiAppModule, AppModule, WorkerAppModule } from './app.module.js';
-import { APP_CONFIG, type AppConfig } from './config/app-config.js';
 import { PrismaService } from './database/prisma.service.js';
 import { McpModule } from './mcp/mcp.module.js';
 import { CaptureModule, CaptureWorkerScheduleModule } from './modules/capture/capture.module.js';
@@ -80,9 +79,6 @@ describe('process-role application module isolation', () => {
       .compile();
 
     expect(() => moduleRef.get(PushWorkerService, { strict: false })).toThrow();
-    // The config boot gate ran for THIS root's role while its imports array was
-    // built, and published the validated result.
-    expect(moduleRef.get<AppConfig>(APP_CONFIG, { strict: false }).role).toBe('api');
     await moduleRef.close();
   });
 
@@ -106,7 +102,6 @@ describe('process-role application module isolation', () => {
     );
     // Compiling at all is the proof that a worker process is not held to the
     // api role's required variables (none of them is set for this role).
-    expect(moduleRef.get<AppConfig>(APP_CONFIG, { strict: false }).role).toBe('worker');
     await moduleRef.close();
   });
 

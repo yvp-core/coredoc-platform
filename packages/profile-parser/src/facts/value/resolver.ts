@@ -108,9 +108,9 @@ export function buildRepoValueResolver(
 
 /** Assemble a RepoValueResolver from all parsed structural files (their valueBindings + imports + reExports). */
 export function resolverFromStructuralFiles(files: StructuralFile[]): RepoValueResolver {
-  const bindings = files.flatMap((f) => f.valueBindings ?? []);
+  const bindings = files.flatMap((f) => f.valueBindings);
   const imports = new Map<string, StructuralImport[]>(files.map((f) => [f.path, f.imports]));
-  const reExports = new Map<string, ReExport[]>(files.map((f) => [f.path, f.reExports ?? []]));
+  const reExports = new Map<string, ReExport[]>(files.map((f) => [f.path, f.reExports]));
   return buildRepoValueResolver(bindings, imports, reExports);
 }
 

@@ -1,5 +1,5 @@
 import { AddFolder, CheckCircle, ClockCircle, DangerTriangle, ShareCircle } from '@solar-icons/react';
-import { format } from 'date-fns';
+import { formatDateTime } from '../../../../lib/utils';
 import { Alert, AlertTitle } from '../../../../components/ui/alert';
 import { Badge } from '../../../../components/ui/badge';
 import { Button } from '../../../../components/ui/button';
@@ -111,7 +111,7 @@ export function WorkspaceGraphPanel({
             {latestPush && (
               <span className="flex items-center gap-1 text-xs font-medium leading-4 text-content-secondary">
                 <ClockCircle className="size-4 shrink-0" />
-                {format(new Date(latestPush), 'dd.MM.yyyy / h:mm a')}
+                {formatDateTime(new Date(latestPush))}
               </span>
             )}
           </div>

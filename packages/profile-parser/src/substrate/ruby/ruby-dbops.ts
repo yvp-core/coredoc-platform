@@ -33,6 +33,7 @@ import {
   rubyMethodId,
 } from './ruby-cst.js';
 import { classify } from './ruby-inflect.js';
+import { makeFunctionNode } from '../file-nodes.js';
 
 export interface RubyDbOpConfig {
   /** Canonical id generator (seeded for this repo) — mints performer/db-op/function ids. */
@@ -149,30 +150,6 @@ function parseSql(sql: string): { operation: string; table: string } | undefined
   const tableMatch = /\b(?:FROM|INTO|UPDATE)\s+["'`]?([A-Za-z_][\w.]*)["'`]?/i.exec(sql);
   const table = tableMatch ? tableMatch[1] : '';
   return { operation, table };
-}
-
-/**
- * A synthesized minimal-valid `FunctionNode` for an enclosing `def` — the performer of
- * every db-op inside that def. `kind: 'method'` (defs in classes/modules are methods).
- */
-function makeFunctionNode(
-  idGen: StableIdGenerator,
-  id: string,
-  method: string,
-  filePath: string,
-  line: number,
-): FunctionNode {
-  return {
-    id,
-    versionedId: idGen.versionedId(id, `${method}@${filePath}:${line}`),
-    name: method,
-    kind: 'method',
-    fileId: idGen.fileId(filePath),
-    location: { filePath, startLine: line, endLine: line },
-    isAsync: false,
-    isGenerator: false,
-    parameters: [],
-  };
 }
 
 /**
@@ -298,7 +275,7 @@ export async function extractRubyDbOps(
         }
 
         if (!functions.has(performerId)) {
-          functions.set(performerId, makeFunctionNode(idGen, performerId, defName, relPath, defLine));
+          functions.set(performerId, makeFunctionNode(idGen, performerId, defName, 'method', relPath, defLine));
         }
       }
     });

@@ -391,7 +391,7 @@ index. Workspace-package topology stays engine-internal; it never drives target 
   offending targets. Aliases such as `ts` and `js` count as the same provider.
 - `parseMultiTarget` (`src/multi/orchestrate.ts`) runs every target's `provider.parse` in
   parallel, sharing one `repoRoot`/`repoName`/`repoKey` so all targets' IDs land in the same
-  `repoHash` space; each target gets its own incremental-cache subdirectory.
+  `repoHash` space; each target gets its own SCIP output subdirectory.
 - `mergeParsedRepos` (`src/multi/merge.ts`) combines the per-target `ParsedRepo`s into one
   graph, guarding against scope overlap (two targets claiming the same file throws, naming
   both) and attributing `Package.language` from each package's dominant merged-file language.
@@ -462,8 +462,8 @@ substrate facts, runs the engine, and writes the `ParsedRepo`.
 ### Directly (development / scoring)
 
 ```bash
-# run a profile module over a repo:  tsx src/substrate/run.ts <path-to-profile> <repoPath> <outJson> [goldenJson]
-npx tsx packages/profile-parser/src/substrate/run.ts \
+# run a profile module over a repo:  tsx src/run.ts <path-to-profile> <repoPath> <outJson>
+npx tsx packages/profile-parser/src/run.ts \
   coredoc-parsers/<project>/<repo>/profile.ts /path/to/repo /tmp/out.json
 
 # coverage scorecard (by path to a profile module):
@@ -528,9 +528,8 @@ src/
     interface.ts               Substrate (backend-neutral fact interface)
     tree-sitter-scip.ts        Substrate impl over @coredoc/code-graph (tree-sitter + SCIP)
     engine.ts                  SubstrateProfileEngine (the engine)
-    run.ts                     runProfile / runSubstrate entry points
+    run.ts                     runProfile entry point
     glob.ts                    include/exclude scoping
-    engine.test.ts             exact-count regression on real repos
     run.test.ts                two-ID (repoKey) stability regression
 ```
 

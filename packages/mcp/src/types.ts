@@ -11,9 +11,14 @@ import type {
   EntityIndex,
   FunctionNode,
   EntrypointType,
-  Visibility,
   DbOperationType,
 } from '@coredoc/core/types';
+import type {
+  CallerInfo as DbCallerInfo,
+  EntityInfo as DbEntityInfo,
+  EntrypointInfo as DbEntrypointInfo,
+  FunctionInfo as DbFunctionInfo,
+} from '@coredoc/db/types';
 
 /** The declaration convention a synthesized node came from (see {@link FunctionInfo.synthesized}). */
 type SynthesizedOrigin = FunctionNode['synthesized'];
@@ -259,69 +264,8 @@ export interface McpResponse<T> {
 }
 
 // =============================================================================
-// Tool Input Types - Impact Analysis
+// Tool Input Filter Types
 // =============================================================================
-
-/**
- * Target type for impact analysis
- */
-export type ImpactTargetType = 'function' | 'class' | 'interface';
-
-/**
- * Input for analyze_change_impact tool
- */
-export interface AnalyzeChangeImpactInput {
-  /** Current repo/workspace path */
-  scope: string;
-  /** Function name, class name, or file path */
-  target: string;
-  /** Target type (auto-detected if not provided) */
-  targetType?: ImpactTargetType;
-  /** How many levels deep to traverse (default: 3) */
-  depth?: number;
-  /** Output format (default: summary) */
-  format?: OutputFormat;
-  /** Detail level for response data (default: full) */
-  detailLevel?: DetailLevel;
-}
-
-/**
- * Input for get_callers tool
- */
-export interface GetCallersInput {
-  /** Current repo/workspace path */
-  scope: string;
-  /** Function name to find callers for */
-  functionName: string;
-  /** File path hint to disambiguate */
-  fileHint?: string;
-  /** Depth: 1 = direct only, N = transitive (default: 2) */
-  depth?: number;
-  /** Show which APIs trigger this (default: true) */
-  includeEntrypoints?: boolean;
-  /** Output format (default: summary) */
-  format?: OutputFormat;
-  /** Detail level for response data (default: full) */
-  detailLevel?: DetailLevel;
-}
-
-/**
- * Input for get_dependents tool
- */
-export interface GetDependentsInput {
-  /** Current repo/workspace path */
-  scope: string;
-  /** Name of the type to find dependents for */
-  name: string;
-  /** Type category */
-  type: 'class' | 'interface';
-  /** Include classes that extend/implement (default: true) */
-  includeExtensions?: boolean;
-  /** Output format (default: summary) */
-  format?: OutputFormat;
-  /** Detail level for response data (default: full) */
-  detailLevel?: DetailLevel;
-}
 
 /**
  * Database operation filter type
@@ -329,89 +273,9 @@ export interface GetDependentsInput {
 export type DbOperationFilter = DbOperationType | 'all';
 
 /**
- * Input for get_entity_consumers tool
- */
-export interface GetEntityConsumersInput {
-  /** Current repo/workspace path */
-  scope: string;
-  /** Entity name (e.g., "User", "Order") */
-  entityName: string;
-  /** Filter by operation type (default: all) */
-  operation?: DbOperationFilter;
-  /** Output format (default: summary) */
-  format?: OutputFormat;
-  /** Detail level for response data (default: full) */
-  detailLevel?: DetailLevel;
-}
-
-// =============================================================================
-// Tool Input Types - Understanding Code
-// =============================================================================
-
-/**
- * Input for explain_function tool
- */
-export interface ExplainFunctionInput {
-  /** Current repo/workspace path */
-  scope: string;
-  /** Function name to explain */
-  functionName: string;
-  /** File path hint to disambiguate */
-  fileHint?: string;
-  /** Include what this function calls (default: true) */
-  includeCallees?: boolean;
-  /** Include who calls this (default: false) */
-  includeCallers?: boolean;
-  /** Output format (default: summary) */
-  format?: OutputFormat;
-  /** Detail level for response data (default: full) */
-  detailLevel?: DetailLevel;
-}
-
-/**
  * Entrypoint type filter
  */
 export type EntrypointTypeFilter = EntrypointType | 'all';
-
-/**
- * Input for explain_entrypoint tool
- */
-export interface ExplainEntrypointInput {
-  /** Current repo/workspace path */
-  scope: string;
-  /** HTTP method (GET, POST, etc.) */
-  method?: string;
-  /** URL path pattern */
-  path?: string;
-  /** Entrypoint type filter */
-  entrypointType?: EntrypointTypeFilter;
-  /** Output format (default: summary) */
-  format?: OutputFormat;
-  /** Detail level for response data (default: full) */
-  detailLevel?: DetailLevel;
-}
-
-/**
- * Input for get_data_flow tool
- */
-export interface GetDataFlowInput {
-  /** Current repo/workspace path */
-  scope: string;
-  /** Start from API endpoint */
-  entrypoint?: string;
-  /** HTTP method to disambiguate (e.g., POST, GET) */
-  method?: string;
-  /** Or start from specific function */
-  function?: string;
-  /** Output format (default: summary) */
-  format?: OutputFormat;
-  /** Detail level for response data (default: full) */
-  detailLevel?: DetailLevel;
-}
-
-// =============================================================================
-// Tool Input Types - Discovery
-// =============================================================================
 
 /**
  * Code element type for search
@@ -430,86 +294,6 @@ export type CodeElementType =
   | 'variable'
   | 'state_store'
   | 'all';
-
-/**
- * Input for find_code tool
- */
-export interface FindCodeInput {
-  /** Current repo/workspace path */
-  scope: string;
-  /** Name or pattern to search */
-  query: string;
-  /** Type filter (default: all) */
-  type?: CodeElementType;
-  /** Result limit (default: 20) */
-  limit?: number;
-  /** Output format (default: summary) */
-  format?: OutputFormat;
-  /** Detail level for response data (default: full) */
-  detailLevel?: DetailLevel;
-}
-
-/**
- * Input for list_entrypoints tool
- */
-export interface ListEntrypointsInput {
-  /** Current repo/workspace path */
-  scope: string;
-  /** Entrypoint type filter (default: all) */
-  type?: EntrypointTypeFilter;
-  /** Filter by path pattern */
-  pathFilter?: string;
-  /** Messaging system filter; reserved `unknown` selects legacy systemless rows. */
-  system?: string;
-  /** Output format (default: summary) */
-  format?: OutputFormat;
-  /** Detail level for response data (default: full) */
-  detailLevel?: DetailLevel;
-}
-
-/**
- * Input for get_repo_overview tool
- */
-export interface GetRepoOverviewInput {
-  /** Current repo/workspace path */
-  scope: string;
-  /** Output format (default: summary) */
-  format?: OutputFormat;
-}
-
-// =============================================================================
-// Tool Input Types - Cross-Repo Analysis
-// =============================================================================
-
-/**
- * Input for trace_cross_repo_call tool
- */
-export interface TraceCrossRepoCallInput {
-  /** Current repo (caller side) */
-  scope: string;
-  /** Target repo name (optional, auto-detect) */
-  targetService?: string;
-  /** Call pattern (e.g., "POST /api/users" or an SDK method name). Use `destination` for messaging. */
-  callPattern?: string;
-  /** Case-sensitive messaging destination. */
-  destination?: string;
-  /** Messaging system filter. `unknown` selects systemless legacy rows. */
-  system?: string;
-  /** Output format (default: summary) */
-  format?: OutputFormat;
-  /** Detail level for response data (default: full) */
-  detailLevel?: DetailLevel;
-}
-
-/**
- * Input for get_service_dependencies tool
- */
-export interface GetServiceDependenciesInput {
-  /** Current repo/workspace path */
-  scope: string;
-  /** Output format (default: summary) */
-  format?: OutputFormat;
-}
 
 // =============================================================================
 // Tool Output Types
@@ -697,106 +481,53 @@ export interface EntrypointBasic {
 /**
  * Function info with optional summary
  */
-export interface FunctionInfo extends CodeElementInfo {
+export interface FunctionInfo
+  extends CodeElementInfo,
+    Pick<DbFunctionInfo, 'kind' | 'className' | 'visibility' | 'synthesized'> {
   type: 'function';
-  /** Kind of function */
-  kind: 'function' | 'method';
-  /** Parent class name (for methods) */
-  className?: string;
-  /** AI-generated summary */
-  summary?: string;
-  /** AI-generated purpose */
-  purpose?: string;
-  /** Visibility (for methods) */
-  visibility?: Visibility;
   /** Is async function */
   isAsync?: boolean;
-  /**
-   * Present when the substrate MINTED this node from a declaration convention rather than a
-   * function body (a Rails `has_many` mints a reader method no `def` spells out); names the
-   * convention. Absent on declared code. A structured trust flag — an agent that reads such a
-   * row as a definition will look for source that does not exist — so the text formatters
-   * render a marker from it and it survives the basic detail level, never folded into `name`.
-   */
-  synthesized?: SynthesizedOrigin;
 }
 
 /**
  * Caller information with distance
  */
-export interface CallerInfo extends FunctionInfo {
-  /** Distance from target (1 = direct caller) */
-  distance: number;
+export interface CallerInfo extends FunctionInfo, Pick<DbCallerInfo, 'distance' | 'callSiteLine'> {
   /** Call site file path */
   callSiteFile?: string;
-  /** Call site line number */
-  callSiteLine?: number;
-}
-
-/**
- * Result type for get_callers including reaching entrypoints
- */
-export interface GetCallersResult {
-  /** Functions that call the target */
-  callers: CallerInfo[];
-  /** Entrypoints that reach the target function */
-  reachingEntrypoints: EntrypointInfo[];
 }
 
 /**
  * Entrypoint information
  */
-export interface EntrypointInfo {
-  /** Entrypoint type */
-  type: EntrypointType;
-  /** HTTP method (if http) */
-  method?: string;
-  /** Route path (if http) */
-  path?: string;
-  /** Full path including base */
-  fullPath?: string;
-  /** GraphQL field name */
-  fieldName?: string;
-  /** GraphQL operation type */
-  operationType?: 'query' | 'mutation' | 'subscription';
-  /** Topic/queue name */
-  topic?: string;
-  /** Runtime topic string when `topic` is a source-level token. */
-  topicValue?: string;
-  /** Queue system or event emitter. */
-  system?: string;
-  /** Destination token as written in source. */
-  destination?: string;
-  /** Runtime destination when statically resolved. */
-  destinationValue?: string;
-  /** Cron schedule */
-  schedule?: string;
-  /** Handler function ID */
-  handlerId: string;
+export interface EntrypointInfo
+  extends Pick<
+    DbEntrypointInfo,
+    | 'type'
+    | 'method'
+    | 'path'
+    | 'fullPath'
+    | 'fieldName'
+    | 'operationType'
+    | 'topic'
+    | 'topicValue'
+    | 'system'
+    | 'destination'
+    | 'destinationValue'
+    | 'schedule'
+    | 'handlerId'
+    | 'eventName'
+    | 'className'
+    | 'trigger'
+    | 'command'
+    | 'filePath'
+    | 'startLine'
+    | 'id'
+    | 'summary'
+    | 'purpose'
+  > {
   /** Handler function name */
   handlerName: string;
-  /** Event name (for event/websocket entrypoints) */
-  eventName?: string;
-  /** Mobile entrypoint address: the component class simple name. */
-  className?: string;
-  /**
-   * Mobile entrypoint taxonomy (launcher, deep-link, push, broadcast, …). A
-   * label, deliberately NOT an address token: `pathPattern: 'push'` must not
-   * match every push handler in the repo.
-   */
-  trigger?: string;
-  /** CLI command (for cli entrypoints) */
-  command?: string;
-  /** File path */
-  filePath: string;
-  /** Line number */
-  startLine: number;
-  /** Stable ID */
-  id: string;
-  /** AI-generated summary from handler function */
-  summary?: string;
-  /** AI-generated purpose from handler function */
-  purpose?: string;
   /** Owning repository name (multi-repo scope only). See CodeElementInfo.repo. */
   repo?: string;
 }
@@ -804,21 +535,8 @@ export interface EntrypointInfo {
 /**
  * Entity (database model) information
  */
-export interface EntityInfo {
-  /** Entity name */
-  name: string;
-  /** Table name */
-  tableName: string;
-  /** ORM type */
-  ormType: string;
-  /** Schema name */
-  schema?: string;
-  /** File path */
-  filePath: string;
-  /** Line number */
-  startLine: number;
-  /** Stable ID */
-  id: string;
+export interface EntityInfo
+  extends Pick<DbEntityInfo, 'name' | 'tableName' | 'ormType' | 'schema' | 'filePath' | 'startLine' | 'id'> {
   /** Owning repository name (multi-repo scope only). See CodeElementInfo.repo. */
   repo?: string;
 }
@@ -1076,36 +794,6 @@ export interface SemanticSearchResult {
   summary?: string;
   /** Owning repository name (multi-repo scope only). See CodeElementInfo.repo. */
   repo?: string;
-}
-
-// =============================================================================
-// Tool Definition Type (for MCP protocol)
-// =============================================================================
-
-/**
- * MCP tool definition
- */
-export interface McpToolDefinition {
-  /** Tool name */
-  name: string;
-  /** Tool description */
-  description: string;
-  /** JSON Schema for input parameters */
-  inputSchema: Record<string, unknown>;
-}
-
-/**
- * Result of tool execution
- */
-export interface ToolExecutionResult<T> {
-  /** Whether execution succeeded */
-  success: boolean;
-  /** Result data if successful */
-  data?: T;
-  /** Error message if failed */
-  error?: string;
-  /** Error code if failed */
-  errorCode?: string;
 }
 
 // =============================================================================

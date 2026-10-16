@@ -16,8 +16,8 @@ import { openDemoProject } from './fixtures/page-helpers.js';
  *  - `UploadProgressDialog` / the later `ConnectTeamMcpWizard` steps (invite,
  *    mcp-config, ci-cd) require actually starting a cloud upload — out of
  *    reach without hitting the fixture server's unstubbed routes.
- *  - `DocsPanel` / `DocsListView` / `TelemetryConsentCard` need seeded docs /
- *    telemetry-consent state no profile currently carries.
+ *  - `TelemetryConsentCard` needs seeded telemetry-consent state no profile
+ *    currently carries.
  *  - `InvitedUserOnboardingWizard` needs a cloud-invite fixture
  *    (member-side onboarding), not covered by any of `empty` /
  *    `local-project` / `cloud-linked`.

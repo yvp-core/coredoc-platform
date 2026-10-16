@@ -18,6 +18,7 @@ import './managed-config-boot.js';
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electron';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { registerConfigHandlers } from './config-manager.js';
 import { closeProjectDatabases } from '@coredoc/db';
@@ -52,7 +53,6 @@ import { isE2EMode } from './e2e-mode.js';
 import { registerLinuxAppImageProtocol } from './linux-protocol.js';
 import { resolveRendererLoadTarget } from './renderer-load-target.js';
 import { resolveMacGit } from './git-runtime.js';
-import { config as dotenvConfig } from 'dotenv';
 import {
   initProjectRoot,
   getEnvPath,
@@ -261,7 +261,7 @@ function registerHandlers(window: BrowserWindow) {
   if (handlersRegistered) return;
 
   safeRegister('config', () => registerConfigHandlers(ipcMain));
-  safeRegister('state', () => registerStateHandlers(ipcMain, window));
+  safeRegister('state', () => registerStateHandlers(ipcMain));
   safeRegister('command', () => registerCommandHandlers(ipcMain, window));
   safeRegister('mcp', () => registerMcpHandlers(ipcMain, window));
   safeRegister('chat', () => registerChatHandlers(ipcMain, window));
@@ -307,12 +307,11 @@ app
 
     try {
       // Load general workspace configuration; harness launchers separately isolate credentials per selected provider.
+      // Like dotenv, loadEnvFile never overrides variables already set.
       const envPath = getEnvPath();
-      if (envPath) {
-        dotenvConfig({ path: envPath });
-      }
+      if (envPath && existsSync(envPath)) process.loadEnvFile(envPath);
     } catch (error) {
-      console.error('[Startup] dotenv config failed:', error);
+      console.error('[Startup] .env load failed:', error);
     }
 
     // Ladybug is the local default: it is cypher-capable (the explorer's "Ask the

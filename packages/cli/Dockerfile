@@ -48,6 +48,7 @@ COPY packages/mcp/ ./packages/mcp/
 COPY packages/profile-parser/ ./packages/profile-parser/
 COPY packages/cli/ ./packages/cli/
 COPY tsconfig.json ./
+COPY scripts/gen-build-env.mjs ./scripts/
 
 RUN pnpm --filter @coredoc/core build && \
     pnpm --filter @coredoc/db build && \
@@ -82,9 +83,8 @@ ENV NODE_ENV=production
 ENV COREDOC_RUNTIME_MODULES=/app/packages/cli/node_modules
 
 # Prod-only install — drops the dev toolchain (biome, turbo, vitest, @types, …) that a
-# wholesale node_modules copy would otherwise ship. --ignore-scripts skips the root
-# husky `prepare` (husky is a devDep, absent here) and the optional, unused better-sqlite3
-# native build; @libsql/sharp ship prebuilt binaries that need no install script.
+# wholesale node_modules copy would otherwise ship. --ignore-scripts skips the
+# optional, unused better-sqlite3 native build; @libsql/sharp ship prebuilt binaries that need no install script.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/core/package.json ./packages/core/
 COPY packages/db/package.json ./packages/db/

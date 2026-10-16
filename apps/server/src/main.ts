@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 // Load .env before any module is imported: OAuthModule reads OAuth/GitHub env
 // vars at module-definition time (McpAuthModule.forRoot), which runs before
-// ConfigModule initializes. dotenv does not override real environment vars.
-import 'dotenv/config';
+// any provider exists. Real environment variables win over .env.
+import './config/load-env.js';
 
 import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
@@ -18,7 +18,7 @@ import { API_PREFIX } from './libs/api-prefix.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, extname, join, resolve } from 'node:path';
 import { parseProcessRole } from './process-role.js';
-import { AppConfigError, assertAppConfigValid, miscConfigFromEnv } from './config/app-config.js';
+import { AppConfigError, assertAppConfigValid, configFromEnv } from './config/app-config.js';
 import { assertEncryptionKeyValid } from './database/encryption.js';
 import { SERVER_VERSION } from './modules/meta/server-version.js';
 import { versionHeaderMiddleware } from './modules/meta/version-header.middleware.js';
@@ -26,7 +26,7 @@ import { versionHeaderMiddleware } from './modules/meta/version-header.middlewar
 type NestBootstrapFactory = Pick<typeof NestFactory, 'create' | 'createApplicationContext'>;
 
 export async function bootstrap(
-  rawRole: string | undefined = miscConfigFromEnv().processRole,
+  rawRole: string | undefined = configFromEnv().misc.processRole,
   factory: NestBootstrapFactory = NestFactory,
 ): Promise<void> {
   const role = parseProcessRole(rawRole);
@@ -157,7 +157,7 @@ export async function bootstrap(
   // would still serve assets off the relative path (resolved against
   // process.cwd() implicitly), but res.sendFile requires an absolute path
   // and throws "path must be absolute" on every SPA-fallback request.
-  const { port: configuredPort, webDistPath } = miscConfigFromEnv();
+  const { port: configuredPort, webDistPath } = configFromEnv().misc;
   const WEB_DIST = webDistPath ? resolve(webDistPath) : join(moduleDir, '../../web/dist');
   registerSpaServing(app, WEB_DIST, new Logger('SpaServing'));
 

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { type RustCrate, parseCargoManifest } from './rust-crates.js';
-import { type RustFile, parseRust } from './rust-cst.js';
+import { type RustFile } from './rust-cst.js';
 import { buildModuleIndex, buildUseTable, moduleDir, resolveUseTarget } from './rust-imports.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 /** Build a RustFile (relPath + source + parsed root) the way the parser does. */
 async function rf(relPath: string, source: string): Promise<RustFile> {
-  return { relPath, source, root: await parseRust(source) };
+  return { relPath, source, root: await parseSource('rust', source) };
 }
 
 /** A single-crate workspace descriptor. */

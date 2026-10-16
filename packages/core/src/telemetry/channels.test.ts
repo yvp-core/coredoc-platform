@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventName } from './events.js';
-import { AnonChannel, CloudChannel, routeChannel } from './channels.js';
+import { AnonChannel, CloudChannel } from './channels.js';
 
 // Mock posthog-node so we can assert whether the AnonChannel ever reaches the
 // lazy `await import('posthog-node')` — the constructor spy only fires if the
@@ -50,16 +50,6 @@ vi.mock('posthog-node', () => ({
     }
   },
 }));
-
-describe('routeChannel', () => {
-  it('routes EventName.AgentRun to both channels', () => {
-    expect(routeChannel(EventName.AgentRun)).toBe('both');
-  });
-
-  it('routes EventName.ParseCompleted to anon only', () => {
-    expect(routeChannel(EventName.ParseCompleted)).toBe('anon');
-  });
-});
 
 describe('AnonChannel', () => {
   afterEach(() => {

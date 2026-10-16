@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import '../../config/load-env.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';

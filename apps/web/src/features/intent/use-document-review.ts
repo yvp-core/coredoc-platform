@@ -15,7 +15,7 @@ import {
   intentReviewQueueQueryOptions,
   submitIntentReview,
 } from '@/api/queries/intent';
-import { IntentWriteForm } from './intent-attempt-keys.js';
+import { IntentWriteForm } from '@coredoc/core/browser/intent-attempt-keys';
 import { intentDocumentProposals, type IntentTreeSelection } from './intent-panel-state.js';
 import { messageOf } from './intent-presentation.js';
 import {
@@ -35,7 +35,7 @@ import {
   type IntentReviewDecisionResult,
 } from './types.js';
 
-export interface DocumentReviewInput {
+interface DocumentReviewInput {
   workspaceId: string;
   selection: IntentTreeSelection;
   selectedItemId: string | null;

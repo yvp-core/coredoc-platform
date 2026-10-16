@@ -7,7 +7,7 @@
 
 import type { WorkspaceUsageAnalytics } from '../../../../shared/ipc-types.js';
 import { KpiCard } from '../KpiCard';
-import { formatNumber, formatUsd } from '../observability-format';
+import { formatNumber, formatUsd } from '@coredoc/core/browser/format';
 import {
   type DeltaDirection,
   type DeltaPresentation,

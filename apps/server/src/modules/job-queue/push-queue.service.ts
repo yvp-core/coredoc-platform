@@ -1,6 +1,7 @@
 import { ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
-import { STORAGE_CONFIG, type StorageConfig, storageConfigFromEnv } from '../../config/app-config.js';
+import { STORAGE_CONFIG, type StorageConfig, configFromEnv } from '../../config/app-config.js';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { PrismaService } from '../../database/prisma.service.js';
 import { Prisma, type PushJobStatus } from '../../generated/prisma/client.js';
 import type { PushPayload, ResolvePayload, ResolveTargetPayload } from '../../libs/pipeline/job-payload.types.js';
@@ -15,24 +16,6 @@ export interface WaitForTerminalOptions {
   timeoutMs?: number;
   pollIntervalMs?: number;
   signal?: AbortSignal;
-}
-
-function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  if (milliseconds <= 0) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (callback: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', abort);
-      callback();
-    };
-    const timer = setTimeout(() => finish(resolve), milliseconds);
-    const abort = () => finish(() => reject(signal?.reason ?? new Error('Job wait aborted')));
-    if (signal?.aborted) abort();
-    else signal?.addEventListener('abort', abort, { once: true });
-  });
 }
 
 function assertTerminalTimeoutMs(timeoutMs: number, source: string): number {
@@ -122,7 +105,7 @@ export class PushQueueService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Optional() @Inject(STORAGE_CONFIG) storage: StorageConfig = storageConfigFromEnv(),
+    @Optional() @Inject(STORAGE_CONFIG) storage: StorageConfig = configFromEnv().storage,
   ) {
     this.defaultTerminalTimeoutMs = configuredFileSnapshotSyncTimeoutMs(storage.fileSnapshotSyncTimeoutMs);
   }
@@ -289,7 +272,7 @@ export class PushQueueService {
       if (job.status === 'succeeded') return job;
       if (job.status === 'failed') throw new JobFailedException(jobId, job.result);
       if (Date.now() >= deadline) throw new JobStillRunningException(jobId);
-      await delay(Math.min(pollIntervalMs, Math.max(0, deadline - Date.now())), options.signal);
+      await sleep(Math.min(pollIntervalMs, Math.max(0, deadline - Date.now())), undefined, { signal: options.signal });
     }
   }
 }

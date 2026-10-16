@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { StableIdGenerator } from '@coredoc/core';
 import { type SwiftFile, parseDiContainer } from './swift-callgraph.js';
-import { parseSwift } from './swift-cst.js';
+
 import { extractSwiftEgress } from './swift-egress.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 async function mkFiles(entries: Array<[string, string]>): Promise<SwiftFile[]> {
-  return Promise.all(entries.map(async ([relPath, source]) => ({ relPath, source, root: await parseSwift(source) })));
+  return Promise.all(
+    entries.map(async ([relPath, source]) => ({ relPath, source, root: await parseSource('swift', source) })),
+  );
 }
 
 const API = `enum RailsApi: TargetType {

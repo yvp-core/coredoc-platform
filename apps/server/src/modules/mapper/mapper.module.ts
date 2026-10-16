@@ -20,10 +20,3 @@ export class MapperCoreModule {}
   controllers: [MapperController],
 })
 export class MapperApiModule {}
-
-/** Compatibility composition for repository-local consumers. */
-@Module({
-  imports: [MapperCoreModule, MapperApiModule],
-  exports: [MapperCoreModule],
-})
-export class MapperModule {}

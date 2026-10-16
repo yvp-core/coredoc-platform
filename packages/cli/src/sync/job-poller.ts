@@ -9,6 +9,7 @@
  * non-empty forever, hanging CI when `timeoutMs` is also unset.
  */
 
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { JobResponse, JobStatus } from './workspace-api.js';
 
 export interface PollOptions {
@@ -97,8 +98,4 @@ function collectFailed(snapshot: Map<string, JobResponse | null>): string[] {
     if (job?.status === 'failed') out.push(id);
   }
   return out;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

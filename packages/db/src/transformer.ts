@@ -59,6 +59,18 @@ function generateEdgeId(sourceId: string, targetId: string, type: string): strin
   return `${sourceId}:${type}:${targetId}`;
 }
 
+/** A parser-created edge; the id defaults to the `source:TYPE:target` form. */
+function parserEdge(
+  sourceId: string,
+  targetId: string,
+  type: EdgeType,
+  properties: Record<string, unknown> = {},
+  confidence = 1,
+  id = generateEdgeId(sourceId, targetId, type),
+): GraphEdge {
+  return { id, sourceId, targetId, type, confidence, createdBy: 'parser', properties };
+}
+
 // =============================================================================
 // Node Transformers
 // =============================================================================
@@ -614,77 +626,29 @@ function transformExternalCall(call: ExternalCallEdge, repoId: string): GraphNod
 // =============================================================================
 
 function createContainsPackageEdges(repoId: string, packages: Package[]): GraphEdge[] {
-  return packages.map((pkg) => ({
-    id: generateEdgeId(repoId, pkg.id, 'CONTAINS_PACKAGE'),
-    sourceId: repoId,
-    targetId: pkg.id,
-    type: EdgeType.ContainsPackage,
-    confidence: 1.0,
-    createdBy: 'parser' as const,
-    properties: {},
-  }));
+  return packages.map((pkg) => parserEdge(repoId, pkg.id, EdgeType.ContainsPackage));
 }
 
 function createContainsFileEdges(repoId: string, files: FileNode[]): GraphEdge[] {
-  return files.map((file) => ({
-    id: generateEdgeId(repoId, file.id, 'CONTAINS_FILE'),
-    sourceId: repoId,
-    targetId: file.id,
-    type: EdgeType.ContainsFile,
-    confidence: 1.0,
-    createdBy: 'parser' as const,
-    properties: {},
-  }));
+  return files.map((file) => parserEdge(repoId, file.id, EdgeType.ContainsFile));
 }
 
 function createContainsFunctionEdges(functions: FunctionNode[]): GraphEdge[] {
   return functions
     .filter((fn) => fn.kind === 'function')
-    .map((fn) => ({
-      id: generateEdgeId(fn.fileId, fn.id, 'CONTAINS_FUNCTION'),
-      sourceId: fn.fileId,
-      targetId: fn.id,
-      type: EdgeType.ContainsFunction,
-      confidence: 1.0,
-      createdBy: 'parser' as const,
-      properties: {},
-    }));
+    .map((fn) => parserEdge(fn.fileId, fn.id, EdgeType.ContainsFunction));
 }
 
 function createContainsClassEdges(classes: ClassNode[]): GraphEdge[] {
-  return classes.map((cls) => ({
-    id: generateEdgeId(cls.fileId, cls.id, 'CONTAINS_CLASS'),
-    sourceId: cls.fileId,
-    targetId: cls.id,
-    type: EdgeType.ContainsClass,
-    confidence: 1.0,
-    createdBy: 'parser' as const,
-    properties: {},
-  }));
+  return classes.map((cls) => parserEdge(cls.fileId, cls.id, EdgeType.ContainsClass));
 }
 
 function createContainsInterfaceEdges(interfaces: InterfaceNode[]): GraphEdge[] {
-  return interfaces.map((iface) => ({
-    id: generateEdgeId(iface.fileId, iface.id, 'CONTAINS_INTERFACE'),
-    sourceId: iface.fileId,
-    targetId: iface.id,
-    type: EdgeType.ContainsInterface,
-    confidence: 1.0,
-    createdBy: 'parser' as const,
-    properties: {},
-  }));
+  return interfaces.map((iface) => parserEdge(iface.fileId, iface.id, EdgeType.ContainsInterface));
 }
 
 function createContainsEntityEdges(entities: EntityNode[]): GraphEdge[] {
-  return entities.map((entity) => ({
-    id: generateEdgeId(entity.fileId, entity.id, 'CONTAINS_ENTITY'),
-    sourceId: entity.fileId,
-    targetId: entity.id,
-    type: EdgeType.ContainsEntity,
-    confidence: 1.0,
-    createdBy: 'parser' as const,
-    properties: {},
-  }));
+  return entities.map((entity) => parserEdge(entity.fileId, entity.id, EdgeType.ContainsEntity));
 }
 
 /**
@@ -722,15 +686,7 @@ function synthesizeEntityFileNodes(
   const nodes = [...byFileId.values()];
   return {
     nodes,
-    edges: nodes.map((file) => ({
-      id: generateEdgeId(repoId, file.id, 'CONTAINS_FILE'),
-      sourceId: repoId,
-      targetId: file.id,
-      type: EdgeType.ContainsFile,
-      confidence: 1.0,
-      createdBy: 'parser' as const,
-      properties: {},
-    })),
+    edges: nodes.map((file) => parserEdge(repoId, file.id, EdgeType.ContainsFile)),
   };
 }
 
@@ -740,77 +696,29 @@ function synthesizeEntityFileNodes(
 // impact-analysis queries that walk containment can't find them.
 
 function createContainsTypeAliasEdges(typeAliases: TypeAliasNode[]): GraphEdge[] {
-  return typeAliases.map((ta) => ({
-    id: generateEdgeId(ta.fileId, ta.id, 'CONTAINS_TYPE_ALIAS'),
-    sourceId: ta.fileId,
-    targetId: ta.id,
-    type: EdgeType.ContainsTypeAlias,
-    confidence: 1.0,
-    createdBy: 'parser' as const,
-    properties: {},
-  }));
+  return typeAliases.map((ta) => parserEdge(ta.fileId, ta.id, EdgeType.ContainsTypeAlias));
 }
 
 function createContainsEnumEdges(enums: EnumNode[]): GraphEdge[] {
-  return enums.map((en) => ({
-    id: generateEdgeId(en.fileId, en.id, 'CONTAINS_ENUM'),
-    sourceId: en.fileId,
-    targetId: en.id,
-    type: EdgeType.ContainsEnum,
-    confidence: 1.0,
-    createdBy: 'parser' as const,
-    properties: {},
-  }));
+  return enums.map((en) => parserEdge(en.fileId, en.id, EdgeType.ContainsEnum));
 }
 
 function createContainsVariableEdges(variables: VariableNode[]): GraphEdge[] {
-  return variables.map((v) => ({
-    id: generateEdgeId(v.fileId, v.id, 'CONTAINS_VARIABLE'),
-    sourceId: v.fileId,
-    targetId: v.id,
-    type: EdgeType.ContainsVariable,
-    confidence: 1.0,
-    createdBy: 'parser' as const,
-    properties: {},
-  }));
+  return variables.map((v) => parserEdge(v.fileId, v.id, EdgeType.ContainsVariable));
 }
 
 function createContainsComponentEdges(components: ComponentNode[]): GraphEdge[] {
-  return components.map((component) => ({
-    id: generateEdgeId(component.fileId, component.id, 'CONTAINS_COMPONENT'),
-    sourceId: component.fileId,
-    targetId: component.id,
-    type: EdgeType.ContainsComponent,
-    confidence: 1.0,
-    createdBy: 'parser' as const,
-    properties: {},
-  }));
+  return components.map((component) => parserEdge(component.fileId, component.id, EdgeType.ContainsComponent));
 }
 
 function createContainsRouteEdges(repoId: string, routes: RouteNode[]): GraphEdge[] {
-  return routes.map((route) => ({
-    id: generateEdgeId(repoId, route.id, 'CONTAINS_ROUTE'),
-    sourceId: repoId,
-    targetId: route.id,
-    type: EdgeType.ContainsRoute,
-    confidence: 1.0,
-    createdBy: 'parser' as const,
-    properties: {},
-  }));
+  return routes.map((route) => parserEdge(repoId, route.id, EdgeType.ContainsRoute));
 }
 
 function createRendersComponentEdges(routes: RouteNode[]): GraphEdge[] {
   return routes
     .filter((route) => route.componentId)
-    .map((route) => ({
-      id: generateEdgeId(route.id, route.componentId!, 'RENDERS_COMPONENT'),
-      sourceId: route.id,
-      targetId: route.componentId!,
-      type: EdgeType.RendersComponent,
-      confidence: 1.0,
-      createdBy: 'parser' as const,
-      properties: {},
-    }));
+    .map((route) => parserEdge(route.id, route.componentId!, EdgeType.RendersComponent));
 }
 
 function createUsesComponentEdges(components: ComponentNode[]): GraphEdge[] {
@@ -819,19 +727,13 @@ function createUsesComponentEdges(components: ComponentNode[]): GraphEdge[] {
     if (component.childComponents) {
       for (const usage of component.childComponents) {
         if (usage.componentId) {
-          edges.push({
-            id: generateEdgeId(component.id, usage.componentId, 'USES_COMPONENT'),
-            sourceId: component.id,
-            targetId: usage.componentId,
-            type: EdgeType.UsesComponent,
-            confidence: 1.0,
-            createdBy: 'parser' as const,
-            properties: {
+          edges.push(
+            parserEdge(component.id, usage.componentId, EdgeType.UsesComponent, {
               componentName: usage.componentName,
               filePath: usage.location.filePath,
               line: usage.location.startLine,
-            },
-          });
+            }),
+          );
         }
       }
     }
@@ -842,15 +744,7 @@ function createUsesComponentEdges(components: ComponentNode[]): GraphEdge[] {
 function createHasMethodEdges(functions: FunctionNode[]): GraphEdge[] {
   return functions
     .filter((fn) => fn.kind === 'method' && fn.classId)
-    .map((fn) => ({
-      id: generateEdgeId(fn.classId!, fn.id, 'HAS_METHOD'),
-      sourceId: fn.classId!,
-      targetId: fn.id,
-      type: EdgeType.HasMethod,
-      confidence: 1.0,
-      createdBy: 'parser' as const,
-      properties: {},
-    }));
+    .map((fn) => parserEdge(fn.classId!, fn.id, EdgeType.HasMethod));
 }
 
 /**
@@ -877,14 +771,11 @@ function createCallsEdges(calls: CallEdge[]): GraphEdge[] {
     .filter((call) => call.calleeId !== undefined)
     .map((call) => {
       const inferred = call.provenance !== undefined && INFERRED_CALL_PROVENANCES.has(call.provenance);
-      return {
-        id: call.id,
-        sourceId: call.callerId,
-        targetId: call.calleeId!,
-        type: EdgeType.Calls,
-        confidence: inferred ? INFERRED_CALL_CONFIDENCE : 1.0,
-        createdBy: 'parser' as const,
-        properties: {
+      return parserEdge(
+        call.callerId,
+        call.calleeId!,
+        EdgeType.Calls,
+        {
           edgeId: call.id,
           isAsync: call.isAsync,
           calleeExpression: call.calleeExpression,
@@ -899,7 +790,9 @@ function createCallsEdges(calls: CallEdge[]): GraphEdge[] {
           // the two confusable in the same package.
           ...(inferred ? { provenanceInferred: true } : {}),
         },
-      };
+        inferred ? INFERRED_CALL_CONFIDENCE : 1,
+        call.id,
+      );
     });
 }
 
@@ -976,34 +869,27 @@ function createUnresolvedCalls(calls: CallEdge[]): UnresolvedCallRecord[] {
 function createImportsEdges(imports: ImportEdge[]): GraphEdge[] {
   return imports
     .filter((imp) => imp.targetFileId !== undefined)
-    .map((imp) => ({
-      id: imp.id,
-      sourceId: imp.sourceFileId,
-      targetId: imp.targetFileId!,
-      type: EdgeType.Imports,
-      confidence: 1.0,
-      createdBy: 'parser' as const,
-      properties: {
-        edgeId: imp.id,
-        moduleSpecifier: imp.moduleSpecifier,
-        isTypeOnly: imp.isTypeOnly,
-        importKind: imp.importKind,
-      },
-    }));
+    .map((imp) =>
+      parserEdge(
+        imp.sourceFileId,
+        imp.targetFileId!,
+        EdgeType.Imports,
+        {
+          edgeId: imp.id,
+          moduleSpecifier: imp.moduleSpecifier,
+          isTypeOnly: imp.isTypeOnly,
+          importKind: imp.importKind,
+        },
+        1,
+        imp.id,
+      ),
+    );
 }
 
 function createClassExtendsEdges(classes: ClassNode[]): GraphEdge[] {
   return classes
     .filter((cls) => cls.extends?.resolvedId !== undefined)
-    .map((cls) => ({
-      id: generateEdgeId(cls.id, cls.extends!.resolvedId!, 'EXTENDS'),
-      sourceId: cls.id,
-      targetId: cls.extends!.resolvedId!,
-      type: EdgeType.Extends,
-      confidence: 1.0,
-      createdBy: 'parser' as const,
-      properties: {},
-    }));
+    .map((cls) => parserEdge(cls.id, cls.extends!.resolvedId!, EdgeType.Extends));
 }
 
 function createInterfaceExtendsEdges(interfaces: InterfaceNode[]): GraphEdge[] {
@@ -1012,15 +898,7 @@ function createInterfaceExtendsEdges(interfaces: InterfaceNode[]): GraphEdge[] {
     if (iface.extends) {
       for (const ext of iface.extends) {
         if (ext.resolvedId) {
-          edges.push({
-            id: generateEdgeId(iface.id, ext.resolvedId, 'EXTENDS'),
-            sourceId: iface.id,
-            targetId: ext.resolvedId,
-            type: EdgeType.Extends,
-            confidence: 1.0,
-            createdBy: 'parser' as const,
-            properties: {},
-          });
+          edges.push(parserEdge(iface.id, ext.resolvedId, EdgeType.Extends));
         }
       }
     }
@@ -1034,15 +912,7 @@ function createImplementsEdges(classes: ClassNode[]): GraphEdge[] {
     if (cls.implements) {
       for (const impl of cls.implements) {
         if (impl.resolvedId) {
-          edges.push({
-            id: generateEdgeId(cls.id, impl.resolvedId, 'IMPLEMENTS_INTERFACE'),
-            sourceId: cls.id,
-            targetId: impl.resolvedId,
-            type: EdgeType.ImplementsInterface,
-            confidence: 1.0,
-            createdBy: 'parser' as const,
-            properties: {},
-          });
+          edges.push(parserEdge(cls.id, impl.resolvedId, EdgeType.ImplementsInterface));
         }
       }
     }
@@ -1056,44 +926,26 @@ function createHandlesEdges(entrypoints: Entrypoint[]): GraphEdge[] {
   // bogus edge still consumes index space and shows up in counts.
   return entrypoints
     .filter((ep) => ep.handlerId != null && ep.handlerId.length > 0)
-    .map((ep) => ({
-      id: generateEdgeId(ep.id, ep.handlerId, 'HANDLES'),
-      sourceId: ep.id,
-      targetId: ep.handlerId,
-      type: EdgeType.Handles,
-      confidence: 1.0,
-      createdBy: 'parser' as const,
-      properties: {},
-    }));
+    .map((ep) => parserEdge(ep.id, ep.handlerId, EdgeType.Handles));
 }
 
 function createOperatesOnEdges(dbOperations: DbOperation[]): GraphEdge[] {
   return dbOperations
     .filter((op) => op.entityId != null && op.performerId != null)
-    .map((op) => ({
-      id: op.id,
-      sourceId: op.performerId,
-      targetId: op.entityId!,
-      type: EdgeType.OperatesOn,
-      confidence: 1.0,
-      createdBy: 'parser' as const,
-      properties: {
-        operation: op.operation,
-        operationId: op.id,
-      },
-    }));
+    .map((op) =>
+      parserEdge(
+        op.performerId,
+        op.entityId!,
+        EdgeType.OperatesOn,
+        { operation: op.operation, operationId: op.id },
+        1,
+        op.id,
+      ),
+    );
 }
 
 function createMakesExternalCallEdges(calls: ExternalCallEdge[]): GraphEdge[] {
-  return calls.map((call) => ({
-    id: generateEdgeId(call.callerId, call.id, 'MAKES_EXTERNAL_CALL'),
-    sourceId: call.callerId,
-    targetId: call.id,
-    type: EdgeType.MakesExternalCall,
-    confidence: 1.0,
-    createdBy: 'parser' as const,
-    properties: {},
-  }));
+  return calls.map((call) => parserEdge(call.callerId, call.id, EdgeType.MakesExternalCall));
 }
 
 /**
@@ -1103,20 +955,21 @@ function createMakesExternalCallEdges(calls: ExternalCallEdge[]): GraphEdge[] {
  * variable — see `getDirectCallers` in the SQLite repository.
  */
 function createReferencesVariableEdges(refs: ReferencesVariableEdge[]): GraphEdge[] {
-  return refs.map((ref) => ({
-    id: ref.id,
-    sourceId: ref.callerId,
-    targetId: ref.targetId,
-    type: EdgeType.ReferencesVariable,
-    confidence: 1.0,
-    createdBy: 'parser' as const,
-    properties: {
-      targetKind: ref.targetKind,
-      identifierName: ref.identifierName,
-      filePath: ref.location.filePath,
-      line: ref.location.startLine,
-    },
-  }));
+  return refs.map((ref) =>
+    parserEdge(
+      ref.callerId,
+      ref.targetId,
+      EdgeType.ReferencesVariable,
+      {
+        targetKind: ref.targetKind,
+        identifierName: ref.identifierName,
+        filePath: ref.location.filePath,
+        line: ref.location.startLine,
+      },
+      1,
+      ref.id,
+    ),
+  );
 }
 
 // =============================================================================
@@ -1349,26 +1202,27 @@ function emitUsesTypeEdges(
       const key = `${site.sourceId}|${entry.id}|${site.usage}|${site.via ?? ''}|${site.member ?? ''}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      edges.push({
-        id: generateEdgeId(
+      edges.push(
+        parserEdge(
           site.sourceId,
           entry.id,
-          `USES_TYPE:${site.usage}:${site.via ?? ''}${site.member ? `:${site.member}` : ''}`,
+          EdgeType.UsesType,
+          {
+            usage: site.usage,
+            via: site.via,
+            targetKind: entry.kind,
+            ambiguous: candidates.length > 1 || unverifiedIdentity,
+            ...(site.useKind ? { useKind: site.useKind } : {}),
+            ...(site.member ? { member: site.member } : {}),
+          },
+          candidates.length === 1 && !unverifiedIdentity ? 1 : 0.5,
+          generateEdgeId(
+            site.sourceId,
+            entry.id,
+            `USES_TYPE:${site.usage}:${site.via ?? ''}${site.member ? `:${site.member}` : ''}`,
+          ),
         ),
-        sourceId: site.sourceId,
-        targetId: entry.id,
-        type: EdgeType.UsesType,
-        confidence: candidates.length === 1 && !unverifiedIdentity ? 1.0 : 0.5,
-        createdBy: 'parser' as const,
-        properties: {
-          usage: site.usage,
-          via: site.via,
-          targetKind: entry.kind,
-          ambiguous: candidates.length > 1 || unverifiedIdentity,
-          ...(site.useKind ? { useKind: site.useKind } : {}),
-          ...(site.member ? { member: site.member } : {}),
-        },
-      });
+      );
     }
   }
 }

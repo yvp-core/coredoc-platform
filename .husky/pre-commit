@@ -1,4 +1,0 @@
-# Pre-commit Biome checks disabled on request.
-# Re-enable by uncommenting the two lines below.
-# pnpm check
-# pnpm format:check

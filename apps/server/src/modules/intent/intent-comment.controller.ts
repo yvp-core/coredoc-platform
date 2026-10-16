@@ -8,7 +8,7 @@ import { WorkspaceRoleValue } from '../../auth/decorators/workspace-role-value.d
 import { PermissionsGuard, TokenPermission } from '../../auth/permissions.guard.js';
 import { UserSessionGuard } from '../../auth/user-session.guard.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
-import { IntentActorRole } from '../../mcp/intent-auth.js';
+import { intentActorOf } from '../../mcp/intent-auth.js';
 import type { WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js';
 import {
   CreateIntentCommentSchema,
@@ -53,7 +53,7 @@ export class IntentCommentController {
       typeof CreateIntentCommentSchema
     >,
   ) {
-    return this.comments.create(workspaceId, { id: user.id, role: role ?? IntentActorRole.ServiceToken }, body);
+    return this.comments.create(workspaceId, intentActorOf(user, role), body);
   }
 
   @Post(':commentId/status')
@@ -67,6 +67,6 @@ export class IntentCommentController {
     @Body(intentContractPipe(SetIntentCommentStatusSchema)) body: z.infer<typeof SetIntentCommentStatusSchema>,
   ) {
     assertPathMatchesBody(commentId, body.id, 'id');
-    return this.comments.setStatus(workspaceId, { id: user.id, role: role ?? IntentActorRole.ServiceToken }, body);
+    return this.comments.setStatus(workspaceId, intentActorOf(user, role), body);
   }
 }

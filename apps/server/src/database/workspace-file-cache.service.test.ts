@@ -124,7 +124,6 @@ function createService(
     maxOpenHandles: 4,
     maxCacheBytes: 16 * 1024 ** 2,
     downloadTimeoutMs: 1_000,
-    storageFormatVersion: GRAPH_FILE_FORMAT_COMPATIBILITY.storageFormatVersion,
     budgets: {
       maxDbSizeBytes: 1024 ** 3,
       bufferPoolBytes: 256 * 1024 ** 2,

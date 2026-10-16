@@ -31,27 +31,6 @@ export type RepositoryStatus =
   | 'updating_graph';
 
 /**
- * Human-readable labels for repository status values.
- */
-export const REPOSITORY_STATUS_LABELS: Record<RepositoryStatus, string> = {
-  checking: 'Checking status',
-  status_unavailable: 'Status unavailable',
-  not_started: 'Not started',
-  parser_creation: 'Parser creation',
-  parsing: 'Parsing',
-  parsed: 'Project Parsed',
-  parsed_pending_review: 'Pending Review',
-  approved: 'Approved',
-  approval_stale: 'Approval Stale',
-  summarising: 'Summarising',
-  summarised: 'Project Summarised',
-  creating_graph: 'Creating Graph',
-  graph_up_to_date: 'Graph up to date',
-  graph_needs_update: 'Graph needs upd.',
-  updating_graph: 'Updating Graph...',
-};
-
-/**
  * Status values that indicate an ongoing operation (show loading spinner).
  */
 export const LOADING_STATUSES: RepositoryStatus[] = [

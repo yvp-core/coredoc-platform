@@ -18,6 +18,7 @@ import { normalizeJiraIssue, type NormalizedJiraIssue } from './jira-normalizer.
 import { resolveWindowStart } from './ingest-window.js';
 import { packRawPayload, unpackRawPayload } from './raw-payload-codec.js';
 import { StatusMapService } from './status-map.service.js';
+import { asArray, asFiniteNumber as num, asRecord, asString as asStr, toDate } from '../../libs/coerce.js';
 
 /** Raw-payload normalization schema version, stamped on every stored row. */
 export const JIRA_NORM_VERSION = 1;
@@ -71,28 +72,6 @@ interface IssuesContinuation {
 }
 
 export const JIRA_CLIENT_FACTORY = Symbol('JIRA_CLIENT_FACTORY');
-
-function toDate(value: string | undefined): Date | null {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) ? parsed : null;
-}
-
-function num(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function asStr(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
-}
 
 function perIssueCanonicalConflictCode(error: unknown): string | null {
   if (!(error instanceof ConflictException)) return null;

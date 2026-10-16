@@ -1,13 +1,13 @@
 /**
  * Tree-release conservation over a WHOLE Ruby provider parse.
  *
- * web-tree-sitter never GCs trees and caps its heap at 2GB, so every `parseRuby`
+ * web-tree-sitter never GCs trees and caps its heap at 2GB, so every Ruby parse
  * MUST be paired with a `releaseParsedTree` in a `finally`. `ruby-cst.test.ts` pins
  * the choke point itself; this pins the property that matters for the substrate as a
- * whole — a FUTURE `parseRuby` call site added anywhere under `substrate/ruby/`
+ * whole — a FUTURE Ruby parse site added anywhere under `substrate/ruby/`
  * without a release makes this fail, which no per-extractor test can catch.
  *
- * Seam: `parseRuby` gets its parser from the `TreeSitterLoader` singleton, so wrapping
+ * Seam: `parseSource` gets its parser from the `TreeSitterLoader` singleton, so wrapping
  * `getParser` counts every tree the run creates and every `delete` it performs — no
  * extractor is named here, and a new one is covered the day it is written.
  */

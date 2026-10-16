@@ -15,7 +15,7 @@
 import type { OAuthProviderConfig } from '@rekog/mcp-nest';
 import { buildGitHubProvider } from './github-allowlist.provider.js';
 import { buildWorkOSProvider } from './workos.provider.js';
-import { type AuthConfig, authConfigFromEnv } from '../../config/app-config.js';
+import { type AuthConfig, configFromEnv } from '../../config/app-config.js';
 
 export interface UpstreamSelection {
   provider: OAuthProviderConfig;
@@ -23,7 +23,7 @@ export interface UpstreamSelection {
   clientSecret: string;
 }
 
-export function resolveUpstream(auth: AuthConfig = authConfigFromEnv()): UpstreamSelection {
+export function resolveUpstream(auth: AuthConfig = configFromEnv().auth): UpstreamSelection {
   // Blank counts as unset (dotenv/compose yield '' for `OAUTH_UPSTREAM=`);
   // only a non-empty unknown value is a config error.
   const upstream = auth.upstream || 'github';

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { StableIdGenerator } from '@coredoc/core';
-import { FUNC_DECL, type TsNode, enclosingTypeName, inheritedTypes, parseSwift, swiftMethodId } from './swift-cst.js';
+import { FUNC_DECL, type TsNode, enclosingTypeName, inheritedTypes, swiftMethodId } from './swift-cst.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 function collectTypes(node: TsNode, set: Set<string>): void {
   if (node.isNamed) set.add(node.type);
@@ -40,7 +41,7 @@ enum RailsApi: TargetType {
 }`;
 
   it('parses with zero errors and exposes the required node types', async () => {
-    const root = await parseSwift(src);
+    const root = await parseSource('swift', src);
     expect(countErrors(root)).toBe(0);
     const types = new Set<string>();
     collectTypes(root, types);
@@ -69,7 +70,7 @@ describe('swiftMethodId + CST helpers', () => {
   static func make() {}
 }
 func topLevel() {}`;
-    const root = await parseSwift(src);
+    const root = await parseSource('swift', src);
     const funcs = root.descendantsOfType(FUNC_DECL) as TsNode[];
     const byName = new Map(funcs.map((f) => [f.childForFieldName('name').text as string, f]));
 
@@ -83,7 +84,7 @@ func topLevel() {}`;
   });
 
   it('reads inheritance list and enclosing type name', async () => {
-    const root = await parseSwift(`class FooDB: Object, Encodable { func m() {} }`);
+    const root = await parseSource('swift', `class FooDB: Object, Encodable { func m() {} }`);
     const cls = root.descendantsOfType('class_declaration')[0] as TsNode;
     expect(inheritedTypes(cls)).toEqual(['Object', 'Encodable']);
     const fn = root.descendantsOfType(FUNC_DECL)[0] as TsNode;
@@ -91,14 +92,15 @@ func topLevel() {}`;
   });
 
   it('resolves a MODULE-QUALIFIED base to the type name, not the namespace', async () => {
-    const root = await parseSwift(`class FooDB: RealmSwift.Object {}\nenum Api: Moya.TargetType {}`);
+    const root = await parseSource('swift', `class FooDB: RealmSwift.Object {}\nenum Api: Moya.TargetType {}`);
     const [cls, en] = root.descendantsOfType('class_declaration') as TsNode[];
     expect(inheritedTypes(cls)).toEqual(['Object']); // not 'RealmSwift'
     expect(inheritedTypes(en)).toEqual(['TargetType']); // not 'Moya'
   });
 
   it('does not treat an instance method as static because an attribute string contains "static"', async () => {
-    const root = await parseSwift(
+    const root = await parseSource(
+      'swift',
       `class Svc { @available(*, deprecated, message: "use the static factory") func legacy() {} }`,
     );
     const fn = root.descendantsOfType(FUNC_DECL)[0] as TsNode;

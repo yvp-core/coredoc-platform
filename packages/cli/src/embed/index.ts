@@ -1,21 +1,22 @@
 /**
  * Embed Command Implementation
  *
- * Generates embeddings for functions and endpoints using LangChain.
+ * Generates embeddings for functions and endpoints using the AI SDK.
  * Supports Ollama (local) and OpenRouter providers with incremental updates.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { embedMany } from 'ai';
 import { ParsedRepo } from '@coredoc/core/types';
 import { RuntimeConfig } from '@coredoc/core/types';
 import { parsedRepoFile, summariesFile, embeddingsFile } from '@coredoc/core/utils';
 import { EmbedOptions, EmbedItem, EmbedStats } from './types.js';
-import { createEmbeddingProvider, getDefaultModel } from './providers.js';
+import { createEmbeddingModel, getDefaultModel } from './providers.js';
 import { EmbeddingStorage, createFunctionEmbedding, createEndpointEmbedding } from './storage.js';
 import { buildFunctionItems, buildEndpointItems, loadSummaries } from './input-builder.js';
 
-export const EMBEDDER_VERSION = '1.0.0';
 const DEFAULT_BATCH_SIZE = 50;
 const DEFAULT_DELAY_MS = 100;
 
@@ -83,11 +84,11 @@ export async function runEmbed(options: EmbedOptions, config: RuntimeConfig): Pr
   // 5. Filter items needing embedding
   const functionsToProcess = options.force
     ? functionItems
-    : functionItems.filter((item: EmbedItem) => storage.needsEmbedding(item, false));
+    : functionItems.filter((item: EmbedItem) => storage.needsEmbedding(item));
 
   const endpointsToProcess = options.force
     ? endpointItems
-    : endpointItems.filter((item: EmbedItem) => storage.needsEmbedding(item, false));
+    : endpointItems.filter((item: EmbedItem) => storage.needsEmbedding(item));
 
   const allItemsToProcess = [...functionsToProcess, ...endpointsToProcess];
 
@@ -120,22 +121,15 @@ export async function runEmbed(options: EmbedOptions, config: RuntimeConfig): Pr
   const model = options.model || getDefaultModel(options.provider);
   console.log(`\nInitializing ${options.provider} provider with model: ${model}`);
 
-  const provider = createEmbeddingProvider({
+  const embeddingModel = createEmbeddingModel({
     provider: options.provider,
     model,
     apiKey: options.apiKey,
     baseUrl: options.baseUrl,
-    dimensions: options.dimensions,
   });
 
-  // Get dimensions from provider
-  let dimensions: number;
-  try {
-    dimensions = await provider.getDimensions();
-    console.log(`  Embedding dimensions: ${dimensions}`);
-  } catch (error) {
-    throw new Error(`Failed to connect to ${options.provider}: ${error instanceof Error ? error.message : error}`);
-  }
+  // Configured, or taken from the first embedded batch.
+  let dimensions = options.dimensions;
 
   // 7. Process items in batches
   let functionsEmbedded = 0;
@@ -159,7 +153,8 @@ export async function runEmbed(options: EmbedOptions, config: RuntimeConfig): Pr
     try {
       // Get embeddings for batch
       const texts = batch.map((item: EmbedItem) => item.inputText);
-      const embeddings = await provider.embedBatch(texts);
+      const { embeddings } = await embedMany({ model: embeddingModel, values: texts });
+      dimensions ??= embeddings[0]?.length;
 
       // Save results
       for (let j = 0; j < batch.length; j++) {
@@ -179,8 +174,12 @@ export async function runEmbed(options: EmbedOptions, config: RuntimeConfig): Pr
         }
       }
     } catch (error) {
-      failed += batch.length;
       const msg = error instanceof Error ? error.message : String(error);
+      // Nothing embedded yet: most likely the provider is unreachable or misconfigured — fail fast.
+      if (functionsEmbedded + endpointsEmbedded === 0) {
+        throw new Error(`Failed to connect to ${options.provider}: ${msg}`);
+      }
+      failed += batch.length;
       if (verbose) {
         console.error(`  ✗ Batch failed: ${msg}`);
       }
@@ -199,7 +198,15 @@ export async function runEmbed(options: EmbedOptions, config: RuntimeConfig): Pr
         processingTimeMs: Date.now() - startTime,
       };
 
-      storage.save(parsedRepo.id, parsedRepo.name, options.provider, model, dimensions, options.inputStrategy, stats);
+      storage.save(
+        parsedRepo.id,
+        parsedRepo.name,
+        options.provider,
+        model,
+        dimensions ?? 0,
+        options.inputStrategy,
+        stats,
+      );
     }
 
     // Rate limiting delay between batches
@@ -224,7 +231,15 @@ export async function runEmbed(options: EmbedOptions, config: RuntimeConfig): Pr
     processingTimeMs: Date.now() - startTime,
   };
 
-  storage.save(parsedRepo.id, parsedRepo.name, options.provider, model, dimensions, options.inputStrategy, finalStats);
+  storage.save(
+    parsedRepo.id,
+    parsedRepo.name,
+    options.provider,
+    model,
+    dimensions ?? 0,
+    options.inputStrategy,
+    finalStats,
+  );
 
   // 9. Print summary
   console.log('\n' + '='.repeat(50));
@@ -244,17 +259,6 @@ export async function runEmbed(options: EmbedOptions, config: RuntimeConfig): Pr
   console.log(`  Time: ${(finalStats.processingTimeMs / 1000).toFixed(1)}s`);
   console.log(`  Output: ${embeddingsOutputPath}`);
   console.log('');
-}
-
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
-/**
- * Sleep for specified milliseconds
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Re-export types for use by CLI

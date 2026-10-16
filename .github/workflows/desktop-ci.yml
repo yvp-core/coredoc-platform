@@ -8,7 +8,7 @@ on:
       - 'packages/**'
       # The desktop build vendors these repo-root folders into the runtime
       # bundle (copy-runtime-bundles.mjs → authoring-kit) and the packages'
-      # build-env codegen (gen-build-env.mjs → scripts/load-root-env.mjs), so
+      # build-env codegen (scripts/gen-build-env.mjs), so
       # changes here can change the packaged app / smoke result.
       - 'skills/**'
       - 'scripts/**'

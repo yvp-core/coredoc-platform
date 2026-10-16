@@ -7,7 +7,7 @@
  * entry's token inline. The geometry still comes from `magnitudeWidth`.
  */
 
-import { magnitudeWidth } from '../charts/chart-geometry.js';
+import { magnitudeWidth } from '@coredoc/core/browser/chart-geometry';
 import type { StageBarEntry } from './delivery-presentation.js';
 
 export function StageBars({ entries, ariaLabel }: { entries: ReadonlyArray<StageBarEntry>; ariaLabel: string }) {

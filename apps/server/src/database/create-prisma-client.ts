@@ -12,14 +12,14 @@
 
 import { PrismaClient } from '../generated/prisma/client.js';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { miscConfigFromEnv } from '../config/app-config.js';
+import { configFromEnv } from '../config/app-config.js';
 import pg from 'pg';
 
 export type PrismaLogLevel = 'query' | 'warn' | 'error';
 
 /** Log levels: every query in development unless `PRISMA_QUERY_LOG=false`; quiet otherwise. */
 export function prismaLogLevels(): PrismaLogLevel[] {
-  const misc = miscConfigFromEnv();
+  const misc = configFromEnv().misc;
   return misc.nodeEnv === 'development' && misc.prismaQueryLog ? ['query', 'warn', 'error'] : ['warn', 'error'];
 }
 
@@ -29,7 +29,7 @@ export function prismaLogLevels(): PrismaLogLevel[] {
  * client without a live connection (matches prior PrismaService behavior).
  */
 export function buildPrismaAdapter(): { adapter: PrismaPg; pool: pg.Pool } | null {
-  const connectionString = miscConfigFromEnv().databaseUrl;
+  const connectionString = configFromEnv().misc.databaseUrl;
   if (!connectionString) return null;
   const pool = new pg.Pool({ connectionString });
   return { adapter: new PrismaPg(pool), pool };

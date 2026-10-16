@@ -17,7 +17,7 @@ export const SPEC_STATUS_LABELS: Record<AgentRunSpec['status'], string> = {
   superseded: 'Superseded',
 };
 
-export const SPEC_STATUS_TONES = {
+const SPEC_STATUS_TONES = {
   proposed: 'info',
   accepted: 'ok',
   changes_requested: 'warn',

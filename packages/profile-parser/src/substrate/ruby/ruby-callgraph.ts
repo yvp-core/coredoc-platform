@@ -108,17 +108,6 @@ function defToFunctionNode(def: TsNode, relPath: string, idGen: StableIdGenerato
   };
 }
 
-/**
- * Enumerate every `def` across the Ruby files as a `FunctionNode`. De-duped by canonical
- * id (idGen.methodId(relPath, Class, name)); first occurrence wins.
- */
-export async function collectRubyDefs(
-  files: Array<{ relPath: string; source: string }>,
-  idGen: StableIdGenerator,
-): Promise<FunctionNode[]> {
-  return [...(await indexRubyDefs(files, idGen)).byId.values()];
-}
-
 // =============================================================================
 // Def index + tiered call resolver (measured; not yet wired into the parse)
 // =============================================================================

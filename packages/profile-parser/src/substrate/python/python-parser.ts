@@ -12,12 +12,13 @@
  * Each `.py` file is parsed ONCE (single cached Parser instance in python-cst) and its CST
  * root is reused across every extractor — never re-parsed per concern.
  */
+import { scipCallFacts } from '../../facts/scip/call-facts.js';
 import type { CallEdge, DbOperation, Entrypoint, ExternalCallEdge, FunctionNode, ImportEdge } from '@coredoc/core';
 import type { PythonProfile } from '../../types.js';
 import type { Substrate } from '../parse-substrate.js';
 import { indexPythonDefs, resolvePythonCalls } from './python-callgraph.js';
 import { extractPythonClasses } from './python-classes.js';
-import { type PythonFile, discoverPythonFileScope } from './python-cst.js';
+import { type PythonFile, discoverPythonFileScope, pythonFunctionId } from './python-cst.js';
 import { extractPythonDbOps } from './python-dbops.js';
 import { extractPythonEgress } from './python-egress.js';
 import { extractPythonEntities } from './python-entities.js';
@@ -25,7 +26,6 @@ import { extractPythonEntrypoints } from './python-entrypoints.js';
 import { buildImportTable, buildModuleIndex } from './python-imports.js';
 import { extractPythonQueueEdges } from './python-queue.js';
 import { detectPythonPackages, toPythonFileNodes, toPythonImportEdges, toPythonPackages } from './python-structure.js';
-import { pythonScipCallFacts } from './scip-calls.js';
 import { runScipPython } from './scip-run.js';
 
 /**
@@ -45,7 +45,21 @@ export const pythonSubstrate: Substrate<PythonProfile, PythonFile> = {
       profile.substrate.exclude ?? [],
       profile.substrate.excludeDefaults,
     ),
-  scip: { language: 'python', run: runScipPython, facts: pythonScipCallFacts },
+  scip: {
+    language: 'python',
+    run: runScipPython,
+    facts: scipCallFacts({
+      definitions: ['function_definition'],
+      call: 'call',
+      defaultPositionEncoding: 2,
+      functionId: pythonFunctionId,
+      callee(call) {
+        let token = call.childForFieldName('function');
+        if (token?.type === 'attribute') token = token.childForFieldName('attribute');
+        return { token, isMethodCall: token?.parent?.type !== 'call' };
+      },
+    }),
+  },
 
   async extract({ root, name, profile, idGen, files, skipped, enhanceCalls }) {
     // Structure (G1): packages → files. Emitted BEFORE the code lanes because every FunctionNode's

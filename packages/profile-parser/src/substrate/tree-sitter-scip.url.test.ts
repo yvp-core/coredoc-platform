@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ArgRef } from '../types.js';
-import { inlineConstInterpolations, resolveHttpUrl } from './tree-sitter-scip.js';
+import { inlineConstInterpolations, resolveHttpUrl } from './scip/url-topic-helpers.js';
 
 /**
  * `object-property` HTTP URL extraction — the URL lives in a named key of an

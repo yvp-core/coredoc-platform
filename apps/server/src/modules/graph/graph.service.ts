@@ -31,7 +31,7 @@ import type {
   EdgesAmongResult,
 } from '@coredoc/db';
 import { getConfiguredBackend } from '@coredoc/db';
-import { STORAGE_CONFIG, type StorageConfig, storageConfigFromEnv } from '../../config/app-config.js';
+import { STORAGE_CONFIG, type StorageConfig, configFromEnv } from '../../config/app-config.js';
 import { EdgeType, NodeType } from '@coredoc/core';
 import type {
   NodeDetail,
@@ -251,7 +251,7 @@ type ScopedWorkspaceContext = Omit<WorkspaceContext, 'scope'> & { scope: ScopeCo
 export class GraphService {
   constructor(
     private readonly wsContext: WorkspaceMcpContextService,
-    @Optional() @Inject(STORAGE_CONFIG) private readonly storage: StorageConfig = storageConfigFromEnv(),
+    @Optional() @Inject(STORAGE_CONFIG) private readonly storage: StorageConfig = configFromEnv().storage,
   ) {}
 
   /**

@@ -5,9 +5,9 @@ import type { PushExecutionContext } from '../../libs/pipeline/push-execution.ty
 import type { PushLeaseService } from '../lease/push-lease.service.js';
 import { GraphSnapshotBuildService } from './graph-snapshot-artifact.service.js';
 import { GraphSnapshotControlPlaneService } from './graph-snapshot-control-plane.service.js';
-import { GraphSnapshotError } from './graph-snapshot.errors.js';
+import { GraphSnapshotError } from '../../libs/pipeline/graph-snapshot.errors.js';
 import { GraphSnapshotExecutionService } from './graph-snapshot-execution.service.js';
-import type { GraphSnapshotManifestV1 } from './graph-snapshot.types.js';
+import type { GraphSnapshotManifestV1 } from '../../libs/pipeline/graph-snapshot.types.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const VERSION_ID = 'a'.repeat(64);

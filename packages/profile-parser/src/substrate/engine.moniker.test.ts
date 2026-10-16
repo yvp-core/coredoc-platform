@@ -1,7 +1,7 @@
 import { StableIdGenerator } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
 import { CodeGraph } from '../facts/graph/graph-builder.js';
-import type { BaselineResult } from '../facts/index.js';
+import type { BaselineResult } from '../facts/pipeline.js';
 import type { ExtractionProfile } from '../types.js';
 import { SubstrateProfileEngine } from './engine.js';
 import type { ExternalCallFact, Substrate } from './interface.js';
@@ -25,6 +25,8 @@ function fakeSubstrate(idGen: StableIdGenerator, facts: ExternalCallFact[]): Sub
     resolveJsxTagByImport: () => undefined,
     routeSites: () => [],
     stateStoreSites: () => [],
+    vueComponentSites: () => [],
+    resolveVueTagByImport: () => undefined,
     idGen,
   };
 }

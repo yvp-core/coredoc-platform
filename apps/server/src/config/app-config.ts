@@ -5,8 +5,8 @@
  * concern that owns it, with the default that used to live at the read site.
  * `loadAppConfig` is pure — env in, config out, no I/O, no caching — so it can
  * be called from a unit test with a literal record, and so the same function
- * can both validate at boot (`ConfigModule.forRoot({ validate })`) and produce
- * the value consumers inject.
+ * can both validate at boot (`AppConfigModule.forRole`) and produce the value
+ * consumers inject.
  *
  * Two rules shape what is in here:
  *
@@ -32,8 +32,6 @@ import { parseProcessRole, type ProcessRole } from '../process-role.js';
 
 export type { ProcessRole };
 
-/** DI token for the whole validated config. */
-export const APP_CONFIG = 'APP_CONFIG';
 /** DI token for the storage/graph group. */
 export const STORAGE_CONFIG = 'STORAGE_CONFIG';
 /** DI token for the auth/WorkOS group. */
@@ -46,8 +44,6 @@ export const CONNECTORS_CONFIG = 'CONNECTORS_CONFIG';
 export const TELEMETRY_CONFIG = 'TELEMETRY_CONFIG';
 /** DI token for the legacy Turso group. */
 export const TURSO_CONFIG = 'TURSO_CONFIG';
-/** DI token for the misc/bootstrap group. */
-export const MISC_CONFIG = 'MISC_CONFIG';
 /** DI token for the TEMPORARY intent-rollout group. */
 export const INTENT_CONFIG = 'INTENT_CONFIG';
 
@@ -89,16 +85,8 @@ const RawEnvSchema = z.object({
   R2_REGION: optionalString,
   R2_FORCE_PATH_STYLE: optionalString,
   GRAPH_FILE_CACHE_DIR: optionalString,
-  GRAPH_FILE_CACHE_MAX_OPEN_HANDLES: optionalString,
-  GRAPH_FILE_MAX_TOTAL_BUFFER_POOL_BYTES: optionalString,
   GRAPH_FILE_CACHE_MAX_BYTES: optionalString,
-  GRAPH_FILE_DOWNLOAD_TIMEOUT_MS: optionalString,
-  GRAPH_FILE_MAX_DB_SIZE_BYTES: optionalString,
-  GRAPH_FILE_BUFFER_POOL_BYTES: optionalString,
-  GRAPH_FILE_QUERY_TIMEOUT_MS: optionalString,
   GRAPH_SNAPSHOT_BUILD_ROOT: optionalString,
-  GRAPH_SNAPSHOT_STORAGE_TIMEOUT_MS: optionalString,
-  GRAPH_SNAPSHOT_COMPONENT_MAX_BYTES: optionalString,
   FILE_SNAPSHOT_SYNC_TIMEOUT_MS: optionalString,
   COREDOC_DB_BACKEND: optionalString,
   COREDOC_ALLOW_CYPHER: optionalString,
@@ -190,19 +178,11 @@ export interface R2Config {
 /** Raw, still-unparsed tuning knobs for the workspace graph-file cache. */
 export interface GraphFileConfig {
   cacheDir?: string;
-  maxOpenHandles?: string;
-  maxTotalBufferPoolBytes?: string;
   maxCacheBytes?: string;
-  downloadTimeoutMs?: string;
-  maxDbSizeBytes?: string;
-  bufferPoolBytes?: string;
-  queryTimeoutMs?: string;
 }
 
 export interface GraphSnapshotConfig {
   buildRoot?: string;
-  storageTimeoutMs?: string;
-  componentMaxBytes?: string;
 }
 
 export interface StorageConfig {
@@ -435,19 +415,9 @@ function toStorage(raw: z.infer<typeof RawEnvSchema>): StorageConfig {
     },
     graphFile: {
       cacheDir: raw.GRAPH_FILE_CACHE_DIR,
-      maxOpenHandles: raw.GRAPH_FILE_CACHE_MAX_OPEN_HANDLES,
-      maxTotalBufferPoolBytes: raw.GRAPH_FILE_MAX_TOTAL_BUFFER_POOL_BYTES,
       maxCacheBytes: raw.GRAPH_FILE_CACHE_MAX_BYTES,
-      downloadTimeoutMs: raw.GRAPH_FILE_DOWNLOAD_TIMEOUT_MS,
-      maxDbSizeBytes: raw.GRAPH_FILE_MAX_DB_SIZE_BYTES,
-      bufferPoolBytes: raw.GRAPH_FILE_BUFFER_POOL_BYTES,
-      queryTimeoutMs: raw.GRAPH_FILE_QUERY_TIMEOUT_MS,
     },
-    graphSnapshot: {
-      buildRoot: raw.GRAPH_SNAPSHOT_BUILD_ROOT,
-      storageTimeoutMs: raw.GRAPH_SNAPSHOT_STORAGE_TIMEOUT_MS,
-      componentMaxBytes: raw.GRAPH_SNAPSHOT_COMPONENT_MAX_BYTES,
-    },
+    graphSnapshot: { buildRoot: raw.GRAPH_SNAPSHOT_BUILD_ROOT },
     fileSnapshotSyncTimeoutMs: raw.FILE_SNAPSHOT_SYNC_TIMEOUT_MS,
     dbBackend: raw.COREDOC_DB_BACKEND ?? '',
     allowCypher: raw.COREDOC_ALLOW_CYPHER === 'true',
@@ -494,50 +464,19 @@ export function loadAppConfig(
 }
 
 /**
- * The ambient-environment fallback for construction-time defaults in services
- * that are also instantiated directly by unit tests (`new R2StorageService()`).
- * Under Nest the boot-validated config is injected instead. Keeping the
- * `process.env` read in this file is what lets `no-process-env.test.ts` hold.
+ * The config read from the ambient environment. It is the construction-time default
+ * for services also instantiated directly by unit tests (`new R2StorageService()`),
+ * and the read for auth code that runs before DI exists (`resolveUpstream` and
+ * `buildGitHubProvider` while `OAuthModule`'s imports are built) or deliberately
+ * live per request (`serverUrl()`). Under Nest the boot-validated config is
+ * injected instead. Keeping the `process.env` read in this file is what lets
+ * `no-process-env.test.ts` hold.
  *
- * Loaded as the `worker` role on purpose: a storage consumer must never fail
- * because an unrelated group (auth) is unset in the process that constructs it.
+ * Loaded as the `worker` role on purpose: a consumer must never fail because an
+ * unrelated group (auth) is unset in the process that constructs it.
  */
-export function storageConfigFromEnv(): StorageConfig {
-  return loadAppConfig(process.env, 'worker').storage;
-}
-
-/**
- * The auth group read from the ambient environment.
- *
- * Several auth readers are not providers at all: `resolveUpstream` and
- * `buildGitHubProvider` run while `OAuthModule`'s imports array is built, before
- * DI exists, and `serverUrl()` is deliberately read live per request (a test
- * changes `SERVER_URL` between two calls and expects the second to follow). They
- * take this as a default argument, which keeps both properties while leaving
- * this file as the only place `process.env` is touched.
- */
-export function authConfigFromEnv(): AuthConfig {
-  return loadAppConfig(process.env, 'worker').auth;
-}
-
-/** The workers + retention group read from the ambient environment. */
-export function workersConfigFromEnv(): WorkersConfig {
-  return loadAppConfig(process.env, 'worker').workers;
-}
-
-/** The delivery-connector group read from the ambient environment. */
-export function connectorsConfigFromEnv(): ConnectorsConfig {
-  return loadAppConfig(process.env, 'worker').connectors;
-}
-
-/** The telemetry group read from the ambient environment. */
-export function telemetryConfigFromEnv(): TelemetryConfig {
-  return loadAppConfig(process.env, 'worker').telemetry;
-}
-
-/** The legacy Turso group read from the ambient environment. */
-export function tursoConfigFromEnv(): TursoLegacyConfig {
-  return loadAppConfig(process.env, 'worker').turso;
+export function configFromEnv(): AppConfig {
+  return loadAppConfig(process.env, 'worker');
 }
 
 /**
@@ -548,14 +487,4 @@ export function tursoConfigFromEnv(): TursoLegacyConfig {
  */
 export function assertAppConfigValid(role: ProcessRole): void {
   loadAppConfig(process.env, role);
-}
-
-/** The misc/bootstrap group read from the ambient environment. */
-export function miscConfigFromEnv(): MiscConfig {
-  return loadAppConfig(process.env, 'worker').misc;
-}
-
-/** The TEMPORARY intent-rollout group read from the ambient environment. */
-export function intentConfigFromEnv(): IntentConfig {
-  return loadAppConfig(process.env, 'worker').intent;
 }

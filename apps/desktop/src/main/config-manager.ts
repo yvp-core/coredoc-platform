@@ -15,15 +15,7 @@ import {
   RemoveRepositoryResult,
 } from '../shared/ipc-types.js';
 import { getConfigPath as runtimeGetConfigPath, requireProjectRoot } from './runtime-paths.js';
-import {
-  migrateWorkspaceLayout,
-  parserDir,
-  parsedRepoFile,
-  summariesFile,
-  embeddingsFile,
-  docsDir,
-  projectDbDir,
-} from '@coredoc/core/utils';
+import { parserDir, parsedRepoFile, summariesFile, embeddingsFile, docsDir, projectDbDir } from '@coredoc/core/utils';
 
 let currentConfigPath: string | null = null;
 let currentConfig: CoredocConfigSerialized | null = null;
@@ -67,31 +59,7 @@ export function loadConfig(configPath?: string): ConfigLoadResult {
       };
     }
 
-    // Run layout migration (idempotent). First run moves existing files to nested
-    // workspace layout; subsequent runs are no-ops. Run this BEFORE parsing
-    // the config into currentConfig so config-only rewrites (e.g. repos -> Legacy
-    // project, session-dir migration sentinel bump) are reflected immediately.
     const absoluteConfigPath = path.resolve(targetPath);
-    const migration = migrateWorkspaceLayout(absoluteConfigPath);
-    const migrationChanged =
-      migration.parserDirsMoved > 0 ||
-      migration.outputArtifactsMoved > 0 ||
-      migration.idsAssigned > 0 ||
-      migration.standaloneReposConverted > 0 ||
-      migration.sessionDirsMigrated > 0;
-    if (!migration.skipped && migrationChanged) {
-      console.log(
-        `[config-manager] Migrated layout: parsers=${migration.parserDirsMoved} ` +
-          `outputs=${migration.outputArtifactsMoved} ids=${migration.idsAssigned} ` +
-          `standaloneRepos=${migration.standaloneReposConverted} ` +
-          `sessions=${migration.sessionDirsMigrated} ` +
-          `orphans=${migration.orphansDeleted}`,
-      );
-    }
-    for (const err of migration.errors) {
-      console.warn(`[config-manager] Migration warning: ${err}`);
-    }
-
     const content = fs.readFileSync(absoluteConfigPath, 'utf-8');
     const config: CoredocConfigSerialized = JSON.parse(content);
 

@@ -22,8 +22,6 @@
 import * as fs from 'fs';
 import { createHash } from 'node:crypto';
 import * as path from 'path';
-import { config as dotenvConfig } from 'dotenv';
-import { resolveCoredocHome } from '@coredoc/core/utils';
 import { initTelemetry } from '@coredoc/core/telemetry';
 import { BUNDLED_POSTHOG_KEY, BUNDLED_POSTHOG_HOST } from '../build-env.js';
 import { pullParserFromServer } from '../parser-remote.js';
@@ -42,17 +40,6 @@ import { createModel } from './llm-config.js';
 import { ciGitContextFromEnv, applyCiGitContext } from './git-context.js';
 import type { SummaryOutput } from '../summarize/types.js';
 import { reusePreviousIfUnchanged } from '../summarize/artifact-identity.js';
-
-// Load .env from multiple locations (first found wins for each var).
-// Priority: existing env > .env in cwd > <coredoc home>/.env
-function loadEnvFiles(): void {
-  const locations = [path.join(process.cwd(), '.env'), path.join(resolveCoredocHome(), '.env')];
-  for (const envPath of locations) {
-    if (fs.existsSync(envPath)) {
-      dotenvConfig({ path: envPath, override: false }); // override:false = don't overwrite existing
-    }
-  }
-}
 
 // =============================================================================
 // Types
@@ -104,8 +91,6 @@ export interface CiRunResult {
 // =============================================================================
 
 export async function runCi(options: CiRunOptions): Promise<CiRunResult> {
-  loadEnvFiles();
-
   // Configure the shared telemetry client for the headless CI surface with the
   // CLI's bundled anon key (baked into build-env.ts at release-build time; empty
   // in dev ⇒ no-op). `ci run` reaches here through the Commander entry, whose

@@ -395,3 +395,16 @@ export function resolveQueueTopic(
   const resolved = resolveQueueTopicReference(rawArg, topic, resolveConst);
   return resolved?.topicValue ?? resolved?.topic;
 }
+
+/** Normalize a raw URL template to a path: strip a leading `http(s)://host`; require a leading `/`. */
+export function toPathTemplate(raw: string): string | undefined {
+  let out = raw;
+  const m = /^https?:\/\/[^/]+(\/.*)?$/i.exec(out);
+  if (m) {
+    // A host-only URL has no joinable route → SKIP. Emitting a bare '/' would be a bogus edge that
+    // pollutes the cross-repo route join.
+    if (!m[1]) return undefined;
+    out = m[1];
+  }
+  return out.startsWith('/') ? out : undefined;
+}

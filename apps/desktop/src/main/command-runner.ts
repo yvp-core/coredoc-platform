@@ -35,7 +35,6 @@ import {
   rustProvider,
   goProvider,
 } from '@coredoc/profile-parser';
-import { writePty, resizePty, killPty, killAllPtys } from './pty-manager.js';
 import { profileArtifactPath } from './parser-artifact.js';
 import {
   requireProjectRoot,
@@ -285,10 +284,6 @@ async function runSdkCommand(options: CommandRunOptions, id: string, mainWindow:
   };
 
   if (options.command === 'parse') {
-    // Workspace-layout migration is trusted host work. Complete it before entering the sandbox so
-    // model-authored profile code never receives write access to the parser-storage root.
-    const { loadConfig: prepareParseConfig } = await import('@coredoc/cli/sdk');
-    prepareParseConfig(configPath);
     const config = getCurrentConfig();
     const configDir = getConfigDir();
     const repoName = options.repo?.trim();
@@ -1230,12 +1225,6 @@ export function cancelCommand(id: string): boolean {
     return true;
   }
 
-  // Terminate an interactive PTY session (e.g. a running generate).
-  if (killPty(id)) {
-    commandMeta.delete(id);
-    return true;
-  }
-
   return false;
 }
 
@@ -1257,9 +1246,6 @@ export function cancelAllCommands(): void {
     entry.completed = true;
   }
   workerRegistry.clear();
-
-  // Terminate any interactive PTY sessions (e.g. generate).
-  killAllPtys();
 
   commandMeta.clear();
 }
@@ -1304,15 +1290,6 @@ export function registerCommandHandlers(ipcMain: IpcMain, mainWindow: BrowserWin
 
   ipcMain.handle(IpcChannels.COMMAND_GET_RUNNING, () => {
     return getRunningCommands();
-  });
-
-  // PTY input/resize handlers (kept for generate command xterm compatibility)
-  ipcMain.handle(IpcChannels.PTY_WRITE, (_event, id: string, data: string) => {
-    return writePty(id, data);
-  });
-
-  ipcMain.handle(IpcChannels.PTY_RESIZE, (_event, id: string, cols: number, rows: number) => {
-    return resizePty(id, cols, rows);
   });
 
   // Agent-run answer/state handlers (profile authoring via the SDK path)

@@ -74,6 +74,11 @@ const EXTENSION_MAP: Record<string, SupportedLanguage> = {
 // biome-ignore lint/suspicious/noExplicitAny: web-tree-sitter node type is opaque here
 export type TsNode = any;
 
+/** Parse `source` with `grammar` and return the root node. The loader memoises the Parser per grammar. */
+export async function parseSource(grammar: SupportedLanguage, source: string): Promise<TsNode> {
+  return (await TreeSitterLoader.getInstance().getParser(grammar)).parse(source).rootNode;
+}
+
 export class TreeSitterLoader {
   private static instance: TreeSitterLoader | null = null;
   private initialized = false;

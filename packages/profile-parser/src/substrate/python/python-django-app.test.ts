@@ -1,14 +1,15 @@
 import { StableIdGenerator } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
-import { type PythonFile, parsePython } from './python-cst.js';
+import { type PythonFile } from './python-cst.js';
 import { buildDjangoAppIndex, djangoAppLabel } from './python-django-app.js';
 import { type PythonEntityConfig, extractPythonEntities } from './python-entities.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 const ID = new StableIdGenerator('/demo', 'demo');
 const DJANGO_CFG: PythonEntityConfig = { idGen: ID, baseClasses: ['models.Model'] };
 
 async function pf(relPath: string, source: string): Promise<PythonFile> {
-  return { relPath, source, root: await parsePython(source) };
+  return { relPath, source, root: await parseSource('python', source) };
 }
 
 const APPS_NAME_ONLY = `

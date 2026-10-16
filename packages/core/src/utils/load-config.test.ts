@@ -24,7 +24,6 @@ function writeConfig(dir: string): string {
       projects: [{ id: 'alpha', name: 'Alpha', repos: [{ name: 'svc-a', path: './svc-a', type: 'backend' }] }],
       output: { dir: './out', format: 'json' },
       parserStorage: './parsers',
-      agentMode: 'interactive',
     }),
     'utf-8',
   );
@@ -45,34 +44,5 @@ describe('loadConfig', () => {
     } finally {
       cwd.mockRestore();
     }
-  });
-
-  it('fires onMigrated once when the migration runs, and never with skipMigration', () => {
-    const configPath = writeConfig(tmp);
-    // Old flat layout the migration moves into parsers/alpha/svc-a.
-    mkdirSync(join(tmp, 'parsers', 'svc-a'), { recursive: true });
-
-    const skipped: unknown[] = [];
-    loadConfig(configPath, { skipMigration: true, onMigrated: (r) => skipped.push(r) });
-    expect(skipped).toHaveLength(0);
-
-    const migrated: Array<{ parserDirsMoved: number }> = [];
-    loadConfig(configPath, { onMigrated: (r) => migrated.push(r) });
-    expect(migrated).toHaveLength(1);
-    expect(migrated[0]!.parserDirsMoved).toBe(1);
-  });
-
-  it('reports migration errors through onMigrationWarning', () => {
-    const configPath = writeConfig(tmp);
-    mkdirSync(join(tmp, 'parsers', 'svc-a'), { recursive: true });
-    // A FILE where the project directory must be created → the move fails and
-    // the migration records a non-fatal error instead of throwing.
-    writeFileSync(join(tmp, 'parsers', 'alpha'), 'not a directory', 'utf-8');
-
-    const warnings: string[] = [];
-    loadConfig(configPath, { onMigrationWarning: (m) => warnings.push(m) });
-
-    expect(warnings.length).toBeGreaterThan(0);
-    expect(warnings[0]).toContain('svc-a');
   });
 });

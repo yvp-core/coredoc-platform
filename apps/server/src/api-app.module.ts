@@ -1,7 +1,6 @@
 import { MiddlewareConsumer, Module, type NestModule } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
 import { AppConfigModule } from './config/app-config.module.js';
-import { miscConfigFromEnv } from './config/app-config.js';
+import { configFromEnv } from './config/app-config.js';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module.js';
 import { OAuthModule } from './auth/oauth/oauth.module.js';
@@ -35,7 +34,7 @@ import { TokensModule } from './modules/tokens/tokens.module.js';
 import { WorkspacesModule } from './modules/workspaces/workspaces.module.js';
 
 // Optional HTTP modules are evaluated only when the API graph is loaded.
-const misc = miscConfigFromEnv();
+const misc = configFromEnv().misc;
 const optionalModules = [
   ...(misc.enableSourceModule ? [SourceModule] : []),
   ...(misc.enableCliBundle ? [CliBundleModule] : []),
@@ -43,7 +42,6 @@ const optionalModules = [
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
     AppConfigModule.forRole('api'),
     OAuthModule,
     AuthModule,

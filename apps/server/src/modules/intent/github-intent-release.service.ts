@@ -13,6 +13,7 @@ import type { HandoffPayload } from './intent-handoff.operations.js';
 type IntentTrailerRef = { itemId: string; version: number };
 import { IntentPlanEventKind, intentPlanEvents, type IntentPlanItemState } from './intent-plan-transitions.js';
 import type { ReleaseCommand } from './intent-release.operations.js';
+import { asRecord } from '../../libs/coerce.js';
 
 /**
  * The connector's identity in the ledger. It is not a user and must never borrow one:
@@ -27,10 +28,6 @@ const PLAN_CAS_PASSES = 3;
 interface TrailerProjection {
   delivers: IntentTrailerRef[];
   retires: IntentTrailerRef[];
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 /**

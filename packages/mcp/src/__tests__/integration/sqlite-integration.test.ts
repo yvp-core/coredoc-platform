@@ -16,7 +16,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import * as fs from 'fs';
-import { resetBackendState, closeDriver, getRepository } from '@coredoc/db';
+import { closeAllDrivers, closeDriver, getRepository } from '@coredoc/db';
 import type { IGraphRepository } from '@coredoc/db/types';
 import type { ScopeContext, DetailLevel, DetailLevelConfig, ServiceDependencyResult } from '../../types.js';
 
@@ -73,7 +73,7 @@ describe('SQLite Integration Tests', () => {
     process.env.COREDOC_SQLITE_URL = `file:${TEST_DB_PATH}`;
 
     // Reset any existing backend state from other tests
-    resetBackendState();
+    await closeAllDrivers();
 
     // Get repository via factory (this creates and initializes the driver)
     // Handlers will use the same factory, so they'll share this connection
@@ -674,7 +674,7 @@ describe('Multi-Repo Realistic Integration Tests', () => {
     process.env.COREDOC_SQLITE_URL = `file:${TEST_DB_PATH}`;
 
     // Reset any existing backend state
-    resetBackendState();
+    await closeAllDrivers();
 
     // Get repository via factory
     repository = await getRepository();

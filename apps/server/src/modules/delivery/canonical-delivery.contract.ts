@@ -30,8 +30,6 @@ export interface TaskExternalRefInput {
   externalState: string | null;
 }
 
-export type TaskAuthorityFallback = { kind: 'coredoc' } | { kind: 'external_ref'; externalRefId: string };
-
 /** A capture-contract validator read as a predicate: it returns its input or throws. */
 function accepts(validate: (value: unknown) => unknown): (value: unknown) => boolean {
   return (value: unknown) => {

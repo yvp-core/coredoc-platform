@@ -27,6 +27,7 @@
  */
 import { type RustCrate, crateCodeName, crateOwnerPath } from './rust-crates.js';
 import { MOD_ITEM, type RustFile, type TsNode, itemName } from './rust-cst.js';
+import { repoDir } from '../glob.js';
 
 /** One name bound into a file's namespace by a `use`. */
 export interface UseBinding {
@@ -213,12 +214,6 @@ function computeUseTable(file: RustFile): UseTable {
 /** Basenames that make a file its directory's module root rather than a submodule. */
 const ROOT_BASENAMES = new Set(['lib.rs', 'main.rs', 'mod.rs']);
 
-/** dirname of a repo-relative path ('' at the repo root). */
-function dirOf(rel: string): string {
-  const i = rel.lastIndexOf('/');
-  return i === -1 ? '' : rel.slice(0, i);
-}
-
 /** basename of a repo-relative path. */
 function baseOf(rel: string): string {
   const i = rel.lastIndexOf('/');
@@ -230,7 +225,7 @@ function baseOf(rel: string): string {
  * own their OWN directory; any other `foo.rs` owns the sibling `foo/` directory. See rule 1.
  */
 export function moduleDir(rel: string): string {
-  const dir = dirOf(rel);
+  const dir = repoDir(rel);
   const base = baseOf(rel);
   if (ROOT_BASENAMES.has(base)) return dir;
   const stem = base.replace(/\.rs$/, '');

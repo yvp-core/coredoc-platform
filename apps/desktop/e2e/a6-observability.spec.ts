@@ -68,7 +68,6 @@ test.describe('Analytics tab — owner Usage and Delivery views', () => {
     // Usage no longer fans out to the retired snapshot reads (ADR-1, ADR-6).
     expect(requests.some((request) => request.includes('/metrics/'))).toBe(false);
     expect(requests.some((request) => request.includes('/sessions/summary'))).toBe(false);
-    expect(requests.some((request) => request.includes('/sessions/by-user'))).toBe(false);
     // Delivery is not read until its view is selected.
     expect(requests).not.toContain(`GET ${summaryPath}`);
 

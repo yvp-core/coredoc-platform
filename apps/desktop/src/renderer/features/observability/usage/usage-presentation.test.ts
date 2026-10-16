@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { UsageMemberRow, UsageToolRow } from '../../../../shared/ipc-types.js';
 import type { UsageAdoption } from '../../../../shared/ipc-types.js';
-import { NO_DATA } from '../observability-format';
+import { NO_DATA } from '@coredoc/core/browser/format';
 import { USAGE_FIXTURE } from './usage-fixture';
 import {
   adoptionFacts,
@@ -175,10 +175,10 @@ describe('adoption presentation (BR-3, BR-11)', () => {
     );
 
     expect(facts).toEqual([
-      { label: 'Coredoc calls', value: '1.2k' },
+      { label: 'Coredoc calls', value: '1.2K' },
       { label: 'Call success rate', value: '97.4%' },
       { label: 'Avg call latency', value: '132 ms' },
-      { label: 'Median tokens / session', value: '84k' },
+      { label: 'Median tokens / session', value: '84K' },
     ]);
   });
 

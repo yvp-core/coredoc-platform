@@ -13,7 +13,7 @@ import { KpiRow } from './KpiRow.js';
 import { MembersTable } from './MembersTable.js';
 import { TimeseriesCard } from './TimeseriesCard.js';
 import { ToolUsageCard } from './ToolUsageCard.js';
-import { WindowSelector } from '../WindowSelector.js';
+import { DateRangePicker } from '@/components/ui/date-range-picker';
 import { type AnalyticsWindow, windowDays } from '../types.js';
 import { windowCaption } from './usage-presentation.js';
 
@@ -33,7 +33,7 @@ export function UsageView({
   return (
     <div className="flex flex-col gap-3.5">
       <div className="flex flex-wrap items-center gap-2.5">
-        <WindowSelector analyticsWindow={analyticsWindow} onChange={onWindowChange} />
+        <DateRangePicker value={analyticsWindow} onChange={onWindowChange} />
         <span className="ml-auto text-[12.5px] text-ink-4">
           {usageQuery.data ? windowCaption(usageQuery.data.window) : `${windowDays(analyticsWindow)}d · UTC`}
         </span>

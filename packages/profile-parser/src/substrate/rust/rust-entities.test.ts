@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { StableIdGenerator } from '@coredoc/core';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type RustFile, parseRust } from './rust-cst.js';
+import { type RustFile } from './rust-cst.js';
 import { extractRustEntities } from './rust-entities.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 const ID = new StableIdGenerator('/demo', 'demo');
 const roots: string[] = [];
@@ -14,7 +15,7 @@ afterEach(() => {
 });
 
 async function rf(relPath: string, source: string): Promise<RustFile> {
-  return { relPath, source, root: await parseRust(source) };
+  return { relPath, source, root: await parseSource('rust', source) };
 }
 
 /** A temp repo holding only `.sql` schema files (the Rust sources are passed in-memory). */

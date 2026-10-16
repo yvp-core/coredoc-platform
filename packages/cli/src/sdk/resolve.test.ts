@@ -13,7 +13,7 @@ vi.mock('@coredoc/core/telemetry', async (importActual) => {
 });
 
 import { runResolveCore } from './resolve.js';
-import { loadConfig } from './config.js';
+import { loadConfig } from '@coredoc/core/utils';
 import { EventName } from '@coredoc/core/telemetry';
 import { linkWorkspace, type ParsedRepoLike } from '@coredoc/core';
 import type { Entrypoint, ExternalCallEdge } from '@coredoc/core/types';

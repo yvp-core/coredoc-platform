@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateLogRecords, parseOtlpLogRecords, parseOtlpLogs, parseOtlpMetrics } from './otlp-parser.js';
+import { aggregateLogRecords, parseOtlpLogRecords, parseOtlpMetrics } from './otlp-parser.js';
+
+/** Every record aggregated, no watermark filtering. */
+const parseOtlpLogs = (body: unknown) => parseOtlpLogRecords(body).map((entry) => aggregateLogRecords(entry, -1n));
 
 const attr = (key: string, value: string | number | boolean) => ({
   key,

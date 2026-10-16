@@ -18,7 +18,7 @@
  * see the queue, and a token without intent:read may not" is proven through the
  * production path. No graph is involved — the queue reads rows and nothing else.
  */
-import 'dotenv/config';
+import '../../config/load-env.js';
 import type { ExecutionContext, INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { IntentKind } from '@coredoc/core';

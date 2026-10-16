@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../../../../components/ui/dropdown-menu';
-import { format } from 'date-fns';
+import { formatDateTime } from '../../../../lib/utils';
 import type { RepoDetailState } from '../../../../../shared/ipc-types';
 import type { WorkflowAction } from '../../../../stores/project-detail-store';
 
@@ -210,7 +210,7 @@ export function WorkspaceGraphRepoRow({
         ) : lastSync ? (
           <span className="flex min-w-0 items-center gap-1 text-xs leading-4 text-content-secondary">
             <ClockCircle className="size-4 shrink-0" />
-            {format(new Date(lastSync), 'dd.MM.yyyy / h:mm a')}
+            {formatDateTime(new Date(lastSync))}
           </span>
         ) : null}
 

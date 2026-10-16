@@ -1,5 +1,5 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { STORAGE_CONFIG, type StorageConfig, storageConfigFromEnv } from '../../config/app-config.js';
+import { Injectable, Logger } from '@nestjs/common';
+import { configFromEnv } from '../../config/app-config.js';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { createReadStream, createWriteStream, type WriteStream } from 'node:fs';
@@ -10,7 +10,6 @@ import { finished } from 'node:stream/promises';
 import { EdgeType, NodeType, validateMapper, type LinkEdge, type Mapper } from '@coredoc/core';
 import type { EmbeddingsOutput, ParsedRepo, SummaryOutput } from '@coredoc/core/types';
 import {
-  GRAPH_FILE_FORMAT_COMPATIBILITY,
   ByteMultiPatternMatcher,
   stripEmbeddingInputText,
   stripSourceCode,
@@ -31,17 +30,18 @@ import {
   resolvePinnedCandidate,
   type PinnedResolutionMetrics,
 } from '../mapper/resolver-kernel.js';
-import { GraphSnapshotError, type GraphSnapshotErrorCode } from './graph-snapshot.errors.js';
+import { GraphSnapshotError, type GraphSnapshotErrorCode } from '../../libs/pipeline/graph-snapshot.errors.js';
 import {
   assertWorkspaceScopedR2Key,
   createGraphSnapshotIdentity,
   graphSnapshotR2Key,
+  hasCurrentGraphSnapshotCompatibility,
 } from './graph-snapshot-manifest.js';
 import type {
   GraphSnapshotManifestV1,
   GraphSnapshotMapperDescriptor,
   WorkspaceRepoArtifactDescriptor,
-} from './graph-snapshot.types.js';
+} from '../../libs/pipeline/graph-snapshot.types.js';
 
 type GraphContentFailureCode = 'artifact_integrity_error' | 'graph_build_failed' | 'graph_object_identity_conflict';
 
@@ -99,13 +99,6 @@ export function graphSnapshotArtifactSizeWithinLimit(sizeBytes: number): boolean
   return Number.isSafeInteger(sizeBytes) && sizeBytes > 0 && sizeBytes <= GRAPH_SNAPSHOT_MAX_ARTIFACT_BYTES;
 }
 
-function positiveBounded(raw: string | undefined, fallback: number, maximum = fallback): number {
-  if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) return fallback;
-  return Math.min(parsed, maximum);
-}
-
 function storageHardTimeoutMs(idleTimeoutMs: number, expectedBytes?: number): number {
   if (expectedBytes === undefined) return idleTimeoutMs;
   const transferMs = Math.ceil((expectedBytes / MIN_STORAGE_TRANSFER_BYTES_PER_SECOND) * 1_000);
@@ -121,16 +114,6 @@ function expectedSize(descriptor: { sizeBytes: string }): number {
     throw new GraphSnapshotError('artifact_identity_conflict', 'Artifact size is outside the supported range');
   }
   return size;
-}
-
-function sameCompatibility(manifest: GraphSnapshotManifestV1): boolean {
-  return (
-    manifest.engine === GRAPH_FILE_FORMAT_COMPATIBILITY.engine &&
-    manifest.engineVersion === GRAPH_FILE_FORMAT_COMPATIBILITY.engineVersion &&
-    manifest.graphSchemaVersion === GRAPH_FILE_FORMAT_COMPATIBILITY.graphSchemaVersion &&
-    manifest.builderVersion === GRAPH_FILE_FORMAT_COMPATIBILITY.builderVersion &&
-    manifest.storageFormatVersion === GRAPH_FILE_FORMAT_COMPATIBILITY.storageFormatVersion
-  );
 }
 
 function storageMetadata(head: StorageObjectHead, key: string): string | null {
@@ -564,18 +547,17 @@ async function assertFileExcludes(path: string, canaries: ReadonlySet<string>, s
 @Injectable()
 export class GraphSnapshotBuildService {
   private readonly logger = new Logger(GraphSnapshotBuildService.name);
-  private readonly storageTimeoutMs: number;
-  private readonly componentMaxBytes: number;
+  private readonly componentMaxBytes = DEFAULT_COMPONENT_MAX_BYTES;
   private readonly buildRoot: string;
 
   constructor(
     private readonly r2: R2StorageService,
     buildRoot?: string,
-    @Optional() @Inject(STORAGE_CONFIG) storage: StorageConfig = storageConfigFromEnv(),
+    /** Idle storage-transfer window; only tests shorten it. */
+    private readonly storageTimeoutMs = DEFAULT_STORAGE_TIMEOUT_MS,
   ) {
-    this.storageTimeoutMs = positiveBounded(storage.graphSnapshot.storageTimeoutMs, DEFAULT_STORAGE_TIMEOUT_MS);
-    this.componentMaxBytes = positiveBounded(storage.graphSnapshot.componentMaxBytes, DEFAULT_COMPONENT_MAX_BYTES);
-    this.buildRoot = buildRoot ?? storage.graphSnapshot.buildRoot ?? join(tmpdir(), 'coredoc-graph-snapshot-builds');
+    this.buildRoot =
+      buildRoot ?? configFromEnv().storage.graphSnapshot.buildRoot ?? join(tmpdir(), 'coredoc-graph-snapshot-builds');
   }
 
   async materialize(
@@ -584,7 +566,7 @@ export class GraphSnapshotBuildService {
     workerSignal?: AbortSignal,
   ): Promise<MaterializedGraphSnapshot> {
     const identity = createGraphSnapshotIdentity(manifestInput);
-    if (identity.versionId !== expectedVersionId || !sameCompatibility(identity.manifest)) {
+    if (identity.versionId !== expectedVersionId || !hasCurrentGraphSnapshotCompatibility(identity.manifest)) {
       throw new GraphSnapshotError('artifact_identity_conflict', 'Candidate manifest identity is incompatible');
     }
     const graphKey = graphSnapshotR2Key(identity.manifest.workspaceId, identity.versionId);

@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CodeAnchor } from '@coredoc/core';
@@ -10,7 +9,6 @@ import {
   AnchorMismatchReason,
   AnchorStatus,
   SnapshotFreshness,
-  readObservedCheckout,
   resolveIntentEvidence,
   type AnchoredIntentSubject,
   type ObservedCheckout,
@@ -307,7 +305,7 @@ describe('resolveIntentEvidence — snapshot freshness (AC-7)', () => {
   });
 
   it('reports unknown when the caller supplied an observation git could not resolve', async () => {
-    // `readObservedCheckout` degrades an unreadable checkout to `{ dirty: true }`
+    // An unreadable checkout degrades to `{ dirty: true }`
     // with no commit — a comparison that WAS attempted and could not conclude.
     const result = await resolveWith({ dirty: true });
 
@@ -373,50 +371,6 @@ describe('resolveIntentEvidence — snapshot freshness (AC-7)', () => {
 
     expect(result.items[0]?.anchors[0]?.status).toBe(AnchorStatus.Changed);
     expect(result.items[0]?.anchors[0]?.snapshotFreshness).toBe(SnapshotFreshness.Current);
-  });
-});
-
-describe('readObservedCheckout', () => {
-  let repoDir: string;
-
-  afterEach(() => {
-    if (repoDir) rmSync(repoDir, { recursive: true, force: true });
-  });
-
-  it('reports the HEAD commit of a clean checkout', async () => {
-    repoDir = mkdtempSync(join(tmpdir(), 'intent-checkout-'));
-    const run = (...args: string[]) => execFileSync('git', args, { cwd: repoDir });
-    run('init', '-q');
-    run('config', 'user.email', 'test@example.com');
-    run('config', 'user.name', 'Test');
-    run('commit', '-q', '--allow-empty', '-m', 'init');
-
-    const observed = await readObservedCheckout(repoDir);
-
-    expect(observed.dirty).toBe(false);
-    expect(observed.commit).toMatch(/^[0-9a-f]{40}$/);
-  });
-
-  it('reports dirty when the working tree has uncommitted changes', async () => {
-    repoDir = mkdtempSync(join(tmpdir(), 'intent-checkout-'));
-    const run = (...args: string[]) => execFileSync('git', args, { cwd: repoDir });
-    run('init', '-q');
-    run('config', 'user.email', 'test@example.com');
-    run('config', 'user.name', 'Test');
-    run('commit', '-q', '--allow-empty', '-m', 'init');
-    writeFileSync(join(repoDir, 'untracked.ts'), 'export const x = 1;');
-
-    const observed = await readObservedCheckout(repoDir);
-
-    expect(observed.dirty).toBe(true);
-  });
-
-  it('degrades to dirty with no commit when the path is not a git checkout', async () => {
-    repoDir = mkdtempSync(join(tmpdir(), 'intent-checkout-'));
-
-    const observed = await readObservedCheckout(repoDir);
-
-    expect(observed).toEqual({ dirty: true });
   });
 });
 

@@ -1,4 +1,5 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import type { RetryDelay } from '@coredoc/core/agent-runner';
 import {
   JiraAuthError,
   type JiraClient,
@@ -8,12 +9,11 @@ import {
 } from '../delivery/jira-client.js';
 import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js';
 import { buildPrdDocument, type PrdIssue } from './prd-document.js';
+import { withRetries } from './retry.js';
 import { RunFailureCode } from './run-states.js';
+import { asRecord as record } from '../../libs/coerce.js';
 
 const ISSUE_FIELDS = ['summary', 'description', 'labels', 'issuetype', 'status', 'project', 'parent'];
-const JIRA_ATTEMPTS = 4;
-/** Far below the usual 5 minutes: these reads run inside a claim request the runner times out after 30 s. */
-const MAX_RETRY_WAIT_MS = 5_000;
 
 export class JiraReadFailure extends Error {
   constructor(
@@ -42,12 +42,18 @@ interface Connector {
   client: JiraClient;
 }
 
-export type Sleep = (ms: number) => Promise<void>;
-export const CLOUD_AGENT_RUNS_SLEEP = Symbol('CLOUD_AGENT_RUNS_SLEEP');
-
-function record(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+function isPermanent(error: unknown): boolean {
+  return error instanceof JiraNotFoundError || error instanceof JiraAuthError;
 }
+
+/** Everything but not-found/auth is retried; a rate limit's Retry-After is honoured. */
+function transientRead(error: unknown): { retryAfterMs: number | null } | false {
+  if (isPermanent(error)) return false;
+  return { retryAfterMs: error instanceof JiraRateLimitError ? error.retryAfterMs : null };
+}
+
+/** Far below the usual 5 minutes: these reads run inside a claim request the runner times out after 30 s. */
+const readDelay: RetryDelay = (attempt, retryAfterMs) => Math.min(retryAfterMs ?? 1_000 * attempt, 5_000);
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null;
@@ -61,14 +67,7 @@ function isEpic(issueType: unknown): boolean {
 /** Only issues in the connector's configured projects are readable. */
 @Injectable()
 export class CloudAgentRunIssueReader {
-  private readonly sleep: Sleep;
-
-  constructor(
-    private readonly jira: CloudAgentRunJiraConnector,
-    @Optional() @Inject(CLOUD_AGENT_RUNS_SLEEP) sleep?: Sleep,
-  ) {
-    this.sleep = sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-  }
+  constructor(private readonly jira: CloudAgentRunJiraConnector) {}
 
   async resolveIssue(workspaceId: string, issueKey: string): Promise<ResolvedIssue> {
     const connector = await this.connector(workspaceId);
@@ -114,7 +113,7 @@ export class CloudAgentRunIssueReader {
     try {
       issue = await this.withRetries(() => connector.client.getIssue(idOrKey, fields));
     } catch (error) {
-      if (error instanceof JiraNotFoundError || error instanceof JiraAuthError) throw notReadable(idOrKey);
+      if (isPermanent(error)) throw notReadable(idOrKey);
       throw error;
     }
     const project = text(record(record(issue.fields).project).key);
@@ -123,19 +122,11 @@ export class CloudAgentRunIssueReader {
   }
 
   private async withRetries<T>(read: () => Promise<T>): Promise<T> {
-    for (let attempt = 1; ; attempt += 1) {
-      try {
-        return await read();
-      } catch (error) {
-        const permanent = error instanceof JiraNotFoundError || error instanceof JiraAuthError;
-        if (permanent) throw error;
-        if (attempt >= JIRA_ATTEMPTS) {
-          throw new JiraReadFailure(RunFailureCode.JiraError, 'Jira kept failing while the PRD was being read');
-        }
-        const wait =
-          error instanceof JiraRateLimitError && error.retryAfterMs !== null ? error.retryAfterMs : 1_000 * attempt;
-        await this.sleep(Math.min(wait, MAX_RETRY_WAIT_MS));
-      }
+    try {
+      return await withRetries(read, transientRead, readDelay);
+    } catch (error) {
+      if (isPermanent(error)) throw error;
+      throw new JiraReadFailure(RunFailureCode.JiraError, 'Jira kept failing while the PRD was being read');
     }
   }
 

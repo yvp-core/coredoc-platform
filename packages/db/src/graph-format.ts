@@ -35,12 +35,6 @@ export const GRAPH_FILE_FORMAT_COMPATIBILITY = Object.freeze({
 // snapshot-manifest gates, so bumping either would fail-close every
 // already-published snapshot over a difference no reader can be wrong about.
 
-export const GRAPH_FILE_ENGINE = GRAPH_FILE_FORMAT_COMPATIBILITY.engine;
-export const GRAPH_FILE_ENGINE_VERSION = GRAPH_FILE_FORMAT_COMPATIBILITY.engineVersion;
-export const GRAPH_FILE_SCHEMA_VERSION = GRAPH_FILE_FORMAT_COMPATIBILITY.graphSchemaVersion;
-export const GRAPH_FILE_BUILDER_VERSION = GRAPH_FILE_FORMAT_COMPATIBILITY.builderVersion;
-export const GRAPH_FILE_STORAGE_FORMAT_VERSION = GRAPH_FILE_FORMAT_COMPATIBILITY.storageFormatVersion;
-
 /**
  * Builders whose heritage USES_TYPE rows carry the phase4 meaning of `ambiguous`.
  *

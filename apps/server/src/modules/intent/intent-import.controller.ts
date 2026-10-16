@@ -26,9 +26,8 @@ import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { IntentEnabledGuard } from './intent-enabled.guard.js';
 import type { WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js';
 import { INTENT_CONTENT_LIMITS, IntentExceptionFilter, intentContractPipe } from './contract/index.js';
-import type { IntentActor } from './intent-idempotency.js';
 import { ImportIntentWorkspaceSchema, IntentWorkspaceImportService } from './intent-workspace-import.js';
-import { IntentActorRole } from '../../mcp/intent-auth.js';
+import { intentActorOf } from '../../mcp/intent-auth.js';
 
 @Controller('workspaces/:workspaceId/intent')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, IntentEnabledGuard)
@@ -54,7 +53,7 @@ export class IntentImportController {
     )
     input: z.infer<typeof ImportIntentWorkspaceSchema>,
   ) {
-    const actor: IntentActor = { id: user.id, role: role ?? IntentActorRole.ServiceToken };
+    const actor = intentActorOf(user, role);
     return this.workspaceImports.import(workspaceId, actor, input);
   }
 }

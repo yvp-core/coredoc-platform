@@ -32,17 +32,11 @@ import { UserSessionGuard } from '../../auth/user-session.guard.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { IntentEnabledGuard } from './intent-enabled.guard.js';
 import type { WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js';
-import { IntentActorRole } from '../../mcp/intent-auth.js';
+import { intentActorOf } from '../../mcp/intent-auth.js';
 import { IntentExceptionFilter, ReviewIntentItemsSchema, intentContractPipe } from './contract/index.js';
 import { parseIntentPageLimit } from './intent-cursor.js';
-import type { IntentActor } from './intent-idempotency.js';
 import { IntentReviewService } from './intent-review.service.js';
 import { IntentTransitionsService, ListIntentTransitionsQuerySchema } from './intent-transitions.service.js';
-
-/** The actor recorded on every transition. `UserSessionGuard` has already refused every service token. */
-function actorOf(user: AuthUser, role: WorkspaceMemberRole | undefined): IntentActor {
-  return { id: user.id, role: role ?? IntentActorRole.ServiceToken };
-}
 
 @Controller('workspaces/:workspaceId/intent')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, IntentEnabledGuard)
@@ -62,7 +56,7 @@ export class IntentReviewController {
     @WorkspaceRoleValue() role: WorkspaceMemberRole | undefined,
     @Body(intentContractPipe(ReviewIntentItemsSchema)) body: z.infer<typeof ReviewIntentItemsSchema>,
   ) {
-    return this.review.review(workspaceId, actorOf(user, role), body);
+    return this.review.review(workspaceId, intentActorOf(user, role), body);
   }
 
   @Get('items/:itemId/transitions')

@@ -17,7 +17,7 @@
  */
 
 import { Logger } from '@nestjs/common';
-import { type AuthConfig, authConfigFromEnv } from '../../config/app-config.js';
+import { type AuthConfig, configFromEnv } from '../../config/app-config.js';
 import { Strategy as GitHubStrategy } from 'passport-github';
 import { GitHubOAuthProvider, type OAuthProviderConfig } from '@rekog/mcp-nest';
 import { emailDomain, joinUrl, parseCsv } from './provider-utils.js';
@@ -118,7 +118,7 @@ function makePolicyStrategy(fetchOrgs: boolean): typeof GitHubStrategy {
  * longer requests `read:org` or fetches `/user/orgs`. Re-enable by reinstating
  * an org check here and passing `makePolicyStrategy(true)`.
  */
-export function buildGitHubProvider(auth: AuthConfig = authConfigFromEnv()): OAuthProviderConfig {
+export function buildGitHubProvider(auth: AuthConfig = configFromEnv().auth): OAuthProviderConfig {
   const allowedDomains = parseCsv(auth.allowedEmailDomains);
 
   if (allowedDomains.length === 0) {

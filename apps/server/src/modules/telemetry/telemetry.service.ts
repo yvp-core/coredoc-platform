@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional, OnModuleDestroy } from '@nestjs/common';
-import { TELEMETRY_CONFIG, type TelemetryConfig, telemetryConfigFromEnv } from '../../config/app-config.js';
+import { TELEMETRY_CONFIG, type TelemetryConfig, configFromEnv } from '../../config/app-config.js';
 import { PostHog } from 'posthog-node';
 
 @Injectable()
@@ -8,7 +8,7 @@ export class TelemetryService implements OnModuleDestroy {
   private client: PostHog | null = null;
 
   constructor(
-    @Optional() @Inject(TELEMETRY_CONFIG) private readonly config: TelemetryConfig = telemetryConfigFromEnv(),
+    @Optional() @Inject(TELEMETRY_CONFIG) private readonly config: TelemetryConfig = configFromEnv().telemetry,
   ) {}
 
   private getClient(): PostHog | null {

@@ -15,7 +15,6 @@ What lives here:
 - `setup.ts` — seeds a workspace and writes the run config (`eval:intent:setup`).
 - `fixture-repo/`, `coredoc.config.json`, `coredoc-parsers/` — the code the tasks are about
   and the config and profile that parse it.
-- `context-first/` and `ci-anchors/` — retrieval and CI-anchor suites, run by `pnpm test`.
 
 The blind fact judge is `harness/judge-intent.ts`, the transcript analyzer
 `harness/analyze-intent.ts` and the runner `harness/run-intent.ts`.

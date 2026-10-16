@@ -19,7 +19,7 @@
  *      `handle`) on every type in a file; a flat file+name id would collapse them.
  */
 import type { StableIdGenerator } from '@coredoc/core';
-import { TreeSitterLoader, type TsNode } from '../../tree-sitter/tree-sitter-loader.js';
+import { type TsNode } from '../../tree-sitter/tree-sitter-loader.js';
 import { makeFileScopeDiscoverer } from '../cst-kit/file-scope.js';
 import { makeScopeChainId } from '../cst-kit/scope.js';
 import { makeStringValueReader } from '../cst-kit/strings.js';
@@ -35,11 +35,6 @@ export interface RustFile {
   root: TsNode;
 }
 
-/** Parse Rust source and return the root node. The loader memoises the Parser per grammar. */
-export async function parseRust(source: string): Promise<TsNode> {
-  return (await TreeSitterLoader.getInstance().getParser('rust')).parse(source).rootNode;
-}
-
 // tree-sitter-rust node types the substrate depends on.
 export const FUNCTION_ITEM = 'function_item';
 export const STRUCT_ITEM = 'struct_item';
@@ -53,7 +48,6 @@ export const FIELD_EXPRESSION = 'field_expression';
 export const GENERIC_FUNCTION = 'generic_function';
 export const SCOPED_IDENTIFIER = 'scoped_identifier';
 export const MACRO_INVOCATION = 'macro_invocation';
-export const TOKEN_TREE = 'token_tree';
 export const STRING_LITERAL = 'string_literal';
 export const RAW_STRING_LITERAL = 'raw_string_literal';
 
@@ -365,21 +359,11 @@ export const DEFAULT_RS_EXCLUDES: string[] = [
 ];
 
 /**
- * Enumerate `.rs` sources in scope: the gitignore-honoring repo walk (`enumerateRepoFiles`)
- * filtered to `.rs` + the profile's include/exclude globs. An empty `include` defaults to all
- * `.rs` files; the effective exclude is `DEFAULT_RS_EXCLUDES` plus the profile's `exclude`
- * unless `excludeDefaults === false`. Sorted for deterministic output.
+ * `.rs` sources in scope: the gitignore-honoring repo walk (`enumerateRepoFiles`) filtered to
+ * `.rs` + the profile's include/exclude globs. An empty `include` defaults to all `.rs` files; the
+ * effective exclude is `DEFAULT_RS_EXCLUDES` plus the profile's `exclude` unless
+ * `excludeDefaults === false`. Shared by the parser and the scorer.
  */
-export function discoverRustFiles(
-  root: string,
-  include: string[],
-  exclude: string[] = [],
-  excludeDefaults?: boolean,
-): string[] {
-  return discoverRustFileScope(root, include, exclude, excludeDefaults).included;
-}
-
-/** The scorer-facing source scope, derived by the same discovery policy as the parser. */
 export const discoverRustFileScope = makeFileScopeDiscoverer({
   extensions: ['.rs'],
   defaultInclude: ['**/*.rs'],

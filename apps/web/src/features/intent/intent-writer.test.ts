@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { IntentAttemptKeys, IntentWriteForm } from './intent-attempt-keys.js';
+import { IntentAttemptKeys, IntentWriteForm } from '@coredoc/core/browser/intent-attempt-keys';
 import { IntentWriteBusyError, IntentWriter } from './intent-writer.js';
 
 const counter = () => {

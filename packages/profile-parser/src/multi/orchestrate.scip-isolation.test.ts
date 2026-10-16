@@ -14,8 +14,7 @@ const FAKE_LANGUAGES = ['scip-isolation-fixture-a', 'scip-isolation-fixture-b'] 
  * The per-project index filename is derived from the project path alone and carries no target
  * discriminator, and the indexer pool is async — so a shared directory lets one target's
  * pre-spawn `rmSync` land between another target's write and its decode, nondeterministically
- * dropping call edges. `orchestrate.ts` used to leave them sharing a repo-local default whenever
- * the caller passed no `cacheDir`; isolation must not depend on opting into an incremental cache.
+ * dropping call edges, so `orchestrate.ts` gives each target its own directory under a temp root.
  */
 function emptyRepo(name: string) {
   return {
@@ -81,7 +80,7 @@ function recordingProfile(): MultiTargetProfile {
 }
 
 describe('parseMultiTarget SCIP isolation', () => {
-  it('gives every target a distinct scipOutDir even with no cacheDir', async () => {
+  it('gives every target a distinct scipOutDir', async () => {
     seenScipDirs.length = 0;
     await parseMultiTarget(recordingProfile(), { repoRoot: '/repo', repoName: 'r' });
     const seen = seenScipDirs;
@@ -98,18 +97,5 @@ describe('parseMultiTarget SCIP isolation', () => {
 
     // Both targets sit under one temp root; it must not survive the call.
     for (const dir of seen) expect(existsSync(dir as string)).toBe(false);
-  });
-
-  it('keeps target scip dirs distinct under a caller-supplied cacheDir', async () => {
-    seenScipDirs.length = 0;
-    await parseMultiTarget(recordingProfile(), {
-      repoRoot: '/repo',
-      repoName: 'r',
-      cacheDir: '/tmp/coredoc-cache-fixture',
-    });
-    const seen = seenScipDirs;
-
-    expect(new Set(seen).size).toBe(seen.length);
-    for (const dir of seen) expect(dir).toContain('/tmp/coredoc-cache-fixture');
   });
 });

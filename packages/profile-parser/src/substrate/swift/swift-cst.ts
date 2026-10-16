@@ -14,7 +14,7 @@
  *     `navigation_expression` (`target` + `navigation_suffix`) → `call_suffix`.
  */
 import type { StableIdGenerator } from '@coredoc/core';
-import { TreeSitterLoader, type TsNode } from '../../tree-sitter/tree-sitter-loader.js';
+import { type TsNode } from '../../tree-sitter/tree-sitter-loader.js';
 import { makeStringValueReader } from '../cst-kit/strings.js';
 import { nearestAncestor } from '../cst-kit/walk.js';
 
@@ -32,11 +32,6 @@ export const PROPERTY_DECL = 'property_declaration';
 
 /** Both kinds of type container we treat as an "enclosing type" for method scoping. */
 export const TYPE_CONTAINERS = new Set([TYPE_DECL, PROTOCOL_DECL]);
-
-/** Parse Swift source and return the root node. The loader memoises the Parser per grammar. */
-export async function parseSwift(source: string): Promise<TsNode> {
-  return (await TreeSitterLoader.getInstance().getParser('swift')).parse(source).rootNode;
-}
 
 /** The `declaration_kind` keyword of a `class_declaration` (class|struct|enum|actor|extension). */
 export function declKind(node: TsNode): string | undefined {

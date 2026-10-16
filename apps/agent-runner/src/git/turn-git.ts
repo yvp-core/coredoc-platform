@@ -1,4 +1,5 @@
 /** Implement-turn git, run with the bot's token. Nothing is pushed while any clone's scan blocks. */
+import { setTimeout as sleep } from 'node:timers/promises';
 import { copyFile, lstat, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
@@ -9,7 +10,7 @@ import {
   type RetryDelay,
   RunFailureCode,
 } from '@coredoc/core/agent-runner';
-import { GITHUB_ATTEMPTS, sleep, TurnFailure } from '../turn-failure.js';
+import { GITHUB_ATTEMPTS, TurnFailure } from '../turn-failure.js';
 import { type Git, GitError } from './git.js';
 import { blocksPush, describeBlock, REMOTE_MOVED_REASONS, type SecretScanner } from './secret-scan.js';
 import { stageChanges } from './staging.js';

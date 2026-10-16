@@ -17,6 +17,7 @@ import {
 import { CODE_CHANGE_NORM_VERSION, normalizePullRequest } from './github-normalizer.js';
 import { resolveWindowStart } from './ingest-window.js';
 import { packRawPayload } from './raw-payload-codec.js';
+import { toDate } from '../../libs/coerce.js';
 
 export type GithubClientFactory = (token: string, baseUrl?: string) => GithubClient;
 type ClientFactory = GithubClientFactory;
@@ -38,13 +39,6 @@ export function parseGithubRepo(gitUrl: string): { owner: string; repo: string }
   const match = gitUrl.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
   if (!match) return null;
   return { owner: match[1], repo: match[2] };
-}
-
-/** ISO string -> Date, or null for absent/unparseable input. */
-function toDate(value: string | undefined): Date | null {
-  if (!value) return null;
-  const d = new Date(value);
-  return Number.isFinite(d.getTime()) ? d : null;
 }
 
 /**

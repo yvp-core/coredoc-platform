@@ -127,10 +127,6 @@ const MODEL_PRICES: readonly ModelPrice[] = [
   },
 ];
 
-export function isPricedModel(provider: string, model: string): boolean {
-  return MODEL_PRICES.some((candidate) => candidate.provider === provider && candidate.model === model);
-}
-
 function validCount(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0;
 }

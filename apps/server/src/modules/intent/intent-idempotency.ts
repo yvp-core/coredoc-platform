@@ -98,8 +98,8 @@ const MAX_AUDIT_PROJECTION_CHARS = 4_096;
 /**
  * Stable JSON: object keys in sorted order at every depth, so the request hash
  * of two equal requests is equal regardless of key order on the wire.
- * (`canonicalIntentJson` in the archive; re-stated here because core does not
- * export it and this module needs the property, not the file.)
+ * Not core's `canonicalIntentJson`: that one assigns keys, so an own `__proto__`
+ * key vanishes, while this keeps it — swapping would change persisted ledger hashes.
  */
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(sortKeys(value));

@@ -41,15 +41,6 @@ export interface ChangesetStats {
   edgesInserted: number;
 }
 
-export interface ChangesetResult {
-  nodesAdded: number;
-  nodesUpdated: number;
-  nodesDeleted: number;
-  edgesDeleted: number;
-  edgesInserted: number;
-  unchanged: number;
-}
-
 /** Require an explicit rebuild before deleting this fraction of the old code graph. */
 export const MASS_DELETE_THRESHOLD = 0.8;
 

@@ -1,8 +1,9 @@
 /** No agent runs here; the server verifies every reported pull request itself. */
+import { setTimeout as sleep } from 'node:timers/promises';
 import { type DeliveryReport, type RetryDelay, RunFailureCode, type TurnAssignment } from '@coredoc/core/agent-runner';
 import type { GithubApi } from '../github/github-api.js';
 import type { TurnIO, TurnResult } from '../runner.js';
-import { GITHUB_ATTEMPTS, sleep, TurnFailure } from '../turn-failure.js';
+import { GITHUB_ATTEMPTS, TurnFailure } from '../turn-failure.js';
 
 type Planned = NonNullable<TurnAssignment['delivery']>['pullRequests'][number];
 

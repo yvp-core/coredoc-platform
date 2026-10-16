@@ -45,9 +45,6 @@ import {
 import { unclaimedScope, unclaimedScopeRedFlags } from './scoring/unclaimed-scope.js';
 import type { BaseProfile } from './types/profile-base.js';
 
-// Re-exported for back-compat / tests.
-export { entitySourceCount, externalCallsSourceCount, queueSourceCount } from './scoring/ts-signals.js';
-
 /** Resolve a profile module by path — single-language or multi-target. */
 async function resolveProfileRef(ref: string): Promise<{ name: string; dir: string; resolved: ResolvedProfileExport }> {
   const abs = path.resolve(ref);
@@ -366,8 +363,8 @@ async function main(): Promise<void> {
 }
 
 // Run only when invoked as a script (not when imported by tests). Matched by
-// entrypoint PATH — see the note in substrate/run.ts: comparing import.meta.url
-// to argv[1] is true for EVERY module inside the single-file CLI bundle.
+// entrypoint PATH: comparing import.meta.url to argv[1] is true for EVERY module
+// inside the single-file CLI bundle.
 const _entrypoint = process.argv[1]?.replace(/\\/g, '/');
 if (_entrypoint?.endsWith('/score.ts') || _entrypoint?.endsWith('/score.js')) {
   main().catch((e) => {

@@ -19,7 +19,6 @@
 
 import type {
   IGraphReadRepository,
-  IGraphRepository,
   ExternalCallInfo,
   RepoSummary,
   FunctionInfo,
@@ -485,27 +484,4 @@ export async function parsedReposFromRepository(
 
   signal?.throwIfAborted();
   return orderedRepos.map((repo) => buckets.get(repo.repoKey) as ParsedRepoLike);
-}
-
-/**
- * Build a workspace-wide `ParsedRepoLike[]` from Turso for `linkWorkspace`.
- * Reconstructs minimal-but-compatible `Entrypoint` and `ExternalCallEdge` shapes
- * from Turso DB flat rows so the unified linker sees the same interface as the CLI.
- */
-export async function parsedReposFromTurso(
-  repository: IGraphRepository,
-  projectRepoNames: string[],
-  httpPrefixes?: Map<string, string | null | undefined>,
-  prefetchedRepos?: RepoSummary[],
-): Promise<ParsedRepoLike[]> {
-  if (projectRepoNames.length === 0) return [];
-
-  const allRepos = prefetchedRepos ?? (await repository.listAllRepositories(projectRepoNames));
-  const byName = new Map(allRepos.map((repo) => [repo.name, repo]));
-  const pinned = projectRepoNames.flatMap((repoName) => {
-    const graphRepo = byName.get(repoName);
-    return graphRepo ? [{ repoKey: graphRepo.hash, repoName, httpPrefix: httpPrefixes?.get(repoName) ?? null }] : [];
-  });
-  if (pinned.length === 0) return [];
-  return parsedReposFromRepository(repository, pinned, undefined, allRepos);
 }

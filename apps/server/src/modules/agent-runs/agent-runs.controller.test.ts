@@ -56,7 +56,7 @@ describe('agent-runs endpoints (integration)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     // Simulate AuthGuard's output: every request is an authenticated member, and
     // a `x-service-token: 1` header marks the principal as a service token
-    // (AuthGuard sets serviceTokenWorkspaceId for cdt_ tokens). JwtOnlyGuard is
+    // (AuthGuard sets serviceTokenWorkspaceId for cdt_ tokens). UserSessionGuard is
     // NOT overridden below, so the real guard runs against this shape.
     app.use(
       (req: Request & { user?: unknown; serviceTokenWorkspaceId?: string }, _res: Response, next: NextFunction) => {

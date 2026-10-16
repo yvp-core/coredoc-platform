@@ -20,12 +20,7 @@
  * best-effort at the same shape Django uses, instead of a value Django never produces.
  */
 import { type PythonFile, type TsNode, baseNames, defName, stringValue } from './python-cst.js';
-
-/** Directory of a repo-relative path ('a/b/apps.py' → 'a/b'; 'apps.py' → '.'). */
-function dirOf(relPath: string): string {
-  const i = relPath.lastIndexOf('/');
-  return i === -1 ? '.' : relPath.slice(0, i);
-}
+import { posix } from 'node:path';
 
 /** Direct `name = <rhs>` assignments in a class body (not nested-scope ones). */
 function bodyAssignments(classNode: TsNode): TsNode[] {
@@ -108,7 +103,7 @@ export function buildDjangoAppIndex(files: PythonFile[]): Map<string, string> {
   const index = new Map<string, string>();
   for (const file of files) {
     if (!/(^|\/)apps\.pyi?$/.test(file.relPath)) continue;
-    const dir = dirOf(file.relPath);
+    const dir = posix.dirname(file.relPath);
     const label = labelFromAppsFile(file) ?? (dir === '.' ? undefined : (dir.split('/').pop() as string));
     if (label && !index.has(dir)) index.set(dir, label);
   }

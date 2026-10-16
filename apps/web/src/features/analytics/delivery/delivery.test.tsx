@@ -164,9 +164,7 @@ describe('member scope control', () => {
 
     expect(await screen.findByRole('combobox', { name: 'Member' })).toBeInTheDocument();
     expect(screen.queryByText('Only my tasks')).toBeNull();
-    // Radix renders the selected item's text in the trigger; the list itself is
-    // portalled open-on-demand, so the default value is what is assertable here.
-    expect(screen.getByText('All members')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Member' })).toHaveDisplayValue('All members');
   });
 
   it('keeps the self-scope switch for a member', async () => {

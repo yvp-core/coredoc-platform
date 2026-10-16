@@ -100,7 +100,7 @@ grep -rl "declare const WindowFrame:" apps/desktop/node_modules/@solar-icons/rea
   design ships one recipe for that component. Two fills for one control read as two controls.
 - **One card, two greys.** Repo cards are Selago (`selago-50`/`selago-100`). If you are about
   to style a card that already exists elsewhere, go and look at the twin first.
-- **Value-importing `@coredoc/core` enums in the renderer** breaks the browser bundle. Type-only.
+- **Value-importing the `@coredoc/core` root in the renderer** breaks the browser bundle. Type-only, or value-import the browser-safe `@coredoc/core/browser/*` subpaths.
 
 ## Where a design review lives
 

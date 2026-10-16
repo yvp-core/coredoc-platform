@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ForbiddenException, type ExecutionContext } from '@nestjs/common';
 import { UserSessionGuard } from './user-session.guard.js';
-import { JwtOnlyGuard } from './jwt-only.guard.js';
 import { TokenPermission } from './token-permissions.js';
 
 function ctx(request: Record<string, unknown>): ExecutionContext {
@@ -49,9 +48,5 @@ describe('UserSessionGuard', () => {
   it('refuses a request with no principal at all (guard wired without AuthGuard)', () => {
     expect(() => guard.canActivate(ctx({}))).toThrow(ForbiddenException);
     expect(() => guard.canActivate(ctx({}))).toThrow('authenticated user session');
-  });
-
-  it('is the same class as the deprecated JwtOnlyGuard alias — one implementation, no drift', () => {
-    expect(JwtOnlyGuard).toBe(UserSessionGuard);
   });
 });

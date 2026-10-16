@@ -19,7 +19,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import { PrismaService } from '../../database/prisma.service.js';
 import { isInvitationLive } from '../oauth/invitation-eligibility.js';
 import { cookieSecure, resolveWebOrigin, webOrigins } from '../oauth/server-url.js';
-import { authConfigFromEnv, miscConfigFromEnv } from '../../config/app-config.js';
+import { configFromEnv } from '../../config/app-config.js';
 import {
   INVITATION_HANDOFF_COOKIE,
   PKCE_COOKIE,
@@ -105,7 +105,7 @@ export class WebAuthService {
   }
 
   private jwtSecretKey(): Uint8Array {
-    const secret = authConfigFromEnv().jwtSecret;
+    const secret = configFromEnv().auth.jwtSecret;
     return new TextEncoder().encode(secret);
   }
 
@@ -164,7 +164,7 @@ export class WebAuthService {
   // ===========================================================================
 
   private loopbackTokenUrl(): string {
-    const port = miscConfigFromEnv().port ?? 3000;
+    const port = configFromEnv().misc.port ?? 3000;
     // `localhost`, not a hardcoded IPv4 `127.0.0.1`: Node's default
     // `app.listen(port)` binds IPv6 (`::`, V6ONLY on macOS), so an IPv4 literal
     // can miss our own server entirely — or, worse, silently hit an unrelated
@@ -238,7 +238,7 @@ export class WebAuthService {
    * and reconciles the pending local workspace membership.
    */
   async completeWorkosInvitation(code: string): Promise<AcceptedWorkOSInvitation> {
-    const auth = authConfigFromEnv();
+    const auth = configFromEnv().auth;
     if (auth.upstream !== 'workos') {
       throw new WorkOSInvitationExchangeError('WorkOS invitation completion is not enabled');
     }
@@ -392,11 +392,11 @@ export class WebAuthService {
   // ===========================================================================
 
   private accessTokenMaxAgeMs(): number {
-    return parseDurationToMs(authConfigFromEnv().accessTtl);
+    return parseDurationToMs(configFromEnv().auth.accessTtl);
   }
 
   private refreshTokenMaxAgeMs(): number {
-    return parseDurationToMs(authConfigFromEnv().refreshTtl);
+    return parseDurationToMs(configFromEnv().auth.refreshTtl);
   }
 
   setPkceCookie(res: Response, jws: string): void {

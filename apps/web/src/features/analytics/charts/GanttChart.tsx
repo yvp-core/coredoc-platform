@@ -7,7 +7,7 @@
 
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { formatDurationMs } from '../format.js';
+import { formatDurationMs } from '@coredoc/core/browser/format';
 import { ChartTooltip, TOOLTIP_FLIP_THRESHOLD, TOOLTIP_HALF_WIDTH } from './ChartTooltip.js';
 import {
   clampTooltipX,
@@ -16,7 +16,7 @@ import {
   type GanttSegment,
   layoutGantt,
   tooltipPlacement,
-} from './chart-geometry.js';
+} from '@coredoc/core/browser/chart-geometry';
 import { useChartWidth } from './use-chart-width.js';
 
 const STAGE_TOKENS = [

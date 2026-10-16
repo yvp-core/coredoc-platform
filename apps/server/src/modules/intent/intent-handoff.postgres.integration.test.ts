@@ -3,7 +3,7 @@ import { ReleaseActorKind } from './intent-release.fold.js';
 import { GithubIntentReleaseService } from './github-intent-release.service.js';
 /** Real PostgreSQL and Ladybug, with GitHub observations and lease acquisition substituted.
  * Hosted OAuth / real forge merge remain a distinct post-deploy E2E gate. */
-import 'dotenv/config';
+import '../../config/load-env.js';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

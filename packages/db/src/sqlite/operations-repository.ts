@@ -6,13 +6,7 @@
  */
 
 import { randomBytes } from 'crypto';
-import type {
-  IDatabaseDriver,
-  IOperationsRepository,
-  OperationType,
-  OperationRecord,
-  OperationSummary,
-} from '../types.js';
+import type { IDatabaseDriver, OperationType, OperationRecord, OperationSummary } from '../types.js';
 
 const OPERATION_TO_SUMMARY_KEY: Record<string, keyof Omit<OperationSummary, 'projectId' | 'repoName'>> = {
   parse: 'lastParsed',
@@ -42,7 +36,7 @@ function rowToRecord(row: Record<string, unknown>): OperationRecord {
   };
 }
 
-export class SqliteOperationsRepository implements IOperationsRepository {
+export class SqliteOperationsRepository {
   constructor(private driver: IDatabaseDriver) {}
 
   async startOperation(

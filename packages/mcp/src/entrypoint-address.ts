@@ -9,37 +9,18 @@
  * (HTTP path, GraphQL field, queue/event destination, Kafka topic, cron
  * schedule, CLI command).
  *
- * `@coredoc/db` owns the query-side twin (`entrypointAddressMatches` /
- * `entrypointAddressTokens` over `EntrypointAddress`, used to filter inside each
- * backend). The field list is therefore written twice, which is a known DRY
- * defect: the two must be collapsed onto one definition in `@coredoc/db`, and
- * the only thing blocking that is module resolution — this module is imported
- * by tool handlers whose unit tests replace `@coredoc/db` wholesale
- * (`vi.mock('@coredoc/db', () => ({ getRepository: vi.fn() }))`), so it may not
- * depend on that entry point. Collapsing it needs a mock-free subpath (a
- * `"./route-path"` entry in `packages/db/package.json`, the way `./types`
- * already works for `type-usage.ts`); until then `entrypoint-address.test.ts`
- * pins the two token lists to the same set so they cannot drift apart silently.
+ * The raw address field list lives once, in `@coredoc/db/route-path` (a
+ * mock-free subpath: tool-handler tests replace the `@coredoc/db` root wholesale).
  */
+
+import { type EntrypointAddress, entrypointAddressTokens as addressFieldTokens } from '@coredoc/db/route-path';
 
 /**
  * Structural subset shared by the MCP `EntrypointInfo` and the db-layer one
  * (whose `handlerName` is optional): only the address fields matter here.
  */
-export interface EntrypointAddressable {
+export interface EntrypointAddressable extends EntrypointAddress {
   type: string;
-  fullPath?: string;
-  path?: string;
-  fieldName?: string;
-  destination?: string;
-  destinationValue?: string;
-  topic?: string;
-  topicValue?: string;
-  eventName?: string;
-  command?: string;
-  schedule?: string;
-  /** Mobile entrypoint address: the component class simple name. */
-  className?: string;
 }
 
 /**
@@ -104,19 +85,8 @@ export function entrypointAddressLabel(ep: EntrypointAddressable): string | unde
  * literal destination string — back to the entrypoint.
  */
 export function entrypointAddressTokens(ep: EntrypointAddressable): string[] {
-  const tokens = [
-    entrypointAddressLabel(ep),
-    ep.fullPath,
-    ep.path,
-    ep.fieldName,
-    ep.destinationValue,
-    ep.destination,
-    ep.topicValue,
-    ep.topic,
-    ep.eventName,
-    ep.command,
-    ep.schedule,
-    ep.className,
-  ].filter((token): token is string => typeof token === 'string' && token.trim().length > 0);
+  const tokens = [entrypointAddressLabel(ep), ...addressFieldTokens(ep)].filter(
+    (token): token is string => typeof token === 'string' && token.trim().length > 0,
+  );
   return [...new Set(tokens)];
 }

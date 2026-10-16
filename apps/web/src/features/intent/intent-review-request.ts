@@ -49,7 +49,7 @@ export interface IntentDraftDecision {
 export const INTENT_MANUAL_REVIEW_REF = 'cloud-review';
 
 /** `YYYY-MM-DD` in UTC — the local id a manual decision is filed under. */
-export function isoDateOnly(date: Date): string {
+function isoDateOnly(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
@@ -70,9 +70,7 @@ export function issueReviewSource(ticket: string): IntentAuthorizingSource {
   return { kind: IntentSourceKind.Issue, ref: key, localId: key };
 }
 
-export type IntentReviewRequestBuild =
-  | { ok: true; request: IntentReviewRequest }
-  | { ok: false; issues: readonly string[] };
+type IntentReviewRequestBuild = { ok: true; request: IntentReviewRequest } | { ok: false; issues: readonly string[] };
 
 /**
  * Assemble one batch. Refuses locally only what the UI can see is wrong —
@@ -153,7 +151,7 @@ export function stagedCard(
   };
 }
 
-export interface IntentReviewBatchPlan {
+interface IntentReviewBatchPlan {
   /** The decisions that go on the wire, in card order. */
   pending: IntentDraftDecision[];
   /** Cards deliberately left out, each with its own plain reason. */

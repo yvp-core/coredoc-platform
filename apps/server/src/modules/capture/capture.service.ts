@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { canonicalIntentJson } from '@coredoc/core';
 import type { AuthUser } from '../../auth/decorators/current-user.decorator.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import {
@@ -22,6 +23,7 @@ import {
   validateCaptureProvisioningReport,
   validateCaptureEvent,
 } from './capture-contract.js';
+import { isUniqueViolation } from '../../libs/coerce.js';
 
 class ContradictingFactError extends Error {}
 class OutOfWorkspaceRepositoryError extends Error {}
@@ -44,10 +46,6 @@ type CaptureProvisioningRow = {
   disabledAt: Date | null;
   reportedAt: Date;
 };
-
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2002';
-}
 
 /** Normalize only server-trusted Git URLs to the existing host-free capture key. */
 function normalizeTrustedRepositoryUrl(origin: string): string | null {
@@ -90,18 +88,9 @@ function assertSame(label: string, established: unknown, incoming: unknown): voi
   if (left !== right) throw new ContradictingFactError(`${label} contradicts an established fact`);
 }
 
-function stableJson(value: unknown): string {
-  if (!value || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  return `{${Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
-    .join(',')}}`;
-}
-
 function assertSameJson(label: string, established: unknown, incoming: unknown): void {
   if (established === null || established === undefined || incoming === undefined) return;
-  if (stableJson(established) !== stableJson(incoming)) {
+  if (canonicalIntentJson(established) !== canonicalIntentJson(incoming)) {
     throw new ContradictingFactError(`${label} contradicts an established fact`);
   }
 }

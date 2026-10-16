@@ -5,7 +5,9 @@
  */
 
 import { gzipSync } from 'node:zlib';
-import { getToken, getServerUrl } from '../auth.js';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { authHeaders, getServerUrl } from '../auth.js';
+import { getJob, JobRequestError } from '../sync/workspace-api.js';
 import { stripSourceCode, stripEmbeddingInputText } from '@coredoc/db';
 import { allowSourcesInGraph } from '@coredoc/core/utils';
 import { parseStructuredServerError } from '../structured-error.js';
@@ -31,13 +33,13 @@ export interface UploadResultResponse {
  * repetitive JSON, and reverse proxies commonly cap raw request bodies at
  * 100 MB. Express inflates `Content-Encoding: gzip` before the JSON parser.
  */
-function gzipUpload(json: string, token: string): { body: Buffer; headers: Record<string, string> } {
+function gzipUpload(json: string, auth: { Authorization: string }): { body: Buffer; headers: Record<string, string> } {
   return {
     body: gzipSync(json),
     headers: {
       'Content-Type': 'application/json',
       'Content-Encoding': 'gzip',
-      Authorization: `Bearer ${token}`,
+      ...auth,
     },
   };
 }
@@ -51,8 +53,7 @@ export async function uploadResult(options: {
   repoName: string;
   parsedRepo: ParsedRepo;
 }): Promise<UploadResultResponse> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated. Run: coredoc login (or set COREDOC_TOKEN)');
+  const auth = await authHeaders();
 
   const serverUrl = await getServerUrl();
   const url = `${serverUrl}/api/v1/workspaces/${options.workspaceId}/repos/${options.repoName}/results/upload`;
@@ -77,7 +78,7 @@ export async function uploadResult(options: {
 
   let response: Response;
   try {
-    const upload = gzipUpload(jsonBody, token);
+    const upload = gzipUpload(jsonBody, auth);
     response = await fetch(url, {
       method: 'POST',
       headers: upload.headers,
@@ -125,8 +126,7 @@ export async function pushByVersion(options: {
    */
   rebuild?: boolean;
 }): Promise<unknown> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated. Run: coredoc login (or set COREDOC_TOKEN)');
+  const auth = await authHeaders();
 
   const serverUrl = await getServerUrl();
   const params = new URLSearchParams();
@@ -157,7 +157,7 @@ export async function pushByVersion(options: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+        ...auth,
       },
       body: jsonBody,
       signal: controller.signal,
@@ -224,58 +224,18 @@ export class PushJobFailedError extends Error {
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-class PushJobStatusHttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
 /**
  * A failed poll attempt that says nothing about the job: the transport broke
  * (network error, abort) or the server itself faltered (5xx). A 401/403/404 is
  * a real answer and stays terminal.
  */
 function isTransientPollError(error: unknown): boolean {
-  if (error instanceof PushJobStatusHttpError) return error.status >= 500;
-  return error instanceof TypeError || (error instanceof Error && error.name === 'AbortError');
+  if (error instanceof JobRequestError) return error.status >= 500;
+  return error instanceof TypeError || (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name));
 }
 
 /** Consecutive transport failures tolerated before the watch gives up as inconclusive. */
 const MAX_CONSECUTIVE_POLL_FAILURES = 3;
-
-async function getPushJob(workspaceId: string, jobId: string): Promise<PushJobSnapshot> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated. Run: coredoc login (or set COREDOC_TOKEN)');
-
-  const serverUrl = await getServerUrl();
-  const url = `${serverUrl}/api/v1/workspaces/${workspaceId}/jobs/${jobId}`;
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30 * 1000);
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new PushJobStatusHttpError(response.status, `Job status check failed (${response.status}): ${error}`);
-  }
-  return (await response.json()) as PushJobSnapshot;
-}
 
 /**
  * Watch a queued push job to a terminal state.
@@ -305,9 +265,9 @@ export async function waitForPushJob(
   let consecutiveFailures = 0;
 
   for (;;) {
-    let job: PushJobSnapshot;
+    let job: PushJobSnapshot | null;
     try {
-      job = await getPushJob(workspaceId, jobId);
+      job = await getJob(workspaceId, jobId);
       consecutiveFailures = 0;
     } catch (error) {
       if (!isTransientPollError(error)) throw error;
@@ -319,6 +279,7 @@ export async function waitForPushJob(
       await sleep(Math.min(intervalMs, remaining));
       continue;
     }
+    if (!job) throw new Error(`Push job ${jobId} not found in workspace ${workspaceId}`);
     if (job.status === 'succeeded') return job;
     if (job.status === 'failed') {
       // The worker persists a structured error under `result.error`; `lastError`
@@ -352,8 +313,7 @@ export async function fetchSummaries(options: {
   workspaceId: string;
   repoName: string;
 }): Promise<SummaryOutput | null> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated. Run: coredoc login (or set COREDOC_TOKEN)');
+  const auth = await authHeaders();
 
   const serverUrl = await getServerUrl();
   const url = `${serverUrl}/api/v1/workspaces/${options.workspaceId}/repos/${options.repoName}/summaries/latest`;
@@ -366,7 +326,7 @@ export async function fetchSummaries(options: {
     response = await fetch(url, {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${token}`,
+        ...auth,
       },
       signal: controller.signal,
     });
@@ -413,8 +373,7 @@ export async function uploadSummaries(options: {
   repoName: string;
   summaryOutput: SummaryOutput;
 }): Promise<{ version: string }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated. Run: coredoc login (or set COREDOC_TOKEN)');
+  const auth = await authHeaders();
 
   const serverUrl = await getServerUrl();
   const url = `${serverUrl}/api/v1/workspaces/${options.workspaceId}/repos/${options.repoName}/summaries/upload`;
@@ -426,7 +385,7 @@ export async function uploadSummaries(options: {
 
   let response: Response;
   try {
-    const upload = gzipUpload(jsonBody, token);
+    const upload = gzipUpload(jsonBody, auth);
     response = await fetch(url, {
       method: 'POST',
       headers: upload.headers,
@@ -454,8 +413,7 @@ export async function uploadEmbeddings(options: {
   repoName: string;
   embeddingsOutput: EmbeddingsOutput;
 }): Promise<{ version: string }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated. Run: coredoc login (or set COREDOC_TOKEN)');
+  const auth = await authHeaders();
 
   const serverUrl = await getServerUrl();
   const url = `${serverUrl}/api/v1/workspaces/${options.workspaceId}/repos/${options.repoName}/embeddings/upload`;
@@ -478,7 +436,7 @@ export async function uploadEmbeddings(options: {
 
   let response: Response;
   try {
-    const upload = gzipUpload(jsonBody, token);
+    const upload = gzipUpload(jsonBody, auth);
     response = await fetch(url, {
       method: 'POST',
       headers: upload.headers,

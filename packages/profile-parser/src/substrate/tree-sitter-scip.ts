@@ -22,10 +22,12 @@ import { TreeSitterLoader } from '../tree-sitter/tree-sitter-loader.js';
 import type { StableIdGenerator } from '@coredoc/core';
 import { releaseParsedTree } from '../tree-sitter/tree-release.js';
 import type { CallProvenance, TypeInfo } from '@coredoc/core/types';
-import type { BaselineResult, LoadedScip } from '../facts/index.js';
-import { buildMappingHooks, decodeRange, isDefinition, packageSymbolKey, parseMoniker } from '../facts/index.js';
+import type { BaselineResult } from '../facts/pipeline.js';
+import type { LoadedScip } from '../facts/scip/decode.js';
+import { buildMappingHooks } from '../facts/scip/to-edges.js';
+import { decodeRange, isDefinition, packageSymbolKey, parseMoniker } from '../facts/scip/decode.js';
 import { lookupSdkByPackage } from '@coredoc/core/base-parser/sdk-registry';
-import type { StructuralCall, StructuralFile } from '../facts/index.js';
+import type { StructuralCall, StructuralFile } from '../facts/structural/ts-structural.js';
 import type { Node as TsNode } from 'web-tree-sitter';
 import type {
   ExternalClientMatcher,
@@ -83,35 +85,7 @@ import type {
   SubstrateClass,
   SubstrateFunction,
   SubstrateLoc,
-  VueSubstrate,
 } from './interface.js';
-
-// ── re-exports (preserve the public surface tests import from this module) ────
-export { regexFromSource, requirePathToRel } from './regex-util.js';
-export { calleeName, calleeTail, lineAt, routeFileInScope } from './scip/call-shapes.js';
-export {
-  buildBareImports,
-  egressTraversableCaller,
-  externalReceiverMatches,
-  importNameToModule,
-  importedSdkSegment,
-  matchRegistrySdk,
-  moduleMatchesProvenance,
-} from './scip/external-matchers.js';
-export {
-  bareStringMethodName,
-  bareStringVerb,
-  fetchMethodFromOpts,
-  inlineConstInterpolations,
-  objectArgOmitsKey,
-  resolveHttpMethodArg,
-  resolveHttpUrl,
-  resolveQueueTopic,
-  resolveQueueTopicReference,
-  resolveServiceSelector,
-  routePathFromUrl,
-  templateTailRoute,
-} from './scip/url-topic-helpers.js';
 
 /** Barrel chains are shallow by construction; a deeper walk is a cycle or a mistake. */
 const MAX_REEXPORT_HOPS = 5;
@@ -216,7 +190,7 @@ function objectPatternBindings(pattern: TsNode): { propertyName: string; localNa
   return out;
 }
 
-export class TreeSitterScipSubstrate implements Substrate, VueSubstrate {
+export class TreeSitterScipSubstrate implements Substrate {
   readonly idGen: StableIdGenerator;
   private readonly scopedFiles: StructuralFile[];
   private readonly baseline: BaselineResult;
@@ -2021,7 +1995,7 @@ export class TreeSitterScipSubstrate implements Substrate, VueSubstrate {
       out.map((e) => `${e.callerId}|${e.location.filePath}|${e.location.startLine}|${e.calleeExpression}`),
     );
     for (const f of this.scopedFiles) {
-      if (!f.dynamicImports?.length) continue;
+      if (!f.dynamicImports.length) continue;
       for (const call of f.calls) {
         if (call.receiver) continue; // `obj.fn()` names a member, not the binding
         const callerId = this.enclosingId(call, f.path);
@@ -2257,7 +2231,7 @@ export class TreeSitterScipSubstrate implements Substrate, VueSubstrate {
     const hooks = buildMappingHooks(scip, this.baseline.graph);
     const byPackageKey = this.packageExportIndex(hooks);
     for (const f of this.scopedFiles) {
-      const dyn = f.dynamicImports ?? [];
+      const dyn = f.dynamicImports;
       if (!dyn.length) continue;
       const refs = this.scipRefsByFile?.get(f.path) ?? [];
       for (const imp of dyn) {
@@ -2432,7 +2406,7 @@ export class TreeSitterScipSubstrate implements Substrate, VueSubstrate {
     let index = this.localBindingsByFile.get(f.path);
     if (index) return index;
     index = new Map();
-    for (const b of f.localBindings ?? []) {
+    for (const b of f.localBindings) {
       const bucket = index.get(b.name);
       if (bucket) bucket.push(b);
       else index.set(b.name, [b]);

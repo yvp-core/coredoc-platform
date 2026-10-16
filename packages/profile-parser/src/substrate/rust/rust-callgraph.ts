@@ -197,11 +197,6 @@ export function indexRustDefs(files: RustFile[], idGen: StableIdGenerator): Rust
   return { byId, defByScope, freeFnIdsByFileName, methodsByType };
 }
 
-/** Every `function_item` across the files as a `FunctionNode` (`[...byId.values()]`). */
-export function collectRustDefs(files: RustFile[], idGen: StableIdGenerator): FunctionNode[] {
-  return [...indexRustDefs(files, idGen).byId.values()];
-}
-
 // =============================================================================
 // Tier-B call resolver
 // =============================================================================

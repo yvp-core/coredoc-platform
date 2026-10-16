@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type GoFile, parseGo } from './go-cst.js';
+import { type GoFile } from './go-cst.js';
 import {
   buildImportTable,
   buildPackageIndex,
@@ -9,10 +9,11 @@ import {
   resolveQualifier,
 } from './go-imports.js';
 import type { GoModule } from './go-modules.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 /** Build a GoFile (relPath + source + parsed root) the way the parser does. */
 async function gf(relPath: string, source: string): Promise<GoFile> {
-  return { relPath, source, root: await parseGo(source) };
+  return { relPath, source, root: await parseSource('go', source) };
 }
 
 /** A module descriptor the way `discoverGoModules` would emit it. */

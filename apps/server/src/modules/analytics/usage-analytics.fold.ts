@@ -1,4 +1,5 @@
 import { estimateSessionCostUsd } from '../../libs/usage/session-pricing.js';
+import { median } from '../../libs/coerce.js';
 import type { TimeseriesPoint } from '../metrics/metrics.service.js';
 import type {
   SpendPoint,
@@ -76,13 +77,6 @@ export function sumPoints(points: TimeseriesPoint[]): number {
   return points.reduce((total, point) => total + point.value, 0);
 }
 
-export function median(nums: number[]): number | null {
-  if (nums.length === 0) return null;
-  const sorted = [...nums].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
 export interface ToolBreakdownRow {
   toolName: string;
   count: number;
@@ -135,7 +129,7 @@ export interface UsageSessionRow {
 }
 
 export interface PricedSession extends UsageSessionRow {
-  /** Any token counter above zero — same rule as `getWorkspaceActivity`. */
+  /** Any token counter above zero. */
   usageObserved: boolean;
   /** null when usage is absent OR the model carries no price-map entry. */
   estimatedCostUsd: number | null;

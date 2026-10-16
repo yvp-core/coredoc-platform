@@ -68,22 +68,11 @@ import {
   ListIntentTreeQuerySchema,
 } from './contract/index.js';
 import { parseIntentPageLimit } from './intent-cursor.js';
-import type { IntentActor } from './intent-idempotency.js';
 import { IntentItemService } from './intent-item.service.js';
 import { IntentReadService } from './intent-read.service.js';
 import { assertPathMatchesBody } from './intent-state-errors.js';
 import { IntentTreeService } from './intent-tree.service.js';
-import { IntentActorRole } from '../../mcp/intent-auth.js';
-
-/**
- * The actor recorded on every audit row and transition. Identity and role come
- * from the token via the guards — never from the request payload (spec §4.7).
- * A tree route always has a resolved role, because `UserSessionGuard` has
- * already refused every service token by the time this runs.
- */
-function actorOf(user: AuthUser, role: WorkspaceMemberRole | undefined): IntentActor {
-  return { id: user.id, role: role ?? IntentActorRole.ServiceToken };
-}
+import { intentActorOf } from '../../mcp/intent-auth.js';
 
 @Controller('workspaces/:workspaceId/intent')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, IntentEnabledGuard)
@@ -175,7 +164,7 @@ export class IntentController {
     @WorkspaceRoleValue() role: WorkspaceMemberRole | undefined,
     @Body(intentContractPipe(CreateIntentDomainSchema)) body: z.infer<typeof CreateIntentDomainSchema>,
   ) {
-    return this.tree.createDomain(workspaceId, actorOf(user, role), body);
+    return this.tree.createDomain(workspaceId, intentActorOf(user, role), body);
   }
 
   @Patch('domains/:domainId')
@@ -189,7 +178,7 @@ export class IntentController {
     @Body(intentContractPipe(UpdateIntentDomainSchema)) input: z.infer<typeof UpdateIntentDomainSchema>,
   ) {
     assertPathMatchesBody(domainId, input.id, 'id');
-    return this.tree.updateDomain(workspaceId, actorOf(user, role), input);
+    return this.tree.updateDomain(workspaceId, intentActorOf(user, role), input);
   }
 
   @Post('domains/:domainId/archive')
@@ -203,7 +192,7 @@ export class IntentController {
     @Body(intentContractPipe(ArchiveIntentDomainSchema)) input: z.infer<typeof ArchiveIntentDomainSchema>,
   ) {
     assertPathMatchesBody(domainId, input.id, 'id');
-    return this.tree.archiveDomain(workspaceId, actorOf(user, role), input);
+    return this.tree.archiveDomain(workspaceId, intentActorOf(user, role), input);
   }
 
   @Post('domains/:domainId/delete')
@@ -217,7 +206,7 @@ export class IntentController {
     @Body(intentContractPipe(DeleteIntentDomainSchema)) input: z.infer<typeof DeleteIntentDomainSchema>,
   ) {
     assertPathMatchesBody(domainId, input.id, 'id');
-    return this.tree.deleteDomain(workspaceId, actorOf(user, role), input);
+    return this.tree.deleteDomain(workspaceId, intentActorOf(user, role), input);
   }
 
   /* --------------------------------------------------------- dimensions --- */
@@ -241,7 +230,7 @@ export class IntentController {
     @WorkspaceRoleValue() role: WorkspaceMemberRole | undefined,
     @Body(intentContractPipe(CreateIntentDimensionSchema)) body: z.infer<typeof CreateIntentDimensionSchema>,
   ) {
-    return this.tree.createDimension(workspaceId, actorOf(user, role), body);
+    return this.tree.createDimension(workspaceId, intentActorOf(user, role), body);
   }
 
   @Patch('dimensions/:dimensionId')
@@ -255,7 +244,7 @@ export class IntentController {
     @Body(intentContractPipe(UpdateIntentDimensionSchema)) input: z.infer<typeof UpdateIntentDimensionSchema>,
   ) {
     assertPathMatchesBody(dimensionId, input.id, 'id');
-    return this.tree.updateDimension(workspaceId, actorOf(user, role), input);
+    return this.tree.updateDimension(workspaceId, intentActorOf(user, role), input);
   }
 
   @Post('dimensions/:dimensionId/archive')
@@ -269,7 +258,7 @@ export class IntentController {
     @Body(intentContractPipe(ArchiveIntentDimensionSchema)) input: z.infer<typeof ArchiveIntentDimensionSchema>,
   ) {
     assertPathMatchesBody(dimensionId, input.id, 'id');
-    return this.tree.archiveDimension(workspaceId, actorOf(user, role), input);
+    return this.tree.archiveDimension(workspaceId, intentActorOf(user, role), input);
   }
 
   @Post('dimensions/:dimensionId/delete')
@@ -283,7 +272,7 @@ export class IntentController {
     @Body(intentContractPipe(DeleteIntentDimensionSchema)) input: z.infer<typeof DeleteIntentDimensionSchema>,
   ) {
     assertPathMatchesBody(dimensionId, input.id, 'id');
-    return this.tree.deleteDimension(workspaceId, actorOf(user, role), input);
+    return this.tree.deleteDimension(workspaceId, intentActorOf(user, role), input);
   }
 
   /* ----------------------------------------------------------- features --- */
@@ -297,7 +286,7 @@ export class IntentController {
     @WorkspaceRoleValue() role: WorkspaceMemberRole | undefined,
     @Body(intentContractPipe(CreateIntentFeatureSchema)) body: z.infer<typeof CreateIntentFeatureSchema>,
   ) {
-    return this.tree.createFeature(workspaceId, actorOf(user, role), body);
+    return this.tree.createFeature(workspaceId, intentActorOf(user, role), body);
   }
 
   @Patch('features/:featureId')
@@ -311,7 +300,7 @@ export class IntentController {
     @Body(intentContractPipe(UpdateIntentFeatureSchema)) input: z.infer<typeof UpdateIntentFeatureSchema>,
   ) {
     assertPathMatchesBody(featureId, input.id, 'id');
-    return this.tree.updateFeature(workspaceId, actorOf(user, role), input);
+    return this.tree.updateFeature(workspaceId, intentActorOf(user, role), input);
   }
 
   @Post('features/:featureId/archive')
@@ -325,7 +314,7 @@ export class IntentController {
     @Body(intentContractPipe(ArchiveIntentFeatureSchema)) input: z.infer<typeof ArchiveIntentFeatureSchema>,
   ) {
     assertPathMatchesBody(featureId, input.id, 'id');
-    return this.tree.archiveFeature(workspaceId, actorOf(user, role), input);
+    return this.tree.archiveFeature(workspaceId, intentActorOf(user, role), input);
   }
 
   @Post('features/:featureId/delete')
@@ -339,7 +328,7 @@ export class IntentController {
     @Body(intentContractPipe(DeleteIntentFeatureSchema)) input: z.infer<typeof DeleteIntentFeatureSchema>,
   ) {
     assertPathMatchesBody(featureId, input.id, 'id');
-    return this.tree.deleteFeature(workspaceId, actorOf(user, role), input);
+    return this.tree.deleteFeature(workspaceId, intentActorOf(user, role), input);
   }
 
   /* -------------------------------------------------------------- seeds --- */
@@ -355,7 +344,7 @@ export class IntentController {
     @Body(intentContractPipe(PutIntentFeatureSeedSchema)) input: z.infer<typeof PutIntentFeatureSeedSchema>,
   ) {
     assertPathMatchesBody(featureId, input.featureId, 'featureId');
-    return this.tree.putSeed(workspaceId, actorOf(user, role), input);
+    return this.tree.putSeed(workspaceId, intentActorOf(user, role), input);
   }
 
   @Post('features/:featureId/seeds/delete')
@@ -369,6 +358,6 @@ export class IntentController {
     @Body(intentContractPipe(DeleteIntentFeatureSeedSchema)) input: z.infer<typeof DeleteIntentFeatureSeedSchema>,
   ) {
     assertPathMatchesBody(featureId, input.featureId, 'featureId');
-    return this.tree.deleteSeed(workspaceId, actorOf(user, role), input);
+    return this.tree.deleteSeed(workspaceId, intentActorOf(user, role), input);
   }
 }

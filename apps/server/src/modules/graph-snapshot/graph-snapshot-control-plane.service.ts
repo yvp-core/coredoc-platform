@@ -3,7 +3,7 @@ import { GRAPH_FILE_FORMAT_COMPATIBILITY } from '@coredoc/db';
 import type { Prisma as PrismaTypes } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { GraphBackend, resolveGraphBackend } from '../../database/graph-backend.js';
-import { GraphSnapshotError, isGraphSnapshotError } from './graph-snapshot.errors.js';
+import { GraphSnapshotError, isGraphSnapshotError } from '../../libs/pipeline/graph-snapshot.errors.js';
 import {
   assertWorkspaceScopedR2Key,
   canonicalizeJson,
@@ -17,7 +17,7 @@ import type {
   GraphSnapshotRepositoryManifest,
   WorkspaceRepoArtifactDescriptor,
   WorkspaceRepoArtifactKind,
-} from './graph-snapshot.types.js';
+} from '../../libs/pipeline/graph-snapshot.types.js';
 
 const CONTROL_TRANSACTION_MAX_WAIT_MS = 5_000;
 const CONTROL_TRANSACTION_TIMEOUT_MS = 10_000;

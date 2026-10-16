@@ -44,7 +44,7 @@ export function hasHeritageClauses(structuralFiles: StructuralFile[]): boolean {
   return structuralFiles.some(
     (f) =>
       f.classes.some((c) => c.extendsClass || c.implementsNames.length > 0) ||
-      (f.interfaces ?? []).some((i) => i.extends.length > 0),
+      f.interfaces.some((i) => i.extends.length > 0),
   );
 }
 
@@ -81,7 +81,7 @@ export async function resolveHierarchyRefIdentity(
       bind(node.extends, CLASS_EXTENDS_KINDS);
       for (const impl of node.implements ?? []) bind(impl, IMPLEMENTS_KINDS);
     }
-    for (const iface of file.interfaces ?? []) {
+    for (const iface of file.interfaces) {
       const node = g.interfaces.get(idGen.interfaceId(file.path, iface.name));
       if (!node) continue;
       for (const ext of node.extends ?? []) bind(ext, INTERFACE_EXTENDS_KINDS);

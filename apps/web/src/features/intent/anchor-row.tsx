@@ -32,7 +32,7 @@ export interface IntentAnchorRefreshOutcome {
   changed: boolean;
 }
 
-export interface IntentAnchorRowProps {
+interface IntentAnchorRowProps {
   anchor: IntentItemAnchor;
   /** Admin, owner or product (`hasIntentAccess`); the server re-checks every write. */
   canRefresh: boolean;

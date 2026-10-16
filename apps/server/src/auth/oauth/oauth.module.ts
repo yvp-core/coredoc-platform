@@ -8,7 +8,7 @@
  * own PrismaClient; this module disposes it on shutdown.
  *
  * `forRoot()` (and hence the upstream selection) runs at module-definition
- * time — main.ts loads dotenv before importing AppModule, so envs are visible.
+ * time — main.ts loads .env before importing AppModule, so envs are visible.
  *
  * Re-exports `McpAuthModule` so importers (AuthModule) can inject the SDK's
  * `JwtTokenService` to validate the access tokens this server issues.
@@ -18,13 +18,13 @@ import { Module, type OnModuleDestroy } from '@nestjs/common';
 import { McpAuthModule } from '@rekog/mcp-nest';
 import { PrismaOAuthStore } from './prisma-oauth.store.js';
 import { resolveUpstream } from './oauth-upstream.js';
-import { authConfigFromEnv } from '../../config/app-config.js';
+import { configFromEnv } from '../../config/app-config.js';
 import { serverUrl, cookieSecure, mcpResourceIdentifier } from './server-url.js';
 
 // Owned by this module (registered as a useValue store — not DI-managed).
 const store = new PrismaOAuthStore();
 
-const auth = authConfigFromEnv();
+const auth = configFromEnv().auth;
 const upstream = resolveUpstream(auth);
 
 @Module({

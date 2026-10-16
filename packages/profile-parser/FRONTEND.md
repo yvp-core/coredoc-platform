@@ -30,7 +30,7 @@ The engines here emit a `componentId` **only when it matches an emitted componen
 Declarative frontend rules added to `src/types.ts` (`components` / `routes` /
 `stateStores`), generic primitives in `src/engine.ts`, two profiles
 (`src/profiles/financial-data-analyst.ts`, `src/profiles/acme-admin.ts`),
-registered in `run.ts` / `score.ts` / `engine.test.ts`.
+registered in `run.ts` / `score.ts`.
 
 The engine collects component candidates during the file walk, then in
 `onParsingComplete` computes every component id and emits children/routes resolved

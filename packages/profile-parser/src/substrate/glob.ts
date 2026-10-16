@@ -5,6 +5,7 @@
  * ts-morph's include/exclude semantics: a path is in scope when it matches an
  * include AND no exclude.
  */
+import { posix } from 'node:path';
 
 function globToRegExp(glob: string): RegExp {
   // Escape regex specials except the glob ones (* / and brace alternation).
@@ -52,4 +53,10 @@ export function globMatches(path: string, include: string[], exclude: string[] =
   const included = include.some((g) => globToRegExp(g).test(path));
   if (!included) return false;
   return !exclude.some((g) => globToRegExp(g).test(path));
+}
+
+/** Directory of a repo-relative path, '' at the repo root (where `posix.dirname` says '.'). */
+export function repoDir(rel: string): string {
+  const dir = posix.dirname(rel);
+  return dir === '.' ? '' : dir;
 }

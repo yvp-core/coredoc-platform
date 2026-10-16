@@ -7,7 +7,7 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { ChartTooltip, TOOLTIP_FLIP_THRESHOLD, TOOLTIP_HALF_WIDTH } from './ChartTooltip.js';
-import { clampTooltipX, layoutTimeseries, nearestIndex, tooltipPlacement } from './chart-geometry.js';
+import { clampTooltipX, layoutTimeseries, nearestIndex, tooltipPlacement } from '@coredoc/core/browser/chart-geometry';
 import { useChartWidth } from './use-chart-width.js';
 
 export interface LineChartPoint {

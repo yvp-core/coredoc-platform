@@ -1,5 +1,4 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { format } from 'date-fns';
 import {
   Plain,
   Routing3,
@@ -16,10 +15,9 @@ import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { useChatStore } from '../stores/chat-store';
-import { cn } from '../lib/utils';
-import { MarkdownRenderer } from './markdown';
+import { cn, formatDateTime } from '../lib/utils';
+import { MarkdownRenderer } from './markdown/MarkdownRenderer';
 import type { ChatMessage, ChatDocCard } from '../../shared/ipc-types';
-import { useDocsStore } from '../stores/docs-store';
 
 /** Rough token estimate: ~4 chars per token for English text */
 const CHARS_PER_TOKEN = 4;
@@ -42,7 +40,7 @@ interface ChatPanelProps {
   isCloudMember?: boolean;
   cloudWorkspaceId?: string;
   cloudRepoNames?: string[];
-  /** Called when a doc card in a chat message is clicked. If provided, overrides the default docs-store navigation. */
+  /** Called when a doc card in a chat message is clicked. */
   onDocCardClick?: (card: ChatDocCard) => void;
   /** Called to create a new chat session */
   onNewSession?: () => void;
@@ -460,32 +458,13 @@ function ChatDocCardItem({
   card: ChatDocCard;
   onDocCardClick?: (card: ChatDocCard) => void;
 }) {
-  const selectDoc = useDocsStore((s) => s.selectDoc);
-
-  const handleClick = () => {
-    if (onDocCardClick) {
-      onDocCardClick(card);
-      return;
-    }
-    // Build a minimal DocFileInfo to open in the doc viewer
-    selectDoc({
-      id: card.id,
-      repoName: card.repoName,
-      title: card.title,
-      category: card.category,
-      generatedAt: card.generatedAt,
-      relativePath: card.id.split(':').slice(1).join(':'),
-      sizeBytes: 0,
-    });
-  };
-
-  const formattedDate = card.generatedAt ? formatDocDate(new Date(card.generatedAt)) : null;
+  const formattedDate = card.generatedAt ? formatDateTime(new Date(card.generatedAt)) : null;
 
   return (
     <button
       type="button"
       className="font-sans font-normal flex gap-1.5 items-start px-4 py-3 rounded-lg bg-bg-primary border border-white/50 shadow-surface text-left transition-colors hover:border-primary/50 cursor-pointer w-full max-w-[400px]"
-      onClick={handleClick}
+      onClick={() => onDocCardClick?.(card)}
     >
       <div className="bg-bg-supportive flex items-center justify-center p-1.5 rounded-sm shrink-0">
         <DocumentText weight="Bold" className="size-4 text-white" />
@@ -513,8 +492,4 @@ function ChatDocCardItem({
       </div>
     </button>
   );
-}
-
-function formatDocDate(date: Date): string {
-  return format(date, 'dd.MM.yyyy / h:mm a');
 }

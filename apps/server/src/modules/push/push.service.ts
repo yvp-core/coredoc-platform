@@ -8,6 +8,7 @@
 
 import { Injectable, ConflictException, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { ControlPlaneService } from '../../database/control-plane.service.js';
 import { WorkspaceDbPoolService } from '../../database/workspace-db-pool.service.js';
 import {
@@ -1058,7 +1059,7 @@ export class PushService {
         if (!snapshotEquals(observed, snapshotBefore)) {
           throw new ConflictException('Graph changed during commit reconciliation; refusing to overwrite newer state');
         }
-        await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+        await sleep(attempt * 1000);
       } finally {
         if (renewal) clearInterval(renewal);
         if (graphLease) await this.pushLeases.releaseGraphWrite(workspaceId, graphLease).catch(() => {});

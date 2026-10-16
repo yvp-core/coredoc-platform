@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { GRAPH_FILE_FORMAT_COMPATIBILITY } from '@coredoc/db';
-import { GraphSnapshotError } from './graph-snapshot.errors.js';
+import { GraphSnapshotError } from '../../libs/pipeline/graph-snapshot.errors.js';
 import type {
   GraphSnapshotIdentity,
   GraphSnapshotManifestV1,
@@ -8,7 +8,7 @@ import type {
   GraphSnapshotRepositoryManifest,
   WorkspaceRepoArtifactDescriptor,
   WorkspaceRepoArtifactKind,
-} from './graph-snapshot.types.js';
+} from '../../libs/pipeline/graph-snapshot.types.js';
 
 type CanonicalJsonValue =
   | null

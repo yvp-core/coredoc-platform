@@ -37,7 +37,7 @@ import {
 import type { IntentContextMatch, IntentGraphEvidence, IntentItemAnchor, IntentTransition } from './types.js';
 
 /** Everything the anchor rows need from the panel, in one prop rather than five. */
-export interface IntentAnchorRefreshState {
+interface IntentAnchorRefreshState {
   /** Admin, owner or product (`hasIntentAccess`); the server re-checks every write. */
   canRefresh: boolean;
   /** The one anchor whose inline confirm is open, keyed by `intentAnchorKey`. */
@@ -52,7 +52,7 @@ export interface IntentAnchorRefreshState {
   onConfirmRefresh: (anchor: IntentItemAnchor) => void;
 }
 
-export interface IntentItemDetailProps {
+interface IntentItemDetailProps {
   itemId: string | null;
   productionState?: ReactNode;
   comments?: ReactNode;

@@ -1,3 +1,4 @@
+import { setTimeout } from 'node:timers/promises';
 import {
   type ClaimRequest,
   type CompleteTurnRequest,
@@ -95,7 +96,7 @@ export class RunnerApiClient {
     this.base = `${options.baseUrl.replace(/\/+$/, '')}/api/v1/workspaces/${encodeURIComponent(options.workspaceId)}/agent-runner`;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.now = options.now ?? Date.now;
-    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.sleep = options.sleep ?? setTimeout;
   }
 
   /** Not retried: the loop polls again. */

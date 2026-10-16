@@ -18,7 +18,7 @@ import type { WorkspaceDbPoolService } from '../../database/workspace-db-pool.se
 import type { WorkspaceFileCacheService } from '../../database/workspace-file-cache.service.js';
 import type { MetricsService } from '../../modules/metrics/metrics.service.js';
 import { WorkspaceMcpContextService } from '../workspace-mcp-context.service.js';
-import { storageConfigFromEnv } from '../../config/app-config.js';
+import { configFromEnv } from '../../config/app-config.js';
 import { CypherTools, HOSTED_CYPHER_DESCRIPTION, hostedCypherDescription } from './cypher.tools.js';
 
 const VERSION = {
@@ -263,7 +263,7 @@ describe('CypherTools (hosted run_cypher_query)', () => {
   it('reports neo4j, not the stored turso label, when a Neo4j process answers', async () => {
     const wsContext = new WorkspaceMcpContextService(deps.workspaceDbPool, deps.controlPlane, deps.fileCache);
     tool = new CypherTools(wsContext, { recordMcpQuery } as unknown as MetricsService, {
-      ...storageConfigFromEnv(),
+      ...configFromEnv().storage,
       dbBackend: 'neo4j',
       allowCypher: true,
     });

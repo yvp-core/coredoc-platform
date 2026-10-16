@@ -83,34 +83,16 @@ export interface ParsedId {
 // =============================================================================
 
 export class StableIdGenerator {
-  private repoRoot: string;
-  private repoKey: string;
   private repoHash: string;
 
   /**
-   * @param repoRoot - Filesystem path to the repository root (used for file resolution)
+   * @param repoRoot - Filesystem path to the repository root (the hash key when repoKey is omitted)
    * @param repoKey - Canonical key for hash generation (defaults to repoRoot if not provided).
    *                  Use a stable, path-independent key (e.g., repo name) so that
    *                  different machines produce identical hashes for the same repo.
    */
   constructor(repoRoot: string, repoKey?: string) {
-    this.repoRoot = repoRoot;
-    this.repoKey = repoKey ?? repoRoot;
-    this.repoHash = generateRepoHash(this.repoKey);
-  }
-
-  /**
-   * Get the repository root path
-   */
-  getRepoRoot(): string {
-    return this.repoRoot;
-  }
-
-  /**
-   * Get the canonical repository key used for hash generation
-   */
-  getRepoKey(): string {
-    return this.repoKey;
+    this.repoHash = generateRepoHash(repoKey ?? repoRoot);
   }
 
   /**
@@ -237,21 +219,6 @@ export class StableIdGenerator {
   }
 
   /**
-   * Generate WebSocket entrypoint ID
-   */
-  websocketEntrypointId(event: string, filePath: string, namespace?: string): string {
-    const identifier = namespace ? `${namespace}:${event}` : event;
-    return this.entrypointId('websocket', identifier, filePath);
-  }
-
-  /**
-   * Generate Cron entrypoint ID
-   */
-  cronEntrypointId(jobName: string, filePath: string): string {
-    return this.entrypointId('cron', jobName, filePath);
-  }
-
-  /**
    * Generate Queue/Message entrypoint ID
    */
   queueEntrypointId(system: string, topic: string, filePath: string): string {
@@ -357,22 +324,6 @@ export class StableIdGenerator {
     return `${this.repoHash}:ext-call:${hash}`;
   }
 
-  /**
-   * Generate component usage edge ID
-   */
-  componentUseEdgeId(parentComponentId: string, childComponentName: string, location: string): string {
-    const hash = this.shortHash(`${parentComponentId}:${childComponentName}:${location}`);
-    return `${this.repoHash}:component-use:${hash}`;
-  }
-
-  /**
-   * Generate state access edge ID
-   */
-  stateAccessEdgeId(componentId: string, storeName: string, selector: string): string {
-    const hash = this.shortHash(`${componentId}:${storeName}:${selector}`);
-    return `${this.repoHash}:state-access:${hash}`;
-  }
-
   // ===========================================================================
   // VERSIONED IDs (for caching - include checksum)
   // ===========================================================================
@@ -393,22 +344,6 @@ export class StableIdGenerator {
    */
   versionedFunctionId(filePath: string, functionName: string, sourceCode: string): string {
     const stableId = this.functionId(filePath, functionName);
-    return this.versionedId(stableId, sourceCode);
-  }
-
-  /**
-   * Generate versioned class ID
-   */
-  versionedClassId(filePath: string, className: string, sourceCode: string): string {
-    const stableId = this.classId(filePath, className);
-    return this.versionedId(stableId, sourceCode);
-  }
-
-  /**
-   * Generate versioned method ID
-   */
-  versionedMethodId(filePath: string, className: string, methodName: string, sourceCode: string): string {
-    const stableId = this.methodId(filePath, className, methodName);
     return this.versionedId(stableId, sourceCode);
   }
 
@@ -437,14 +372,6 @@ export class StableIdGenerator {
    */
   generateNodeId(type: NodeIdKind, ...parts: string[]): string {
     return `${this.repoHash}:${type}:${parts.join(':')}`;
-  }
-
-  /**
-   * Generate ID for any edge type
-   */
-  generateEdgeId(type: EdgeIdKind, ...parts: string[]): string {
-    const hash = this.shortHash(parts.join(':'));
-    return `${this.repoHash}:${type}:${hash}`;
   }
 
   // ===========================================================================
@@ -500,84 +427,10 @@ export class StableIdGenerator {
   }
 
   /**
-   * Check if two IDs refer to the same element (ignoring version/checksum)
-   */
-  isSameElement(id1: string, id2: string): boolean {
-    return this.getStableId(id1) === this.getStableId(id2);
-  }
-
-  /**
-   * Check if content has changed between two versioned IDs
-   */
-  hasChanged(oldVersionedId: string, newVersionedId: string): boolean {
-    if (!this.isSameElement(oldVersionedId, newVersionedId)) {
-      return true; // Different elements
-    }
-
-    const oldChecksum = this.getChecksum(oldVersionedId);
-    const newChecksum = this.getChecksum(newVersionedId);
-
-    if (!oldChecksum || !newChecksum) {
-      return true; // Can't compare non-versioned IDs
-    }
-
-    return oldChecksum !== newChecksum;
-  }
-
-  /**
    * Check if ID belongs to this repository
    */
   belongsToRepo(id: string): boolean {
     return id.startsWith(this.repoHash + ':');
-  }
-
-  /**
-   * Get node type from ID
-   */
-  getType(id: string): NodeIdKind | EdgeIdKind | null {
-    const parsed = this.parseId(id);
-    return parsed?.type ?? null;
-  }
-
-  /**
-   * Check if ID is an edge type
-   */
-  isEdge(id: string): boolean {
-    const type = this.getType(id);
-    return type !== null && ['call', 'import', 'db-op', 'ext-call', 'component-use', 'state-access'].includes(type);
-  }
-
-  /**
-   * Check if ID is a node type
-   */
-  isNode(id: string): boolean {
-    return !this.isEdge(id);
-  }
-
-  // ===========================================================================
-  // CROSS-REPO UTILITIES
-  // ===========================================================================
-
-  /**
-   * Create a cross-repo reference ID
-   * Used when referencing elements from shared packages
-   */
-  crossRepoRef(targetRepoHash: string, targetId: string): string {
-    return `xref:${this.repoHash}:${targetRepoHash}:${this.getStableId(targetId)}`;
-  }
-
-  /**
-   * Parse cross-repo reference
-   */
-  parseCrossRepoRef(refId: string): { sourceRepoHash: string; targetRepoHash: string; targetId: string } | null {
-    const match = refId.match(/^xref:([a-f0-9]+):([a-f0-9]+):(.+)$/);
-    if (!match) return null;
-
-    return {
-      sourceRepoHash: match[1] as string,
-      targetRepoHash: match[2] as string,
-      targetId: match[3] as string,
-    };
   }
 
   // ===========================================================================
@@ -597,72 +450,4 @@ export class StableIdGenerator {
   contentHash(content: string): string {
     return crypto.createHash('sha256').update(content).digest('hex');
   }
-
-  /**
-   * Generate short content hash (first 8 chars)
-   */
-  shortContentHash(content: string): string {
-    return this.contentHash(content).slice(0, 8);
-  }
 }
-
-// =============================================================================
-// Factory function for convenience
-// =============================================================================
-
-export function createIdGenerator(repoRoot: string, repoKey?: string): StableIdGenerator {
-  return new StableIdGenerator(repoRoot, repoKey);
-}
-
-// =============================================================================
-// Multi-repo ID Generator Manager
-// =============================================================================
-
-export class IdGeneratorManager {
-  private generators: Map<string, StableIdGenerator> = new Map();
-
-  /**
-   * Get or create ID generator for a repo
-   * @param repoRoot - Filesystem path to the repository root
-   * @param repoKey - Canonical key for hash generation (defaults to normalized repoRoot)
-   */
-  getGenerator(repoRoot: string, repoKey?: string): StableIdGenerator {
-    const normalized = repoRoot.replace(/\\/g, '/');
-    const key = repoKey ?? normalized;
-
-    if (!this.generators.has(key)) {
-      this.generators.set(key, new StableIdGenerator(normalized, repoKey));
-    }
-
-    return this.generators.get(key)!;
-  }
-
-  /**
-   * Get all registered generators
-   */
-  getAllGenerators(): StableIdGenerator[] {
-    return Array.from(this.generators.values());
-  }
-
-  /**
-   * Find which repo an ID belongs to
-   */
-  findRepoForId(id: string): StableIdGenerator | null {
-    for (const generator of this.generators.values()) {
-      if (generator.belongsToRepo(id)) {
-        return generator;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Clear all generators
-   */
-  clear(): void {
-    this.generators.clear();
-  }
-}
-
-// Global manager instance
-export const idGeneratorManager = new IdGeneratorManager();

@@ -106,18 +106,6 @@ describe('handleCommandMessage', () => {
     expect(post).toHaveBeenCalledWith({ type: 'result', success: true, data: { success: true, files: 601 } });
   });
 
-  it('runs the workspace-layout migration by default (worker thread has full FS access)', async () => {
-    await handleCommandMessage(PARSE_MSG, vi.fn());
-
-    expect(loadConfigMock).toHaveBeenCalledWith('/workspace/coredoc.config.json', { skipMigration: false });
-  });
-
-  it('skips the workspace-layout migration when the sandbox-confined parse child asks for it', async () => {
-    await handleCommandMessage({ ...PARSE_MSG, skipLayoutMigration: true }, vi.fn());
-
-    expect(loadConfigMock).toHaveBeenCalledWith('/workspace/coredoc.config.json', { skipMigration: true });
-  });
-
   it('reports and flushes a command_failed, then closes project database drivers, on the failure path', async () => {
     parseMock.mockRejectedValueOnce(new Error('parse blew up'));
     const post = vi.fn();

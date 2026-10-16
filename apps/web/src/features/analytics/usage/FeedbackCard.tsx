@@ -14,12 +14,12 @@ import { membersQueryOptions } from '@/api/queries/members';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Spinner } from '@/components/ui/spinner';
 import { MagnitudeBar } from '../charts/MagnitudeBar.js';
-import { linePath, linearScale } from '../charts/chart-geometry.js';
-import { formatNumber } from '../format.js';
+import { linePath, linearScale } from '@coredoc/core/browser/chart-geometry';
+import { formatNumber } from '@coredoc/core/browser/format';
 import {
   type AnalyticsWindow,
   type FeedbackRatingTrendPoint,
@@ -275,9 +275,6 @@ const DEFAULT_FILTER: FeedbackRecordsFilter = {
   limit: PAGE_SIZE,
 };
 
-/** The "no filter" value: Radix Select has no empty-string item value. */
-const ANY = 'any';
-
 const AREAS: FeedbackSessionIssueArea[] = [
   'workflow-routing',
   'skill-instructions',
@@ -342,20 +339,17 @@ export function FeedbackCard({
   const filters = (
     <div className="flex flex-wrap items-center gap-2">
       <Select
-        value={filter.area ?? ANY}
-        onValueChange={(value) => patch({ area: value === ANY ? null : (value as FeedbackSessionIssueArea) })}
+        value={filter.area ?? ''}
+        onValueChange={(value) => patch({ area: (value || null) as FeedbackSessionIssueArea | null })}
+        className="w-[150px]"
+        aria-label="Area"
       >
-        <SelectTrigger className="w-[150px]" aria-label="Area">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ANY}>All areas</SelectItem>
-          {AREAS.map((area) => (
-            <SelectItem key={area} value={area} title={AREA_HINTS[area]}>
-              {humanizeArea(area)}
-            </SelectItem>
-          ))}
-        </SelectContent>
+        <option value="">All areas</option>
+        {AREAS.map((area) => (
+          <option key={area} value={area} title={AREA_HINTS[area]}>
+            {humanizeArea(area)}
+          </option>
+        ))}
       </Select>
 
       <Select
@@ -364,36 +358,37 @@ export function FeedbackCard({
           const [sort, order] = value.split(':');
           patch({ sort: sort as FeedbackSort, order: order as SortOrder });
         }}
+        className="w-[170px]"
+        aria-label="Sort"
       >
-        <SelectTrigger className="w-[170px]" aria-label="Sort">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {SORT_OPTIONS.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
+        {SORT_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
       </Select>
 
       {isTeam ? (
-        <Select value={filter.userId ?? ANY} onValueChange={(value) => patch({ userId: value === ANY ? null : value })}>
-          <SelectTrigger className="w-[170px]" aria-label="Member">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ANY}>All members</SelectItem>
-            {members.map((member) => (
-              <SelectItem key={member.userId} value={member.userId}>
-                {member.displayName ?? member.email}
-              </SelectItem>
-            ))}
-          </SelectContent>
+        <Select
+          value={filter.userId ?? ''}
+          onValueChange={(value) => patch({ userId: value || null })}
+          className="w-[170px]"
+          aria-label="Member"
+        >
+          <option value="">All members</option>
+          {members.map((member) => (
+            <option key={member.userId} value={member.userId}>
+              {member.displayName ?? member.email}
+            </option>
+          ))}
         </Select>
       ) : (
         <Label className="gap-1.5" htmlFor="feedback-mine">
-          <Switch id="feedback-mine" checked={filter.mine} onCheckedChange={(checked) => patch({ mine: checked })} />
+          <Switch
+            id="feedback-mine"
+            checked={filter.mine}
+            onChange={(event) => patch({ mine: event.target.checked })}
+          />
           Only mine
         </Label>
       )}

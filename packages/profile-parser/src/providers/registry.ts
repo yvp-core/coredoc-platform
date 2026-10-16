@@ -34,7 +34,9 @@ export function providerForExport(v: unknown): { provider: LanguageProvider; pro
   return provider?.isProfile(v) ? { provider, profile: v as BaseProfile } : undefined;
 }
 
-/** Test-only: clear the registry (the production registration is idempotent on re-import). */
-export function __clearRegistryForTests(): void {
-  PROVIDERS.clear();
+/** The `isProfile` shape check: has parserId+substrate and `substrate.language` is one of `languages`. */
+export function hasLanguage(v: unknown, ...languages: string[]): boolean {
+  if (typeof v !== 'object' || v === null || !('parserId' in v) || !('substrate' in v)) return false;
+  const lang = (v as BaseProfile).substrate?.language;
+  return lang !== undefined && languages.includes(lang);
 }

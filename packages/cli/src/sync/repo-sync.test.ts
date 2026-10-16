@@ -10,6 +10,7 @@ import type { RuntimeConfig } from '@coredoc/core/types';
 vi.mock('../auth.js', () => ({
   getToken: vi.fn(async () => 'cdt_test'),
   getServerUrl: vi.fn(async () => 'https://api.test'),
+  authHeaders: vi.fn(async () => ({ Authorization: 'Bearer cdt_test' })),
 }));
 
 const minimalParsedRepo = (overrides: Record<string, unknown> = {}) => ({

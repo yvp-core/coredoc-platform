@@ -1,4 +1,4 @@
-import { Portal as TooltipPortal } from '@radix-ui/react-tooltip';
+import { Tooltip as TooltipPrimitive } from 'radix-ui';
 import { DangerTriangle, InfoCircle } from '@solar-icons/react';
 import type { ParseStats } from '../../shared/ipc-types';
 import { Button } from './ui/button';
@@ -29,7 +29,7 @@ export function AnalysisStatus({ analysis }: { analysis: ParseStats['analysis'] 
           <Icon className="size-4" aria-hidden="true" />
         </Button>
       </TooltipTrigger>
-      <TooltipPortal>
+      <TooltipPrimitive.Portal>
         <TooltipContent side="top" className="max-w-xs border-0 bg-bg-inverted-secondary text-content-inverted text-xs">
           <div className="space-y-2">
             {records.map((record) => (
@@ -40,7 +40,7 @@ export function AnalysisStatus({ analysis }: { analysis: ParseStats['analysis'] 
             ))}
           </div>
         </TooltipContent>
-      </TooltipPortal>
+      </TooltipPrimitive.Portal>
     </Tooltip>
   );
 }

@@ -29,6 +29,7 @@
  */
 import { BLANK_IDENTIFIER, DOT, type GoFile, IMPORT_SPEC, type TsNode, goStringValue, packageName } from './go-cst.js';
 import { type GoModule, moduleOwnerPath } from './go-modules.js';
+import { repoDir } from '../glob.js';
 
 /** A file's import table: what each local package qualifier in this file refers to. */
 export interface GoImportTable {
@@ -135,12 +136,6 @@ export function resolveImportPath(table: GoImportTable, localName: string): stri
 // Repo package index
 // =============================================================================
 
-/** dirname of a repo-relative path ('' at the repo root). */
-function dirOf(rel: string): string {
-  const i = rel.lastIndexOf('/');
-  return i === -1 ? '' : rel.slice(0, i);
-}
-
 /**
  * Index this repo's own packages: import path ↔ directory, plus the files and declared package name
  * of each directory.
@@ -164,7 +159,7 @@ export function buildPackageIndex(files: GoFile[], modules: GoModule[]): GoPacka
   const sorted = [...files].sort((a, b) => a.relPath.localeCompare(b.relPath));
 
   for (const file of sorted) {
-    const dir = dirOf(file.relPath);
+    const dir = repoDir(file.relPath);
     const bucket = filesByDir.get(dir);
     if (bucket) bucket.push(file.relPath);
     else filesByDir.set(dir, [file.relPath]);

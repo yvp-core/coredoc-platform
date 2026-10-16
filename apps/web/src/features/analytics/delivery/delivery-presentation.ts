@@ -18,13 +18,13 @@ import type {
   DeliveryLifecycleFilter,
   SampledMedian,
 } from '../types.js';
-import { formatUsd, NO_DATA, plural } from '../format.js';
+import { formatUsd, NO_DATA, plural } from '@coredoc/core/browser/format';
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 
 /** The one small-sample threshold on this surface (BR-11): at or below it, a median is directional. */
-export const DIRECTIONAL_SAMPLE_MAX = 4;
+const DIRECTIONAL_SAMPLE_MAX = 4;
 
 /** The stage ramp is sequential pipeline progress (ADR-7); it cycles when a task has more stages. */
 const STAGE_TOKEN_COUNT = 5;
@@ -60,11 +60,11 @@ export function formatCountValue(value: number): string {
   return String(Math.round(value * 10) / 10);
 }
 
-export function formatUsdValue(value: number): string {
+function formatUsdValue(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
-export interface SampledMedianText {
+interface SampledMedianText {
   text: string;
   /** "n of N" when the median is null, "directional" for a small sample, else nothing to say. */
   caption: string | null;
@@ -85,7 +85,7 @@ export function sampledMedianText(
   return { text: format(median.value), caption: null };
 }
 
-export interface DeliveryKpi {
+interface DeliveryKpi {
   label: string;
   value: string;
   hint: string;
@@ -182,7 +182,7 @@ export function stageBarEntries(summary: CanonicalDeliverySummary): StageBarEntr
 }
 
 /** Human labels for the three counted rework sources (card rows and trace journey alike). */
-export const REWORK_SOURCE_LABELS: Record<CanonicalReworkSourceKind, string> = {
+const REWORK_SOURCE_LABELS: Record<CanonicalReworkSourceKind, string> = {
   tracker_reopened: 'Tracker reopened',
   review_changes_requested: 'Review: changes requested',
   review_commented: 'Review: comments then commits',
@@ -193,7 +193,7 @@ export function reworkSignalLabel(kind: CanonicalReworkSignalKind): string {
   return kind === 'stage_reentry' ? 'Stage re-entry (legacy)' : REWORK_SOURCE_LABELS[kind];
 }
 
-export interface ReworkEntry {
+interface ReworkEntry {
   key: string;
   name: string;
   count: number;

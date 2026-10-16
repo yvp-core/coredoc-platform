@@ -147,28 +147,3 @@ export function topologicalSort(functions: FunctionNode[], calls: CallEdge[]): T
 
   return { sorted: result, cyclicFunctions };
 }
-
-/**
- * Groups sorted functions by their depth level
- *
- * Useful for batch processing where functions at the same depth
- * can be processed in parallel (they don't depend on each other)
- */
-export function groupByDepth(sorted: SortedFunction[]): Map<number, SortedFunction[]> {
-  const groups = new Map<number, SortedFunction[]>();
-
-  for (const sf of sorted) {
-    const group = groups.get(sf.depth) || [];
-    group.push(sf);
-    groups.set(sf.depth, group);
-  }
-
-  return groups;
-}
-
-/**
- * Gets the maximum depth in the call graph
- */
-export function getMaxDepth(sorted: SortedFunction[]): number {
-  return Math.max(0, ...sorted.map((sf) => sf.depth));
-}

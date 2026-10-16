@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { WORKERS_CONFIG, type WorkersConfig, workersConfigFromEnv } from '../../config/app-config.js';
+import { WORKERS_CONFIG, type WorkersConfig, configFromEnv } from '../../config/app-config.js';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../database/prisma.service.js';
 import { parseRetentionFlag, retentionCutoff, runRetentionSweep } from '../../libs/retention.js';
@@ -28,7 +28,7 @@ export class DeliverySyncCron {
     // tests construct this cron without one, which reads as "no enforcement" —
     // the same meaning LicenseState.Absent has everywhere else.
     @Optional() private readonly license?: LicenseService,
-    @Optional() @Inject(WORKERS_CONFIG) private readonly workers: WorkersConfig = workersConfigFromEnv(),
+    @Optional() @Inject(WORKERS_CONFIG) private readonly workers: WorkersConfig = configFromEnv().workers,
   ) {}
 
   /**

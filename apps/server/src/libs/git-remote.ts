@@ -189,9 +189,3 @@ export function normalizeGitRemote(input: string): GitRemoteNormalizationResult 
   const authority = port ? `${host}:${port}` : host;
   return storable(`${parsed.protocol}//${authority}/${path}`);
 }
-
-/** The idempotence property the SQL CHECK relies on: normalizing a canonical remote is a no-op. */
-export function isNormalizedGitRemote(value: string): boolean {
-  const normalized = normalizeGitRemote(value);
-  return normalized.status === 'normalized' && normalized.normalizedRemote === value;
-}

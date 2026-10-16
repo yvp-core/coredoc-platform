@@ -29,13 +29,6 @@ export interface WorkerMessage {
   nodeExecPath?: string;
   /** Environment variables for SDK subprocess */
   nodeEnv?: NodeJS.ProcessEnv;
-  /**
-   * Set by the sandbox-confined parse child: the workspace-layout migration is
-   * trusted host work already completed before entering the sandbox, and the
-   * parser-storage root (where the migration reads its sentinel) is unreadable
-   * inside the sandbox.
-   */
-  skipLayoutMigration?: boolean;
 }
 
 type WorkerArgs = Record<string, unknown> | undefined;
@@ -130,11 +123,14 @@ export async function routeCommand(msg: WorkerMessage): Promise<unknown> {
   // Note: process.chdir() is NOT supported in Node 18 worker threads.
   // All path resolution uses absolute paths via msg.configPath and process.env.
 
-  // Load dotenv from workspace (use explicit path since we can't chdir)
+  // Load the workspace .env (explicit path since we can't chdir). Like dotenv,
+  // loadEnvFile never overrides variables already set; it throws on a missing file.
   if (msg.cwd && msg.command === 'summarize' && msg.harnessProvider !== 'codex') {
-    const pathMod = await import('path');
-    const { config: dotenvConfig } = await import('dotenv');
-    dotenvConfig({ path: pathMod.join(msg.cwd, '.env') });
+    try {
+      process.loadEnvFile(join(msg.cwd, '.env'));
+    } catch {
+      // no workspace .env
+    }
   }
 
   // Set workspace-scoped writable paths for the SDK.
@@ -178,7 +174,7 @@ export async function routeCommand(msg: WorkerMessage): Promise<unknown> {
   }
 
   const sdk = await import('@coredoc/cli/sdk');
-  const config = sdk.loadConfig(msg.configPath, { skipMigration: msg.skipLayoutMigration === true });
+  const config = sdk.loadConfig(msg.configPath);
   const args = msg.args;
   const projectId = msg.projectId;
 

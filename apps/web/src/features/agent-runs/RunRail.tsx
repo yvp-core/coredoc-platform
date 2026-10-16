@@ -9,6 +9,7 @@ import {
   WrenchIcon,
 } from 'lucide-react';
 
+import { plural } from '@coredoc/core/browser/format';
 import { cn } from '@/lib/utils';
 
 import { durationText, jiraOutcomeLines, type RunStage } from './agent-run-page';
@@ -16,8 +17,6 @@ import { clockTime } from './agent-run-trace';
 import type { ActivityDrawer } from './RunActivityDrawers';
 import { SPEC_STATUS_LABELS } from './ScopeReview';
 import type { AgentRunActivity, AgentRunDetail, AgentRunSpec } from './types';
-
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 export function StageRail({
   stages,

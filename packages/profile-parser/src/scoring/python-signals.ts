@@ -8,11 +8,7 @@ import { globMatches } from '../substrate/glob.js';
 import { absoluteSourceFiles, grepCountInFiles } from './explicit-source-files.js';
 import type { SourceSignals } from './score-core.js';
 import type { PythonProfile } from '../types/python-profile.js';
-
-/** Escape ERE metacharacters in a literal (e.g. `models.Model` → `models\.Model`). */
-function escapeEre(s: string): string {
-  return s.replace(/[.[\]{}()*+?^$|\\/]/g, '\\$&');
-}
+import { escapeEre } from './grep-lines.js';
 
 /**
  * Python source-signal denominators from the repo on disk:

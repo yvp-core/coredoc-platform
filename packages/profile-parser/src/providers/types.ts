@@ -15,12 +15,6 @@ import type { BaseProfile } from '../types/profile-base.js';
 export interface LanguageDiscovery {
   /** Source extensions this language claims, e.g. ['.ts','.tsx'] or ['.rb']. */
   readonly extensions: readonly string[];
-  /**
-   * Operational prerequisite for full-fidelity extraction (e.g. TS needs node_modules
-   * for scip-typescript). Returns null when satisfied, else a human-readable degrade
-   * reason. Languages with no such prerequisite omit it.
-   */
-  scipPrereqs?(repoRoot: string, files: readonly string[]): string | null;
 }
 
 /** Inputs to a single parse. `repoKey` MUST reach idGen (the two-ID invariant). */
@@ -29,21 +23,9 @@ export interface ParseOptions {
   repoName: string;
   /** Path-independent hash seed for StableIdGenerator (repoHash = hash(repoKey ?? repoName)). */
   repoKey?: string;
-  /** Gateway prefix (RepoConfig.httpPrefix) for cross-repo prefix-aware matching. */
-  httpPrefix?: string;
-  /** Incremental clean-skip fast-path (reuse cached parse when nothing changed). */
-  incremental?: boolean;
-  /** Where the incremental manifest + cached ParsedRepo live (per-repo). */
-  cacheDir?: string;
   /**
-   * Where the SCIP indexer writes its index files. Defaults to `cacheDir`, and to a
-   * repo-local default when neither is set.
-   *
-   * Threaded SEPARATELY from `cacheDir` because the two answer different questions: `cacheDir`
-   * decides whether the incremental clean-skip engages, while this only has to be unique per
-   * concurrent parse. A multi-target run needs per-target SCIP isolation even when it wants no
-   * incremental cache at all, and overloading `cacheDir` for that would silently switch
-   * incremental on.
+   * Where the SCIP indexer writes its index files (a repo-local default when unset). Must be
+   * unique per concurrent parse: a multi-target run passes one directory per target.
    */
   scipOutDir?: string;
 }

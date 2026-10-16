@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import '../../config/load-env.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { OAuthClient } from '@rekog/mcp-nest';
 import { PrismaClient } from '../../generated/prisma/client.js';

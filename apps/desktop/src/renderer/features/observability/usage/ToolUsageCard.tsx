@@ -8,7 +8,7 @@ import { useState } from 'react';
 import type { UsageToolRow } from '../../../../shared/ipc-types.js';
 import { Button } from '../../../components/ui/button';
 import { MagnitudeBar } from '../charts/MagnitudeBar';
-import { formatNumber } from '../observability-format';
+import { formatNumber } from '@coredoc/core/browser/format';
 import { UsageCard } from './UsageCard';
 import { formatMs, toolPills } from './usage-presentation';
 

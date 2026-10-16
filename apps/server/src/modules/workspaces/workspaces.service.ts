@@ -4,7 +4,7 @@ import { ControlPlaneService, type Workspace } from '../../database/control-plan
 import type { CreateWorkspaceInput, EnableCloudInput, UpdateWorkspaceInput } from './workspaces.contract.js';
 import { WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js';
 import { serverUrl } from '../../auth/oauth/server-url.js';
-import { INTENT_CONFIG, intentConfigFromEnv, type IntentConfig } from '../../config/app-config.js';
+import { INTENT_CONFIG, configFromEnv, type IntentConfig } from '../../config/app-config.js';
 import { intentEnabledForActor } from '../intent/intent-rollout.js';
 import type { IntentReleaseTrigger } from '../../generated/prisma/client.js';
 
@@ -23,7 +23,7 @@ export class WorkspacesService {
   constructor(
     private readonly controlPlane: ControlPlaneService,
     private readonly workosInvitations: WorkOSInvitationsService,
-    @Optional() @Inject(INTENT_CONFIG) private readonly intent: IntentConfig = intentConfigFromEnv(),
+    @Optional() @Inject(INTENT_CONFIG) private readonly intent: IntentConfig = configFromEnv().intent,
   ) {}
 
   /**

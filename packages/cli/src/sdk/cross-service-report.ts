@@ -14,7 +14,7 @@ import * as fs from 'fs';
 import { linkWorkspace, sliceParsedRepoByTarget } from '@coredoc/core';
 import { parsedRepoFile } from '@coredoc/core/utils';
 import type { ParsedRepo } from '@coredoc/core/types';
-import { loadConfig } from './config.js';
+import { loadConfig } from '@coredoc/core/utils';
 
 export interface CrossServiceReport {
   project: string | null;

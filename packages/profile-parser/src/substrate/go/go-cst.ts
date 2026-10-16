@@ -19,11 +19,11 @@
  *      enclosing funcs → name). Go hangs the same method name (`Get`, `Close`, `ServeHTTP`) off
  *      every type in a file and permits several `init` funcs per file, so a flat file+name id
  *      collapses them onto one node and corrupts the call graph.
- *   4. `discoverGoFiles` — the built-in exclude floor. `vendor/` is NOT in the shared enumerator's
+ *   4. `discoverGoFileScope` — the built-in exclude floor. `vendor/` is NOT in the shared enumerator's
  *      `DEFAULT_IGNORE_DIRS`, and `*_test.go` files typically outnumber the code they test.
  */
 import type { StableIdGenerator } from '@coredoc/core';
-import { TreeSitterLoader, type TsNode } from '../../tree-sitter/tree-sitter-loader.js';
+import { type TsNode } from '../../tree-sitter/tree-sitter-loader.js';
 import { makeFileScopeDiscoverer } from '../cst-kit/file-scope.js';
 import { makeScopeChainId } from '../cst-kit/scope.js';
 import { makeStringValueReader } from '../cst-kit/strings.js';
@@ -39,22 +39,14 @@ export interface GoFile {
   root: TsNode;
 }
 
-/** Parse Go source and return the root node. The loader memoises the Parser per grammar. */
-export async function parseGo(source: string): Promise<TsNode> {
-  return (await TreeSitterLoader.getInstance().getParser('go')).parse(source).rootNode;
-}
-
 // tree-sitter-go node types the substrate depends on.
 export const SOURCE_FILE = 'source_file';
 export const PACKAGE_CLAUSE = 'package_clause';
 export const PACKAGE_IDENTIFIER = 'package_identifier';
-export const IMPORT_DECLARATION = 'import_declaration';
-export const IMPORT_SPEC_LIST = 'import_spec_list';
 export const IMPORT_SPEC = 'import_spec';
 export const FUNCTION_DECLARATION = 'function_declaration';
 export const METHOD_DECLARATION = 'method_declaration';
 export const FUNC_LITERAL = 'func_literal';
-export const TYPE_DECLARATION = 'type_declaration';
 export const TYPE_SPEC = 'type_spec';
 export const TYPE_ALIAS = 'type_alias';
 export const STRUCT_TYPE = 'struct_type';
@@ -68,26 +60,17 @@ export const CONST_DECLARATION = 'const_declaration';
 export const CONST_SPEC = 'const_spec';
 export const CALL_EXPRESSION = 'call_expression';
 export const SELECTOR_EXPRESSION = 'selector_expression';
-export const ARGUMENT_LIST = 'argument_list';
 export const PARAMETER_LIST = 'parameter_list';
 export const PARAMETER_DECLARATION = 'parameter_declaration';
 export const VARIADIC_PARAMETER_DECLARATION = 'variadic_parameter_declaration';
 export const QUALIFIED_TYPE = 'qualified_type';
-export const POINTER_TYPE = 'pointer_type';
 export const COMPOSITE_LITERAL = 'composite_literal';
-export const LITERAL_VALUE = 'literal_value';
 export const KEYED_ELEMENT = 'keyed_element';
-export const LITERAL_ELEMENT = 'literal_element';
-export const GO_STATEMENT = 'go_statement';
-export const DEFER_STATEMENT = 'defer_statement';
 export const SHORT_VAR_DECLARATION = 'short_var_declaration';
 export const ASSIGNMENT_STATEMENT = 'assignment_statement';
-export const EXPRESSION_STATEMENT = 'expression_statement';
 export const RETURN_STATEMENT = 'return_statement';
 export const EXPRESSION_LIST = 'expression_list';
 export const BLOCK = 'block';
-export const IF_STATEMENT = 'if_statement';
-export const FOR_STATEMENT = 'for_statement';
 export const FOR_CLAUSE = 'for_clause';
 export const RANGE_CLAUSE = 'range_clause';
 export const TYPE_SWITCH_STATEMENT = 'type_switch_statement';
@@ -101,15 +84,12 @@ export const BLANK_IDENTIFIER = 'blank_identifier';
 export const DOT = 'dot';
 export const INTERPRETED_STRING_LITERAL = 'interpreted_string_literal';
 export const RAW_STRING_LITERAL = 'raw_string_literal';
-export const INT_LITERAL = 'int_literal';
 export const ESCAPE_SEQUENCE = 'escape_sequence';
 
 /** Node types that DECLARE a named function (free function, method). */
 export const DEF_TYPES = new Set<string>([FUNCTION_DECLARATION, METHOD_DECLARATION]);
 /** Node types that own a body, i.e. can contain a call site — declarations plus closures. */
 export const FN_SCOPE_TYPES = new Set<string>([FUNCTION_DECLARATION, METHOD_DECLARATION, FUNC_LITERAL]);
-/** Node types that introduce a named type (`type X struct{…}` / `type X = Y`). */
-export const TYPE_SPEC_TYPES = new Set<string>([TYPE_SPEC, TYPE_ALIAS]);
 /** The two string literal node types. */
 export const STRING_LITERAL_TYPES = new Set<string>([INTERPRETED_STRING_LITERAL, RAW_STRING_LITERAL]);
 
@@ -470,21 +450,11 @@ export const enclosingFunction = makeEnclosingWalker(FN_SCOPE_TYPES);
 export const DEFAULT_GO_EXCLUDES: string[] = ['**/vendor/**', '**/testdata/**', '**/*_test.go', '**/*.pb.go'];
 
 /**
- * Enumerate `.go` sources in scope: the gitignore-honoring repo walk (`enumerateRepoFiles`)
- * filtered to `.go` + the profile's include/exclude globs. An empty `include` defaults to all `.go`
- * files; the effective exclude is `DEFAULT_GO_EXCLUDES` plus the profile's `exclude` unless
- * `excludeDefaults === false`. Sorted for deterministic output.
+ * `.go` sources in scope: the gitignore-honoring repo walk (`enumerateRepoFiles`) filtered to
+ * `.go` + the profile's include/exclude globs. An empty `include` defaults to all `.go` files; the
+ * effective exclude is `DEFAULT_GO_EXCLUDES` plus the profile's `exclude` unless
+ * `excludeDefaults === false`. Shared by the parser and the scorer.
  */
-export function discoverGoFiles(
-  root: string,
-  include: string[],
-  exclude: string[] = [],
-  excludeDefaults?: boolean,
-): string[] {
-  return discoverGoFileScope(root, include, exclude, excludeDefaults).included;
-}
-
-/** The scorer-facing source scope, derived by the same discovery policy as the parser. */
 export const discoverGoFileScope = makeFileScopeDiscoverer({
   extensions: ['.go'],
   defaultInclude: ['**/*.go'],

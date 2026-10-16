@@ -6,7 +6,7 @@
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../../../lib/utils';
-import { clampTooltipX, layoutTimeseries, nearestIndex, tooltipPlacement } from './chart-geometry';
+import { clampTooltipX, layoutTimeseries, nearestIndex, tooltipPlacement } from '@coredoc/core/browser/chart-geometry';
 import { ChartTooltip, TOOLTIP_FLIP_THRESHOLD, TOOLTIP_HALF_WIDTH } from './ChartTooltip';
 import { useChartWidth } from './use-chart-width';
 

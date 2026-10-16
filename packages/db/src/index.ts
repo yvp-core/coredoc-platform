@@ -28,7 +28,6 @@
 export type {
   // Backend types
   DatabaseBackend,
-  DatabaseConfig,
   // Driver/Repository interfaces
   IDatabaseDriver,
   IGraphBatchTraversalRepository,
@@ -101,15 +100,10 @@ export type {
   ComponentGraphData,
   ComponentGraphNode,
   ComponentGraphEdge,
-  // Batch types
-  NodeBatch,
-  EdgeBatch,
   // Operations tracking
   OperationType,
-  OperationStatus,
   OperationRecord,
   OperationSummary,
-  IOperationsRepository,
 } from './types.js';
 
 // Graph storage vocabulary enums: export as runtime values; consumers import
@@ -118,25 +112,14 @@ export { NodeType, EdgeType } from './types.js';
 export { CypherResultShape } from './types.js';
 export { GRAPH_READ_CAPABILITY_IDENTITY, GraphApplyMode } from './types.js';
 export { ByteMultiPatternMatcher } from './multi-pattern.js';
-export { runStatements } from './transaction.js';
 export {
   assertQueryDoesNotProjectSource,
   assertReadOnlyCypherAllowlisted,
   type CypherDialect,
 } from './cypher-guard.js';
-// Entrypoint addressing — shared with the MCP tool layer so "which token names
-// this entrypoint" has one definition across filtering and rendering.
-export {
-  entrypointAddressMatches,
-  entrypointAddressTokens,
-  routePathMatches,
-  type EntrypointAddress,
-} from './route-path.js';
 
 export {
   openGraphFile,
-  GraphFileOpenError,
-  GraphFileReadOnlyError,
   type GraphFileBudgets,
   type GraphFileHandle,
   type GraphFileOptions,
@@ -151,17 +134,10 @@ export {
   getDriver,
   getRepository,
   getOperationsRepository,
-  getMcpMetricsRepository,
   closeDriver,
   closeOperationsDriver,
   closeAllDrivers,
-  resetBackendState,
-  isDriverInitialized,
   getConfiguredBackend,
-  getCurrentBackend,
-  isSqliteAvailable,
-  isNeo4jAvailable,
-  getAvailableBackends,
   registerExitHandlers,
   isDatabaseAvailable,
   openProjectDatabase,
@@ -216,7 +192,6 @@ export {
   AnchorMismatchReason,
   AnchorStatus,
   SnapshotFreshness,
-  readObservedCheckout,
   resolveIntentEvidence,
   type AnchorEvidence,
   type AnchoredIntentSubject,
@@ -232,12 +207,7 @@ export {
 // =============================================================================
 
 export {
-  GRAPH_FILE_BUILDER_VERSION,
-  GRAPH_FILE_ENGINE,
-  GRAPH_FILE_ENGINE_VERSION,
   GRAPH_FILE_FORMAT_COMPATIBILITY,
-  GRAPH_FILE_SCHEMA_VERSION,
-  GRAPH_FILE_STORAGE_FORMAT_VERSION,
   heritageIdentityIsVerifiable,
   withHeritageIdentityDowngrade,
 } from './graph-format.js';
@@ -247,7 +217,6 @@ export {
 // =============================================================================
 
 export { SqliteRepository } from './sqlite/repository.js';
-export { SqliteOperationsRepository } from './sqlite/operations-repository.js';
 export { McpMetricsRepository } from './sqlite/mcp-metrics-repository.js';
 export type { McpQueryRecord, RecordMcpQueryInput, McpSessionRollup } from './sqlite/mcp-metrics-repository.js';
 
@@ -255,31 +224,10 @@ export type { McpQueryRecord, RecordMcpQueryInput, McpSessionRollup } from './sq
 // SQLite Driver Exports (for direct access when needed)
 // =============================================================================
 
-export { SqliteDriver, getSqliteUrl, getSqliteAuthToken, type SqliteDriverOptions } from './sqlite/driver.js';
+export { SqliteDriver, type SqliteDriverOptions } from './sqlite/driver.js';
 
 // =============================================================================
 // Neo4j-Specific Exports (for direct access when needed)
 // =============================================================================
 
-export {
-  Neo4jDriver,
-  Neo4jRepository,
-  getConnectionConfig,
-  getMaskedConnectionString,
-  getNeo4jDriver,
-  closeNeo4jDriver,
-  isNeo4jDriverInitialized,
-  verifyConnectivity,
-  registerNeo4jExitHandlers,
-  createVectorIndexes,
-  ensureGraphIndexes,
-  getServerInfo,
-  isNeo4jDatabaseAvailable,
-  withSession,
-  withReadTransaction,
-  withWriteTransaction,
-  executeBatch,
-  DEFAULT_BATCH_SIZE,
-  type Neo4jConnectionConfig,
-  type Neo4jSessionOptions,
-} from './neo4j/index.js';
+export { getDriver as getNeo4jDriver, createVectorIndexes, ensureGraphIndexes } from './neo4j/driver.js';

@@ -72,12 +72,6 @@ function normalizeHttpPath(p: string): string {
   return normalizePath(p).toLowerCase();
 }
 
-// Parse "POST /api/foo" into { method, path }. Method is optional and the path
-// is returned even when the caller didn't include a verb.
-function parseCallPattern(pattern: string): { method?: string; path: string } {
-  return splitHttpMethodPrefix(pattern);
-}
-
 // Count meaningful path segments (non-empty, ignoring leading/trailing slash).
 // Used to gate suffix matching: a 1-segment path like "/" or "/foo" is too
 // ambiguous to substring-match against a longer pattern.
@@ -594,7 +588,7 @@ export async function handleTraceCrossRepoCall(
   let ambiguousTargets: EntrypointInfo[] = [];
 
   if (callPattern) {
-    const { method: patternMethod, path: patternPath } = parseCallPattern(callPattern);
+    const { method: patternMethod, path: patternPath } = splitHttpMethodPrefix(callPattern);
     const normalizedPattern = normalizeHttpPath(patternPath);
 
     // Rank a set of external_calls against the pattern and pick the BEST match —

@@ -24,7 +24,6 @@
 import type {
   Entrypoint,
   GrpcEntrypointDetails,
-  HttpEntrypointDetails,
   HttpMethod,
   QueueEntrypointDetails,
   StableIdGenerator,
@@ -53,6 +52,7 @@ import {
 } from './rust-cst.js';
 import { type RustCrate, crateCodeName, dependsOnAny } from './rust-crates.js';
 import type { RouterRegistrationCall } from '../../types/rust-profile.js';
+import { httpEntrypoint } from '../file-nodes.js';
 
 export interface RustEntrypointConfig {
   /** Attribute macros carrying a route. Default: the HTTP verbs plus `route`. */
@@ -233,27 +233,6 @@ function cosmwasmEntrypoints(file: RustFile, idGen: StableIdGenerator, crateName
 // =============================================================================
 // HTTP
 // =============================================================================
-
-/** Build one http entrypoint; `handlerId` falls back to a synthetic id when unresolvable. */
-function httpEntrypoint(
-  idGen: StableIdGenerator,
-  method: HttpMethod,
-  fullPath: string,
-  relPath: string,
-  node: TsNode,
-  handlerId?: string,
-): Entrypoint {
-  const id = idGen.httpEntrypointId(method, fullPath, relPath);
-  const details: HttpEntrypointDetails = { type: 'http', method, path: fullPath, fullPath };
-  return {
-    id,
-    versionedId: idGen.versionedId(id, `${method} ${fullPath}`),
-    type: 'http',
-    handlerId: handlerId ?? idGen.functionId(relPath, `${method} ${fullPath}`),
-    location: { filePath: relPath, startLine: node.startPosition.row + 1, endLine: node.endPosition.row + 1 },
-    details,
-  };
-}
 
 /**
  * Base paths a handler NAME is mounted under, from `.mount("/base", routes![a, b])` (rocket)
@@ -756,7 +735,17 @@ export function extractRustEntrypoints(
         const fnName = itemName(fn);
         const base = fnName ? (mounted.get(fnName) ?? '') : '';
         const fullPath = normalizePath(`${base}/${templatize(args[0])}`);
-        push(httpEntrypoint(idGen, verb, fullPath, file.relPath, fn, rustFunctionId(idGen, file.relPath, fn)));
+        push(
+          httpEntrypoint(
+            idGen,
+            verb,
+            fullPath,
+            file.relPath,
+            fn.startPosition.row + 1,
+            fn.endPosition.row + 1,
+            rustFunctionId(idGen, file.relPath, fn),
+          ),
+        );
       }
     }
 
@@ -775,7 +764,17 @@ export function extractRustEntrypoints(
         // A `.route(path, …)` with no recognizable verb combinator still serves that path; GET is
         // the label the linker joins on (it matches by prefix, not method), not a claim.
         for (const verb of verbs.length > 0 ? verbs : (['GET'] as HttpMethod[])) {
-          push(httpEntrypoint(idGen, verb, fullPath, file.relPath, call, handlerId));
+          push(
+            httpEntrypoint(
+              idGen,
+              verb,
+              fullPath,
+              file.relPath,
+              call.startPosition.row + 1,
+              call.endPosition.row + 1,
+              handlerId,
+            ),
+          );
         }
         continue;
       }
@@ -802,7 +801,17 @@ export function extractRustEntrypoints(
           break;
         }
       }
-      push(httpEntrypoint(idGen, verb ?? 'GET', normalizePath(templatize(rawPath)), file.relPath, call, handlerId));
+      push(
+        httpEntrypoint(
+          idGen,
+          verb ?? 'GET',
+          normalizePath(templatize(rawPath)),
+          file.relPath,
+          call.startPosition.row + 1,
+          call.endPosition.row + 1,
+          handlerId,
+        ),
+      );
     }
 
     // --- gRPC ---

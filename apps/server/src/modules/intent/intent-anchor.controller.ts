@@ -33,20 +33,9 @@ import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { IntentEnabledGuard } from './intent-enabled.guard.js';
 import type { WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js';
 import { IntentExceptionFilter, RefreshIntentAnchorSchema, intentContractPipe } from './contract/index.js';
-import type { IntentActor } from './intent-idempotency.js';
 import { IntentAnchorService } from './intent-anchor.service.js';
 import { assertPathMatchesBody } from './intent-state-errors.js';
-import { IntentActorRole } from '../../mcp/intent-auth.js';
-
-/**
- * The actor recorded on every audit row. Identity and role come from the token
- * via the guards — never from the request payload (spec §4.7). A write route
- * always has a resolved role, because `UserSessionGuard` has already refused
- * every service token by the time this runs.
- */
-function actorOf(user: AuthUser, role: WorkspaceMemberRole | undefined): IntentActor {
-  return { id: user.id, role: role ?? IntentActorRole.ServiceToken };
-}
+import { intentActorOf } from '../../mcp/intent-auth.js';
 
 @Controller('workspaces/:workspaceId/intent')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, IntentEnabledGuard)
@@ -65,6 +54,6 @@ export class IntentAnchorController {
     @Body(intentContractPipe(RefreshIntentAnchorSchema)) input: z.infer<typeof RefreshIntentAnchorSchema>,
   ) {
     assertPathMatchesBody(itemId, input.itemId, 'itemId');
-    return this.anchors.refresh(workspaceId, actorOf(user, role), input);
+    return this.anchors.refresh(workspaceId, intentActorOf(user, role), input);
   }
 }

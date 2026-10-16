@@ -20,7 +20,6 @@ import {
   modifierTexts,
   namedChildrenOfType,
   parameterFacts,
-  parseKotlin,
   propertyFacts,
   receiverTypeOf,
   returnTypeOf,
@@ -30,9 +29,10 @@ import {
   typeName,
   type TsNode,
 } from './kotlin-cst.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 async function root(src: string): Promise<TsNode> {
-  return await parseKotlin(src);
+  return await parseSource('kotlin', src);
 }
 
 /** Every `call_expression` in the tree, outermost first. */

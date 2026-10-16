@@ -2,7 +2,6 @@ import { StableIdGenerator } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
 import {
   SHIPPABLE_PROVENANCE,
-  collectRubyDefs,
   countResolvedRubySites,
   emptyRubyCallSiteMeasurement,
   indexRubyDefs,
@@ -30,7 +29,7 @@ async function runFiles(sources: Record<string, string>) {
 const edgeFor = (edges: Awaited<ReturnType<typeof run>>['edges'], exprIncludes: string) =>
   edges.find((e) => e.calleeExpression.includes(exprIncludes));
 
-describe('collectRubyDefs — sourceCode', () => {
+describe('indexRubyDefs — sourceCode', () => {
   it('captures the full def source on each FunctionNode (matching the TS structural path)', async () => {
     const idGen = mkGen();
     const source = `class Foo
@@ -38,7 +37,7 @@ describe('collectRubyDefs — sourceCode', () => {
     "hello #{name}"
   end
 end`;
-    const defs = await collectRubyDefs([{ relPath: REL, source }], idGen);
+    const defs = [...(await indexRubyDefs([{ relPath: REL, source }], idGen)).byId.values()];
     const greet = defs.find((d) => d.name === 'greet');
     expect(greet?.sourceCode).toBe(`def greet(name)
     "hello #{name}"
@@ -49,7 +48,7 @@ end`;
     const idGen = mkGen();
     const body = '  x = 1\n'.repeat(5000); // ~40k chars of body
     const source = `def big\n${body}end`;
-    const defs = await collectRubyDefs([{ relPath: REL, source }], idGen);
+    const defs = [...(await indexRubyDefs([{ relPath: REL, source }], idGen)).byId.values()];
     const big = defs.find((d) => d.name === 'big');
     expect(big?.sourceCode?.length).toBe(20000);
   });

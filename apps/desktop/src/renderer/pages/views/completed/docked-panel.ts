@@ -88,14 +88,6 @@ export function togglePanel(current: DockedPanel, panel: DockedPanel): DockedPan
 }
 
 /**
- * Show or hide the terminal column of the running drawer. A no-op on every
- * other kind, so the terminal's own close button can be wired unconditionally.
- */
-export function setTerminalVisible(current: DockedPanel, visible: boolean): DockedPanel {
-  return current.kind === 'workspace-running' ? { ...current, terminalVisible: visible } : current;
-}
-
-/**
  * The three graph-building stages run inside the running drawer. `generate` is
  * graph-mutating too, but its output is an agent transcript rather than a PTY
  * stream, so it keeps the plain terminal and the panel that renders it.

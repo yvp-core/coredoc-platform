@@ -61,6 +61,7 @@ const DOMAINS: IntentTreeDomain[] = [
       {
         id: 'refunds',
         domainId: 'payments',
+        parentFeatureId: null,
         title: 'Refunds',
         statement: 'Returning money.',
         archived: false,
@@ -70,6 +71,7 @@ const DOMAINS: IntentTreeDomain[] = [
       {
         id: 'chargebacks',
         domainId: 'payments',
+        parentFeatureId: null,
         title: 'Chargebacks',
         statement: 'Disputes.',
         archived: true,
@@ -85,6 +87,7 @@ const NO_EXPANSION = { domainId: null, features: null, loading: false, truncated
 const EXTRA_FEATURE: IntentFeatureView = {
   id: 'disputes',
   domainId: 'payments',
+  parentFeatureId: null,
   title: 'Disputes',
   statement: 'Contested charges.',
   archived: false,

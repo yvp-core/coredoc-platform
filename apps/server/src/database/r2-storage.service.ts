@@ -20,7 +20,7 @@
  */
 
 import { Inject, Injectable, Logger, Optional, type OnModuleDestroy } from '@nestjs/common';
-import { STORAGE_CONFIG, type StorageConfig, storageConfigFromEnv } from '../config/app-config.js';
+import { STORAGE_CONFIG, type StorageConfig, configFromEnv } from '../config/app-config.js';
 import type { S3Client as AwsS3Client } from '@aws-sdk/client-s3';
 import { join, resolve, sep, dirname } from 'node:path';
 import {
@@ -204,7 +204,7 @@ export class R2StorageService implements OnModuleDestroy {
   private readonly useLocal: boolean;
   private readonly gcsHeadBeforePut: boolean;
 
-  constructor(@Optional() @Inject(STORAGE_CONFIG) private readonly storage: StorageConfig = storageConfigFromEnv()) {
+  constructor(@Optional() @Inject(STORAGE_CONFIG) private readonly storage: StorageConfig = configFromEnv().storage) {
     this.bucket = storage.r2.bucket;
     this.localFallbackDir = join(process.cwd(), '.r2-local', this.bucket);
     this.useLocal = !storage.r2.endpoint;

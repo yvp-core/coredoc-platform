@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { StableIdGenerator } from '@coredoc/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CodeGraph } from '../facts/graph/graph-builder.js';
-import type { BaselineResult } from '../facts/index.js';
+import type { BaselineResult } from '../facts/pipeline.js';
 import { checkReferentialIntegrity } from '../integrity/referential-integrity.js';
 import type { ExtractionProfile } from '../types.js';
 import { SubstrateProfileEngine } from './engine.js';

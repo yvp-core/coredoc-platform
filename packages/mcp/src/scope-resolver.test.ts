@@ -6,15 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import {
-  generateRepoHash,
-  loadConfig,
-  resolveScope,
-  buildRepoHashFilter,
-  getScopeDescription,
-  resolveVantageRepo,
-  type ScopeContext,
-} from './scope-resolver.js';
+import { generateRepoHash, loadConfig, resolveScope, resolveVantageRepo, type ScopeContext } from './scope-resolver.js';
 import type { CoredocConfig } from '@coredoc/core/types';
 import { repoRefKey } from '@coredoc/core/utils';
 
@@ -95,7 +87,6 @@ describe('Scope Resolver', () => {
         ],
         output: { dir: './output', format: 'json' },
         parserStorage: './parsers',
-        agentMode: 'interactive',
       };
 
       configPath = path.join(tempDir, 'coredoc.config.json');
@@ -124,7 +115,6 @@ describe('Scope Resolver', () => {
         ],
         output: { dir: './output', format: 'json' },
         parserStorage: './parsers',
-        agentMode: 'interactive',
       };
 
       configPath = path.join(tempDir, 'coredoc.config.json');
@@ -150,7 +140,6 @@ describe('Scope Resolver', () => {
         ],
         output: { dir: './output', format: 'json' },
         parserStorage: './parsers',
-        agentMode: 'interactive',
       };
 
       configPath = path.join(tempDir, 'coredoc.config.json');
@@ -188,7 +177,6 @@ describe('Scope Resolver', () => {
         ],
         output: { dir: './output', format: 'json' },
         parserStorage: './parsers',
-        agentMode: 'interactive',
       };
 
       configPath = path.join(tempDir, 'coredoc.config.json');
@@ -235,7 +223,6 @@ describe('Scope Resolver', () => {
         ],
         output: { dir: './output', format: 'json' },
         parserStorage: './parsers',
-        agentMode: 'interactive',
       };
 
       configPath = path.join(tempDir, 'coredoc.config.json');
@@ -376,7 +363,6 @@ describe('Scope Resolver', () => {
         ],
         output: { dir: './output', format: 'json' },
         parserStorage: './parsers',
-        agentMode: 'interactive',
       };
       const ambigConfigPath = path.join(tempDir, 'ambig-config.json');
       fs.writeFileSync(ambigConfigPath, JSON.stringify(ambigConfig, null, 2));
@@ -397,7 +383,6 @@ describe('Scope Resolver', () => {
         ],
         output: { dir: './output', format: 'json' },
         parserStorage: './parsers',
-        agentMode: 'interactive',
       };
       const ambigConfigPath = path.join(tempDir, 'ambig-config-bound.json');
       fs.writeFileSync(ambigConfigPath, JSON.stringify(ambigConfig, null, 2));
@@ -447,7 +432,6 @@ describe('Scope Resolver', () => {
         ],
         output: { dir: './output', format: 'json' },
         parserStorage: './parsers',
-        agentMode: 'interactive',
       };
       const ambigConfigPath = path.join(tempDir, 'ambig-config-qualified.json');
       fs.writeFileSync(ambigConfigPath, JSON.stringify(ambigConfig, null, 2));
@@ -477,7 +461,6 @@ describe('Scope Resolver', () => {
         ],
         output: { dir: './output', format: 'json' },
         parserStorage: './parsers',
-        agentMode: 'interactive',
       };
 
       const standalonePath = path.join(tempDir, 'standalone');
@@ -521,7 +504,6 @@ describe('Scope Resolver', () => {
         ],
         output: { dir: './output', format: 'json' },
         parserStorage: './parsers',
-        agentMode: 'interactive',
       };
 
       const apiPath = path.join(tempDir, 'api');
@@ -563,7 +545,6 @@ describe('Scope Resolver', () => {
           ],
           output: { dir: './output', format: 'json' },
           parserStorage: './parsers',
-          agentMode: 'interactive',
         };
 
         const configWithDisplayNamesPath = path.join(tempDir, 'display-name-config.json');
@@ -595,7 +576,6 @@ describe('Scope Resolver', () => {
           ],
           output: { dir: './output', format: 'json' },
           parserStorage: './parsers',
-          agentMode: 'interactive',
         };
 
         const configWithDisplayNamesPath = path.join(tempDir, 'display-name-config.json');
@@ -805,7 +785,6 @@ describe('Scope Resolver', () => {
         ],
         output: { dir: './output', format: 'json' },
         parserStorage: './parsers',
-        agentMode: 'interactive',
       };
       let collisionConfigPath: string;
 
@@ -870,130 +849,6 @@ describe('Scope Resolver', () => {
 
   // ===========================================================================
   // Cypher Filter Generation
-  // ===========================================================================
-
-  describe('buildRepoHashFilter', () => {
-    it('should return "true" for empty repo hashes', () => {
-      const scope: ScopeContext = {
-        currentPath: '/test',
-        resolvedRepos: [],
-        repoHashes: [],
-        crossRepoEnabled: false,
-      };
-
-      const filter = buildRepoHashFilter(scope);
-      expect(filter).toBe('true');
-    });
-
-    it('should generate STARTS WITH for single repo hash', () => {
-      const scope: ScopeContext = {
-        currentPath: '/test',
-        resolvedRepos: ['service1'],
-        repoHashes: ['abc123def456'],
-        crossRepoEnabled: false,
-      };
-
-      const filter = buildRepoHashFilter(scope);
-      expect(filter).toBe("n.id STARTS WITH 'abc123def456:'");
-    });
-
-    it('should use custom node alias', () => {
-      const scope: ScopeContext = {
-        currentPath: '/test',
-        resolvedRepos: ['service1'],
-        repoHashes: ['abc123def456'],
-        crossRepoEnabled: false,
-      };
-
-      const filter = buildRepoHashFilter(scope, 'node');
-      expect(filter).toBe("node.id STARTS WITH 'abc123def456:'");
-    });
-
-    it('should generate ANY() clause for multiple repo hashes', () => {
-      const scope: ScopeContext = {
-        currentPath: '/test',
-        resolvedRepos: ['service1', 'service2'],
-        repoHashes: ['abc123def456', 'xyz789ghi012'],
-        crossRepoEnabled: true,
-      };
-
-      const filter = buildRepoHashFilter(scope);
-      expect(filter).toContain('ANY(prefix IN');
-      expect(filter).toContain("'abc123def456:'");
-      expect(filter).toContain("'xyz789ghi012:'");
-      expect(filter).toContain('WHERE n.id STARTS WITH prefix');
-    });
-
-    it('should generate ANY() with custom node alias', () => {
-      const scope: ScopeContext = {
-        currentPath: '/test',
-        resolvedRepos: ['service1', 'service2'],
-        repoHashes: ['abc123def456', 'xyz789ghi012'],
-        crossRepoEnabled: true,
-      };
-
-      const filter = buildRepoHashFilter(scope, 'target');
-      expect(filter).toContain('WHERE target.id STARTS WITH prefix');
-    });
-  });
-
-  // ===========================================================================
-  // Scope Description
-  // ===========================================================================
-
-  describe('getScopeDescription', () => {
-    it('should describe empty scope', () => {
-      const scope: ScopeContext = {
-        currentPath: '/test',
-        resolvedRepos: [],
-        repoHashes: [],
-        crossRepoEnabled: false,
-      };
-
-      const description = getScopeDescription(scope);
-      expect(description).toBe('No repositories matched');
-    });
-
-    it('should describe single repo', () => {
-      const scope: ScopeContext = {
-        currentPath: '/test',
-        resolvedRepos: ['service1'],
-        repoHashes: ['abc123'],
-        crossRepoEnabled: false,
-      };
-
-      const description = getScopeDescription(scope);
-      expect(description).toBe('Repository: service1');
-    });
-
-    it('should describe multiple repos with project', () => {
-      const scope: ScopeContext = {
-        currentPath: '/test',
-        resolvedRepos: ['service1', 'service2', 'service3'],
-        repoHashes: ['abc123', 'def456', 'ghi789'],
-        project: 'platform',
-        crossRepoEnabled: true,
-      };
-
-      const description = getScopeDescription(scope);
-      expect(description).toBe("Project 'platform': service1, service2, service3");
-    });
-
-    it('should describe multiple repos without project', () => {
-      const scope: ScopeContext = {
-        currentPath: '/test',
-        resolvedRepos: ['service1', 'service2'],
-        repoHashes: ['abc123', 'def456'],
-        crossRepoEnabled: false,
-      };
-
-      const description = getScopeDescription(scope);
-      expect(description).toBe('Repositories: service1, service2');
-    });
-  });
-
-  // ===========================================================================
-  // Vantage Repo Resolution
   // ===========================================================================
 
   describe('resolveVantageRepo', () => {

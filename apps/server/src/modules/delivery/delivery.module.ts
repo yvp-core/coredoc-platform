@@ -65,9 +65,3 @@ export class DeliveryApiModule {}
   providers: [DeliverySyncCron],
 })
 export class DeliveryWorkerScheduleModule {}
-
-@Module({
-  imports: [DeliveryCoreModule, DeliveryApiModule, DeliveryWorkerScheduleModule],
-  exports: [DeliveryCoreModule],
-})
-export class DeliveryModule {}

@@ -14,9 +14,6 @@ export * from './coverage-text.js';
 export {
   StableIdGenerator,
   generateRepoHash,
-  createIdGenerator,
-  IdGeneratorManager,
-  idGeneratorManager,
   type NodeIdKind,
   type EdgeIdKind,
   type ParsedId,
@@ -77,6 +74,3 @@ export type { EntrypointIndex } from './cross-repo/descriptor-matcher.js';
 
 // Shared product-intent contracts — durable, outside ParsedRepo.
 export * from './intent/index.js';
-
-// Version
-export const VERSION = '1.0.0';

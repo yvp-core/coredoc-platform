@@ -44,7 +44,6 @@ const DEFAULT_CONFIG = {
   projects: [],
   output: { dir: './coredoc-output', format: 'json', prettyPrint: true },
   parserStorage: './coredoc-parsers',
-  agentMode: 'interactive',
   exclude: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/*.test.ts', '**/*.spec.ts', '**/__tests__/**'],
 };
 

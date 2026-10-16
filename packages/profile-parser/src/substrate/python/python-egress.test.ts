@@ -1,7 +1,8 @@
 import { StableIdGenerator } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
-import { type PythonFile, parsePython } from './python-cst.js';
+import { type PythonFile } from './python-cst.js';
 import { extractPythonEgress } from './python-egress.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 /**
  * Python HTTP EGRESS extraction (Lane D, spec S8/S11) — outbound HTTP client calls a Python
@@ -18,7 +19,7 @@ import { extractPythonEgress } from './python-egress.js';
 const REL = 'app/svc.py';
 
 async function file(source: string, relPath = REL): Promise<PythonFile> {
-  return { relPath, source, root: await parsePython(source) };
+  return { relPath, source, root: await parseSource('python', source) };
 }
 
 /** Fresh id generator seeded exactly like the parser. */

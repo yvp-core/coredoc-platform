@@ -21,7 +21,7 @@ import type {
 } from '../../../../shared/ipc-types.js';
 import type { SparklinePoint } from '../Sparkline';
 import type { LineChartPoint } from '../charts/LineChart';
-import { NO_DATA, formatNumber, plural } from '../observability-format';
+import { NO_DATA, formatNumber, plural } from '@coredoc/core/browser/format';
 
 /** The marker a spend figure carries when the price map could not price it (LIM-1). */
 export const UNPRICED_MARKER = 'Unpriced';

@@ -218,11 +218,6 @@ export function registerWorkspaceHandlers(mainWindow?: BrowserWindow): void {
     return serverApi.disconnectRepo(workspaceId, repoId);
   });
 
-  // Config
-  ipcMain.handle('workspace:pullConfig', async (_event, workspaceId: string) => {
-    return serverApi.pullWorkspaceConfig(workspaceId);
-  });
-
   // Cloud Sync
   ipcMain.handle('workspace:enableCloud', async (_event, workspaceId: string, opts?: { ciCdEnabled?: boolean }) => {
     return serverApi.enableCloud(workspaceId, opts);
@@ -253,19 +248,6 @@ export function registerWorkspaceHandlers(mainWindow?: BrowserWindow): void {
     async (_event, workspaceId: string, repoKey: string, trigger: IntentReleaseTrigger | null) =>
       serverApi.updateRepo(workspaceId, repoKey, { intentReleaseTrigger: trigger }),
   );
-
-  ipcMain.handle('workspace:getRepoState', async (_event, workspaceId: string, repoName: string) => {
-    try {
-      return await serverApi.getRepoState(workspaceId, repoName);
-    } catch (err) {
-      // 404 = repo not connected to the workspace yet — a valid "no state"
-      // answer, not a failure. The renderer relies on null to mean "never
-      // pushed to cloud" (use-cloud-sync outdated check); rethrowing would
-      // suppress the Sync-with-Cloud banner for newly added repos.
-      if (err instanceof serverApi.ApiError && err.status === 404) return null;
-      throw err;
-    }
-  });
 
   ipcMain.handle('workspace:getMcpConfig', async (_event, workspaceId: string, tool?: string) => {
     return serverApi.getMcpConfig(workspaceId, tool);

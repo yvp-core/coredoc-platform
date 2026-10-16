@@ -37,6 +37,7 @@ import {
   rustStringValue,
 } from './rust-cst.js';
 import { type UseTable, buildUseTable } from './rust-imports.js';
+import { toPathTemplate } from '../scip/url-topic-helpers.js';
 
 /** Per-repo egress tuning — the HTTP client crates to treat as outbound calls. */
 export interface RustEgressConfig {
@@ -233,19 +234,6 @@ function argTemplate(arg: TsNode | undefined): string | undefined {
     return formatMacroTemplate(macro);
   }
   return undefined;
-}
-
-/** Normalize a raw template to a path: strip a leading `http(s)://host`; require a leading `/`. */
-function toPathTemplate(raw: string): string | undefined {
-  let out = raw;
-  const m = /^https?:\/\/[^/]+(\/.*)?$/i.exec(out);
-  if (m) {
-    // A host-only URL has no joinable route → SKIP. Emitting a bare '/' would be a bogus edge
-    // that pollutes the cross-repo route join.
-    if (!m[1]) return undefined;
-    out = m[1];
-  }
-  return out.startsWith('/') ? out : undefined;
 }
 
 /** Build the `ExternalCallEdge` for one egress call site. */

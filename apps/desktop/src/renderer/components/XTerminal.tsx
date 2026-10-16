@@ -15,14 +15,12 @@ export function XTerminal({ activeCommandIds, clearCounter, isVisible }: XTermin
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const knownCommandIdsRef = useRef<Set<string>>(new Set());
-  const activeCommandIdsRef = useRef<Set<string>>(activeCommandIds);
   const cleanupPtyDataRef = useRef<(() => void) | null>(null);
   const cleanupPtyExitRef = useRef<(() => void) | null>(null);
   const prevClearCounterRef = useRef(clearCounter);
 
-  // Keep ref in sync and accumulate command IDs across generate→parse chaining
+  // Accumulate command IDs across generate→parse chaining
   useEffect(() => {
-    activeCommandIdsRef.current = activeCommandIds;
     for (const id of activeCommandIds) {
       knownCommandIdsRef.current.add(id);
     }
@@ -66,26 +64,8 @@ export function XTerminal({ activeCommandIds, clearCounter, isVisible }: XTermin
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
-    // Forward user keystrokes to the active PTY (uses ref to avoid stale closure)
-    terminal.onData((data) => {
-      const ids = Array.from(activeCommandIdsRef.current);
-      const currentId = ids[ids.length - 1];
-      if (currentId) {
-        window.electronAPI.writePty(currentId, data);
-      }
-    });
-
-    // Report terminal resize to PTY (uses ref to avoid stale closure)
-    terminal.onResize(({ cols, rows }) => {
-      const ids = Array.from(activeCommandIdsRef.current);
-      const currentId = ids[ids.length - 1];
-      if (currentId) {
-        window.electronAPI.resizePty(currentId, cols, rows);
-      }
-    });
-
     // A drawer width switch fires the observer on every intermediate layout,
-    // and each fit() reflows the whole grid and round-trips a PTY resize IPC.
+    // and each fit() reflows the whole grid.
     // Coalescing to one fit per frame keeps the switch instantaneous.
     let fitFrame = 0;
     const resizeObserver = new ResizeObserver(() => {

@@ -3,7 +3,6 @@ import type {
   NeighborPage,
   NodeDetail,
   VizNodePage,
-  DeadCodePage,
   WorkspaceRepoRef,
   GraphCapabilities,
   GraphScope,
@@ -83,29 +82,6 @@ export const graphSubgraphQueryOptions = (scope: GraphScope, nodeId: string, arg
       (args.edgeTypes ?? []).join(','),
     ] as const,
     queryFn: () => unwrap<NeighborPage>(window.electronAPI.graphSubgraph(scope, nodeId, args)),
-    staleTime: 60_000,
-  });
-
-export interface DeadCodeArgs {
-  types?: string[];
-  scopeRepo?: string;
-  limit?: number;
-}
-
-// For starting from 1.4.1 release not used, will decide later what to do with this.
-// Candidate dead code — unreferenced functions/classes, optionally scoped to a
-// repo. `lowCoverageRepos` in the response flags thinly-extracted repos.
-export const graphDeadCodeQueryOptions = (scope: GraphScope, args: DeadCodeArgs = {}) =>
-  queryOptions({
-    queryKey: [
-      'graph',
-      scope.source,
-      scope.id,
-      'dead-code',
-      (args.types ?? []).join(','),
-      args.scopeRepo ?? null,
-    ] as const,
-    queryFn: () => unwrap<DeadCodePage>(window.electronAPI.graphDeadCode(scope, args)),
     staleTime: 60_000,
   });
 

@@ -26,7 +26,7 @@ import type { DimensionValueSelection, IntentItemKind, IntentItemSummary } from 
 /** The delivery selection's confirmation bound. */
 const DELIVERY_SELECTION_LIMIT = 200;
 
-export interface CatalogueListInput {
+interface CatalogueListInput {
   workspaceId: string;
   selection: IntentTreeSelection;
   deliverySelection: ReleaseSelectionItem[];

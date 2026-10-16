@@ -359,7 +359,7 @@
   /*
    * Explorer graph tokens — ported from apps/web/src/styles.css (the .light
    * mapping). The desktop app runs in light mode, so the explorer palette is
-   * light to match (lib/explorer-theme.ts returns 'light'). Plain :root values
+   * light to match. Plain :root values
    * (not swapped by .dark) until a real theme toggle exists. viz-style.ts reads
    * the node (--n-) and edge (--edge-) tokens via getComputedStyle and falls
    * back to hex literals if a token is unset.
@@ -453,11 +453,6 @@
   font-weight: 800;
 }
 
-
-/* Fix Radix ScrollArea viewport stretching content wider than container */
-[data-slot="scroll-area-viewport"]>div {
-  display: block !important;
-}
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {

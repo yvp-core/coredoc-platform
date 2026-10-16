@@ -14,7 +14,7 @@
 
 import { Button } from '@/components/ui/button';
 
-export interface IntentEmptyStateProps {
+interface IntentEmptyStateProps {
   /** Admin, owner or product; a member sees the explanation without the button. */
   canEdit: boolean;
   /** Domains that exist but are archived, so the default read did not show them. */

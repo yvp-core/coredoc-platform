@@ -6,7 +6,7 @@ import { WorkspaceRole } from '../../auth/decorators/workspace-role.decorator.js
 import { ExactTelemetryTokenGuard } from '../../auth/exact-telemetry-token.guard.js';
 import { PermissionsGuard } from '../../auth/permissions.guard.js';
 import { TokenPermission } from '../../auth/token-permissions.js';
-import { JwtOnlyGuard } from '../../auth/jwt-only.guard.js';
+import { UserSessionGuard } from '../../auth/user-session.guard.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { CaptureService } from './capture.service.js';
 
@@ -50,14 +50,14 @@ export class CaptureController {
 
   @Put('repositories/:repoKey')
   @WorkspaceRole('member')
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   bindRepository(@Param('workspaceId') workspaceId: string, @Param('repoKey') repoKey: string, @Body() body: unknown) {
     return this.capture.bindRepository(workspaceId, repoKey, body);
   }
 
   @Put('provisioning')
   @WorkspaceRole('member')
-  @UseGuards(JwtOnlyGuard)
+  @UseGuards(UserSessionGuard)
   reportProvisioning(@Param('workspaceId') workspaceId: string, @CurrentUser() actor: AuthUser, @Body() body: unknown) {
     return this.capture.reportProvisioning(workspaceId, actor.id, body);
   }

@@ -136,11 +136,7 @@ export async function runSync(options: RunSyncOptions, deps: RunSyncDeps = {}): 
   let runtime: RuntimeConfig;
   let project: ProjectConfig;
   try {
-    // Canonical loader, but sync stays read-only on disk: the layout migration
-    // deletes "orphans" relative to the config it is handed, and sync is often
-    // handed a partial/CI config. Migration belongs to the config-owning
-    // surfaces (CLI parse, desktop, MCP), not to sync.
-    runtime = loadConfig(options.configPath, { skipMigration: true });
+    runtime = loadConfig(options.configPath);
     project = selectProject(runtime, options.projectId);
   } catch (err) {
     log(`[sync] ✗ ${(err as Error).message}`);

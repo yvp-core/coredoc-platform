@@ -16,7 +16,7 @@
  */
 
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { STORAGE_CONFIG, type StorageConfig, storageConfigFromEnv } from '../../config/app-config.js';
+import { STORAGE_CONFIG, type StorageConfig, configFromEnv } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { LicenseState } from '../license/license-state.js';
 import { LicenseService } from '../license/license.service.js';
@@ -43,7 +43,7 @@ export class HealthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly license: LicenseService,
-    @Optional() @Inject(STORAGE_CONFIG) private readonly storage: StorageConfig = storageConfigFromEnv(),
+    @Optional() @Inject(STORAGE_CONFIG) private readonly storage: StorageConfig = configFromEnv().storage,
   ) {}
 
   /**

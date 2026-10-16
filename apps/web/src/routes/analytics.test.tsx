@@ -8,9 +8,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// Regression: this page once crashed for members (a Radix <Tooltip> with no
-// <TooltipProvider> above it). Mount the real router so every provider must
-// come from RootLayout, and check the Delivery tab is open to members.
+// Mount the real router so every provider must come from RootLayout, and
+// check the Delivery tab is open to members.
 it('renders analytics for a member with the Delivery tab enabled', async () => {
   const me = {
     user: { id: 'u1', email: 'm@x.test' },

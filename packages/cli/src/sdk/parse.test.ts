@@ -55,7 +55,7 @@ vi.mock('../parser-loader.js', () => ({
 vi.mock('../db-scope.js', () => ({ bindProjectDatabase: bindProjectDatabaseSpy }));
 
 import { parse } from './parse.js';
-import { loadConfig } from './config.js';
+import { loadConfig } from '@coredoc/core/utils';
 
 function makeParsedRepo(overrides?: Partial<ParsedRepo>): ParsedRepo {
   return {

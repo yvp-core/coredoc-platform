@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { STORAGE_CONFIG, type StorageConfig, storageConfigFromEnv } from '../../config/app-config.js';
+import { STORAGE_CONFIG, type StorageConfig, configFromEnv } from '../../config/app-config.js';
 import { isEncryptionAvailable } from '../../database/encryption.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { AgentRunSettings } from '../../generated/prisma/client.js';
@@ -26,7 +26,7 @@ export class CloudAgentRunAvailability {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jira: CloudAgentRunJiraConnector,
-    @Optional() @Inject(STORAGE_CONFIG) private readonly storage: StorageConfig = storageConfigFromEnv(),
+    @Optional() @Inject(STORAGE_CONFIG) private readonly storage: StorageConfig = configFromEnv().storage,
     @Optional() private readonly license?: LicenseService,
   ) {}
 

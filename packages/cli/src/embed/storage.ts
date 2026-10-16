@@ -30,8 +30,6 @@ export function md5(text: string): string {
 export class EmbeddingStorage {
   private filePath: string;
   private existing: EmbeddingsOutput | null = null;
-  private functionChecksums: Map<string, string> = new Map();
-  private endpointChecksums: Map<string, string> = new Map();
   private functionEmbeddings: Map<string, FunctionEmbedding> = new Map();
   private endpointEmbeddings: Map<string, EndpointEmbedding> = new Map();
 
@@ -53,12 +51,10 @@ export class EmbeddingStorage {
 
       // Build lookup maps
       for (const fn of this.existing.functions) {
-        this.functionChecksums.set(fn.functionId, fn.inputChecksum);
         this.functionEmbeddings.set(fn.functionId, fn);
       }
 
       for (const ep of this.existing.endpoints) {
-        this.endpointChecksums.set(ep.endpointId, ep.inputChecksum);
         this.endpointEmbeddings.set(ep.endpointId, ep);
       }
 
@@ -72,33 +68,9 @@ export class EmbeddingStorage {
    * Check if an item needs re-embedding
    * Returns true if the item is new or its input checksum has changed
    */
-  needsEmbedding(item: EmbedItem, force: boolean): boolean {
-    if (force) {
-      return true;
-    }
-
-    const checksumMap = item.type === 'function' ? this.functionChecksums : this.endpointChecksums;
-
-    const existingChecksum = checksumMap.get(item.id);
-    return !existingChecksum || existingChecksum !== item.inputChecksum;
-  }
-
-  /**
-   * Get existing embedding for an item (if unchanged)
-   */
-  getExisting(item: EmbedItem): FunctionEmbedding | EndpointEmbedding | null {
-    if (item.type === 'function') {
-      const existing = this.functionEmbeddings.get(item.id);
-      if (existing && existing.inputChecksum === item.inputChecksum) {
-        return existing;
-      }
-    } else {
-      const existing = this.endpointEmbeddings.get(item.id);
-      if (existing && existing.inputChecksum === item.inputChecksum) {
-        return existing;
-      }
-    }
-    return null;
+  needsEmbedding(item: EmbedItem): boolean {
+    const existing = (item.type === 'function' ? this.functionEmbeddings : this.endpointEmbeddings).get(item.id);
+    return existing?.inputChecksum !== item.inputChecksum;
   }
 
   /**
@@ -106,7 +78,6 @@ export class EmbeddingStorage {
    */
   updateFunction(embedding: FunctionEmbedding): void {
     this.functionEmbeddings.set(embedding.functionId, embedding);
-    this.functionChecksums.set(embedding.functionId, embedding.inputChecksum);
   }
 
   /**
@@ -114,7 +85,6 @@ export class EmbeddingStorage {
    */
   updateEndpoint(embedding: EndpointEmbedding): void {
     this.endpointEmbeddings.set(embedding.endpointId, embedding);
-    this.endpointChecksums.set(embedding.endpointId, embedding.inputChecksum);
   }
 
   /**

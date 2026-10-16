@@ -18,7 +18,6 @@ import {
   type EntityNode,
   type Entrypoint,
   type ExternalCallEdge,
-  type FileNode,
   type FunctionNode,
   type Package,
   type StableIdGenerator,
@@ -30,25 +29,8 @@ import { PROTOCOL_DECL, TYPE_CONTAINERS, type TsNode, declKind, typeName } from 
 import { extractSwiftDbOps } from './swift-dbops.js';
 import { extractSwiftEgress } from './swift-egress.js';
 import { extractSwiftEntities } from './swift-entities.js';
+import { toFileNodes } from '../file-nodes.js';
 import type { Substrate } from '../parse-substrate.js';
-
-/** One Swift source file, owned by the shared repo-root package. */
-function toSwiftFileNode(file: SwiftFile, packageId: string, idGen: StableIdGenerator): FileNode {
-  const contentHash = idGen.contentHash(file.source);
-  return {
-    id: idGen.fileId(file.relPath),
-    versionedId: idGen.versionedFileId(file.relPath, contentHash),
-    path: file.relPath,
-    extension: '.swift',
-    packageId,
-    language: 'swift',
-    contentHash,
-    loc: file.source.split('\n').filter((line) => {
-      const trimmed = line.trim();
-      return trimmed.length > 0 && !trimmed.startsWith('//');
-    }).length,
-  };
-}
 
 interface SwiftClassFacts {
   name: string;
@@ -187,7 +169,11 @@ export const swiftSubstrate: Substrate<SwiftProfile, SwiftFile> = {
     const functions: FunctionNode[] = [...index.byId.values()];
     const rootPackageId = idGen.packageId('.');
     const packages: Package[] = [{ id: rootPackageId, name, path: '.' }];
-    const fileNodes = files.map((file) => toSwiftFileNode(file, rootPackageId, idGen));
+    const fileNodes = toFileNodes(files, idGen, {
+      language: 'swift',
+      commentPrefix: '//',
+      packageIdFor: () => rootPackageId,
+    });
     const classes = extractSwiftClasses(files, functions, idGen);
     const entrypoints: Entrypoint[] = []; // deferred to the follow-up increment (step 10)
 

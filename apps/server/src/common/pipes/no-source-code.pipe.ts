@@ -1,17 +1,16 @@
 /**
- * NestJS pipe that rejects any request body containing a `sourceCode` field
- * anywhere in its structure. Applied to push endpoints whose bodies are bare
- * `ParsedRepo` or polymorphic unions that cannot be expressed as a single
- * request schema.
- *
- * This pipe and the `noSourceCode()` schema refinement share the same predicate
- * (`containsSourceCode` from `@coredoc/db`) and the same message constant, so
- * client and server agree on what counts as a violation.
+ * The strip-source trust boundary: rejects any request body containing a
+ * `sourceCode` field anywhere in its structure. Applied to push endpoints whose
+ * bodies are bare `ParsedRepo` or polymorphic unions that cannot be expressed as
+ * a single request schema. The predicate (`containsSourceCode` from
+ * `@coredoc/db`) is the one the client strips against, so both agree on what
+ * counts as a violation.
  */
 import { BadRequestException, Injectable, type PipeTransform } from '@nestjs/common';
 import { containsSourceCode } from '@coredoc/db';
 import { allowSourcesInGraph } from '@coredoc/core/utils';
-import { NO_SOURCE_CODE_MESSAGE } from '../validators/no-source-code.validator.js';
+
+export const NO_SOURCE_CODE_MESSAGE = 'Payload must not contain sourceCode fields. Strip source code before push.';
 
 @Injectable()
 export class NoSourceCodePipe implements PipeTransform {

@@ -4,7 +4,7 @@
  */
 
 import { type RefObject, useEffect, useRef, useState } from 'react';
-import { chartWidth } from './chart-geometry.js';
+import { chartWidth } from '@coredoc/core/browser/chart-geometry';
 
 export function useChartWidth(minWidth: number): { ref: RefObject<HTMLDivElement>; width: number } {
   const ref = useRef<HTMLDivElement>(null);

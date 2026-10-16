@@ -11,7 +11,7 @@
  * `req.originalUrl` / `req.url`; it does not require an absolute base.
  */
 
-import { miscConfigFromEnv } from '../config/app-config.js';
+import { configFromEnv } from '../config/app-config.js';
 
 const SENSITIVE_QUERY_KEYS: ReadonlySet<string> = new Set([
   'code',
@@ -31,7 +31,7 @@ const REDACTED = '[REDACTED]';
 
 export function redactSensitiveQueryParams(url: string): string {
   const queryStart = url.indexOf('?');
-  if (queryStart === -1 || miscConfigFromEnv().environment === 'development') return url;
+  if (queryStart === -1 || configFromEnv().misc.environment === 'development') return url;
 
   const path = url.slice(0, queryStart);
   const query = url.slice(queryStart + 1);

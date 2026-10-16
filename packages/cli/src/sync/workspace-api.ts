@@ -10,7 +10,7 @@
  */
 
 import { CLI_VERSION as VERSION } from '../version.js';
-import { getToken, getServerUrl } from '../auth.js';
+import { authHeaders, getServerUrl } from '../auth.js';
 
 export class SlugTakenError extends Error {
   constructor(public readonly slug: string) {
@@ -86,17 +86,15 @@ export interface RepoStateResponse {
   summaryUploadedAt: string | null;
 }
 
-async function authHeaders(): Promise<{ Authorization: string; 'Content-Type': 'application/json' }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated. Run: coredoc login (or set COREDOC_TOKEN)');
-  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+async function jsonAuthHeaders(): Promise<{ Authorization: string; 'Content-Type': 'application/json' }> {
+  return { ...(await authHeaders()), 'Content-Type': 'application/json' };
 }
 
 export async function createWorkspace(body: CreateWorkspaceBody): Promise<CreateWorkspaceResponse> {
   const serverUrl = await getServerUrl();
   const response = await fetch(`${serverUrl}/api/v1/workspaces`, {
     method: 'POST',
-    headers: await authHeaders(),
+    headers: await jsonAuthHeaders(),
     body: JSON.stringify(body),
   });
   if (response.status === 409) throw new SlugTakenError(body.slug);
@@ -112,7 +110,7 @@ export async function getWorkspace(
   const serverUrl = await getServerUrl();
   const response = await fetch(`${serverUrl}/api/v1/workspaces/${workspaceId}`, {
     method: 'GET',
-    headers: await authHeaders(),
+    headers: await jsonAuthHeaders(),
   });
   if (response.status === 403) throw new WorkspaceForbiddenError(workspaceId);
   if (response.status === 404) throw new WorkspaceNotFoundError(workspaceId);
@@ -126,7 +124,7 @@ export async function connectRepo(workspaceId: string, body: ConnectRepoBody): P
   const serverUrl = await getServerUrl();
   const response = await fetch(`${serverUrl}/api/v1/workspaces/${workspaceId}/repos`, {
     method: 'POST',
-    headers: await authHeaders(),
+    headers: await jsonAuthHeaders(),
     body: JSON.stringify(body),
   });
   if (response.status === 409) return { alreadyConnected: true };
@@ -162,7 +160,7 @@ export async function updateRepo(workspaceId: string, repoKey: string, body: Upd
   const serverUrl = await getServerUrl();
   const response = await fetch(`${serverUrl}/api/v1/workspaces/${workspaceId}/repos/${encodeURIComponent(repoKey)}`, {
     method: 'PATCH',
-    headers: await authHeaders(),
+    headers: await jsonAuthHeaders(),
     body: JSON.stringify(body),
   });
   if (response.status === 404) {
@@ -178,7 +176,7 @@ export async function getRepoState(workspaceId: string, repoName: string): Promi
   const serverUrl = await getServerUrl();
   const response = await fetch(`${serverUrl}/api/v1/workspaces/${workspaceId}/repos/${repoName}/state`, {
     method: 'GET',
-    headers: await authHeaders(),
+    headers: await jsonAuthHeaders(),
   });
   if (response.status === 404) return null;
   if (!response.ok) {
@@ -231,7 +229,7 @@ export async function resolveWorkspace(
   const targets = options.targets ?? [];
   const response = await fetch(`${serverUrl}/api/v1/workspaces/${workspaceId}/resolve${qs}`, {
     method: 'POST',
-    headers: { ...(await authHeaders()), ...(targets.length > 0 ? { 'Content-Type': 'application/json' } : {}) },
+    headers: await jsonAuthHeaders(),
     ...(targets.length > 0 ? { body: JSON.stringify({ targets }) } : {}),
   });
   if (response.status === 403) throw new WorkspaceForbiddenError(workspaceId);
@@ -471,7 +469,7 @@ export async function exportIntent(workspaceId: string): Promise<CloudIntentExpo
   const serverUrl = await getServerUrl();
   const response = await fetch(`${serverUrl}/api/v1/workspaces/${workspaceId}/intent/export`, {
     method: 'GET',
-    headers: await authHeaders(),
+    headers: await jsonAuthHeaders(),
   });
   if (!response.ok) throw await intentFailure('intent export', response);
   return (await response.json()) as CloudIntentExportDocument;
@@ -492,22 +490,34 @@ export async function exportIntentWorkspace(workspaceId: string): Promise<CloudI
   const serverUrl = await getServerUrl();
   const response = await fetch(`${serverUrl}/api/v1/workspaces/${workspaceId}/intent/export/workspace`, {
     method: 'GET',
-    headers: await authHeaders(),
+    headers: await jsonAuthHeaders(),
   });
   if (!response.ok) throw await intentFailure('intent export', response);
   return (await response.json()) as CloudIntentWorkspaceDocument;
+}
+
+/** A non-OK job-status answer; `status` lets pollers retry a 5xx. */
+export class JobRequestError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'JobRequestError';
+  }
 }
 
 export async function getJob(workspaceId: string, jobId: string): Promise<JobResponse | null> {
   const serverUrl = await getServerUrl();
   const response = await fetch(`${serverUrl}/api/v1/workspaces/${workspaceId}/jobs/${jobId}`, {
     method: 'GET',
-    headers: await authHeaders(),
+    headers: await jsonAuthHeaders(),
+    signal: AbortSignal.timeout(30_000),
   });
   if (response.status === 404) return null;
   if (response.status === 403) throw new WorkspaceForbiddenError(workspaceId);
   if (!response.ok) {
-    throw new Error(`getJob failed (${response.status}): ${await response.text()}`);
+    throw new JobRequestError(response.status, `getJob failed (${response.status}): ${await response.text()}`);
   }
   return (await response.json()) as JobResponse;
 }
@@ -579,7 +589,7 @@ export async function recordIntentRelease(
   const serverUrl = await getServerUrl();
   const response = await fetch(`${serverUrl}/api/v1/workspaces/${workspaceId}/intent/releases`, {
     method: 'POST',
-    headers: await authHeaders(),
+    headers: await jsonAuthHeaders(),
     body: JSON.stringify(body),
   });
   if (!response.ok) throw await intentFailure('intent release', response);

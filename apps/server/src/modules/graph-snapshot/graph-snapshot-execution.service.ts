@@ -9,7 +9,7 @@ import {
   GraphSnapshotControlPlaneService,
   type GraphSnapshotCandidate,
 } from './graph-snapshot-control-plane.service.js';
-import { GraphSnapshotError } from './graph-snapshot.errors.js';
+import { GraphSnapshotError } from '../../libs/pipeline/graph-snapshot.errors.js';
 
 function requireExecutionLease(job: PushJob, execution: PushExecutionContext): string {
   if (

@@ -11,7 +11,7 @@
 
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-import type { TooltipPlacement } from './chart-geometry.js';
+import type { TooltipPlacement } from '@coredoc/core/browser/chart-geometry';
 
 /** Half of the widest readout the charts render; used to clamp `x` inside the plot. */
 export const TOOLTIP_HALF_WIDTH = 84;

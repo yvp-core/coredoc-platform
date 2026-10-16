@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { StructuralCall } from '../../facts/index.js';
+import type { StructuralCall } from '../../facts/structural/ts-structural.js';
 import { egressTraversableCaller } from './external-matchers.js';
 
 /**

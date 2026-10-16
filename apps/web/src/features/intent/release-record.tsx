@@ -12,7 +12,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight } from 'lucide-react';
 import { useId, useState } from 'react';
-import { newIntentIdempotencyKey } from '@/api/queries/intent';
 import {
   intentReleaseTriggerOptions,
   readIntentReleasePreviews,
@@ -31,7 +30,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { IntentWriteForm } from './intent-attempt-keys.js';
+import { IntentWriteForm, newIntentIdempotencyKey } from '@coredoc/core/browser/intent-attempt-keys';
 import { IntentDetails } from './intent-details.js';
 import { IntentMarkdown } from './intent-markdown.js';
 import { authorityLabel, authorityVariant, effectivityVariant, messageOf } from './intent-presentation.js';
@@ -44,7 +43,7 @@ import {
   type IntentReleaseWrite,
 } from './release-types.js';
 
-export const releaseActionLabels: Record<IntentReleaseAction, string> = {
+const releaseActionLabels: Record<IntentReleaseAction, string> = {
   release: 'Confirm delivery',
   baseline: 'Already in production',
   rollback: 'Record rollback',
@@ -75,7 +74,7 @@ interface Prepared {
 }
 
 /** The rules an action is prepared for; a rollback takes none. */
-export interface ReleaseTarget {
+interface ReleaseTarget {
   included: string[];
   retired: { id: string; title: string }[];
 }
@@ -193,7 +192,7 @@ export function useReleaseRecorder(workspaceId: string, onRecorded?: () => void)
   return { prepared, reason, setReason, deliveredRef, setDeliveredRef, error, notice, busy, prepare, submit, close };
 }
 
-export type ReleaseRecorder = ReturnType<typeof useReleaseRecorder>;
+type ReleaseRecorder = ReturnType<typeof useReleaseRecorder>;
 
 /** The recorder's notice, its error outside the dialog, and the confirmation dialog. */
 export function ReleaseRecordOutcome({ workspaceId, recorder }: { workspaceId: string; recorder: ReleaseRecorder }) {

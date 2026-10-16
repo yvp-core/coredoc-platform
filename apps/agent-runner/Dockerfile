@@ -61,15 +61,13 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/core/package.json ./packages/core/
 COPY apps/agent-runner/package.json ./apps/agent-runner/
 
-# No lifecycle scripts: the workspace root's `prepare` runs husky, a dev
-# dependency, and nothing in the runner's production closure needs one.
+# No lifecycle scripts: nothing in the runner's production closure needs one.
 RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @coredoc/agent-runner...
 
-# pnpm installs the workspace root's own dependencies with any filtered install
-# (langchain, openai, an older Agent SDK, ...), and the frozen lockfile forbids
-# trimming the root manifest. Keep only the store entries pnpm lists for the
-# runner's production closure, then drop the root links and any hoisted link
-# left dangling.
+# pnpm installs the workspace root's own dependencies (typescript) with any
+# filtered install. Keep only the store entries pnpm lists for the runner's
+# production closure, then drop the root links and any hoisted link left
+# dangling.
 WORKDIR /app/apps/agent-runner
 RUN set -eu; \
     pnpm list --prod --depth Infinity --parseable | \

@@ -20,7 +20,7 @@ import type {
   CanonicalStageOccurrenceItem,
   CanonicalTaskSummary,
 } from '../types.js';
-import type { GanttLane, GanttRunStage, GanttTrackerState } from '../charts/chart-geometry.js';
+import type { GanttLane, GanttRunStage, GanttTrackerState } from '@coredoc/core/browser/chart-geometry';
 import {
   formatDurationShort,
   reworkSignalLabel,

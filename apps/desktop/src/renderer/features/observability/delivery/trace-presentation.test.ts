@@ -10,7 +10,7 @@ import type {
   CanonicalStageOccurrenceItem,
   CanonicalTaskSummary,
 } from '../../../../shared/ipc-types.js';
-import { layoutGantt } from '../charts/chart-geometry';
+import { layoutGantt } from '@coredoc/core/browser/chart-geometry';
 import {
   buildGanttLanes,
   claimedByStage,

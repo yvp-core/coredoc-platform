@@ -7,7 +7,7 @@
 
 import { useMemo, useState } from 'react';
 import { cn } from '../../../lib/utils';
-import { formatDurationMs } from '../observability-format';
+import { formatDurationMs } from '@coredoc/core/browser/format';
 import {
   clampTooltipX,
   type GanttLane,
@@ -15,7 +15,7 @@ import {
   type GanttSegment,
   layoutGantt,
   tooltipPlacement,
-} from './chart-geometry';
+} from '@coredoc/core/browser/chart-geometry';
 import { ChartTooltip, TOOLTIP_FLIP_THRESHOLD, TOOLTIP_HALF_WIDTH } from './ChartTooltip';
 import { useChartWidth } from './use-chart-width';
 

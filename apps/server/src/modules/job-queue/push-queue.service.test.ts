@@ -441,7 +441,7 @@ describe('PushQueueService', () => {
       pollIntervalMs: 50,
       signal: controller.signal,
     });
-    const rejection = expect(pending).rejects.toThrow('stop waiting');
+    const rejection = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     await vi.advanceTimersByTimeAsync(0);
     controller.abort(new Error('stop waiting'));
     await rejection;

@@ -1,4 +1,5 @@
 /** One turn at a time per process; a stopped or lease-lost turn is not completed. */
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   type DeliveryReport,
   type ProposeScopeRequest,
@@ -284,16 +285,7 @@ export class Runner {
   }
 }
 
+/** Resolves early, never rejects, on shutdown. */
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
-  });
+  return delay(ms, undefined, { signal }).catch(() => undefined);
 }

@@ -1,8 +1,9 @@
 import { StableIdGenerator } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
-import { type PythonFile, parsePython } from './python-cst.js';
+import { type PythonFile } from './python-cst.js';
 import { UNRESOLVED_PREFIX } from '../../unresolved-sentinel.js';
 import { type PythonDbOpConfig, extractPythonDbOps } from './python-dbops.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 /** Same seed the parser uses — assertions recompute canonical ids through it. */
 const ID = new StableIdGenerator('/demo', 'demo');
@@ -12,7 +13,7 @@ const ENTITY_IDS = new Map([['User', USER_ID]]);
 const CFG: PythonDbOpConfig = { idGen: ID };
 
 async function pf(relPath: string, source: string): Promise<PythonFile> {
-  return { relPath, source, root: await parsePython(source) };
+  return { relPath, source, root: await parseSource('python', source) };
 }
 
 const run = (relPath: string, source: string) =>

@@ -101,11 +101,6 @@ export const ArtifactRevisionBodySchema = artifactBodyGate.pipe(
 
 export type ArtifactRevisionBody = z.infer<typeof ArtifactRevisionBodySchema>;
 
-export interface ArtifactRevisionUpload extends ArtifactRevisionBody {
-  artifactId: string;
-  byteCount: number;
-}
-
 export function validateCanonicalArtifactId(value: unknown): string {
   if (typeof value !== 'string') throw new Error('artifactId must use the canonical cda_<UUID> format');
   const match = ARTIFACT_ID_RE.exec(value);

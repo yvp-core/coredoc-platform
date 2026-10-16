@@ -3,6 +3,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { type CanonicalStatusPolicy, StatusMapService } from './status-map.service.js';
+import { isUniqueViolation } from '../../libs/coerce.js';
 
 const UNIQUE_RACE_RETRY_LIMIT = 1;
 const REPROJECT_BATCH_SIZE = 100;
@@ -86,10 +87,6 @@ interface ProjectionFact {
   sourceUpdatedAt: Date;
   receivedAt: Date;
   actorId: string | null;
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2002';
 }
 
 function conflict(code: string, message: string): never {

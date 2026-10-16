@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { scoreProfile } from '../score.js';
-import { loadCachedRepo, loadManifest, writeCache } from '../facts/cache/incremental-cache.js';
 import { typescriptProvider } from './typescript.js';
 
 let root: string;
@@ -13,53 +12,6 @@ afterEach(() => {
 });
 
 describe('TypeScript without installed repository dependencies', () => {
-  it.each([
-    'legacy',
-    'fallback',
-    'partial',
-  ])('retries a %s incremental result instead of freezing degraded analysis', async (kind) => {
-    root = mkdtempSync(join(tmpdir(), 'coredoc-ts-analysis-cache-'));
-    const repoRoot = join(root, 'repo');
-    const cacheDir = join(root, 'cache');
-    mkdirSync(repoRoot);
-    writeFileSync(join(repoRoot, 'index.ts'), 'export function hello() { return "hello"; }');
-    const profile = { parserId: 'test/cached-basic', substrate: { language: 'ts' as const, include: ['**/*.ts'] } };
-    const opts = { repoRoot, repoName: 'fixture', incremental: true, cacheDir };
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const first = await typescriptProvider.parse(profile, opts);
-    const legacy = loadCachedRepo(cacheDir)!;
-    if (kind === 'legacy') delete legacy.stats.analysis;
-    if (kind === 'partial') {
-      legacy.stats.analysis = [{ language: 'ts', mode: 'enhanced', fallback: true, compilerReceiverTypes: false }];
-      legacy.errors = [{ file: 'second-project', severity: 'error', message: 'SCIP project timed out' }];
-    }
-    legacy.functions = []; // A cache hit would return this stale result without re-parsing.
-    writeCache(cacheDir, loadManifest(cacheDir)!, legacy);
-    const refreshed = await typescriptProvider.parse(profile, opts);
-    expect(refreshed.stats.analysis).toEqual(first.stats.analysis);
-    expect(refreshed.stats.analysis?.[0].fallback).toBe(true);
-    expect(refreshed.functions.map((fn) => fn.name)).toEqual(['hello']);
-    expect(loadCachedRepo(cacheDir)?.stats.analysis).toEqual(first.stats.analysis);
-  });
-
-  it('reuses unchanged structural errors without retrying successful semantic work', async () => {
-    root = mkdtempSync(join(tmpdir(), 'coredoc-structural-cache-'));
-    const repoRoot = join(root, 'repo');
-    const cacheDir = join(root, 'cache');
-    mkdirSync(repoRoot);
-    writeFileSync(join(repoRoot, 'App.vue'), '<script setup>function hello() {}</script>');
-    const profile = {
-      parserId: 'test/structural-cache',
-      substrate: { language: 'ts' as const, include: ['**/*.vue'] },
-    };
-    const opts = { repoRoot, repoName: 'fixture', incremental: true, cacheDir };
-    await typescriptProvider.parse(profile, opts);
-    const cached = loadCachedRepo(cacheDir)!;
-    cached.errors = [{ file: 'App.vue', severity: 'error', message: 'structural parse failed' }];
-    writeCache(cacheDir, loadManifest(cacheDir)!, cached);
-    expect(await typescriptProvider.parse(profile, opts)).toEqual(cached);
-  });
-
   it('reports Vue-only structural analysis without inventing a failed SCIP request', async () => {
     root = mkdtempSync(join(tmpdir(), 'coredoc-vue-basic-'));
     writeFileSync(join(root, 'App.vue'), '<script setup lang="ts">function hello() { return "hello"; }</script>');

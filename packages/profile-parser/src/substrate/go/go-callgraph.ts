@@ -72,16 +72,11 @@ import {
 } from './go-cst.js';
 import { type GoPackageIndex, buildImportTable, resolveQualifier } from './go-imports.js';
 import type { GoTypeEnv } from './go-types.js';
+import { repoDir } from '../glob.js';
 
 // =============================================================================
 // Structural extraction
 // =============================================================================
-
-/** dirname of a repo-relative path ('' at the repo root) — a Go package IS a directory. */
-function dirOf(rel: string): string {
-  const i = rel.lastIndexOf('/');
-  return i === -1 ? '' : rel.slice(0, i);
-}
 
 /**
  * Parameter names from a func's `parameters` field.
@@ -125,7 +120,7 @@ function structFilesByPackageType(files: GoFile[]): Map<string, string> {
     for (const spec of root.descendantsOfType(TYPE_SPEC) as TsNode[]) {
       const name = itemName(spec);
       if (!name || spec.childForFieldName?.('type')?.type !== STRUCT_TYPE) continue;
-      const key = `${dirOf(relPath)}#${name}`;
+      const key = `${repoDir(relPath)}#${name}`;
       if (!out.has(key)) out.set(key, relPath);
     }
   }
@@ -175,7 +170,7 @@ function classIdOf(
   structFiles: Map<string, string>,
 ): string | undefined {
   if (!receiver) return undefined;
-  const declFile = structFiles.get(`${dirOf(relPath)}#${receiver}`);
+  const declFile = structFiles.get(`${repoDir(relPath)}#${receiver}`);
   return declFile ? idGen.classId(declFile, receiver) : undefined;
 }
 
@@ -207,7 +202,7 @@ export function indexGoDefs(files: GoFile[], idGen: StableIdGenerator): GoDefInd
   const structFiles = structFilesByPackageType(files);
 
   for (const { relPath, root } of files) {
-    const dir = dirOf(relPath);
+    const dir = repoDir(relPath);
     const decls = [
       ...(root.descendantsOfType(FUNCTION_DECLARATION) as TsNode[]),
       ...(root.descendantsOfType(METHOD_DECLARATION) as TsNode[]),
@@ -243,11 +238,6 @@ export function indexGoDefs(files: GoFile[], idGen: StableIdGenerator): GoDefInd
   }
 
   return { byId, funcIdsByPackageName, methodsByPackageType };
-}
-
-/** Every func/method/closure across the files as a `FunctionNode` (`[...byId.values()]`). */
-export function collectGoDefs(files: GoFile[], idGen: StableIdGenerator): FunctionNode[] {
-  return [...indexGoDefs(files, idGen).byId.values()];
 }
 
 // =============================================================================
@@ -298,7 +288,7 @@ function uniquePackageFunc(index: GoDefIndex, dir: string, name: string): string
 /** Resolve a bare `f()` against the caller's OWN package (directory). */
 function resolveBareCall(name: string, relPath: string, callerFn: TsNode, index: GoDefIndex): Resolution | undefined {
   if (isLocallyBound(name, callerFn)) return undefined;
-  const calleeId = uniquePackageFunc(index, dirOf(relPath), name);
+  const calleeId = uniquePackageFunc(index, repoDir(relPath), name);
   return calleeId ? { calleeId, provenance: 'go-local', name } : undefined;
 }
 
@@ -331,7 +321,9 @@ function resolveSelectorCall(
   const method = operand.type === IDENTIFIER ? nearestAncestor(callee, METHOD_DECL_ONLY) : undefined;
   if (method && receiverVarName(method) === (operand.text as string)) {
     const typeName = receiverTypeName(method);
-    const hit = typeName ? index.methodsByPackageType.get(`${dirOf(file.relPath)}#${typeName}`)?.get(name) : undefined;
+    const hit = typeName
+      ? index.methodsByPackageType.get(`${repoDir(file.relPath)}#${typeName}`)?.get(name)
+      : undefined;
     // A receiver-qualified call that names no method on the type is a method PROMOTED from an
     // embedded struct — a real call this substrate cannot follow. Dropped, never guessed.
     return hit ? { calleeId: hit, provenance: 'go-recv', name } : undefined;

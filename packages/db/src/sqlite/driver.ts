@@ -3,22 +3,15 @@
  *
  * Implements IDatabaseDriver for SQLite/Turso using @libsql/client.
  * Supports both explicit local file URLs and remote libsql/Turso URLs.
- *
- * IMPORTANT: @libsql/client uses $param syntax for named parameters, but existing SQL
- * uses @param convention. This driver includes a quote-aware parameter rewriter
- * that converts @param → $param only outside string literals and comments.
+ * SQL uses `@param` named parameters, which libSQL binds natively (local and
+ * remote) from plain-keyed args.
  */
 
 import { createClient, type Client, type InStatement, type InArgs, type Transaction } from '@libsql/client';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GraphFileReadOnlyError } from '../errors.js';
 import type { IDatabaseDriver, ITransaction, DatabaseBackend, TransactionStatement } from '../types.js';
-
-// =============================================================================
-// Module State
-// =============================================================================
 
 // =============================================================================
 // Configuration
@@ -39,8 +32,6 @@ export const POOLED_CACHE_SIZE_KB = 8000;
 
 export interface SqliteDriverOptions {
   cacheSizeKb?: number;
-  readOnly?: boolean;
-  initializeSchema?: boolean;
 }
 
 /**
@@ -81,123 +72,18 @@ export function getSqliteAuthToken(): string | undefined {
   return process.env.COREDOC_SQLITE_TOKEN || undefined;
 }
 
-// =============================================================================
-// Parameter Rewriter
-// =============================================================================
-
-/**
- * Quote-aware parameter rewriter that converts @param → $param
- * only outside string literals and SQL comments.
- *
- * Handles:
- * - Single-quoted strings: 'user@email.com' → preserved
- * - Double-quoted identifiers: "column@name" → preserved
- * - Single-line comments: -- @note → preserved
- * - Multi-line comments: /* @note *​/ → preserved
- * - Named parameters: @param → $param
- */
-export function rewriteParams(sql: string): string {
-  let result = '';
-  let i = 0;
-  const len = sql.length;
-
-  while (i < len) {
-    const ch = sql[i];
-
-    // Single-quoted string
-    if (ch === "'") {
-      result += ch;
-      i++;
-      while (i < len) {
-        if (sql[i] === "'" && i + 1 < len && sql[i + 1] === "'") {
-          // Escaped quote
-          result += "''";
-          i += 2;
-        } else if (sql[i] === "'") {
-          result += "'";
-          i++;
-          break;
-        } else {
-          result += sql[i];
-          i++;
-        }
-      }
-      continue;
-    }
-
-    // Double-quoted identifier
-    if (ch === '"') {
-      result += ch;
-      i++;
-      while (i < len) {
-        if (sql[i] === '"' && i + 1 < len && sql[i + 1] === '"') {
-          result += '""';
-          i += 2;
-        } else if (sql[i] === '"') {
-          result += '"';
-          i++;
-          break;
-        } else {
-          result += sql[i];
-          i++;
-        }
-      }
-      continue;
-    }
-
-    // Single-line comment
-    if (ch === '-' && i + 1 < len && sql[i + 1] === '-') {
-      const nlIdx = sql.indexOf('\n', i);
-      if (nlIdx === -1) {
-        result += sql.slice(i);
-        i = len;
-      } else {
-        result += sql.slice(i, nlIdx + 1);
-        i = nlIdx + 1;
-      }
-      continue;
-    }
-
-    // Multi-line comment
-    if (ch === '/' && i + 1 < len && sql[i + 1] === '*') {
-      const endIdx = sql.indexOf('*/', i + 2);
-      if (endIdx === -1) {
-        result += sql.slice(i);
-        i = len;
-      } else {
-        result += sql.slice(i, endIdx + 2);
-        i = endIdx + 2;
-      }
-      continue;
-    }
-
-    // Named parameter: @identifier → $identifier
-    if (ch === '@' && i + 1 < len && /[a-zA-Z_]/.test(sql[i + 1])) {
-      result += '$';
-      i++;
-      continue;
-    }
-
-    result += ch;
-    i++;
-  }
-
-  return result;
-}
-
-/**
- * Rewrite parameter keys from @-prefixed to plain names for libSQL args.
- * The SQL uses @param syntax which gets rewritten to $param in queries.
- * Parameter keys don't need rewriting — just pass through.
- */
-function rewriteParamKeys(params: Record<string, unknown>): Record<string, unknown> {
-  return params;
-}
-
 function toInStatement(query: string, params?: Record<string, unknown>): InStatement {
-  return params
-    ? { sql: rewriteParams(query), args: rewriteParamKeys(params) as InArgs }
-    : { sql: rewriteParams(query), args: [] };
+  return { sql: query, args: (params ?? []) as InArgs };
+}
+
+/** Statements that produce a result set (SELECT, RETURNING, PRAGMA) return rows; writes return []. */
+async function runStatement<T>(
+  executor: Pick<Transaction, 'execute'>,
+  query: string,
+  params?: Record<string, unknown>,
+): Promise<T[]> {
+  const result = await executor.execute(toInStatement(query, params));
+  return result.columns.length ? (result.rows as unknown as T[]) : [];
 }
 
 // =============================================================================
@@ -210,19 +96,8 @@ function toInStatement(query: string, params?: Record<string, unknown>): InState
 class SqliteTransaction implements ITransaction {
   constructor(private client: Client) {}
 
-  async run<T = unknown>(query: string, params?: Record<string, unknown>): Promise<T[]> {
-    const result = await this.client.execute(toInStatement(query, params));
-
-    // Check if this is a SELECT/WITH query (WITH...INSERT/UPDATE/DELETE are write operations)
-    const trimmed = query.trim().toUpperCase();
-    const isSelect =
-      trimmed.startsWith('SELECT') || (trimmed.startsWith('WITH') && !/\)\s*(INSERT|UPDATE|DELETE)\s/i.test(query));
-
-    if (isSelect) {
-      return result.rows as unknown as T[];
-    }
-
-    return [];
+  run<T = unknown>(query: string, params?: Record<string, unknown>): Promise<T[]> {
+    return runStatement<T>(this.client, query, params);
   }
 }
 
@@ -232,18 +107,8 @@ class SqliteTransaction implements ITransaction {
 class SqliteExplicitTransaction implements ITransaction {
   constructor(private transaction: Transaction) {}
 
-  async run<T = unknown>(query: string, params?: Record<string, unknown>): Promise<T[]> {
-    const result = await this.transaction.execute(toInStatement(query, params));
-
-    const trimmed2 = query.trim().toUpperCase();
-    const isSelect =
-      trimmed2.startsWith('SELECT') || (trimmed2.startsWith('WITH') && !/\)\s*(INSERT|UPDATE|DELETE)\s/i.test(query));
-
-    if (isSelect) {
-      return result.rows as unknown as T[];
-    }
-
-    return [];
+  run<T = unknown>(query: string, params?: Record<string, unknown>): Promise<T[]> {
+    return runStatement<T>(this.transaction, query, params);
   }
 
   async runBatch(statements: readonly TransactionStatement[]): Promise<void> {
@@ -267,27 +132,13 @@ export class SqliteDriver implements IDatabaseDriver {
   private url: string;
   private authToken: string | undefined;
   private cacheSizeKb: number;
-  private readonly readOnly: boolean;
-  private readonly shouldInitializeSchema: boolean;
 
   constructor(url?: string, authToken?: string, options?: SqliteDriverOptions) {
     this.url = url ?? getSqliteUrl();
     this.authToken = authToken ?? getSqliteAuthToken();
     this.cacheSizeKb = options?.cacheSizeKb ?? DEFAULT_CACHE_SIZE_KB;
-    this.readOnly = options?.readOnly ?? false;
-    this.shouldInitializeSchema = options?.initializeSchema ?? !this.readOnly;
-    if (this.readOnly && this.shouldInitializeSchema) {
-      throw new Error('Cannot initialize the SQLite schema through a read-only driver');
-    }
-    if (this.readOnly && !this.isLocalFile()) {
-      throw new Error('SQLite read-only graph files require a local file URL');
-    }
   }
 
-  /**
-   * Initialize the SQLite database.
-   * Creates the client and runs schema setup.
-   */
   /**
    * True when this driver talks to a local SQLite file (as opposed to a
    * remote libsql/Turso URL). Callers use it to gate maintenance work that is
@@ -319,10 +170,7 @@ export class SqliteDriver implements IDatabaseDriver {
     // is never silent. It also cannot mkdir, so the parent must exist first.
     const filePath = this.localFilePath();
     if (filePath !== null) {
-      if (this.readOnly && !existsSync(filePath)) {
-        throw new Error(`Read-only SQLite graph file does not exist: ${filePath}`);
-      }
-      if (!this.readOnly) mkdirSync(dirname(filePath), { recursive: true });
+      mkdirSync(dirname(filePath), { recursive: true });
       if (!existsSync(filePath)) {
         console.warn(`[coredoc/db] creating a new empty graph database at ${filePath}`);
       }
@@ -334,15 +182,10 @@ export class SqliteDriver implements IDatabaseDriver {
     });
 
     try {
-      // Configure for performance (local file mode). Snapshot readers must not
-      // change journaling or schema state on immutable artifacts.
+      // Configure for performance (local file mode).
       if (this.url.startsWith('file:')) {
-        if (this.readOnly) {
-          await this.client.execute('PRAGMA query_only = ON');
-        } else {
-          await this.client.execute('PRAGMA journal_mode = WAL');
-          await this.client.execute('PRAGMA synchronous = NORMAL');
-        }
+        await this.client.execute('PRAGMA journal_mode = WAL');
+        await this.client.execute('PRAGMA synchronous = NORMAL');
         await this.client.execute('PRAGMA foreign_keys = ON');
         await this.client.execute(`PRAGMA cache_size = -${this.cacheSizeKb}`);
         // Per-project databases are opened by more than one process at a time:
@@ -353,10 +196,8 @@ export class SqliteDriver implements IDatabaseDriver {
         await this.client.execute(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
       }
 
-      if (this.shouldInitializeSchema) {
-        await this.runMigrations();
-        await this.runColumnMigrations();
-      }
+      await this.runMigrations();
+      await this.runColumnMigrations();
 
       this._initialized = true;
     } catch (error) {
@@ -536,9 +377,6 @@ export class SqliteDriver implements IDatabaseDriver {
    * Uses libSQL's explicit transaction for atomicity.
    */
   async withWriteTransaction<T>(fn: (tx: ITransaction) => Promise<T>): Promise<T> {
-    if (this.readOnly) {
-      throw new GraphFileReadOnlyError('sqlite');
-    }
     if (!this.client) {
       throw new Error('Database not initialized. Call initialize() first.');
     }
@@ -565,9 +403,6 @@ export class SqliteDriver implements IDatabaseDriver {
     handler: (batch: T[], tx: ITransaction) => Promise<void>,
     batchSize: number = DEFAULT_BATCH_SIZE,
   ): Promise<number> {
-    if (this.readOnly) {
-      throw new GraphFileReadOnlyError('sqlite');
-    }
     if (items.length === 0) {
       return 0;
     }
@@ -607,44 +442,6 @@ export class SqliteDriver implements IDatabaseDriver {
       throw new Error('Database not initialized. Call initialize() first.');
     }
     return this.client;
-  }
-
-  /** Singleton compatibility probe; independent graph-file instances are ignored. */
-  _initializedForSingletonStatus(): boolean {
-    return this._initialized;
-  }
-}
-
-// =============================================================================
-// Module-Level Functions
-// =============================================================================
-
-let driverInstance: SqliteDriver | null = null;
-
-/**
- * Get the SQLite driver instance, creating it if necessary.
- */
-export function getDriver(): SqliteDriver {
-  if (!driverInstance) {
-    driverInstance = new SqliteDriver();
-  }
-  return driverInstance;
-}
-
-/**
- * Check if the database is initialized.
- */
-export function isDriverInitialized(): boolean {
-  return driverInstance?._initializedForSingletonStatus() ?? false;
-}
-
-/**
- * Close the database connection.
- */
-export async function closeDriver(): Promise<void> {
-  if (driverInstance) {
-    await driverInstance.close();
-    driverInstance = null;
   }
 }
 

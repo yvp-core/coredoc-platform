@@ -4,9 +4,28 @@ import { CodeGraph } from '../graph/graph-builder.js';
 import { structuralToNodes } from './to-nodes.js';
 import { parseTsStructural, type StructuralFile } from './ts-structural.js';
 
+/** A StructuralFile with every collection empty; fixtures spread it and override what they test. */
+const EMPTY_FILE: Omit<StructuralFile, 'path' | 'language'> = {
+  classes: [],
+  functions: [],
+  interfaces: [],
+  typeAliases: [],
+  enums: [],
+  variables: [],
+  localBindings: [],
+  imports: [],
+  dynamicImports: [],
+  calls: [],
+  enumMemberRefs: [],
+  classRefs: [],
+  valueBindings: [],
+  reExports: [],
+};
+
 const FILE: StructuralFile = {
   path: 'src/user.service.ts',
   language: 'typescript',
+  ...EMPTY_FILE,
   classes: [
     {
       name: 'UserService',
@@ -94,6 +113,7 @@ describe('structuralToNodes', () => {
     const bare: StructuralFile = {
       path: 'src/bare.ts',
       language: 'typescript',
+      ...EMPTY_FILE,
       classes: [
         {
           name: 'Bare',
@@ -125,6 +145,7 @@ describe('structuralToNodes', () => {
     const FILE: StructuralFile = {
       path: 'src/rt.ts',
       language: 'typescript',
+      ...EMPTY_FILE,
       classes: [],
       imports: [],
       calls: [],
@@ -168,6 +189,7 @@ describe('structuralToNodes', () => {
     const FILE: StructuralFile = {
       path: 'src/doc.ts',
       language: 'typescript',
+      ...EMPTY_FILE,
       imports: [],
       calls: [],
       functions: [
@@ -222,6 +244,7 @@ describe('structuralToNodes', () => {
     const FILE: StructuralFile = {
       path: 'src/sym.ts',
       language: 'typescript',
+      ...EMPTY_FILE,
       classes: [],
       functions: [],
       imports: [],
@@ -291,6 +314,7 @@ describe('structuralToNodes', () => {
     const FILE: StructuralFile = {
       path: 'src/h.ts',
       language: 'typescript',
+      ...EMPTY_FILE,
       classes: [],
       imports: [],
       functions: [
@@ -410,6 +434,7 @@ router.get('/x', (req, res) => {
     const file: StructuralFile = {
       path: 'src/f.js',
       language: 'javascript',
+      ...EMPTY_FILE,
       classes: [],
       imports: [],
       calls: [],

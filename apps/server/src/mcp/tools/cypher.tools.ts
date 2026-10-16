@@ -24,7 +24,7 @@
  */
 
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { STORAGE_CONFIG, type StorageConfig, storageConfigFromEnv } from '../../config/app-config.js';
+import { STORAGE_CONFIG, type StorageConfig, configFromEnv } from '../../config/app-config.js';
 import { Tool } from '@rekog/mcp-nest';
 import type { Context } from '@rekog/mcp-nest';
 import type { Request } from 'express';
@@ -50,7 +50,7 @@ export function hostedCypherDescription(storage: Pick<StorageConfig, 'dbBackend'
 }
 
 /** `@Tool` is evaluated once per process, so the description is built from the boot env. */
-export const HOSTED_CYPHER_DESCRIPTION = hostedCypherDescription(storageConfigFromEnv());
+export const HOSTED_CYPHER_DESCRIPTION = hostedCypherDescription(configFromEnv().storage);
 
 /**
  * The backend that actually answers: a legacy-plane workspace on a Neo4j process
@@ -100,7 +100,7 @@ export class CypherTools extends BaseCoredocTool {
   constructor(
     wsContext: WorkspaceMcpContextService,
     metricsService: MetricsService,
-    @Optional() @Inject(STORAGE_CONFIG) private readonly storage: StorageConfig = storageConfigFromEnv(),
+    @Optional() @Inject(STORAGE_CONFIG) private readonly storage: StorageConfig = configFromEnv().storage,
   ) {
     super(wsContext, metricsService);
   }

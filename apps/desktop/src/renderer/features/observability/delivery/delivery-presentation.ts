@@ -18,7 +18,7 @@ import {
   type DeliveryLifecycleFilter,
   type SampledMedian,
 } from '../../../../shared/ipc-types.js';
-import { formatUsd, NO_DATA, plural } from '../observability-format';
+import { formatUsd, NO_DATA, plural } from '@coredoc/core/browser/format';
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;

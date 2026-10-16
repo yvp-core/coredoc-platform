@@ -10,11 +10,7 @@ import type { WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js'
 import { selfScopeFor } from '../../auth/self-scope.js';
 import { TokenPermission } from '../../auth/token-permissions.js';
 import { AgentSessionsService } from './agent-sessions.service.js';
-
-function parseDays(v?: string): number {
-  const n = Number(v);
-  return Number.isFinite(n) && n > 0 && n <= 365 ? Math.floor(n) : 30;
-}
+import { parseDays } from '../../libs/coerce.js';
 
 @Controller('workspaces/:workspaceId/sessions')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard)
@@ -33,32 +29,6 @@ export class AgentSessionsController {
     @Query('days') days?: string,
   ) {
     return this.sessions.getWorkspaceSessionSummary(workspaceId, parseDays(days), selfScopeFor(user, role));
-  }
-
-  @Get('by-user')
-  @WorkspaceRole('member')
-  // Same read gate as `summary`: JWT members pass through; service tokens need
-  // an explicit result:read grant.
-  @RequirePermission(TokenPermission.ResultRead)
-  async byUser(
-    @Param('workspaceId') workspaceId: string,
-    @CurrentUser() user: AuthUser,
-    @WorkspaceRoleValue() role: WorkspaceMemberRole | undefined,
-    @Query('days') days?: string,
-  ) {
-    return this.sessions.getWorkspaceSessionsByUser(workspaceId, parseDays(days), selfScopeFor(user, role));
-  }
-
-  @Get('activity')
-  @WorkspaceRole('member')
-  @RequirePermission(TokenPermission.ResultRead)
-  async activity(
-    @Param('workspaceId') workspaceId: string,
-    @CurrentUser() user: AuthUser,
-    @WorkspaceRoleValue() role: WorkspaceMemberRole | undefined,
-    @Query('days') days?: string,
-  ) {
-    return this.sessions.getWorkspaceActivity(workspaceId, parseDays(days), selfScopeFor(user, role));
   }
 
   @Post(':sessionId/context')

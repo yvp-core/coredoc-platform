@@ -69,9 +69,7 @@ function getTypeScript(): typeof import('typescript') {
  * Load a parser for a specific repo.
  *
  * Canonical profile sources live under parserStorage. Compiled profile.mjs under dist is
- * only a rebuildable runtime cache and is never accepted without profile.ts. If the repo
- * has no direct source artifact, legacy parser metadata targetRepos are checked within
- * the same project.
+ * only a rebuildable runtime cache and is never accepted without profile.ts.
  */
 export async function loadParser(
   parserStorage: string,
@@ -111,25 +109,6 @@ export async function loadParser(
   // Try TypeScript source (requires tsx or ts-node)
   if (fs.existsSync(sourcePath)) {
     return await loadParserFromPath(sourcePath, options);
-  }
-
-  // Search all parsers within this project for one that targets this repo
-  const parsers = await listAvailableParsers(parserStorage);
-  for (const parserInfo of parsers) {
-    if (parserInfo.projectId !== projectId) continue;
-    if (parserInfo.metadata?.targetRepos?.includes(repoName)) {
-      const parserPath = path.join(parserInfo.path, 'parser.ts');
-      const compiledPath = getDistParserPath(parserStorage, parserInfo.projectId, parserInfo.name);
-      if (fs.existsSync(parserPath)) {
-        tryRefreshCompiledParser(parserPath, compiledPath);
-      }
-      if (fs.existsSync(compiledPath)) {
-        return await loadParserFromPath(compiledPath, options);
-      }
-      if (fs.existsSync(parserPath)) {
-        return await loadParserFromPath(parserPath, options);
-      }
-    }
   }
 
   return null;
@@ -454,20 +433,4 @@ export async function listAvailableParsers(parserStorage: string): Promise<Parse
 export function hasParser(parserStorage: string, projectId: string, repoName: string): boolean {
   const dir = buildParserDir(parserStorage, projectId, repoName);
   return fs.existsSync(path.join(dir, 'profile.ts')) || fs.existsSync(path.join(dir, 'parser.ts'));
-}
-
-/**
- * Get parser metadata for a `(projectId, repoName)` pair.
- */
-export function getParserMetadata(parserStorage: string, projectId: string, repoName: string): ParserMetadata | null {
-  const metadataPath = path.join(buildParserDir(parserStorage, projectId, repoName), 'metadata.json');
-  if (!fs.existsSync(metadataPath)) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
-  } catch {
-    return null;
-  }
 }

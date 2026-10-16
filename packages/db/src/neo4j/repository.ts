@@ -26,6 +26,8 @@ import {
   SYMBOL_SEARCH_LIMIT,
   deadCodeUsageEdges,
   lowCoverageRepoNames,
+  normalizeCypherScalar,
+  toNumber,
 } from '../graph-query-defaults.js';
 import { type ExternalCallRow, externalCallInfoFromRow } from '../external-call-row.js';
 import {
@@ -209,18 +211,6 @@ function entityInfoFromNode(node: Record<string, unknown>): EntityInfo {
   });
 }
 
-/**
- * Convert Neo4j Integer to number.
- */
-function toNumber(value: unknown): number {
-  if (value === null || value === undefined) return 0;
-  if (typeof value === 'number') return value;
-  if (typeof value === 'object' && 'toNumber' in (value as object)) {
-    return (value as { toNumber: () => number }).toNumber();
-  }
-  return Number(value) || 0;
-}
-
 /** Default rows per applyChangeset statement (each committed on its own). */
 const DEFAULT_APPLY_BATCH_SIZE = 5000;
 
@@ -252,35 +242,6 @@ function entrypointInfoFromNode(ep: Record<string, unknown>, handler: Entrypoint
     },
     ep,
     handler,
-  );
-}
-
-/**
- * Normalize a single Cypher cell to the scalar wire contract (`CypherScalar`).
- * Safe integers (JS number, BigInt within MAX_SAFE_INTEGER, in-range Neo4j
- * Integer) become `number`; unsafe integers become a decimal string; anything
- * composite (map/list/node/relationship/temporal/spatial) is rejected with
- * projection guidance — no recursive normalization.
- */
-function normalizeCypherScalar(value: unknown): CypherScalar {
-  if (value === null || value === undefined) return null;
-  const t = typeof value;
-  if (t === 'string') return value as string;
-  if (t === 'boolean') return value as boolean;
-  if (t === 'number') return value as number;
-  if (t === 'bigint') {
-    const b = value as bigint;
-    return b >= BigInt(Number.MIN_SAFE_INTEGER) && b <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(b) : b.toString();
-  }
-  if (t === 'object') {
-    const obj = value as { inSafeRange?: () => boolean; toNumber?: () => number; toString?: () => string };
-    // Neo4j Integer — has inSafeRange()/toNumber()/toString().
-    if (typeof obj.inSafeRange === 'function' && typeof obj.toNumber === 'function') {
-      return obj.inSafeRange() ? obj.toNumber() : String(obj);
-    }
-  }
-  throw new Error(
-    'Cypher rows shape supports scalar cells only; project scalar fields (e.g. RETURN n.name) or use resultShape "graph"',
   );
 }
 

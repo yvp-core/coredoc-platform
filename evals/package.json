@@ -11,7 +11,6 @@
     "eval:intent": "tsx harness/run-intent.ts",
     "eval:intent:setup": "tsx cases-intent/setup.ts",
     "analyze": "tsx harness/analyze.ts",
-    "measure:resolution": "tsx scripts/measure-resolution.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist tsconfig.tsbuildinfo *.tsbuildinfo"
@@ -21,8 +20,7 @@
     "@coredoc/core": "workspace:*",
     "@coredoc/db": "workspace:*",
     "@coredoc/mcp": "workspace:*",
-    "@coredoc/profile-parser": "workspace:*",
-    "@libsql/client": "^0.14.0"
+    "@coredoc/profile-parser": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -39,7 +39,7 @@ import {
 } from './intent-presentation.js';
 import { IntentAuthority, type IntentDimension, type IntentItemKind, type IntentItemSummary } from './types.js';
 
-export interface IntentItemsListProps {
+interface IntentItemsListProps {
   /** The items that survived the filters, in scope order. */
   items: IntentItemSummary[];
   /** How many items are in scope before filtering — the "of <scoped>" half. */

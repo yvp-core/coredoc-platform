@@ -13,7 +13,7 @@ import { SaveIntentHandoffSchema } from '../intent/intent-handoff.operations.js'
  *
  * C0.7=B: every provider-shaped value here is synthetic.
  */
-import 'dotenv/config';
+import '../../config/load-env.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Logger } from '@nestjs/common';
 import { buildPrismaAdapter } from '../../database/create-prisma-client.js';

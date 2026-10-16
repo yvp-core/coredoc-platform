@@ -110,8 +110,9 @@ describe('browse pagination', () => {
     await options.queryFn!({ pageParam: 'cur-1' } as never);
 
     expect(intentGetTree).toHaveBeenCalledWith('ws-1', { includeArchived: false, limit: 100, cursor: 'cur-1' });
-    expect(options.getNextPageParam({ domains: [], nextCursor: 'cur-2' }, [], null, [])).toBe('cur-2');
-    expect(options.getNextPageParam({ domains: [], nextCursor: null }, [], null, [])).toBeNull();
+    const root = { itemCount: 0, pendingCount: 0, openQuestionCount: 0, openCommentCount: 0 };
+    expect(options.getNextPageParam({ root, domains: [], nextCursor: 'cur-2' }, [], null, [])).toBe('cur-2');
+    expect(options.getNextPageParam({ root, domains: [], nextCursor: null }, [], null, [])).toBeNull();
   });
 
   it('asks for the first page without a cursor', async () => {

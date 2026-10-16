@@ -1,12 +1,13 @@
 import { StableIdGenerator } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
-import { type RustFile, parseRust } from './rust-cst.js';
+import { type RustFile } from './rust-cst.js';
 import { extractRustDbOps } from './rust-dbops.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 const ID = new StableIdGenerator('/demo', 'demo');
 
 async function rf(relPath: string, source: string): Promise<RustFile> {
-  return { relPath, source, root: await parseRust(source) };
+  return { relPath, source, root: await parseSource('rust', source) };
 }
 
 const TABLES = new Set(['users', 'posts']);

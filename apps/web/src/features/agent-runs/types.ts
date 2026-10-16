@@ -1,4 +1,4 @@
-/** Restated from apps/server cloud-agent-runs: the web app never imports workspace packages. */
+/** Restated from apps/server cloud-agent-runs: server modules are not importable from the browser bundle. */
 
 export type RunStatus =
   | 'queued'
@@ -24,9 +24,9 @@ export type TurnOutcome =
   | 'repository_requested'
   | 'runner_lost'
   | 'model_unavailable';
-export type TurnState = 'queued' | 'claimed' | 'completed' | 'abandoned';
+type TurnState = 'queued' | 'claimed' | 'completed' | 'abandoned';
 
-export interface AgentRunTurn {
+interface AgentRunTurn {
   id: string;
   kind: TurnKind;
   state: TurnState;
@@ -61,7 +61,7 @@ export interface AgentRun {
   finishedAt: string | null;
 }
 
-export interface SpecRepository {
+interface SpecRepository {
   key: string;
   reason: string;
   changes: string;
@@ -119,12 +119,12 @@ export interface AgentRunQuestion {
   askedInTurnId?: string | null;
 }
 
-export interface AgentRunAssumption {
+interface AgentRunAssumption {
   phase: TurnKind;
   text: string;
 }
 
-export interface RunRepository {
+interface RunRepository {
   key: string;
   reason: string;
   mergeOrder: number;
@@ -238,7 +238,7 @@ export interface AgentRunEventPage {
   lastSeq: number;
 }
 
-export type RunnerRefusal = 'creator_not_admin' | 'runner_incompatible' | 'startup_check_failed';
+type RunnerRefusal = 'creator_not_admin' | 'runner_incompatible' | 'startup_check_failed';
 
 export interface RunnerTokenStatus {
   id: string;

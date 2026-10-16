@@ -4,10 +4,10 @@ dist
 dist-electron
 .env
 .env.local
-# Generated at build/install time by each package's scripts/gen-build-env.mjs —
+# Generated at build/install time by scripts/gen-build-env.mjs —
 # bakes COREDOC_POSTHOG_KEY/HOST from the root .env, so must never be committed
 # (would leak the real key + dirty the tree on every build). Regenerated empty
-# on a fresh checkout via each package's postinstall.
+# on a fresh checkout via the cli/mcp postinstall.
 packages/cli/src/build-env.ts
 packages/mcp/src/build-env.ts
 coredoc.config.json

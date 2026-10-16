@@ -96,24 +96,6 @@ export {
   defaultIntentLimit,
 } from './context-contract.js';
 
-export {
-  BROWNFIELD_TEXT_LIMITS,
-  BrownfieldCandidateFraming,
-  BrownfieldPacketInvalidError,
-  BrownfieldSourceClass,
-  MAX_BROWNFIELD_PACKET_CANDIDATES,
-  MAX_BROWNFIELD_PACKET_CONFLICTS,
-  MAX_BROWNFIELD_PACKET_SOURCES,
-  MAX_BROWNFIELD_SOURCE_REFS,
-  brownfieldProposeItems,
-  parseBrownfieldPacket,
-  type BrownfieldCandidate,
-  type BrownfieldPacket,
-  type BrownfieldPacketConflict,
-  type BrownfieldPacketSource,
-  type BrownfieldProposal,
-} from './brownfield.js';
-
 export { parseAnchorEnvelope } from './anchor-mapping.js';
 export { resolveAnchorEnvelope, type EnvelopeResolution } from './anchor-resolver.js';
 export type {

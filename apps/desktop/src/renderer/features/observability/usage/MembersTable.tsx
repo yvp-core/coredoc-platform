@@ -10,7 +10,7 @@
 import { useState } from 'react';
 import type { UsageMemberRow } from '../../../../shared/ipc-types.js';
 import { MagnitudeBar } from '../charts/MagnitudeBar';
-import { NO_DATA, formatNumber, plural } from '../observability-format';
+import { NO_DATA, formatNumber, plural } from '@coredoc/core/browser/format';
 import { UsageCard } from './UsageCard';
 import {
   DEFAULT_MEMBER_SORT,

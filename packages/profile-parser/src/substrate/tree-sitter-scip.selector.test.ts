@@ -6,7 +6,7 @@ import {
   resolveHttpUrl,
   resolveServiceSelector,
   templateTailRoute,
-} from './tree-sitter-scip.js';
+} from './scip/url-topic-helpers.js';
 
 /**
  * Config-driven cross-repo egress: a service-selector TOKEN read from the call

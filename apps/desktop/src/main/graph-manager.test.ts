@@ -25,8 +25,6 @@ const { repo, handleSearchSymbols } = vi.hoisted(() => ({
     getSubgraph: vi.fn().mockResolvedValue({ nodes: [], edges: [], truncated: false }),
     listNodesByType: vi.fn().mockResolvedValue({ nodes: [], truncated: false }),
     getRepositoryNames: vi.fn().mockResolvedValue([{ name: 'repo-a' }, { name: 'repo-a' }, { name: 'repo-b' }]),
-    getCrossRepoBridges: vi.fn().mockResolvedValue({ nodes: [], edges: [], truncated: false }),
-    findDeadNodes: vi.fn().mockResolvedValue({ nodes: [], truncated: false, lowCoverageRepos: [] }),
     getEdgesAmong: vi.fn().mockResolvedValue({ edges: [], truncated: false }),
   },
   handleSearchSymbols: vi.fn().mockResolvedValue({ data: [{ id: 's1', name: 'foo' }] }),
@@ -165,24 +163,6 @@ describe('graph-manager local handlers', () => {
     const h = collectHandlers().get(IpcChannels.GRAPH_REPOS)!;
     const res = (await h(evt, scope)) as { success: boolean; data: { repos: { name: string }[] } };
     expect(res.data.repos).toEqual([{ name: 'repo-a' }, { name: 'repo-b' }]);
-  });
-
-  it('crossRepo sets focusRepoHashes from scopeRepo but keeps full scope hashes', async () => {
-    const h = collectHandlers().get(IpcChannels.GRAPH_CROSS_REPO)!;
-    await h(evt, scope, { scopeRepo: 'repo-a', limit: 999 });
-    expect(repo.getCrossRepoBridges).toHaveBeenCalledWith(
-      expect.objectContaining({ limit: 200, focusRepoHashes: ['h1'] }),
-      ['h1', 'h2'],
-    );
-  });
-
-  it('deadCode clamps limit and passes types', async () => {
-    const h = collectHandlers().get(IpcChannels.GRAPH_DEAD_CODE)!;
-    await h(evt, scope, { types: ['function'], limit: 999 });
-    expect(repo.findDeadNodes).toHaveBeenCalledWith(expect.objectContaining({ limit: 200, types: ['function'] }), [
-      'h1',
-      'h2',
-    ]);
   });
 
   it('capabilities reports cypher:false but edgesAmong:true when the backend has no Cypher', async () => {

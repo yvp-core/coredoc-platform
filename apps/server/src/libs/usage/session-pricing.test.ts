@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PRICE_MAP_BASIS, PRICE_MAP_VERSION, estimateSessionCostUsd, isPricedModel } from './session-pricing.js';
+import { PRICE_MAP_BASIS, PRICE_MAP_VERSION, estimateSessionCostUsd } from './session-pricing.js';
 
 describe('session pricing', () => {
   it('pins the public standard-global price-map basis', () => {
@@ -93,16 +93,17 @@ describe('session pricing', () => {
   });
 
   it('reports whether a provider/model pair has a known price', () => {
-    expect(isPricedModel('codex', 'gpt-5.6-sol')).toBe(true);
-    expect(isPricedModel('claude-code', 'claude-sonnet-4-6')).toBe(true);
-    expect(isPricedModel('claude-code', 'claude-fable-5')).toBe(true);
-    expect(isPricedModel('claude-code', 'claude-opus-5')).toBe(true);
-    expect(isPricedModel('claude-code', 'claude-opus-5[1m]')).toBe(true);
-    expect(isPricedModel('codex', 'gpt-5.6-luna')).toBe(true);
-    expect(isPricedModel('codex', 'gpt-6-sol')).toBe(true);
-    expect(isPricedModel('codex', 'gpt-6-luna')).toBe(true);
-    expect(isPricedModel('claude-code', 'claude-opus-5-5')).toBe(true);
-    expect(isPricedModel('claude-code', 'claude-opus-5-5[1m]')).toBe(true);
-    expect(isPricedModel('codex', 'gpt-invented-9000')).toBe(false);
+    const none = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, reasoning: 0 };
+    expect(estimateSessionCostUsd('codex', 'gpt-5.6-sol', none)).not.toBeNull();
+    expect(estimateSessionCostUsd('claude-code', 'claude-sonnet-4-6', none)).not.toBeNull();
+    expect(estimateSessionCostUsd('claude-code', 'claude-fable-5', none)).not.toBeNull();
+    expect(estimateSessionCostUsd('claude-code', 'claude-opus-5', none)).not.toBeNull();
+    expect(estimateSessionCostUsd('claude-code', 'claude-opus-5[1m]', none)).not.toBeNull();
+    expect(estimateSessionCostUsd('codex', 'gpt-5.6-luna', none)).not.toBeNull();
+    expect(estimateSessionCostUsd('codex', 'gpt-6-sol', none)).not.toBeNull();
+    expect(estimateSessionCostUsd('codex', 'gpt-6-luna', none)).not.toBeNull();
+    expect(estimateSessionCostUsd('claude-code', 'claude-opus-5-5', none)).not.toBeNull();
+    expect(estimateSessionCostUsd('claude-code', 'claude-opus-5-5[1m]', none)).not.toBeNull();
+    expect(estimateSessionCostUsd('codex', 'gpt-invented-9000', none)).toBeNull();
   });
 });

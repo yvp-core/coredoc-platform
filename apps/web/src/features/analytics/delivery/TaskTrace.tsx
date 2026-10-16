@@ -22,7 +22,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { GanttChart } from '../charts/GanttChart.js';
-import { plural } from '../format.js';
+import { plural } from '@coredoc/core/browser/format';
 import type {
   CanonicalArtifactItem,
   CanonicalExternalRefStateFactItem,

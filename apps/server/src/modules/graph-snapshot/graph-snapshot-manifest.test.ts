@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GraphSnapshotError } from './graph-snapshot.errors.js';
+import { GraphSnapshotError } from '../../libs/pipeline/graph-snapshot.errors.js';
 import {
   canonicalizeGraphSnapshotManifest,
   canonicalizeJson,
@@ -11,7 +11,7 @@ import type {
   GraphSnapshotRepositoryManifest,
   WorkspaceRepoArtifactDescriptor,
   WorkspaceRepoArtifactKind,
-} from './graph-snapshot.types.js';
+} from '../../libs/pipeline/graph-snapshot.types.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 

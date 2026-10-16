@@ -13,7 +13,7 @@ import type {
   RunStatus,
 } from './types.js';
 
-export type StageKind = 'scope' | 'review' | 'implement' | 'delivery';
+type StageKind = 'scope' | 'review' | 'implement' | 'delivery';
 
 export interface RunStage {
   key: string;
@@ -155,7 +155,7 @@ const TRIGGER_TEXT: Record<string, string> = {
   rerun: 'Started as a re-run',
 };
 
-export interface JiraLine {
+interface JiraLine {
   text: string;
   warning: boolean;
 }

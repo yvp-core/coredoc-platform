@@ -4,7 +4,7 @@ import type { AgentRunSettings, CloudAgentRun, CloudAgentRunTurn } from '../../g
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
 import { normalizeJiraBaseUrl } from '../delivery/jira-client.js';
 import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
-import { CloudAgentRunIssueResolver } from './cloud-agent-run-issue.resolver.js';
+import { CloudAgentRunIssueReader, JiraReadFailure, type ResolvedIssue } from './cloud-agent-run-issue-reader.js';
 import { CloudAgentRunQuestionService } from './cloud-agent-run-questions.service.js';
 import { CloudAgentRunScopeService } from './cloud-agent-run-scope.service.js';
 import { REPOSITORY_LABEL_PREFIX, resolveSeeds, seedKeysFromLabels } from './cloud-agent-run-seeds.js';
@@ -26,15 +26,12 @@ import {
 import { createRun, type NewRun, promoteQueuedRuns } from './run-queue.js';
 import { CLOUD_AGENT_RUNS_CLOCK, type Clock, lockCloudAgentRunCreation, systemClock, type Tx } from './run-store.js';
 import { cancelRun, lockRun } from './run-transitions.js';
+import { isUniqueViolation } from '../../libs/coerce.js';
 
 const PENDING_TURN_STATES = [TurnState.Queued, TurnState.Claimed];
 
 /** Transactions under the creation lock wait for other creators, never for outside calls. */
 const CREATION_TRANSACTION = { maxWait: 5_000, timeout: 10_000 };
-
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2002';
-}
 
 type RunWithTurn = CloudAgentRun & { turns: CloudAgentRunTurn[] };
 
@@ -51,7 +48,7 @@ export class CloudAgentRunService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: CloudAgentRunSettingsService,
-    private readonly issues: CloudAgentRunIssueResolver,
+    private readonly jira: CloudAgentRunIssueReader,
     private readonly scope: CloudAgentRunScopeService,
     private readonly availability: CloudAgentRunAvailability,
     private readonly repositories: GithubRepositoryResolver,
@@ -61,7 +58,7 @@ export class CloudAgentRunService {
 
   async start(workspaceId: string, actorId: string, input: StartRunInput) {
     const settings = await this.startableSettings(workspaceId);
-    const issue = await this.issues.resolve(workspaceId, input.issueKey);
+    const issue = await this.resolveIssue(workspaceId, input.issueKey);
     const seeds = await this.manualSeeds(workspaceId, input.repositoryKeys ?? [], settings.maxRepositories);
 
     const runId = await this.createLocked(workspaceId, issue.issueKey, async (tx) => {
@@ -368,6 +365,23 @@ export class CloudAgentRunService {
           ? invalid(`Label ${label(ineligible.key)} names a repository that is not eligible (${ineligible.reason}).`)
           : { seeds: resolution.seeds };
       }
+    }
+  }
+
+  /** Missing, invisible to the connector or outside its configured projects is `ISSUE_NOT_READABLE`. */
+  private async resolveIssue(workspaceId: string, issueKey: string): Promise<ResolvedIssue> {
+    try {
+      return await this.jira.resolveIssue(workspaceId, issueKey);
+    } catch (error) {
+      if (!(error instanceof JiraReadFailure)) throw error;
+      if (error.code === RunFailureCode.JiraError) {
+        throw cloudAgentRunError(
+          CloudAgentRunErrorCode.JiraUnavailable,
+          'Jira kept failing; try again shortly',
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
+      throw cloudAgentRunError(CloudAgentRunErrorCode.IssueNotReadable, error.message, HttpStatus.BAD_REQUEST);
     }
   }
 

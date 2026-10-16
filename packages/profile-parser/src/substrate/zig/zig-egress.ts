@@ -28,6 +28,7 @@ import {
   unwrapTry,
 } from './zig-cst.js';
 import type { ZigCallSite, ZigFileEntry } from './zig-declarations.js';
+import { toPathTemplate } from '../scip/url-topic-helpers.js';
 
 /** `std.http.Client` methods that perform a request. */
 const EGRESS_VERBS = new Set(['fetch', 'open', 'request']);
@@ -42,22 +43,6 @@ const HTTP_METHODS: ReadonlySet<string> = new Set(CONCRETE_HTTP_METHODS);
 /** The SDK label the id mints under — `std.http` is the only client this lane knows (LIM-D). */
 const SDK = 'std.http';
 const EMPTY_LOCALS: ReadonlySet<string> = new Set<string>();
-
-/**
- * Normalize a raw URL to a path template: strip a leading `scheme://host`, require a leading
- * `/`. Copied from `rust-egress.ts` rather than shared — the two substrates have no other reason
- * to couple, and the rule is four lines.
- */
-function toPathTemplate(raw: string): string | undefined {
-  let out = raw;
-  const m = /^https?:\/\/[^/]+(\/.*)?$/i.exec(out);
-  if (m) {
-    // Host-only URL → SKIP: there is no route to join on, and `/` would be a bogus edge.
-    if (!m[1]) return undefined;
-    out = m[1];
-  }
-  return out.startsWith('/') ? out : undefined;
-}
 
 /**
  * The request verb of a call site whose RECEIVER is a known `std.http.Client`; undefined for

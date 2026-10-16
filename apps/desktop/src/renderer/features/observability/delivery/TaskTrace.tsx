@@ -18,7 +18,7 @@ import { Button } from '../../../components/ui/button';
 import { Spinner } from '../../../components/ui/spinner';
 import { GanttChart } from '../charts/GanttChart';
 import { canonicalTaskDetailQueryOptions } from '../observability-api';
-import { plural } from '../observability-format';
+import { plural } from '@coredoc/core/browser/format';
 import { ArtifactRevisionList } from './ArtifactRevisions';
 import { Chip, lifecycleTone } from './Chip';
 import { CanonicalRetentionNotice } from './RetentionNotice';

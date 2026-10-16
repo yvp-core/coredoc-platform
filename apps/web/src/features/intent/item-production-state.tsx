@@ -20,7 +20,7 @@ const explain: Record<string, string> = {
   unknown: 'No recorded evidence establishes delivery or an active plan.',
 };
 
-export interface ItemProductionStateProps {
+interface ItemProductionStateProps {
   workspaceId: string;
   role: string;
   itemId: string;

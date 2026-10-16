@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
 import { AppConfigModule } from './config/app-config.module.js';
 import { DatabaseModule } from './database/database.module.js';
 import { CaptureWorkerScheduleModule } from './modules/capture/capture.module.js';
@@ -18,7 +17,6 @@ import { TelemetryModule } from './modules/telemetry/telemetry.module.js';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
     AppConfigModule.forRole('worker'),
     DatabaseModule,
     TelemetryModule,

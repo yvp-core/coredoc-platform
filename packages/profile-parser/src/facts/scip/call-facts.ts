@@ -1,4 +1,5 @@
-import type { CallEdge, CallResolutionStats } from '@coredoc/core';
+import type { CallEdge, CallResolutionStats, StableIdGenerator } from '@coredoc/core';
+import type { TsNode } from '../../tree-sitter/tree-sitter-loader.js';
 import { decodeRange, isDefinition } from './decode.js';
 import { assertScipSources, type SourceCheckedScip } from './source-manifest.js';
 
@@ -9,6 +10,69 @@ export interface ScipCallFile {
   defaultPositionEncoding: 1 | 2;
   definitions: { line: number; start: number; end: number; id: string; name: string }[];
   calls: { line: number; start: number; end: number; name: string; edge: CallEdge }[];
+}
+
+/** How one language's CST maps onto `ScipCallFile` tokens. */
+export interface ScipCallSpec {
+  /** Function-definition node types: their `name` field is the definition token and they own calls. */
+  definitions: string[];
+  /** Call node type. */
+  call: string;
+  defaultPositionEncoding: 1 | 2;
+  functionId(idGen: StableIdGenerator, relPath: string, node: TsNode): string;
+  /** The invocation token of a call (an identifier/field_identifier, else skipped) and its call shape. */
+  callee(call: TsNode): { token: TsNode | null | undefined; isMethodCall: boolean };
+}
+
+/** Only actual invocation tokens enter the SCIP call join; values/references do not. */
+export function scipCallFacts(spec: ScipCallSpec) {
+  const defTypes = new Set(spec.definitions);
+  return (files: { relPath: string; source: string; root: TsNode }[], idGen: StableIdGenerator): ScipCallFile[] =>
+    files.map((file) => {
+      const definitions: ScipCallFile['definitions'] = [];
+      const calls: ScipCallFile['calls'] = [];
+      for (const def of file.root.descendantsOfType(spec.definitions) as TsNode[]) {
+        const name = def.childForFieldName('name');
+        if (name)
+          definitions.push({
+            line: name.startPosition.row,
+            start: name.startPosition.column,
+            end: name.endPosition.column,
+            id: spec.functionId(idGen, file.relPath, def),
+            name: name.text,
+          });
+      }
+      for (const call of file.root.descendantsOfType(spec.call) as TsNode[]) {
+        let owner = call.parent;
+        while (owner && !defTypes.has(owner.type)) owner = owner.parent;
+        if (!owner) continue;
+        const { token, isMethodCall } = spec.callee(call);
+        if (!token || !['identifier', 'field_identifier'].includes(token.type)) continue;
+        const callerId = spec.functionId(idGen, file.relPath, owner);
+        const line = call.startPosition.row + 1;
+        const calleeExpression = call.text.split('\n')[0].slice(0, 120);
+        calls.push({
+          line: token.startPosition.row,
+          start: token.startPosition.column,
+          end: token.endPosition.column,
+          name: token.text,
+          edge: {
+            id: idGen.callEdgeId(callerId, calleeExpression, `${file.relPath}:${line}`),
+            callerId,
+            calleeExpression,
+            isMethodCall,
+            location: { filePath: file.relPath, startLine: line, endLine: call.endPosition.row + 1 },
+          },
+        });
+      }
+      return {
+        path: file.relPath,
+        source: file.source,
+        defaultPositionEncoding: spec.defaultPositionEncoding,
+        definitions,
+        calls,
+      };
+    });
 }
 
 /** Join compiler identities onto existing graph IDs, without importing any language grammar. */

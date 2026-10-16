@@ -26,7 +26,7 @@ export type TraceRow =
   /** A `raw` line from a runner that predates structured events, or a truncated event. */
   | { kind: 'line'; seq: number; at: string; text: string };
 
-export interface TraceTurn {
+interface TraceTurn {
   id: string;
   ordinal: number | null;
   title: string;

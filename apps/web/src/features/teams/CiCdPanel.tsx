@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { formatRelativeTime } from '@/lib/time';
 
@@ -224,17 +224,12 @@ function CreateTokenDialog({
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="token-scope">Scope</Label>
-                <Select value={scope} onValueChange={(next) => setScope(next as TokenScope)}>
-                  <SelectTrigger id="token-scope">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SCOPES.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+                <Select value={scope} onValueChange={(next) => setScope(next as TokenScope)} id="token-scope">
+                  {SCOPES.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </Select>
                 <p className="text-[12.5px] text-ink-4">{SCOPES.find((s) => s.value === scope)?.hint}</p>
               </div>
@@ -374,7 +369,7 @@ function CiCdToggleCard({ wsId, canManage }: { wsId: string; canManage: boolean 
             checked={enabled}
             disabled={!canManage || config.isPending || mutation.isPending}
             aria-label="Enable CI/CD"
-            onCheckedChange={(next) => mutation.mutate({ wsId, ciCdEnabled: next })}
+            onChange={(event) => mutation.mutate({ wsId, ciCdEnabled: event.target.checked })}
           />
         }
       />
@@ -423,18 +418,15 @@ function ProductionBranchRow({
         onValueChange={(next) =>
           onTriggerSave(repo.repoKey, next === 'inherit' ? null : (next as IntentReleaseTrigger))
         }
+        aria-label={`Release trigger for ${repo.repoName}`}
+        className="w-40"
       >
-        <SelectTrigger aria-label={`Release trigger for ${repo.repoName}`} className="w-40">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="inherit">Default ({releaseTriggerLabels[workspaceTrigger]})</SelectItem>
-          {TRIGGERS.map((value) => (
-            <SelectItem key={value} value={value}>
-              {releaseTriggerLabels[value]}
-            </SelectItem>
-          ))}
-        </SelectContent>
+        <option value="inherit">Default ({releaseTriggerLabels[workspaceTrigger]})</option>
+        {TRIGGERS.map((value) => (
+          <option key={value} value={value}>
+            {releaseTriggerLabels[value]}
+          </option>
+        ))}
       </Select>
       <Input
         className="h-8 w-48"
@@ -505,22 +497,20 @@ function ReleaseTriggerCard({
         sub="Who records a delivery against the product rules"
         right={
           <Select
-            value={triggerUnavailable ? undefined : trigger}
+            value={triggerUnavailable ? '' : trigger}
             disabled={busy}
             onValueChange={(next) =>
               triggerMutation.mutate({ wsId, intentReleaseTrigger: next as IntentReleaseTrigger })
             }
+            aria-label="Intent release trigger"
+            className="w-40"
           >
-            <SelectTrigger aria-label="Intent release trigger" className="w-40">
-              <SelectValue placeholder="Unavailable" />
-            </SelectTrigger>
-            <SelectContent>
-              {TRIGGERS.map((value) => (
-                <SelectItem key={value} value={value}>
-                  {releaseTriggerLabels[value]}
-                </SelectItem>
-              ))}
-            </SelectContent>
+            {triggerUnavailable && <option value="">Unavailable</option>}
+            {TRIGGERS.map((value) => (
+              <option key={value} value={value}>
+                {releaseTriggerLabels[value]}
+              </option>
+            ))}
           </Select>
         }
       />

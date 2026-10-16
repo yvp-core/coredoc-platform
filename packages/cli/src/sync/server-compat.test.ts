@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { VERSION } from '@coredoc/core';
 import { checkServerCompat, MIN_SERVER_VERSION } from './workspace-api.js';
 
 vi.mock('../auth.js', () => ({
   getToken: vi.fn(async () => 'cdt_test'),
   getServerUrl: vi.fn(async () => 'https://api.test'),
+  authHeaders: vi.fn(async () => ({ Authorization: 'Bearer cdt_test' })),
 }));
 
 const metaResponse = (body: unknown, status = 200) =>
@@ -25,7 +25,7 @@ describe('checkServerCompat', () => {
   });
 
   it('queries the unauthenticated meta endpoint on the given server', async () => {
-    const fetchMock = metaResponse({ version: MIN_SERVER_VERSION, minClientVersion: VERSION });
+    const fetchMock = metaResponse({ version: MIN_SERVER_VERSION, minClientVersion: '1.0.0' });
     globalThis.fetch = fetchMock;
 
     await checkServerCompat('https://coredoc.acme.internal');

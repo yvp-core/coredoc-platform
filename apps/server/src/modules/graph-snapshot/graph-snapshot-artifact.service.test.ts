@@ -18,9 +18,9 @@ import {
   GraphSnapshotBuildService,
   graphSnapshotArtifactSizeWithinLimit,
 } from './graph-snapshot-artifact.service.js';
-import { GraphSnapshotError } from './graph-snapshot.errors.js';
+import { GraphSnapshotError } from '../../libs/pipeline/graph-snapshot.errors.js';
 import { createGraphSnapshotIdentity } from './graph-snapshot-manifest.js';
-import type { GraphSnapshotManifestV1 } from './graph-snapshot.types.js';
+import type { GraphSnapshotManifestV1 } from '../../libs/pipeline/graph-snapshot.types.js';
 
 const buildGraphFile = vi.hoisted(() => vi.fn());
 const openGraphFile = vi.hoisted(() => vi.fn());
@@ -164,14 +164,7 @@ function r2Mock(parsedBody: Buffer) {
 }
 
 function serviceWithStorageTimeout(r2: ReturnType<typeof r2Mock>, buildRoot: string, timeoutMs = 20) {
-  const previous = process.env.GRAPH_SNAPSHOT_STORAGE_TIMEOUT_MS;
-  process.env.GRAPH_SNAPSHOT_STORAGE_TIMEOUT_MS = String(timeoutMs);
-  try {
-    return new GraphSnapshotBuildService(r2 as unknown as R2StorageService, buildRoot);
-  } finally {
-    if (previous === undefined) delete process.env.GRAPH_SNAPSHOT_STORAGE_TIMEOUT_MS;
-    else process.env.GRAPH_SNAPSHOT_STORAGE_TIMEOUT_MS = previous;
-  }
+  return new GraphSnapshotBuildService(r2 as unknown as R2StorageService, buildRoot, timeoutMs);
 }
 
 /**

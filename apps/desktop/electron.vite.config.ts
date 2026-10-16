@@ -4,14 +4,12 @@ import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 import type { Plugin } from 'vite';
 import { writeFileSync } from 'fs';
-import { loadRootEnv } from '../../scripts/load-root-env.mjs';
 
 // ---------------------------------------------------------------------------
 // Banner: CJS polyfills + native module resolution redirect
 // ---------------------------------------------------------------------------
-// After migrating to libsql + web-tree-sitter, @lydell/node-pty is the only
-// remaining native addon. Its helper module (node-gyp-build) resolution is
-// redirected to the runtime bundle (dist/runtime/).
+// Native-addon helper modules (node-gyp-build, bindings) resolve from the
+// runtime bundle (dist/runtime/).
 const nativeModuleBanner = `\
 const __import_meta_url = require("url").pathToFileURL(__filename).href;
 
@@ -99,7 +97,6 @@ function mainProcessPlugin(): Plugin {
 const mainExternals = [
   'electron',
   'electron-updater',
-  '@lydell/node-pty',
   '@libsql/client',
   // @ladybugdb/core dlopens a native lbugjs.node relative to its own module
   // path; bundling it into a chunk breaks that resolution at app load.
@@ -107,7 +104,6 @@ const mainExternals = [
   'neo4j-driver',
   '@anthropic-ai/claude-agent-sdk',
   'typescript',
-  'ts-morph',
 ];
 
 function resolveBuildEnv(mode: string): {
@@ -120,7 +116,11 @@ function resolveBuildEnv(mode: string): {
   // did NOT set — the single root `.env` is the primary fallback, shared with
   // the CLI/MCP builds. Shell/CI env still wins; a missing root `.env` is a
   // no-op. This lands ABOVE the desktop-local `apps/desktop/.env` below.
-  loadRootEnv(__dirname);
+  try {
+    process.loadEnvFile(path.join(__dirname, '../../.env'));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
 
   // Load desktop-local .env files (apps/desktop/.env, .env.local, .env.<mode>).
   const fileEnv = loadEnv(mode, __dirname, '');
@@ -175,7 +175,10 @@ export default defineConfig(({ mode }) => {
     },
 
     preload: {
-      plugins: [externalizeDepsPlugin()],
+      // The sandboxed preload cannot require() packages at runtime, so the
+      // browser-safe `@coredoc/core/browser/*` modules that shared/ipc-types.ts
+      // re-exports are bundled in rather than externalized.
+      plugins: [externalizeDepsPlugin({ exclude: ['@coredoc/core'] })],
       build: {
         outDir: 'dist/preload',
         rollupOptions: {

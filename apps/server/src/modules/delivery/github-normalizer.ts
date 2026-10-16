@@ -1,12 +1,13 @@
 // Pure normalizer: GitHub REST v3 pull-request payloads -> NormalizedCodeChange.
-// No I/O; the single import is the equally pure PR-body trailer parser, which is
-// reused rather than restated so the connector and the API read one grammar.
+// No I/O; the only import is the equally pure shared coercion helpers.
 // GitHub payloads are UNTRUSTED, so every field is coerced
 // through tolerant helpers (str/num/arr/obj); non-conforming shapes degrade to
 // undefined / [] rather than throwing. Dates are passed through verbatim as ISO
 // strings — the service layer converts to `Date`. The one place that compares
 // dates as instants (rework windows) parses with `Date.parse` and ignores what
 // does not parse.
+
+import { asArray as arr, asRecord as obj, asString as str } from '../../libs/coerce.js';
 
 /**
  * Normalization schema version stamped on every persisted raw row + the single
@@ -132,11 +133,6 @@ export interface NormalizedCodeChange {
 
 // --- tolerant coercion helpers -------------------------------------------------
 
-/** Non-string -> undefined. */
-function str(v: unknown): string | undefined {
-  return typeof v === 'string' ? v : undefined;
-}
-
 /**
  * Finite number, or a numeric string, else undefined. GitHub sends these fields as
  * JSON integers; the numeric-string branch is a deliberate tolerance for untrusted
@@ -149,16 +145,6 @@ function num(v: unknown): number | undefined {
     return Number.isFinite(n) ? n : undefined;
   }
   return undefined;
-}
-
-/** Non-array -> []. */
-function arr(v: unknown): unknown[] {
-  return Array.isArray(v) ? v : [];
-}
-
-/** Non-object (or array/null) -> {}. */
-function obj(v: unknown): Record<string, unknown> {
-  return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 }
 
 /** str() then truncate to `max` chars; undefined passes through. */

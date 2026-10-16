@@ -37,6 +37,7 @@ import { buildKotlinImportEdges } from './kotlin-imports.js';
 import { type AndroidManifestFacts, type NavGraphFacts, readManifest, readNavigationGraph } from './kotlin-xml.js';
 import { KotlinTypeIndex } from './kotlin-resolve.js';
 import type { Substrate } from '../parse-substrate.js';
+import { repoDir } from '../glob.js';
 
 /** The scorer- and parser-facing source scope: git-aware discovery + the profile's globs. */
 export function discoverKotlinFileScope(root: string, include: string[], exclude: string[] = []): SourceFileScope {
@@ -52,12 +53,6 @@ function kotlinScope(allFiles: readonly string[], include: string[], exclude: st
     [],
     exclude,
   );
-}
-
-/** The directory of a repo-relative path (`''` for a root file). */
-function dirOf(path: string): string {
-  const i = path.lastIndexOf('/');
-  return i < 0 ? '' : path.slice(0, i);
 }
 
 /** Longest directory prefix shared by two repo-relative directories. */
@@ -91,7 +86,7 @@ function emitPackages(
   // One per distinct Kotlin package, at the common directory of its files.
   const dirsByPackage = new Map<string, string>();
   for (const f of facts) {
-    const dir = dirOf(f.relPath);
+    const dir = repoDir(f.relPath);
     const seen = dirsByPackage.get(f.packageName);
     dirsByPackage.set(f.packageName, seen === undefined ? dir : commonDir(seen, dir));
   }
@@ -105,7 +100,7 @@ function emitPackages(
   }
 
   // One per Gradle module root (the repo root included), owning no files of its own.
-  const appDirs = new Set(manifests.filter((m) => m.hasApplication).map((m) => dirOf(m.filePath)));
+  const appDirs = new Set(manifests.filter((m) => m.hasApplication).map((m) => repoDir(m.filePath)));
   for (const dir of [...moduleRoots].sort()) {
     const path = dir === '' ? '.' : dir;
     const pkg: Package = {

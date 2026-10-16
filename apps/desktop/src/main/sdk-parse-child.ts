@@ -75,10 +75,6 @@ async function run(): Promise<void> {
     if (message.command !== 'parse') {
       throw new Error(`Sandboxed parse child refuses command "${message.command}".`);
     }
-    // The parent ran the workspace-layout migration on the trusted host before entering the
-    // sandbox; the parser-storage root is unreadable here, so re-running it would EPERM on the
-    // sentinel read.
-    message.skipLayoutMigration = true;
     await withOptionalIndexHost(
       (request) => prepareIndex(request, 'optional-index'),
       () => withCSharpIndexHost(prepareIndex, () => handleCommandMessage(message, post)),

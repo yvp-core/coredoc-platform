@@ -11,7 +11,7 @@ import type { IntentCountCell } from './intent-panel-state.js';
 import { conditionDimensions, contextConditionText, formatIntentTimestamp } from './intent-presentation.js';
 import type { IntentDimension, IntentDomainView, IntentFeatureSeed } from './types.js';
 
-export interface IntentNodePanelProps {
+interface IntentNodePanelProps {
   domain: IntentDomainView;
   /** `null` for a domain selection. */
   feature: IntentDomainView | null;

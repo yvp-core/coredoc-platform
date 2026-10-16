@@ -2,7 +2,6 @@ import { ExplorerCanvas } from '../../../../features/explorer/explorer-canvas.js
 import { ExplorerCanvasControls } from '../../../../features/explorer/explorer-canvas-controls.js';
 import { useExplorer } from '../../../../features/explorer/explorer-context.js';
 import { canvasBannerMessage, canvasIsFull } from '../../../../features/explorer/explorer-graph.js';
-import { useTheme } from '../../../../lib/explorer-theme.js';
 
 export interface GraphTabProps {
   /** Fired when the canvas selects a node — the shell opens the detail panel. */
@@ -24,7 +23,6 @@ export function GraphTab({ onNodeSelected, onNodeDeselected }: GraphTabProps) {
     linkingUnavailable,
     linkFetchFailed,
   } = useExplorer();
-  const theme = useTheme();
   const banner = canvasBannerMessage({
     isFull: canvasIsFull(state),
     linkingUnavailable,
@@ -52,7 +50,6 @@ export function GraphTab({ onNodeSelected, onNodeDeselected }: GraphTabProps) {
           nodes={visible.nodes}
           edges={visible.edges}
           selectedId={state.selectedId}
-          theme={theme}
           onNodeClick={(id) => {
             selectNode(id);
             onNodeSelected();

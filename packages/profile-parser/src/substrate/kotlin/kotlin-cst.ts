@@ -24,7 +24,7 @@
  *     `interpolated_expression` (`${a.b}`); `.text` includes the delimiters.
  *   - KDoc is a `multiline_comment` sibling, not an attached field.
  */
-import { TreeSitterLoader, type TsNode } from '../../tree-sitter/tree-sitter-loader.js';
+import { type TsNode } from '../../tree-sitter/tree-sitter-loader.js';
 import { makeStringValueReader } from '../cst-kit/strings.js';
 import { firstChildOfType, namedChildren, namedChildrenOfType } from '../cst-kit/walk.js';
 
@@ -105,11 +105,6 @@ export const MAX_NESTED_DEPTH = 32;
 export const MAX_CHAIN_HOPS = 8;
 /** Node budget for the iterative `ERROR` scan of one file's tree. */
 export const MAX_ERROR_SCAN_NODES = 200_000;
-
-/** Parse Kotlin source and return the root node. The loader memoises the Parser per grammar. */
-export async function parseKotlin(source: string): Promise<TsNode> {
-  return (await TreeSitterLoader.getInstance().getParser('kotlin')).parse(source).rootNode;
-}
 
 // This grammar has no fields, so every child lookup below is positional and optional by nature.
 export { namedChildren, namedChildrenOfType, firstChildOfType };

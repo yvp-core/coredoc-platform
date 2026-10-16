@@ -251,4 +251,58 @@ describe('ci-summarizer', () => {
       );
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Local harness (free-text generator) path
+  // -------------------------------------------------------------------------
+
+  describe('harness generator', () => {
+    const reply = (text: string) => vi.fn(async () => text);
+
+    it('parses fenced JSON leniently, defaulting malformed fields instead of failing', async () => {
+      const generate = reply(
+        'Here you go:\n```json\n' +
+          JSON.stringify({
+            purpose: 'do work',
+            business_logic: ['step', 7],
+            side_effects: [{ type: 'weird', description: 'writes' }, 'junk', { type: 'event', isDirect: false }],
+            confidence_level: 'certain',
+          }) +
+          '\n```',
+      );
+      const fn = makeFunctionNode();
+
+      const result = await summarizeFunction(fn, [], generate);
+
+      expect(mockGenerateObject).not.toHaveBeenCalled();
+      expect(result.purpose).toBe('do work');
+      expect(result.detailed_summary).toBe('Item doStuff');
+      expect(result.business_logic).toEqual(['step']);
+      expect(result.side_effects).toEqual([{ type: 'other', description: 'writes', isDirect: true }]);
+      expect(result.confidence_level).toBe('medium');
+      expect(result.unknowns).toEqual([]);
+    });
+
+    it('falls back when the reply is not JSON', async () => {
+      const result = await summarizeFunction(makeFunctionNode(), [], reply('not json at all'));
+      expect(result.confidence_level).toBe('low');
+      expect(result.unknowns[0]).toMatch(/Failed to parse AI response as JSON/);
+    });
+
+    it('keeps only valid package items from a free-text array', async () => {
+      const generate = reply(
+        JSON.stringify([
+          { packageId: 'abc:pkg:packages/api', purpose: 'REST API' },
+          { packageId: 'abc:pkg:packages/lib' },
+          'junk',
+        ]),
+      );
+      const result = await summarizePackages(makeParsedRepo(), [], generate);
+      expect(result.map((p) => p.packageId)).toEqual(['abc:pkg:packages/api']);
+    });
+
+    it('throws when a package reply is not an array', async () => {
+      await expect(summarizePackages(makeParsedRepo(), [], reply('{"a":1}'))).rejects.toThrow();
+    });
+  });
 });

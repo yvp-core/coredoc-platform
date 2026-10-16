@@ -23,6 +23,8 @@ import type { Request } from 'express';
 import type { TokenPermission } from '../auth/token-permissions.js';
 import { WorkspaceMemberRole } from '../modules/members/dto/workspace-role.enum.js';
 import { McpAuthKind, type AuthenticatedMcpRequest } from './mcp-auth-context.js';
+import type { AuthUser } from '../auth/decorators/current-user.decorator.js';
+import type { IntentActor } from '../modules/intent/intent-idempotency.js';
 
 /** Roles that may change intent authority in their own session: every member role (BR-1). */
 export const INTENT_REVIEWER_ROLES: WorkspaceMemberRole[] = [
@@ -59,6 +61,15 @@ export enum IntentActorRole {
 export function intentActorRole(auth: IntentMcpAuth): string {
   if (auth.authKind === McpAuthKind.ServiceToken) return IntentActorRole.ServiceToken;
   return auth.role ?? IntentActorRole.Unknown;
+}
+
+/**
+ * The REST actor recorded on every intent audit row and transition. Identity and role come from
+ * the token via the guards — never from the request payload (spec §4.7). Intent write routes run
+ * behind `UserSessionGuard`, which has already refused every service token, so the role is resolved.
+ */
+export function intentActorOf(user: AuthUser, role: WorkspaceMemberRole | undefined): IntentActor {
+  return { id: user.id, role: role ?? IntentActorRole.ServiceToken };
 }
 
 export interface IntentMcpAuth {

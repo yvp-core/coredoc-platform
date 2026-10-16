@@ -1,4 +1,4 @@
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select } from '@/components/ui/select';
 import { useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import {
@@ -32,7 +32,6 @@ import { meQueryOptions } from '../api/queries/me.js';
 import { reposQueryOptions } from '../api/queries/repos.js';
 import { workspaceConfigQueryOptions } from '../api/queries/workspace-config.js';
 import type { MeResponse, Workspace } from '../api/types.js';
-import { ThemeToggle } from '../components/theme-toggle.js';
 
 /** Pure lookup so the redirect-on-unknown-slug decision is a plain function. */
 export function findWorkspace(me: MeResponse, slug: string): Workspace | undefined {
@@ -203,22 +202,21 @@ export function WorkspaceShell() {
           <span className="text-[14.5px] font-medium tracking-[-0.01em]">CoreDoc</span>
         </div>
 
-        <Select value={slug} onValueChange={(value) => navigate({ to: '/w/$slug', params: { slug: value } })}>
-          <SelectTrigger aria-label="Workspace" className="max-w-[180px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {me.workspaces.map((workspace) => (
-              <SelectItem key={workspace.id} value={workspace.slug}>
-                {workspace.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
+        <Select
+          value={slug}
+          onValueChange={(value) => navigate({ to: '/w/$slug', params: { slug: value } })}
+          aria-label="Workspace"
+          className="max-w-[180px]"
+        >
+          {me.workspaces.map((workspace) => (
+            <option key={workspace.id} value={workspace.slug}>
+              {workspace.name}
+            </option>
+          ))}
         </Select>
 
         <div className="flex-1" />
 
-        <ThemeToggle />
         <span
           title={me.user.email}
           aria-hidden="true"

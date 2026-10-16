@@ -25,7 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select } from '@/components/ui/select';
 import { formatRelativeTime } from '@/lib/time';
 
 import { CopyBlock } from './copy-block';
@@ -77,17 +77,18 @@ function RoleSelect({
   onChange: (role: AssignableRole) => void;
 }) {
   return (
-    <Select value={value} disabled={disabled} onValueChange={(next) => onChange(next as AssignableRole)}>
-      <SelectTrigger aria-label={label} className="h-7 w-[108px]">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {ASSIGNABLE_ROLES.map((role) => (
-          <SelectItem key={role} value={role}>
-            {title(role)}
-          </SelectItem>
-        ))}
-      </SelectContent>
+    <Select
+      value={value}
+      disabled={disabled}
+      onValueChange={(next) => onChange(next as AssignableRole)}
+      aria-label={label}
+      className="h-7 w-[108px]"
+    >
+      {ASSIGNABLE_ROLES.map((role) => (
+        <option key={role} value={role}>
+          {title(role)}
+        </option>
+      ))}
     </Select>
   );
 }
@@ -352,17 +353,17 @@ function InviteForm({ wsId }: { wsId: string }) {
             aria-label="Invite email"
             className="w-64"
           />
-          <Select value={role} onValueChange={(next) => setRole(next as AssignableRole)}>
-            <SelectTrigger aria-label="Invite role" className="w-[108px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {ASSIGNABLE_ROLES.map((r) => (
-                <SelectItem key={r} value={r}>
-                  {title(r)}
-                </SelectItem>
-              ))}
-            </SelectContent>
+          <Select
+            value={role}
+            onValueChange={(next) => setRole(next as AssignableRole)}
+            aria-label="Invite role"
+            className="w-[108px]"
+          >
+            {ASSIGNABLE_ROLES.map((r) => (
+              <option key={r} value={r}>
+                {title(r)}
+              </option>
+            ))}
           </Select>
           <Button type="submit" disabled={mutation.isPending}>
             {mutation.isPending ? 'Inviting…' : 'Send invite'}

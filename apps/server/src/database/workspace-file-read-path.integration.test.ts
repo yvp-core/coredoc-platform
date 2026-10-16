@@ -155,7 +155,6 @@ function cache(storage: R2StorageService, cacheDir: string) {
     maxTotalBufferPoolBytes: 128 * 1024 * 1024,
     maxCacheBytes: 64 * 1024 * 1024,
     downloadTimeoutMs: 5_000,
-    storageFormatVersion: GRAPH_FILE_FORMAT_COMPATIBILITY.storageFormatVersion,
     budgets: {
       maxDbSizeBytes: 64 * 1024 * 1024,
       bufferPoolBytes: 64 * 1024 * 1024,

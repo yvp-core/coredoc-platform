@@ -46,7 +46,7 @@ export enum IntentBrowseState {
   Ready = 'ready',
 }
 
-export interface IntentBrowseStateInput {
+interface IntentBrowseStateInput {
   treeLoading: boolean;
   treeError: boolean;
   /** `null` while nothing has resolved yet; a number once the tree page is in hand. */
@@ -66,7 +66,7 @@ export function intentBrowseState(input: IntentBrowseStateInput): IntentBrowseSt
 }
 
 /** Display names for the tree nodes the review surface labels rows with. */
-export interface IntentTreeNames {
+interface IntentTreeNames {
   domains: Record<string, string>;
   features: Record<string, string>;
 }

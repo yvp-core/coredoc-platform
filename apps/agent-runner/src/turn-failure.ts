@@ -27,7 +27,3 @@ export async function reportingFailures(work: () => Promise<TurnResult>): Promis
 
 /** GitHub calls retry in process up to three times (four attempts), then fail the run. */
 export const GITHUB_ATTEMPTS = 4;
-
-export function sleep(ms: number): Promise<void> {
-  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
-}

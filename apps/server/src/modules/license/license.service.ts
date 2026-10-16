@@ -13,7 +13,7 @@
 
 import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { readFileSync } from 'node:fs';
-import { miscConfigFromEnv } from '../../config/app-config.js';
+import { configFromEnv } from '../../config/app-config.js';
 import { LICENSE_PUBLIC_KEY_PEM, type LicensePayload, parseAndVerifyLicense } from './license-format.mjs';
 import { LicenseState, type LicenseStatus, resolveLicenseState, toLicenseStatus } from './license-state.js';
 
@@ -59,7 +59,7 @@ export class LicenseService implements OnModuleInit, OnModuleDestroy {
   private lastGraceWarnMs = 0;
 
   constructor(@Optional() @Inject(LICENSE_OPTIONS) options: LicenseServiceOptions = {}) {
-    const configuredPath = options.filePath ?? miscConfigFromEnv().licenseFile;
+    const configuredPath = options.filePath ?? configFromEnv().misc.licenseFile;
     // An empty/whitespace value is treated as unset: Helm renders the env var
     // only when a secret is configured, but a hand-written deployment that sets
     // COREDOC_LICENSE_FILE="" means "no license", not "read the file ''".

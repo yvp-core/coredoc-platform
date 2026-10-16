@@ -3,8 +3,8 @@
  *
  * Responsibilities (SRP): resolve identity (install id / opt-in / session /
  * invocation / surface / repo id), merge {@link BaseProps} onto every event,
- * enforce the opt-in gate, centralize path scrubbing, and route events to the
- * anon and cloud channels (P0.4). It owns NO transport itself — the channels
+ * enforce the opt-in gate, centralize path scrubbing, and ship events on the
+ * anon channel (agent runs also POST to their own workspace's cloud channel). It owns NO transport itself — the channels
  * are dumb transports and identity/session live in P0.2/P0.3.
  *
  * Two review-mandated design shapes:
@@ -16,43 +16,16 @@
  *    event while fake-channel unit tests still pass — the exact silent-failure
  *    class this project exists to kill. `initTelemetry` remains for callers that
  *    want to pass channels/sessionId up front (desktop main, CLI entry).
- *  - **`withTiming` returns the duration explicitly** — no process-global
- *    "fold into the next event" bag (race-prone once desktop main runs
- *    concurrent workers).
  *
  * Node-only: never a top-level value import of `posthog-node` (the AnonChannel
  * lazy-imports it). `apps/web` must never import `@coredoc/core/telemetry`.
  */
 
 import { getTelemetryConfig } from '../utils/index.js';
-import { AnonChannel, CloudChannel, type CloudChannelConfig, routeChannel } from './channels.js';
-import {
-  type BaseProps,
-  ErrorCode,
-  EventName,
-  type Props,
-  SCHEMA_VERSION,
-  type StepName,
-  type Surface,
-} from './events.js';
+import { AnonChannel, CloudChannel, type CloudChannelConfig, dbg } from './channels.js';
+import { type BaseProps, ErrorCode, EventName, type Props, SCHEMA_VERSION, type Surface } from './events.js';
 import { newInvocationId, repoId, resolveSession } from './ids.js';
 import { scrubPaths } from './sanitize.js';
-
-// ---------------------------------------------------------------------------
-// Opt-in diagnostic trace (COREDOC_TELEMETRY_DEBUG=1). OFF by default: nothing
-// logs and there is zero behavior change. Logs to STDERR (never stdout) so it
-// surfaces in the desktop worker's PTY output without polluting the JSON stream.
-// `[pid:...]` on every line distinguishes the MAIN process (which emits
-// agent_run) from the WORKER process/thread. INSTANCE is a module-load-time
-// nonce: if two copies of this module get bundled (the very failure mode this
-// trace hunts), their logs carry different ids.
-// ---------------------------------------------------------------------------
-const INSTANCE = Math.random().toString(36).slice(2, 8);
-function dbg(msg: string): void {
-  if (process.env.COREDOC_TELEMETRY_DEBUG === '1') {
-    console.error(`${new Date().toISOString()} [pid:${process.pid}] [coredoc-tel ${INSTANCE}] ${msg}`);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Public surface re-exports. `@coredoc/core/telemetry` maps to a SINGLE subpath
@@ -62,7 +35,7 @@ function dbg(msg: string): void {
 // sibling modules. Internal-only symbols (channel classes, the __*ForTests
 // seam) are deliberately NOT re-exported.
 // ---------------------------------------------------------------------------
-export { EventName, ErrorCode, StepName, SCHEMA_VERSION } from './events.js';
+export { EventName, ErrorCode, SCHEMA_VERSION } from './events.js';
 export type { Surface, Props, BaseProps } from './events.js';
 export { detectParseAnomalies } from './parse-anomaly.js';
 export type { DetectParseAnomaliesInput } from './parse-anomaly.js';
@@ -96,7 +69,6 @@ export interface InitContext {
   channels?: {
     posthogKey?: string;
     posthogHost?: string;
-    cloud?: CloudChannelConfig;
   };
 }
 
@@ -104,12 +76,6 @@ export interface InitContext {
 interface AnonChannelLike {
   capture(event: EventName | string, distinctId: string, props?: Record<string, unknown>): void;
   captureException(error: unknown, distinctId: string, props?: Record<string, unknown>): void;
-  flush(deadlineMs: number): Promise<void>;
-}
-
-/** Structural cloud-channel shape (real {@link CloudChannel} or a test fake). */
-interface CloudChannelLike {
-  emit(event: EventName | string, distinctId: string, props?: Record<string, unknown>): Promise<void>;
   flush(deadlineMs: number): Promise<void>;
 }
 
@@ -130,7 +96,6 @@ let cliVersion = 'unknown';
 let engineVersion = 'unknown';
 
 let anonChannel: AnonChannelLike | null = null;
-let cloudChannel: CloudChannelLike | null = null;
 
 /** In-flight emit promises, drained (bounded) by {@link shutdownTelemetry}. */
 const inFlight = new Set<Promise<unknown>>();
@@ -174,7 +139,7 @@ async function doInit(): Promise<void> {
   cliVersion = process.env.COREDOC_CLI_VERSION ?? 'unknown';
   engineVersion = process.env.COREDOC_ENGINE_VERSION ?? 'unknown';
 
-  // Preserve test-injected channels; otherwise build the real ones. An env key
+  // Preserve a test-injected channel; otherwise build the real one. An env key
   // always wins over a bundled key (see AnonChannelConfig).
   if (!anonChannel) {
     anonChannel = new AnonChannel({
@@ -183,9 +148,6 @@ async function doInit(): Promise<void> {
       bundledKey: ctx.channels?.posthogKey,
       bundledHost: ctx.channels?.posthogHost,
     });
-  }
-  if (!cloudChannel) {
-    cloudChannel = new CloudChannel(ctx.channels?.cloud);
   }
 
   dbg(
@@ -255,44 +217,12 @@ export function initTelemetry(ctx: InitContext = {}): void {
 }
 
 /**
- * (Re)build and inject the cloud channel — the ONE affordance that survives a
- * prior emit. `initTelemetry` only records a pending context that {@link doInit}
- * reads exactly once, so a cloud config passed to it AFTER the first emit (which
- * already ran `doInit` and built a config-less no-op cloud channel) is silently
- * ignored — the exact freeze a local-then-cloud desktop session hits: a
- * workspaceless agent run (or a main-process crash → trackError) emits first,
- * then the cloud workspace becomes known too late for `initTelemetry` to matter.
- *
- * This swaps the live `cloudChannel` unconditionally, so it takes effect whether
- * called before OR after init. Called before `doInit`, the `if (!cloudChannel)`
- * guard in `doInit` then preserves this instance; called after, it replaces the
- * no-op one in place. Idempotent — the last config wins.
- */
-export function setCloudChannel(config: CloudChannelConfig): void {
-  cloudChannel = new CloudChannel(config);
-}
-
-/**
- * Reset the cloud channel to an absent, anon-only state — the counterpart to
- * {@link setCloudChannel}. The single global `cloudChannel` is wired at a cloud
- * run's START (`setCloudChannel`) and consumed at its COMPLETION (`emitAgentRun`).
- * Without a clear path, a cloud run (wires ws-1) followed by a LOCAL-ONLY run
- * would emit the local run's AgentRun to the STALE ws-1 channel →
- * cross-workspace mis-attribution. Swaps in a config-less no-op `CloudChannel`,
- * whose `emit` returns before any POST when it holds no config, so nothing
- * leaves the machine. Idempotent.
- */
-export function clearCloudChannel(): void {
-  cloudChannel = new CloudChannel();
-}
-
-/**
  * Anon, fire-and-forget. Lazy-auto-inits on first call. Merges BaseProps, gates
- * on opt-in, routes per {@link routeChannel}. All emit errors are swallowed —
+ * on opt-in. All emit errors are swallowed —
  * telemetry must never throw into the caller (Fail-safe).
  */
 export function track(event: EventName, props?: Props): void {
-  dbg(`track ${event} route=${routeChannel(event)}`);
+  dbg(`track ${event}`);
   const p = ensureInit()
     .then(async () => {
       const optedIn = await isOptedInNow();
@@ -300,14 +230,7 @@ export function track(event: EventName, props?: Props): void {
       if (!optedIn) {
         return;
       }
-      const merged = { ...buildBaseProps(), ...props };
-      const route = routeChannel(event);
-      if (route === 'anon' || route === 'both') {
-        anonChannel?.capture(event, installId, merged);
-      }
-      if (route === 'cloud' || route === 'both') {
-        await cloudChannel?.emit(event, installId, merged);
-      }
+      anonChannel?.capture(event, installId, { ...buildBaseProps(), ...props });
     })
     .catch(() => {
       // Telemetry must never throw into the caller — swallow emit/init failures.
@@ -364,33 +287,12 @@ export function trackError(err: unknown, code: ErrorCode, props?: Props): void {
 }
 
 /**
- * Times an async step and returns the duration EXPLICITLY — the caller folds
- * `durationMs` into its own event. No global "current timing" bag (race-prone
- * under concurrent workers). Emits nothing itself.
- */
-export async function withTiming<T>(step: StepName, fn: () => Promise<T>): Promise<{ result: T; durationMs: number }> {
-  // `step` is a label reserved for a future debug/attach (P1/P3) — kept in the
-  // signature now so adding it later is not a breaking change.
-  void step;
-  const t0 = Date.now();
-  const result = await fn();
-  return { result, durationMs: Date.now() - t0 };
-}
-
-/**
- * Emits an agent-run to BOTH channels (routeChannel(AgentRun) === 'both'):
- * cloud gets the FULL summary; anon gets a COARSE aggregate DERIVED from the
- * same summary object (never recomputed — spec §10 risk).
- *
- * `opts.cloud` binds the cloud POST to THIS run's workspace. Desktop can run
- * several agent-runs concurrently in one process; the process-global
- * `cloudChannel` (wired at a run's START, read at its COMPLETION) would let run
- * A's summary POST to run B's workspace once B re-wires the global mid-flight.
- * Passing the run's own {@link CloudChannelConfig} routes through an EPHEMERAL,
- * per-run channel that is immune to that race — attribution follows the run, not
- * the process. When `opts.cloud` is absent (CLI, or a workspaceless run) the
- * cloud emit falls back to the process-global channel, drained by
- * {@link shutdownTelemetry}. The anon aggregate is unchanged either way.
+ * Emits an agent-run: anon gets a COARSE aggregate DERIVED from the summary
+ * object (never recomputed — spec §10 risk); cloud gets the FULL summary, but
+ * only when `opts.cloud` binds it to THIS run's workspace. Attribution follows
+ * the run, not the process — desktop runs several agent-runs concurrently, so a
+ * shared channel would let one run's summary land in another's workspace. A
+ * workspaceless run (no `opts.cloud`) is anon-only.
  */
 export function emitAgentRun(summary: AgentRunSummary, opts?: { cloud?: CloudChannelConfig }): void {
   const p = ensureInit()
@@ -410,17 +312,14 @@ export function emitAgentRun(summary: AgentRunSummary, opts?: { cloud?: CloudCha
       });
       // Cloud: full summary.
       if (opts?.cloud) {
-        // Per-run binding. The channel is EPHEMERAL to this emit, so shutdown
-        // (which only flushes the process-global channels) never sees it — this
-        // emit therefore owns the channel's full lifecycle: dispatch AND drain.
+        // The channel is EPHEMERAL to this emit, so shutdown never sees it —
+        // this emit therefore owns the channel's full lifecycle: dispatch AND drain.
         // The tracked promise stays in-flight until the POST settles (bounded),
         // so app-quit shutdown drains it too. In a long-lived desktop process a
         // POST slower than the deadline still completes on its own afterwards.
         const perRun = new CloudChannel(opts.cloud);
         await perRun.emit(EventName.AgentRun, installId, { ...base, ...summary });
         await perRun.flush(DEFAULT_FLUSH_DEADLINE_MS);
-      } else {
-        await cloudChannel?.emit(EventName.AgentRun, installId, { ...base, ...summary });
       }
     })
     .catch(() => {
@@ -430,7 +329,7 @@ export function emitAgentRun(summary: AgentRunSummary, opts?: { cloud?: CloudCha
 }
 
 /**
- * Bounded flush. Awaits in-flight emits then flushes both channels, racing the
+ * Bounded flush. Awaits in-flight emits then flushes the anon channel, racing the
  * whole drain against `deadlineMs`. Resolves either way — never rejects, never
  * hangs past the deadline (posthog-node batches; a one-shot CLI command would
  * otherwise drop events without this).
@@ -439,7 +338,7 @@ export async function shutdownTelemetry(deadlineMs = DEFAULT_FLUSH_DEADLINE_MS):
   const drain = (async () => {
     dbg(`shutdown: draining ${inFlight.size} inFlight, deadline=${deadlineMs}`);
     await Promise.allSettled([...inFlight]);
-    await Promise.all([anonChannel?.flush(deadlineMs), cloudChannel?.flush(deadlineMs)]);
+    await anonChannel?.flush(deadlineMs);
     dbg('shutdown: flushed');
   })().catch(() => {
     // Shutdown must never reject into the caller.
@@ -464,10 +363,9 @@ export async function shutdownTelemetry(deadlineMs = DEFAULT_FLUSH_DEADLINE_MS):
 // API; used by index.test.ts to inject fake channels and reset module state.
 // ---------------------------------------------------------------------------
 
-/** Overrides the module's channel instances (structural fakes). */
-export function __setChannelsForTests(anon: AnonChannelLike, cloud: CloudChannelLike): void {
+/** Overrides the module's anon channel instance (structural fake). */
+export function __setChannelsForTests(anon: AnonChannelLike): void {
   anonChannel = anon;
-  cloudChannel = cloud;
 }
 
 /** Clears init state, channels, and in-flight emits so each test starts clean. */
@@ -482,6 +380,5 @@ export function __resetTelemetryForTests(): void {
   cliVersion = 'unknown';
   engineVersion = 'unknown';
   anonChannel = null;
-  cloudChannel = null;
   inFlight.clear();
 }

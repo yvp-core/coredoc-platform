@@ -5,7 +5,7 @@
  * asserted by apps/server/.../graph.parity.test.ts, and drifting these lists
  * apart is exactly the kind of divergence that test exists to catch.
  */
-import { EdgeType, NodeType } from './types.js';
+import { type CypherScalar, EdgeType, NodeType } from './types.js';
 
 /**
  * Default edge kinds a bare depth-N traverse follows — the *execution-flow*
@@ -120,4 +120,50 @@ export function clampLimit(value: number, maximum = 1000, fallback = 50): number
   const integer = Math.floor(Number(value));
   if (!Number.isFinite(integer) || integer <= 0) return fallback;
   return Math.min(integer, maximum);
+}
+
+/** Deepest caller/callee walk any backend runs. */
+export const MAX_TRAVERSAL_DEPTH = 10;
+
+/** Clamp a caller-supplied traversal depth into `1..MAX_TRAVERSAL_DEPTH` (non-finite → 1). */
+export function clampTraversalDepth(value: number): number {
+  const integer = Math.floor(Number(value));
+  if (!Number.isFinite(integer)) return 1;
+  return Math.min(MAX_TRAVERSAL_DEPTH, Math.max(1, integer));
+}
+
+/** Coerce a numeric cell (number, bigint, Neo4j `Integer`, numeric string) to a finite number; else 0. */
+export function toNumber(value: unknown): number {
+  const raw =
+    typeof value === 'object' && value !== null && 'toNumber' in value
+      ? (value as { toNumber: () => number }).toNumber()
+      : value;
+  const converted = Number(raw);
+  return Number.isFinite(converted) ? converted : 0;
+}
+
+/**
+ * Normalize a single Cypher cell to the scalar wire contract (`CypherScalar`).
+ * Safe integers (JS number, BigInt within MAX_SAFE_INTEGER, in-range Neo4j
+ * Integer) become `number`; unsafe integers become a decimal string; anything
+ * composite (map/list/node/relationship/temporal/spatial) is rejected with
+ * projection guidance — no recursive normalization.
+ */
+export function normalizeCypherScalar(value: unknown): CypherScalar {
+  if (value === null || value === undefined) return null;
+  const kind = typeof value;
+  if (kind === 'string' || kind === 'boolean' || kind === 'number') return value as CypherScalar;
+  if (kind === 'bigint') {
+    const integer = value as bigint;
+    return integer >= BigInt(Number.MIN_SAFE_INTEGER) && integer <= BigInt(Number.MAX_SAFE_INTEGER)
+      ? Number(integer)
+      : integer.toString();
+  }
+  const neo4jInteger = value as { inSafeRange?: () => boolean; toNumber?: () => number };
+  if (typeof neo4jInteger.inSafeRange === 'function' && typeof neo4jInteger.toNumber === 'function') {
+    return neo4jInteger.inSafeRange() ? neo4jInteger.toNumber() : String(value);
+  }
+  throw new Error(
+    'Cypher rows shape supports scalar cells only; project scalar fields (e.g. RETURN n.name) or use resultShape "graph"',
+  );
 }

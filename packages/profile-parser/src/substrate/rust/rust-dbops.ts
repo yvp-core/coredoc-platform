@@ -39,6 +39,7 @@ import {
   rustStringValue,
   rustTypeChain,
 } from './rust-cst.js';
+import { makeFunctionNode } from '../file-nodes.js';
 
 export interface RustDbOpConfig {
   /** Canonical id generator (seeded for this repo) — mints performer/db-op/function ids. */
@@ -159,28 +160,6 @@ function chainInfo(node: TsNode | undefined | null): ChainInfo {
     }
   }
   return info;
-}
-
-/** A synthesized minimal-valid `FunctionNode` for the enclosing fn — the db-op's performer. */
-function makeFunctionNode(
-  idGen: StableIdGenerator,
-  id: string,
-  name: string,
-  kind: FunctionNode['kind'],
-  relPath: string,
-  line: number,
-): FunctionNode {
-  return {
-    id,
-    versionedId: idGen.versionedId(id, `${name}@${relPath}:${line}`),
-    name,
-    kind,
-    fileId: idGen.fileId(relPath),
-    location: { filePath: relPath, startLine: line, endLine: line },
-    isAsync: false,
-    isGenerator: false,
-    parameters: [],
-  };
 }
 
 export function extractRustDbOps(

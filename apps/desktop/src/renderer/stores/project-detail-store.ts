@@ -882,12 +882,7 @@ export const useProjectDetailStore = create<ProjectDetailState>((set, get) => {
               const docsProjectId = get().projectId;
               if (!docsProjectId) return;
               const cloudWorkspaceId = command.args?.workspaceId as string | undefined;
-              const docsResult = await window.electronAPI.listDocs(
-                docsProjectId,
-                [command.repoName],
-                undefined,
-                cloudWorkspaceId,
-              );
+              const docsResult = await window.electronAPI.listDocs(docsProjectId, [command.repoName], cloudWorkspaceId);
               if (!docsResult.success) {
                 useChatStore.getState().completeDocsGeneration(result.id, [], 'Failed to load generated docs');
                 return;

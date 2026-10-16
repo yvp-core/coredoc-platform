@@ -7,7 +7,6 @@
 
 export {
   SDK_PACKAGES,
-  FRAMEWORK_HTTP_HELPER_DEFAULTS,
   lookupSdkByPackage,
   type SdkPackage,
   type SdkPackageMatch,

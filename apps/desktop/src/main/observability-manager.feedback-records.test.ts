@@ -14,8 +14,6 @@ vi.mock('electron', () => ({ shell: { openExternal: vi.fn() } }));
 
 vi.mock('./server-api.js', () => ({
   getUsageAnalytics: noopReadMock,
-  getFeedbackRoadmap: noopReadMock,
-  getFeedbackCorrelation: noopReadMock,
   getFeedbackRecords: getFeedbackRecordsMock,
 }));
 

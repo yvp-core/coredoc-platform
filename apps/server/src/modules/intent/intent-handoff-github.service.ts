@@ -1,11 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { z } from 'zod';
 import { decrypt } from '../../database/encryption.js';
 import { GithubClient } from '../../libs/github/github-client.js';
 import { strictPullSchema } from '../../libs/github/github-pull.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
-
-export type HandoffPull = z.infer<typeof strictPullSchema>;
 
 @Injectable()
 export class IntentHandoffGithubService {

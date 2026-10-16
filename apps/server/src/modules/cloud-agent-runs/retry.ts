@@ -1,4 +1,5 @@
 import { MAX_RETRY_WAIT_MS, type RetryDelay } from '@coredoc/core/agent-runner';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 export const CLOUD_AGENT_RUNS_RETRY_DELAY = Symbol('CLOUD_AGENT_RUNS_RETRY_DELAY');
 
@@ -17,7 +18,7 @@ export async function withRetries<T>(
       const retry = attempt <= RETRIES ? transient(error) : false;
       if (!retry) throw error;
       const ms = Math.min(delay(attempt, retry.retryAfterMs), MAX_RETRY_WAIT_MS);
-      if (ms > 0) await new Promise((resolve) => setTimeout(resolve, ms));
+      if (ms > 0) await sleep(ms);
     }
   }
 }

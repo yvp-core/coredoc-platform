@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { WORKERS_CONFIG, type WorkersConfig, workersConfigFromEnv } from '../../config/app-config.js';
+import { WORKERS_CONFIG, type WorkersConfig, configFromEnv } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { parseRetentionFlag } from '../../libs/retention.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE, type CloudAgentRunArchiveStore } from './cloud-agent-run-archive.store.js';
@@ -37,7 +37,7 @@ export class CloudAgentRunSweep {
     @Inject(CLOUD_AGENT_RUN_ARCHIVE_STORE) private readonly archives: CloudAgentRunArchiveStore,
     private readonly jiraOutcomes: CloudAgentRunJiraOutcomes,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
-    @Optional() @Inject(WORKERS_CONFIG) private readonly workers: WorkersConfig = workersConfigFromEnv(),
+    @Optional() @Inject(WORKERS_CONFIG) private readonly workers: WorkersConfig = configFromEnv().workers,
   ) {}
 
   async tick(): Promise<void> {

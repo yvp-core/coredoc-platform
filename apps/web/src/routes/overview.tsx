@@ -14,11 +14,9 @@ import { QueryBoundary } from '@/components/query-boundary';
 import { RoleBadge } from '@/components/role-badge';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
+import { Table, Td, Th, Tr } from '@/features/teams/table';
 import { formatRelativeTime } from '@/lib/time';
 import { findWorkspace } from './workspace';
-
-const TH = 'border-b border-border-soft pb-[7px] text-[11.5px] font-normal uppercase tracking-[0.04em] text-ink-4';
-const TD = 'border-b border-border-soft py-2 text-ink-2 last:border-b-0';
 
 const NUM = new Intl.NumberFormat('en-US');
 const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '—' : NUM.format(Math.round(n)));
@@ -137,24 +135,24 @@ function OverviewContent({ wsId, slug, role }: { wsId: string; slug: string; rol
                 repos.length === 0 ? (
                   <EmptyNote>No repositories pushed to this workspace yet.</EmptyNote>
                 ) : (
-                  <table className="w-full border-collapse text-[13.5px]">
+                  <Table>
                     <thead>
                       <tr>
-                        <th className={`${TH} text-left`}>Repository</th>
-                        <th className={`${TH} text-right`}>Nodes</th>
-                        <th className={`${TH} text-right`}>Last push</th>
+                        <Th>Repository</Th>
+                        <Th>Nodes</Th>
+                        <Th className="pr-0">Last push</Th>
                       </tr>
                     </thead>
                     <tbody>
                       {repos.map((repo) => (
-                        <tr key={repo.id} className="hover:bg-surface-2">
-                          <td className={`${TD} pr-3 text-ink-1`}>{repo.repoName}</td>
-                          <td className={`${TD} num pr-3 text-right`}>{fmt(repo.nodeCount)}</td>
-                          <td className={`${TD} text-right text-ink-4`}>{formatRelativeTime(repo.lastPushedAt)}</td>
-                        </tr>
+                        <Tr key={repo.id}>
+                          <Td className="text-ink-1">{repo.repoName}</Td>
+                          <Td>{fmt(repo.nodeCount)}</Td>
+                          <Td className="pr-0 text-ink-4">{formatRelativeTime(repo.lastPushedAt)}</Td>
+                        </Tr>
                       ))}
                     </tbody>
-                  </table>
+                  </Table>
                 )
               }
             </QueryBoundary>

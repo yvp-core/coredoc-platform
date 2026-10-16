@@ -33,6 +33,7 @@ import {
   pythonClassChain,
   pythonFunctionId,
 } from './python-cst.js';
+import { makeFunctionNode } from '../file-nodes.js';
 
 export interface PythonDbOpConfig {
   /** Canonical id generator (seeded for this repo) — mints performer/db-op/function ids. */
@@ -135,31 +136,6 @@ function querysetReceiver(node: TsNode | undefined): { root?: string; hasObjects
 /** Queryset-write verbs (`update`/`delete`/`bulk_*`) accepted when they chain off a queryset call. */
 function isQuerysetWriteMethod(method: string): boolean {
   return method === 'update' || method === 'delete' || method.startsWith('bulk_');
-}
-
-/**
- * A synthesized minimal-valid `FunctionNode` for an enclosing def — the performer of every
- * db-op inside it. `kind` is 'method' when nested in a class, else 'function'.
- */
-function makeFunctionNode(
-  idGen: StableIdGenerator,
-  id: string,
-  name: string,
-  kind: FunctionNode['kind'],
-  relPath: string,
-  line: number,
-): FunctionNode {
-  return {
-    id,
-    versionedId: idGen.versionedId(id, `${name}@${relPath}:${line}`),
-    name,
-    kind,
-    fileId: idGen.fileId(relPath),
-    location: { filePath: relPath, startLine: line, endLine: line },
-    isAsync: false,
-    isGenerator: false,
-    parameters: [],
-  };
 }
 
 /**

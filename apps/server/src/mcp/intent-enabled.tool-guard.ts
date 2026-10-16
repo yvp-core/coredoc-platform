@@ -1,6 +1,6 @@
 import { CanActivate, type ExecutionContext, Inject, Injectable, Optional } from '@nestjs/common';
 
-import { INTENT_CONFIG, intentConfigFromEnv, type IntentConfig } from '../config/app-config.js';
+import { INTENT_CONFIG, configFromEnv, type IntentConfig } from '../config/app-config.js';
 import { PrismaService } from '../database/prisma.service.js';
 import { isIntentEnabled } from '../modules/intent/intent-enabled.guard.js';
 import type { AuthenticatedMcpRequest } from './mcp-auth-context.js';
@@ -30,7 +30,7 @@ import type { AuthenticatedMcpRequest } from './mcp-auth-context.js';
 export class IntentEnabledToolGuard implements CanActivate {
   constructor(
     private readonly prisma: PrismaService,
-    @Optional() @Inject(INTENT_CONFIG) private readonly intent: IntentConfig = intentConfigFromEnv(),
+    @Optional() @Inject(INTENT_CONFIG) private readonly intent: IntentConfig = configFromEnv().intent,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

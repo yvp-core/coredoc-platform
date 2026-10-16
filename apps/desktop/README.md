@@ -110,14 +110,13 @@ Output goes to `dist-electron/`. The `afterPack` hook (`scripts/after-pack.mjs`)
 - `dist/preload/` — compiled preload scripts
 - `dist/renderer/` — built React app
 - `dist/runtime/` — CLI, MCP server, and dependencies (ASAR-unpacked for subprocess spawning)
-- `node_modules/` — native addons (`@lydell/node-pty`, `tree-sitter*`, `better-sqlite3`, `claude-agent-sdk`)
+- `node_modules/` — native addons (`tree-sitter*`, `better-sqlite3`, `claude-agent-sdk`)
 
 ### ASAR unpacking
 
 Native addons and the runtime bundle are unpacked from ASAR (configured in `package.json` `build.asarUnpack`):
 
 - `dist/runtime/**` — CLI and MCP executables
-- `node_modules/@lydell/**` — PTY native addon
 - `node_modules/tree-sitter*/**` — tree-sitter native addons
 - `**/claude-agent-sdk/**` — Agent SDK binary
 
@@ -205,7 +204,7 @@ electron-vite bundles the main process with three entry points:
 | `src/main/sdk-worker.ts` | `dist/main/sdk-worker.js` | Worker thread for CLI operations |
 | `src/main/sdk-parse-child.ts` | `dist/main/sdk-parse-child.js` | Sandboxed generated-profile parsing |
 
-External modules (not bundled): `electron`, `@lydell/node-pty`, `better-sqlite3`, `tree-sitter*`, `neo4j-driver`, `@anthropic-ai/claude-agent-sdk`, `typescript`, `ts-morph`.
+External modules (not bundled): `electron`, `better-sqlite3`, `tree-sitter*`, `neo4j-driver`, `@anthropic-ai/claude-agent-sdk`, `typescript`.
 
 After bundling, docs-gen templates are copied to `dist/main/templates/` for runtime template loading.
 

@@ -492,18 +492,6 @@ export const putIntentSeed = (workspaceId: string, body: IntentSeedPutInput) =>
 export const deleteIntentSeed = (workspaceId: string, body: IntentSeedDeleteInput) =>
   unwrap<IntentDeleteResponse>(window.electronAPI.intentDeleteSeed(workspaceId, body));
 
-/**
- * Mint one idempotency key. Callers do not call this per click — they go through
- * `IntentAttemptKeys`, which reuses a key while the attempt's content is
- * unchanged (so a double-click or a retry replays instead of writing twice) and
- * mints a new one once the input changes, because the ledger keys on
- * `(key, request hash)` and a corrected body under the old key comes back as
- * `idempotency_request_conflict`.
- */
-export function newIntentIdempotencyKey(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `intent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
 export const intentSourceOptions = (workspaceId: string, search: string, enabled: boolean) =>
   queryOptions({
     queryKey: ['intent', 'sources', workspaceId, search],

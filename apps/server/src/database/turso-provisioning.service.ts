@@ -9,7 +9,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ControlPlaneService } from './control-plane.service.js';
 import { encrypt, decrypt, isEncryptionAvailable } from './encryption.js';
-import { miscConfigFromEnv, TURSO_CONFIG, type TursoLegacyConfig, tursoConfigFromEnv } from '../config/app-config.js';
+import { configFromEnv, TURSO_CONFIG, type TursoLegacyConfig } from '../config/app-config.js';
 
 // =============================================================================
 // Types
@@ -38,7 +38,7 @@ export class TursoProvisioningService {
 
   constructor(
     private readonly controlPlane: ControlPlaneService,
-    @Optional() @Inject(TURSO_CONFIG) private readonly turso: TursoLegacyConfig = tursoConfigFromEnv(),
+    @Optional() @Inject(TURSO_CONFIG) private readonly turso: TursoLegacyConfig = configFromEnv().turso,
   ) {}
 
   // ===========================================================================
@@ -70,7 +70,7 @@ export class TursoProvisioningService {
       const tokenResponse = await this.createToken(org, orgToken, dbName);
 
       // Encrypt token at rest using AES-256-GCM
-      if (!isEncryptionAvailable() && miscConfigFromEnv().nodeEnv === 'production') {
+      if (!isEncryptionAvailable() && configFromEnv().misc.nodeEnv === 'production') {
         throw new Error('SERVER_ENCRYPTION_KEY is required in production for token encryption');
       }
       const encryptedToken = isEncryptionAvailable() ? encrypt(tokenResponse.jwt) : tokenResponse.jwt; // Fallback for dev without encryption key
@@ -144,7 +144,7 @@ export class TursoProvisioningService {
       },
       body: JSON.stringify({
         name: dbName,
-        group: miscConfigFromEnv().environment === 'production' ? 'prod' : 'default',
+        group: configFromEnv().misc.environment === 'production' ? 'prod' : 'default',
       }),
     });
 

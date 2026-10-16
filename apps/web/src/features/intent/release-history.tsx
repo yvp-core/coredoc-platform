@@ -21,7 +21,7 @@ import {
 } from './release-types.js';
 import { httpUrl } from './source-label.js';
 
-export interface ReleaseHistoryProps {
+interface ReleaseHistoryProps {
   workspaceId: string;
   role: string;
   onOpenItem?: (id: string) => void;

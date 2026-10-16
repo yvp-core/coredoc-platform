@@ -4,7 +4,7 @@
  */
 
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { authConfigFromEnv } from '../config/app-config.js';
+import { configFromEnv } from '../config/app-config.js';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
@@ -32,7 +32,7 @@ function parseEncryptionKey(raw: string | undefined): Buffer | null {
 }
 
 function getEncryptionKey(): Buffer {
-  const raw = authConfigFromEnv().serverEncryptionKey;
+  const raw = configFromEnv().auth.serverEncryptionKey;
   if (!raw?.trim()) {
     throw new Error('SERVER_ENCRYPTION_KEY environment variable is required for token encryption');
   }
@@ -81,7 +81,7 @@ export function decrypt(ciphertext: string): string {
  * Check if encryption is available (key is configured and valid).
  */
 export function isEncryptionAvailable(): boolean {
-  return parseEncryptionKey(authConfigFromEnv().serverEncryptionKey) !== null;
+  return parseEncryptionKey(configFromEnv().auth.serverEncryptionKey) !== null;
 }
 
 /**
@@ -90,6 +90,6 @@ export function isEncryptionAvailable(): boolean {
  * with no encrypted copy, and the reveal path is dead for the life of the token.
  */
 export function assertEncryptionKeyValid(): void {
-  const raw = authConfigFromEnv().serverEncryptionKey;
+  const raw = configFromEnv().auth.serverEncryptionKey;
   if (raw?.trim() && parseEncryptionKey(raw) === null) throw new Error(KEY_FORMAT_HINT);
 }

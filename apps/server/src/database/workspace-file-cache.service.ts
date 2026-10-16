@@ -12,7 +12,7 @@ import {
   type IGraphReadRepository,
 } from '@coredoc/db';
 import { R2StorageService, type StorageObjectHead } from './r2-storage.service.js';
-import { type GraphFileConfig, storageConfigFromEnv } from '../config/app-config.js';
+import { type GraphFileConfig, configFromEnv } from '../config/app-config.js';
 
 export const WORKSPACE_FILE_CACHE_OPTIONS = Symbol('WORKSPACE_FILE_CACHE_OPTIONS');
 
@@ -88,7 +88,6 @@ export interface WorkspaceFileCacheOptions {
   maxTotalBufferPoolBytes: number;
   maxCacheBytes: number;
   downloadTimeoutMs: number;
-  storageFormatVersion: number;
   budgets: GraphFileBudgets;
 }
 
@@ -168,51 +167,22 @@ function positiveIntegerSetting(name: string, raw: string | undefined, fallback:
   return value;
 }
 
-function defaultOptions(graphFile: GraphFileConfig = storageConfigFromEnv().graphFile): WorkspaceFileCacheOptions {
+function defaultOptions(graphFile: GraphFileConfig = configFromEnv().storage.graphFile): WorkspaceFileCacheOptions {
   const configuredCacheDir = graphFile.cacheDir;
   if (configuredCacheDir !== undefined && configuredCacheDir.trim() === '') {
     throw new Error('GRAPH_FILE_CACHE_DIR must not be empty');
   }
   return {
     cacheDir: resolve(configuredCacheDir ?? join(tmpdir(), 'coredoc-graph-cache')),
-    maxOpenHandles: positiveIntegerSetting(
-      'GRAPH_FILE_CACHE_MAX_OPEN_HANDLES',
-      graphFile.maxOpenHandles,
-      DEFAULT_MAX_OPEN_HANDLES,
-    ),
-    maxTotalBufferPoolBytes: positiveIntegerSetting(
-      'GRAPH_FILE_MAX_TOTAL_BUFFER_POOL_BYTES',
-      graphFile.maxTotalBufferPoolBytes,
-      DEFAULT_MAX_TOTAL_BUFFER_POOL_BYTES,
-    ),
+    maxOpenHandles: DEFAULT_MAX_OPEN_HANDLES,
+    maxTotalBufferPoolBytes: DEFAULT_MAX_TOTAL_BUFFER_POOL_BYTES,
     maxCacheBytes: positiveIntegerSetting(
       'GRAPH_FILE_CACHE_MAX_BYTES',
       graphFile.maxCacheBytes,
       DEFAULT_MAX_CACHE_BYTES,
     ),
-    downloadTimeoutMs: positiveIntegerSetting(
-      'GRAPH_FILE_DOWNLOAD_TIMEOUT_MS',
-      graphFile.downloadTimeoutMs,
-      DEFAULT_DOWNLOAD_TIMEOUT_MS,
-    ),
-    storageFormatVersion: GRAPH_FILE_FORMAT_COMPATIBILITY.storageFormatVersion,
-    budgets: {
-      maxDbSizeBytes: positiveIntegerSetting(
-        'GRAPH_FILE_MAX_DB_SIZE_BYTES',
-        graphFile.maxDbSizeBytes,
-        DEFAULT_GRAPH_FILE_BUDGETS.maxDbSizeBytes,
-      ),
-      bufferPoolBytes: positiveIntegerSetting(
-        'GRAPH_FILE_BUFFER_POOL_BYTES',
-        graphFile.bufferPoolBytes,
-        DEFAULT_GRAPH_FILE_BUDGETS.bufferPoolBytes,
-      ),
-      queryTimeoutMs: positiveIntegerSetting(
-        'GRAPH_FILE_QUERY_TIMEOUT_MS',
-        graphFile.queryTimeoutMs,
-        DEFAULT_GRAPH_FILE_BUDGETS.queryTimeoutMs as number,
-      ),
-    },
+    downloadTimeoutMs: DEFAULT_DOWNLOAD_TIMEOUT_MS,
+    budgets: { ...DEFAULT_GRAPH_FILE_BUDGETS },
   };
 }
 
@@ -234,12 +204,6 @@ function mergeOptions(overrides: Partial<WorkspaceFileCacheOptions>): WorkspaceF
   validatePositiveInteger('maxTotalBufferPoolBytes', options.maxTotalBufferPoolBytes);
   validatePositiveInteger('maxCacheBytes', options.maxCacheBytes);
   validatePositiveInteger('downloadTimeoutMs', options.downloadTimeoutMs);
-  validatePositiveInteger('storageFormatVersion', options.storageFormatVersion);
-  if (options.storageFormatVersion !== GRAPH_FILE_FORMAT_COMPATIBILITY.storageFormatVersion) {
-    throw new Error(
-      `storageFormatVersion is fixed at ${GRAPH_FILE_FORMAT_COMPATIBILITY.storageFormatVersion}, got ${options.storageFormatVersion}`,
-    );
-  }
   validatePositiveInteger('budgets.maxDbSizeBytes', options.budgets.maxDbSizeBytes);
   validatePositiveInteger('budgets.bufferPoolBytes', options.budgets.bufferPoolBytes);
   if (options.budgets.queryTimeoutMs !== undefined) {

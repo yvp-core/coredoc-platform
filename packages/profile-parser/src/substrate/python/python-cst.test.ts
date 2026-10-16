@@ -7,11 +7,11 @@ import {
   defName,
   hasDecorator,
   isAsyncDef,
-  parsePython,
   pythonFunctionId,
   pythonScopeChain,
   undecorate,
 } from './python-cst.js';
+import { parseSource } from '../../tree-sitter/tree-sitter-loader.js';
 
 /** Same seed the parser uses — assertions recompute canonical ids through it. */
 const ID = new StableIdGenerator('/demo', 'demo');
@@ -48,7 +48,7 @@ def outer_a():
 `;
 
   it('gives the two same-named nested `wrapper` defs DISTINCT ids', async () => {
-    const root = await parsePython(SRC);
+    const root = await parseSource('python', SRC);
     const wrappers = fnDefs(root).filter((f) => defName(f) === 'wrapper');
     expect(wrappers).toHaveLength(2);
 
@@ -62,7 +62,7 @@ def outer_a():
   });
 
   it('gives a module-level `foo` and a method `C.foo` DISTINCT ids', async () => {
-    const root = await parsePython(SRC);
+    const root = await parseSource('python', SRC);
     const foos = fnDefs(root).filter((f) => defName(f) === 'foo');
     expect(foos).toHaveLength(2);
 
@@ -93,8 +93,8 @@ def bar():
 def foo():
     return 999
 `;
-    const findFoo = async (src: string) => fnDefs(await parsePython(src)).find((f) => defName(f) === 'foo')!;
-    const findBar = async (src: string) => fnDefs(await parsePython(src)).find((f) => defName(f) === 'bar')!;
+    const findFoo = async (src: string) => fnDefs(await parseSource('python', src)).find((f) => defName(f) === 'foo')!;
+    const findBar = async (src: string) => fnDefs(await parseSource('python', src)).find((f) => defName(f) === 'bar')!;
 
     const fooA = await findFoo(base);
     const fooB = await findFoo(edited);
@@ -144,7 +144,7 @@ def plain():
 `;
 
   it('unwraps decorated_definition and reads decorator names', async () => {
-    const root = await parsePython(SRC);
+    const root = await parseSource('python', SRC);
     const process = fnDefs(root).find((f) => defName(f) === 'process')!;
     const scheduled = fnDefs(root).find((f) => defName(f) === 'scheduled')!;
     const route = fnDefs(root).find((f) => defName(f) === 'route_handler')!;
@@ -166,7 +166,7 @@ def plain():
   });
 
   it('hasDecorator matches exact and dotted-suffix names; isAsyncDef detects async', async () => {
-    const root = await parsePython(SRC);
+    const root = await parseSource('python', SRC);
     const process = fnDefs(root).find((f) => defName(f) === 'process')!;
     const scheduled = fnDefs(root).find((f) => defName(f) === 'scheduled')!;
     const plain = fnDefs(root).find((f) => defName(f) === 'plain')!;

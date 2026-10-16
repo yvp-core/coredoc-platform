@@ -2,7 +2,7 @@
  * Pure presentation vocabulary for the intent knowledge base.
  *
  * Kept out of the components so the mapping from a wire value to a badge or a
- * label is testable on its own, matching `observability-format.ts` /
+ * label is testable on its own, matching `@coredoc/core/browser/format` /
  * `capture-health-state.ts` in the neighbouring feature.
  *
  * The two trust markers stay SEPARATE here as well: {@link anchorStatusLabel}

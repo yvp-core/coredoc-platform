@@ -16,13 +16,7 @@
 import type { IpcMain } from 'electron';
 import * as path from 'node:path';
 import { getConfiguredBackend, getRepository, openProjectDatabase } from '@coredoc/db';
-import type {
-  IGraphRepository,
-  GetNeighborsParams,
-  SubgraphParams,
-  DeadCodeParams,
-  CrossRepoBridgeParams,
-} from '@coredoc/db';
+import type { IGraphRepository, GetNeighborsParams, SubgraphParams } from '@coredoc/db';
 import { resolveScope, resolveDetailLevel, handleSearchSymbols } from '@coredoc/mcp';
 import type { ScopeContext } from '@coredoc/mcp';
 import type { EdgeType, EdgeDirection, NodeType } from '@coredoc/core';
@@ -72,8 +66,6 @@ const NODES_MAX = 1000;
 
 /** Edge ceiling for one induced-subgraph fill. Truncation is surfaced in the UI. */
 const EDGES_AMONG_MAX = 4000;
-const CROSSREPO_MAX = 200;
-const DEADCODE_MAX = 200;
 
 // search_symbols' detail projection. The MCP handler + cloud graph.service both
 // run it at detailLevel 'full'; resolveDetailLevel('full') is the config object
@@ -315,34 +307,6 @@ export function registerGraphHandlers(ipcMain: IpcMain): void {
       const { repository, repoHashes } = await resolveLocalScope(scope.id);
       return repository.getEdgesAmong(nodeIds, repoHashes, EDGES_AMONG_MAX);
     }),
-  );
-
-  // -- crossRepo: materialized cross-repo bridges -----------------------------
-  ipcMain.handle(IpcChannels.GRAPH_CROSS_REPO, (_e, scope: GraphScope, args: { scopeRepo?: string; limit?: number }) =>
-    ok(async () => {
-      if (scope.source === 'cloud') return cloudGraph.crossRepo(scope.id, args);
-      const { repository, repoHashes, scope: scopeCtx } = await resolveLocalScope(scope.id);
-      const params: CrossRepoBridgeParams = { limit: clampLimit(args.limit, CROSSREPO_MAX) };
-      // scopeRepo narrows WHICH bridges to keep (those touching the repo),
-      // NOT the DB scope — bridges span repos, so the query still runs over
-      // the full scope's hashes.
-      if (args.scopeRepo) params.focusRepoHashes = narrowToScopeRepo(scopeCtx, args.scopeRepo);
-      return repository.getCrossRepoBridges(params, repoHashes);
-    }),
-  );
-
-  // -- deadCode: unreferenced-node scan ---------------------------------------
-  ipcMain.handle(
-    IpcChannels.GRAPH_DEAD_CODE,
-    (_e, scope: GraphScope, args: { types?: string[]; scopeRepo?: string; limit?: number }) =>
-      ok(async () => {
-        if (scope.source === 'cloud') return cloudGraph.deadCode(scope.id, args);
-        const { repository, repoHashes, scope: scopeCtx } = await resolveLocalScope(scope.id);
-        const hashes = args.scopeRepo ? narrowToScopeRepo(scopeCtx, args.scopeRepo) : repoHashes;
-        const params: DeadCodeParams = { limit: clampLimit(args.limit, DEADCODE_MAX) };
-        if (args.types?.length) params.types = args.types as NodeType[];
-        return repository.findDeadNodes(params, hashes);
-      }),
   );
 
   // -- capabilities: Cypher is available only on a Cypher-capable backend -----

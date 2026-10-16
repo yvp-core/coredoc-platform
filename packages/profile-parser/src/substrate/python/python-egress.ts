@@ -44,6 +44,7 @@ import {
   nearestAncestor,
   pythonFunctionId,
 } from './python-cst.js';
+import { toPathTemplate } from '../scip/url-topic-helpers.js';
 
 /** Per-repo egress tuning — the HTTP client modules to treat as outbound calls. */
 export interface PythonEgressConfig {
@@ -233,20 +234,6 @@ function argToRawTemplate(arg: TsNode | undefined): string | undefined {
     return s ? stringNodeToTemplate(s) : undefined;
   }
   return undefined;
-}
-
-/** Normalize a raw template to a path: strip a leading `http(s)://host`; require a leading `/`. */
-function toPathTemplate(raw: string): string | undefined {
-  let out = raw;
-  const m = /^https?:\/\/[^/]+(\/.*)?$/i.exec(out);
-  if (m) {
-    // A host-only URL (`https://svc` with NO path) has no joinable route → SKIP. Emitting a
-    // bare `/` here would be a bogus ExternalCallEdge that contradicts the "no usable path →
-    // SKIPPED" contract and pollutes the cross-repo route join.
-    if (!m[1]) return undefined;
-    out = m[1];
-  }
-  return out.startsWith('/') ? out : undefined;
 }
 
 /** Build the `ExternalCallEdge` for one egress call site (mirrors ruby `httpEgressEdge`). */

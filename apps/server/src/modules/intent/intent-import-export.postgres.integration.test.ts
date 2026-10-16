@@ -12,7 +12,7 @@
  * workspace by design, so sharing one between the happy path and the refusal
  * cases would couple them to test order.
  */
-import 'dotenv/config';
+import '../../config/load-env.js';
 import type { ExecutionContext, INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { canonicalIntentJson } from '@coredoc/core';

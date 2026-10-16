@@ -8,13 +8,18 @@
  * 4. Repository and package summarization
  */
 
-import type { LanguageModel } from 'ai';
 import type { ParsedRepo, FunctionNode } from '@coredoc/core/types';
-import type { SummaryOutput, FunctionSummary, CalleeSummaryContext } from '../summarize/types.js';
-import type { PackageSummary } from '../summarize/package-summarizer.js';
+import type {
+  SummaryOutput,
+  FunctionSummary,
+  CalleeSummaryContext,
+  PackageSummary,
+  RepositorySummary,
+} from '../summarize/types.js';
 import { topologicalSort, type SortedFunction } from '../summarize/topological-sort.js';
 import {
   isFallbackFunctionSummary,
+  type SummaryLlm,
   summarizeFunction,
   summarizePackages,
   summarizeRepository,
@@ -27,7 +32,8 @@ const DEFAULT_BATCH_SIZE = 10;
 export interface CiSummarizeOptions {
   parsedRepo: ParsedRepo;
   previousSummaries: SummaryOutput | null;
-  model: LanguageModel;
+  /** An AI SDK model, or a local harness's text generator. */
+  model: SummaryLlm;
   batchSize?: number;
   verbose?: boolean;
   /** Generate repo/package summaries (default true). Set false for --no-repo-summary. */
@@ -40,6 +46,11 @@ export interface CiSummarizeOptions {
    * carried-forward high-level summaries (under --no-repo-summary) are not lost.
    */
   force?: boolean;
+  /**
+   * Awaited after every function batch with a checkpoint of the artifact so far
+   * (crash recovery for long local runs; also where the caller paces batches).
+   */
+  onBatch?: (checkpoint: SummaryOutput) => Promise<void> | void;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +127,21 @@ export async function ciSummarize(options: CiSummarizeOptions): Promise<SummaryO
   const wantRepoSummary = options.repoSummary !== false;
   const force = options.force ?? false;
   const startTime = Date.now();
+  const buildOutput = (
+    summaries: FunctionSummary[],
+    stats: { skippedCached: number; summarized: number; failedSummarization: number },
+    repositorySummary: RepositorySummary | undefined,
+    packageSummaries: PackageSummary[] | undefined,
+  ): SummaryOutput => ({
+    repoId: parsedRepo.id,
+    repoName: parsedRepo.name,
+    generatedAt: new Date().toISOString(),
+    summarizerVersion: SUMMARIZER_VERSION,
+    summaries,
+    stats: { totalFunctions: sorted.length, ...stats, processingTimeMs: Date.now() - startTime },
+    repositorySummary,
+    packageSummaries,
+  });
 
   // Step 1: Topological sort
   log(`Sorting ${parsedRepo.functions.length} functions...`);
@@ -211,22 +237,12 @@ export async function ciSummarize(options: CiSummarizeOptions): Promise<SummaryO
       }
     }
 
-    return {
-      repoId: parsedRepo.id,
-      repoName: parsedRepo.name,
-      generatedAt: new Date().toISOString(),
-      summarizerVersion: SUMMARIZER_VERSION,
+    return buildOutput(
       summaries,
-      stats: {
-        totalFunctions: sorted.length,
-        summarized: 0,
-        skippedCached,
-        failedSummarization: 0,
-        processingTimeMs: Date.now() - startTime,
-      },
+      { skippedCached, summarized: 0, failedSummarization: 0 },
       repositorySummary,
       packageSummaries,
-    };
+    );
   }
 
   // Step 5: Batch-process functions
@@ -256,10 +272,20 @@ export async function ciSummarize(options: CiSummarizeOptions): Promise<SummaryO
       // the function stays eligible for the next run.
       if (isFallbackFunctionSummary(result)) {
         failedCount++;
+        if (options.verbose) log(`Failed ${batch[j].function.name}: ${result.unknowns[0]}`);
         continue;
       }
       summaryMap.set(batch[j].function.id, result);
     }
+
+    await options.onBatch?.(
+      buildOutput(
+        buildOrderedSummaries(summaryMap, sorted),
+        { skippedCached, summarized: i + batch.length - failedCount, failedSummarization: failedCount },
+        previousSummaries?.repositorySummary,
+        previousSummaries?.packageSummaries,
+      ),
+    );
   }
 
   // Step 6: Build ordered summaries (fallbacks never entered summaryMap)
@@ -267,7 +293,7 @@ export async function ciSummarize(options: CiSummarizeOptions): Promise<SummaryO
 
   // Step 7: Regenerate repo/package summaries (skipped when repoSummary === false,
   // in which case any previous high-level summaries are carried forward).
-  let repositorySummary: Awaited<ReturnType<typeof summarizeRepository>> | undefined;
+  let repositorySummary: RepositorySummary | undefined;
   let packageSummaries: PackageSummary[] | undefined;
 
   if (wantRepoSummary) {
@@ -292,26 +318,15 @@ export async function ciSummarize(options: CiSummarizeOptions): Promise<SummaryO
   }
 
   // Step 8: Return result
-  const processingTimeMs = Date.now() - startTime;
   log(
-    `Done: ${toProcess.length - failedCount} summarized, ${failedCount} failed, ${skippedCached} cached (${processingTimeMs}ms)`,
+    `Done: ${toProcess.length - failedCount} summarized, ${failedCount} failed, ${skippedCached} cached (${Date.now() - startTime}ms)`,
   );
   logNoSourceSkip();
 
-  return {
-    repoId: parsedRepo.id,
-    repoName: parsedRepo.name,
-    generatedAt: new Date().toISOString(),
-    summarizerVersion: SUMMARIZER_VERSION,
+  return buildOutput(
     summaries,
-    stats: {
-      totalFunctions: sorted.length,
-      summarized: toProcess.length - failedCount,
-      skippedCached,
-      failedSummarization: failedCount,
-      processingTimeMs,
-    },
+    { skippedCached, summarized: toProcess.length - failedCount, failedSummarization: failedCount },
     repositorySummary,
     packageSummaries,
-  };
+  );
 }

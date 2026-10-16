@@ -1,7 +1,7 @@
 import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { INTENT_CONFIG, type IntentConfig, intentConfigFromEnv } from '../../config/app-config.js';
+import { INTENT_CONFIG, type IntentConfig, configFromEnv } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { isIntentEnabled } from '../intent/intent-enabled.guard.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE, type CloudAgentRunArchiveStore } from './cloud-agent-run-archive.store.js';
@@ -49,7 +49,7 @@ export class CloudAgentRunActivityService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(CLOUD_AGENT_RUN_ARCHIVE_STORE) private readonly archives: CloudAgentRunArchiveStore,
-    @Optional() @Inject(INTENT_CONFIG) private readonly intent: IntentConfig = intentConfigFromEnv(),
+    @Optional() @Inject(INTENT_CONFIG) private readonly intent: IntentConfig = configFromEnv().intent,
   ) {}
 
   /** `actorRole` is the reader's workspace role: intent items show only to those intent is on for. */

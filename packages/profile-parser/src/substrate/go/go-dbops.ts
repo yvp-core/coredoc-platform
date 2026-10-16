@@ -41,7 +41,7 @@ import { readFileSync } from 'node:fs';
 import type { DbOperation, DbOpResolutionStats, DbOperationType, FunctionNode, StableIdGenerator } from '@coredoc/core';
 import { enumerateRepoFiles } from '../../facts/discovery/discover.js';
 import { parseSqlOp, snakeCase } from '../engine/text-helpers.js';
-import { globMatches } from '../glob.js';
+import { globMatches, repoDir } from '../glob.js';
 import {
   ASSIGNMENT_STATEMENT,
   CALL_EXPRESSION,
@@ -65,6 +65,7 @@ import {
   goStringValue,
   namedChildrenOfType,
 } from './go-cst.js';
+import { makeFunctionNode } from '../file-nodes.js';
 
 export interface GoDbOpConfig {
   /** Canonical id generator (seeded for this repo) — mints performer/db-op/function ids. */
@@ -352,12 +353,6 @@ function packageScopeStrings(file: GoFile): Map<string, string> {
   return out;
 }
 
-/** dirname of a repo-relative path ('' at the repo root) — a Go package IS a directory. */
-function dirOf(rel: string): string {
-  const i = rel.lastIndexOf('/');
-  return i === -1 ? '' : rel.slice(0, i);
-}
-
 // =============================================================================
 // sqlc query files
 // =============================================================================
@@ -411,28 +406,6 @@ function buildSqlcIndex(repoRoot: string, globs: string[]): Map<string, SqlcQuer
 // Emission
 // =============================================================================
 
-/** A synthesized minimal-valid `FunctionNode` for the performer. */
-function makeFunctionNode(
-  idGen: StableIdGenerator,
-  id: string,
-  name: string,
-  kind: FunctionNode['kind'],
-  relPath: string,
-  line: number,
-): FunctionNode {
-  return {
-    id,
-    versionedId: idGen.versionedId(id, `${name}@${relPath}:${line}`),
-    name,
-    kind,
-    fileId: idGen.fileId(relPath),
-    location: { filePath: relPath, startLine: line, endLine: line },
-    isAsync: false,
-    isGenerator: false,
-    parameters: [],
-  };
-}
-
 /** Query/model text for `details`: whitespace collapsed (Go SQL is multi-line) and capped. */
 function condense(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, 200);
@@ -468,7 +441,7 @@ export function extractGoDbOps(
   // unqualified from `repo.go` next to it.
   const packageStringsByDir = new Map<string, Map<string, string>>();
   for (const file of files) {
-    const dir = dirOf(file.relPath);
+    const dir = repoDir(file.relPath);
     const bucket = packageStringsByDir.get(dir) ?? new Map<string, string>();
     for (const [k, v] of packageScopeStrings(file)) if (!bucket.has(k)) bucket.set(k, v);
     packageStringsByDir.set(dir, bucket);
@@ -558,7 +531,7 @@ export function extractGoDbOps(
   };
 
   for (const file of files) {
-    const packageStrings = packageStringsByDir.get(dirOf(file.relPath)) ?? new Map<string, string>();
+    const packageStrings = packageStringsByDir.get(repoDir(file.relPath)) ?? new Map<string, string>();
     // One binding scan per enclosing function, not per call site: a repository file is one long
     // method with a dozen executor calls, and each scan walks that whole subtree four times.
     // Keyed on the tree-sitter node id, which is stable for the lifetime of this file's tree.
