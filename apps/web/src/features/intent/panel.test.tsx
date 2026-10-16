@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { INTENT_ROOT_SELECTION } from './intent-panel-state.js';
 import { IntentPanel } from './panel.js';
 
 const rows = Array.from({ length: 225 }, (_, i) => ({
@@ -153,8 +154,16 @@ afterEach(() => {
 /** The browse cases exercise the catalogue list, so they switch the centre column to it. */
 async function mount() {
   function Wrapper() {
-    const [id, setId] = useState<string | null>(null);
-    return <IntentPanel workspaceId="test-ws" role={String('admin')} selectedItemId={id} onSelectItem={setId} />;
+    const [focus, setFocus] = useState({ selection: INTENT_ROOT_SELECTION, itemId: null as string | null });
+    return (
+      <IntentPanel
+        workspaceId="test-ws"
+        role={String('admin')}
+        selection={focus.selection}
+        selectedItemId={focus.itemId}
+        onFocus={(selection, itemId) => setFocus({ selection, itemId })}
+      />
+    );
   }
   const view = render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>

@@ -1861,7 +1861,7 @@ model CloudAgentRunQuestion {
 model AgentRunSettings {
   workspaceId            String   @id @map("workspace_id") @db.Uuid
   enabled                Boolean  @default(false)
-  /// Recorded when agent runs are switched on, or on an explicit takeover; never by other saves.
+  /// Recorded only on an explicit takeover; never by other saves.
   runOwnerId             String?  @map("run_owner_id") @db.VarChar(256)
   triggerLabel           String   @default("coredoc-agent") @map("trigger_label") @db.VarChar(255)
   /// Jira statuses the run sweep moves the issue to, matched by name; null leaves Jira alone.

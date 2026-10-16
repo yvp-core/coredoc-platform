@@ -173,11 +173,6 @@ describe('run_cypher_query descriptions', () => {
       expect(description).toMatch(/single statement/i);
     });
 
-    it('warns that properties is a JSON string', () => {
-      expect(description).toMatch(/properties/);
-      expect(description).toMatch(/JSON string/i);
-    });
-
     it('states that Cypher is NOT repo-filtered within the selected graph', () => {
       expect(description).toMatch(/not repo-filtered/i);
     });
@@ -201,8 +196,8 @@ describe('run_cypher_query descriptions', () => {
       expect(description).toMatch(/source/i);
     });
 
-    it('states source bodies are not stored, names queryable fields, and points at describe_db_schema', () => {
-      expect(description).toMatch(/source bodies are not stored/i);
+    it('states source bodies are not returned, names queryable fields, and points at describe_db_schema', () => {
+      expect(description).toMatch(/source bodies are not returned/i);
       expect(description).toContain('sourceCode');
       expect(description).toContain('startLine');
       expect(description).toContain('summary');
@@ -226,12 +221,14 @@ describe('run_cypher_query descriptions', () => {
     const description = buildCypherDescription({ dialects: ['ladybug'] });
     expect(description).toContain('GraphNode');
     expect(description).toContain("n.type = 'function'");
+    expect(description).toMatch(/JSON string/i);
     expect(description).not.toContain('CodeNode');
   });
 
   it('renders the label-based Neo4j query shape for the neo4j dialect', () => {
     const description = buildCypherDescription({ dialects: ['neo4j'] });
-    expect(description).toContain('MATCH (n:function)');
+    // Neo4j labels are PascalCase; `MATCH (n:function)` matches nothing on the on-prem graph.
+    expect(description).toContain('MATCH (n:Function)');
     expect(description).toContain('CodeNode');
     expect(description).not.toContain('GraphNode');
   });

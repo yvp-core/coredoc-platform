@@ -127,6 +127,8 @@ services:
     volumes:
       - ../../apps/agent-runner/src:/app/apps/agent-runner/src
       - agent-runner-scratch:/scratch
+    # Time for a turn to wind down to a checkpoint on `docker compose stop` (100 s in the runner).
+    stop_grace_period: 2m
     restart: unless-stopped
 
   coredoc-parsers-neo4j:

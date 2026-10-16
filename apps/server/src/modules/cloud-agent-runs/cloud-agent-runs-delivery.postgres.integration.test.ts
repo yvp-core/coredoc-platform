@@ -40,6 +40,7 @@ import {
   FakeJira,
   InMemoryArchiveStore,
   paragraphDoc,
+  setAgentRunsEnabled,
   STATUSES,
 } from './cloud-agent-runs.test-support.js';
 import { commentHasMarker, runMarker } from './jira-comments.js';
@@ -84,7 +85,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
   const jira = new FakeJira();
   const github = new FakeGithubPulls();
   const archives = new InMemoryArchiveStore();
-  let now = new Date('2026-10-10T09:00:00.000Z');
+  let now = new Date();
   const later = (minutes: number) => {
     now = new Date(now.getTime() + minutes * 60_000);
   };
@@ -179,10 +180,12 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
     await app.listen(0, '127.0.0.1');
     sweep = moduleRef.get(CloudAgentRunSweep);
 
+    await setAgentRunsEnabled(prisma, workspaceId);
+
     await api()
       .put(`${runsBase()}/settings`)
       .set('Authorization', human(ADMIN))
-      .send({ enabled: true, maxStartedRuns: 50, doneStatus: DONE_STATUS.name })
+      .send({ takeOverOwnership: true, maxStartedRuns: 50, doneStatus: DONE_STATUS.name })
       .expect(200);
     const minted = await api()
       .post(`/api/v1/workspaces/${workspaceId}/tokens`)

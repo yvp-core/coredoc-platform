@@ -31,7 +31,7 @@ import { CLOUD_AGENT_RUN_ARCHIVE_STORE } from './cloud-agent-run-archive.store.j
 import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { cloudAgentRunsCoreProviders, CLOUD_AGENT_RUNS_CLOCK } from './cloud-agent-runs.module.js';
-import { FakeJira, InMemoryArchiveStore, paragraphDoc } from './cloud-agent-runs.test-support.js';
+import { FakeJira, InMemoryArchiveStore, paragraphDoc, setAgentRunsEnabled } from './cloud-agent-runs.test-support.js';
 import { MAX_TRANSCRIPT_BYTES } from './run-transcript.js';
 
 // Every guard is real, AuthGuard included; only human JWT verification is
@@ -67,7 +67,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
   let app: INestApplication;
   let workspaceId: string;
   let otherWorkspaceId: string;
-  let now = new Date('2026-10-10T09:00:00.000Z');
+  let now = new Date();
 
   beforeAll(async () => {
     previousDatabaseUrl = process.env.DATABASE_URL;
@@ -189,10 +189,11 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
 
   /** Runs never finish in this suite, so the concurrency limit is set high enough that every start starts. */
   async function enable(): Promise<void> {
+    await setAgentRunsEnabled(prisma, workspaceId);
     await api()
       .put(`${runsBase()}/settings`)
       .set('Authorization', human(ADMIN))
-      .send({ enabled: true, maxStartedRuns: 50 })
+      .send({ takeOverOwnership: true, maxStartedRuns: 50 })
       .expect(200);
   }
 
@@ -233,8 +234,16 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     }
   }
 
-  it('an admin enables agent runs as run owner and mints a runner token the settings list', async () => {
-    await api().put(`${runsBase()}/settings`).set('Authorization', human(MEMBER)).send({ enabled: true }).expect(403);
+  it('only the database switches agent runs on; an admin takes ownership and mints a runner token', async () => {
+    await api()
+      .put(`${runsBase()}/settings`)
+      .set('Authorization', human(MEMBER))
+      .send({ maxStartedRuns: 5 })
+      .expect(403);
+    await api().put(`${runsBase()}/settings`).set('Authorization', human(ADMIN)).send({ enabled: true }).expect(400);
+    expect(
+      (await api().get(`${runsBase()}/settings`).set('Authorization', human(ADMIN)).expect(200)).body.enabled,
+    ).toBe(false);
     await enable();
     await mintRunnerToken('runner-settings');
 
@@ -451,7 +460,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     expect((await flags()).get(workspaceId)).toBe(true);
     expect((await flags()).get(otherWorkspaceId)).toBe(false);
 
-    await api().put(`${runsBase()}/settings`).set('Authorization', human(ADMIN)).send({ enabled: false }).expect(200);
+    await setAgentRunsEnabled(prisma, workspaceId, false);
     expect((await flags()).get(workspaceId)).toBe(true);
     await enable();
   });

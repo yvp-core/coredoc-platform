@@ -52,7 +52,7 @@ const pluginPath = process.env.COREDOC_WORKFLOWS_PLUGIN_PATH?.trim() || '/opt/co
 const shutdown = new AbortController();
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
-    log(`${signal} received; stopping the current turn without pushing or completing it`);
+    log(`${signal} received; winding the current turn down to a checkpoint, then exiting`);
     shutdown.abort();
   });
 }

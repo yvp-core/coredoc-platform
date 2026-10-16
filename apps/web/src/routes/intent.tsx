@@ -6,7 +6,7 @@
  */
 
 import { useSuspenseQuery } from '@tanstack/react-query';
-import { useParams } from '@tanstack/react-router';
+import { getRouteApi, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
 
 import { meQueryOptions } from '../api/queries/me.js';
@@ -14,17 +14,30 @@ import { EmptyNote } from '../components/empty-note.js';
 import { PageHead } from '../components/page-head.js';
 import { RoleBadge } from '../components/role-badge.js';
 import { PillTabs } from '../components/ui/pill-tabs.js';
+import type { IntentTreeSelection } from '../features/intent/intent-panel-state.js';
 import { IntentPanel } from '../features/intent/panel.js';
 import { ReleaseHistory } from '../features/intent/release-history.js';
 import { findWorkspace } from './workspace.js';
+
+const route = getRouteApi('/w/$slug/intent');
 
 export function WorkspaceIntent() {
   const { slug } = useParams({ strict: false });
   const me = useSuspenseQuery(meQueryOptions).data;
   const workspace = slug ? findWorkspace(me, slug) : undefined;
-  const [focused, setFocused] = useState<{ workspaceId: string; itemId: string | null } | null>(null);
-  const selectedItemId = focused?.workspaceId === workspace?.id ? (focused?.itemId ?? null) : null;
-  const setSelectedItemId = (itemId: string | null) => setFocused({ workspaceId: workspace?.id ?? '', itemId });
+  const search = route.useSearch();
+  const selection: IntentTreeSelection = { domainId: search.domain ?? null, featureId: search.feature ?? null };
+  const selectedItemId = search.item ?? null;
+  const navigate = route.useNavigate();
+  const onFocus = (next: IntentTreeSelection, itemId: string | null) =>
+    navigate({
+      search: {
+        domain: next.domainId ?? undefined,
+        feature: next.featureId ?? undefined,
+        item: itemId ?? undefined,
+      },
+      replace: true,
+    });
   const [tab, setTab] = useState<'browse' | 'releases'>('browse');
 
   if (!workspace) return <EmptyNote>Workspace not found.</EmptyNote>;
@@ -57,8 +70,9 @@ export function WorkspaceIntent() {
           key={workspace.id}
           workspaceId={workspace.id}
           role={workspace.role}
+          selection={selection}
           selectedItemId={selectedItemId}
-          onSelectItem={setSelectedItemId}
+          onFocus={onFocus}
         />
       </div>
       {tab === 'releases' && (
@@ -67,7 +81,7 @@ export function WorkspaceIntent() {
           workspaceId={workspace.id}
           role={workspace.role}
           onOpenItem={(id) => {
-            setSelectedItemId(id);
+            onFocus(selection, id);
             setTab('browse');
           }}
         />

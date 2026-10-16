@@ -17,9 +17,10 @@
  *    not inside the handler callback, so the existing failure path still records
  *    the call as `success: false` before the error is rendered.
  *
- * Hosted graphs are Turso or file-snapshot Ladybug only (Neo4j is unreachable
- * through the workspace context), so the description documents the Ladybug/Kùzu
- * dialect and nothing else.
+ * The dialect is a process fact: an on-prem process with COREDOC_DB_BACKEND=neo4j
+ * serves its legacy-plane ('turso') workspaces from the one shared Neo4j graph
+ * (WorkspaceDbPoolService.getRepository), every other process serves file-snapshot
+ * Ladybug. The description documents that process's dialect only.
  */
 
 import { Inject, Injectable, Optional } from '@nestjs/common';
@@ -32,14 +33,32 @@ import { CypherResultShape, type IGraphCypherReadRepository } from '@coredoc/db'
 import { handleRunCypherQuery } from '@coredoc/mcp/tools';
 import { buildCypherDescription, TOOL_SCHEMAS, toolAnnotations } from '@coredoc/mcp';
 
+import { GraphBackend } from '../../database/graph-backend.js';
 import { BaseCoredocTool, type ToolContext } from './base-tool.js';
 import { WorkspaceMcpContextService } from '../workspace-mcp-context.service.js';
 import { MetricsService } from '../../modules/metrics/metrics.service.js';
 
 const TOOL_NAME = 'run_cypher_query';
 
-/** Hosted serves the Ladybug/Kùzu shape only — a Neo4j graph never reaches here. */
-export const HOSTED_CYPHER_DESCRIPTION = buildCypherDescription({ dialects: ['ladybug'] });
+/** Same rule as WorkspaceDbPoolService.isNeo4jBackend: the process backend, fixed at boot. */
+function isNeo4jProcess(storage: Pick<StorageConfig, 'dbBackend'>): boolean {
+  return storage.dbBackend.toLowerCase() === 'neo4j';
+}
+
+export function hostedCypherDescription(storage: Pick<StorageConfig, 'dbBackend'>): string {
+  return buildCypherDescription({ dialects: [isNeo4jProcess(storage) ? 'neo4j' : 'ladybug'] });
+}
+
+/** `@Tool` is evaluated once per process, so the description is built from the boot env. */
+export const HOSTED_CYPHER_DESCRIPTION = hostedCypherDescription(configFromEnv().storage);
+
+/**
+ * The backend that actually answers: a legacy-plane workspace on a Neo4j process
+ * is read from Neo4j, whatever its stored `graphBackend` label says.
+ */
+function answeringBackend(ctx: ToolContext, storage: Pick<StorageConfig, 'dbBackend'>): string {
+  return ctx.graphBackend === GraphBackend.Turso && isNeo4jProcess(storage) ? 'neo4j' : ctx.graphBackend;
+}
 
 /**
  * Operator opt-in. Raw Cypher is not narrowed by `scope.repoHashes` the way
@@ -117,7 +136,7 @@ export class CypherTools extends BaseCoredocTool {
           ctx.detailLevel,
           ctx.detailConfig,
           ctx.repository,
-          ctx.graphBackend,
+          answeringBackend(ctx, this.storage),
         );
       });
     } catch (error) {

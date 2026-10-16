@@ -270,7 +270,7 @@ agentRunner:
 | `agentRunner.proxy.httpsProxy` / `httpProxy` / `noProxy` | Outbound proxy for the runner, Claude Code, git and package managers. |
 | `agentRunner.caBundle.configMap` / `key` | Extra PEM bundle for a TLS-inspecting proxy or internal registry. Node and Claude Code add it to their defaults; **git uses it instead of the system bundle**, so include the public roots unless all traffic goes through the inspecting proxy. |
 | `agentRunner.scratch.sizeLimit` / `medium` | The only writable volume, wiped after every turn. Default `16Gi` on node disk (§10). |
-| `agentRunner.terminationGracePeriodSeconds` | Default `180`: covers stopping a session, including its session-end hook. |
+| `agentRunner.terminationGracePeriodSeconds` | Default `180`. On SIGTERM the runner has 100 s to wind its turn down to a checkpoint (work pushed, state archived) so the next turn continues it; past that the turn is discarded and reruns. Keep it above 100. |
 | `agentRunner.nodeSelector` / `tolerations` / `affinity` | Default node selector `kubernetes.io/arch: amd64`. |
 | `agentRunner.env` | Escape hatch: extra plain variables on the runner container. |
 | `agentRunner.networkPolicy.enabled` / `egress` / `dns` | Optional NetworkPolicy (§7). |
@@ -285,13 +285,24 @@ documented path. The single-VM Compose topology has no runner.
 
 ## 6. Turn on agent runs and check the runner
 
-Under **Settings → Agent runs** (workspace admins):
+Agent runs are switched on per workspace in the database, by whoever
+operates the Coredoc server. The API and the web app cannot change it:
+
+```sql
+INSERT INTO agent_run_settings (workspace_id, enabled, updated_at)
+VALUES ('<workspace id>', true, now())
+ON CONFLICT (workspace_id) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now();
+```
+
+Set `enabled = false` the same way to switch them off. Runs already started
+finish; no new runs start or trigger.
+
+Then, under **Settings → Agent runs** (workspace admins):
 
 1. Check **availability**: every unmet condition from §2 is listed with its
-   reason. Switching on needs all of them.
-2. Switch agent runs on. The admin who does so is recorded as the **run
-   owner**: Jira-triggered runs act as that member, who must stay a current
-   member.
+   reason. Runs start only when all of them are met.
+2. Select **Take over ownership**. That admin becomes the **run owner**:
+   Jira-triggered runs act as that member, who must stay a current member.
 3. Review the settings: trigger label (default `coredoc-agent`), the Jira
    statuses for started, done, failed and cancelled runs (each optional),
    questions policy, scope acceptance, spend per run, turn and run time
@@ -405,11 +416,12 @@ The server side has one setting of its own, `AGENT_RUN_RETENTION_ENABLED`
 - **Upgrade the server first, then the runner.** Every claim carries the
   runner's protocol version; a server that does not support it refuses the
   runner, and settings show *Refused: this runner version is not supported*.
-- **Rollouts discard in-flight turns.** On SIGTERM the runner stops the
-  session, skips its pushes and does not complete the turn. The turn's lease
-  expires and the turn runs again from the previous state archive and the
-  remote branches, so **its model spend is repeated**. If that matters, roll
-  the runner while the **Agent runs** page shows no turn in progress.
+- **Rollouts checkpoint in-flight turns.** On SIGTERM the runner tells the
+  session to stop, pushes the work, archives its state and completes the turn
+  as a checkpoint that the next turn continues. If that takes longer than
+  100 s, or the session had not started, the turn is discarded and runs again
+  from the previous state archive, so **that attempt's model spend is
+  repeated**.
 
 ## 10. Sizing
 

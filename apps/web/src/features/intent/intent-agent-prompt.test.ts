@@ -31,5 +31,30 @@ describe('agentPrompt', () => {
     );
     expect(prompt).toContain('This is an open question. Answer: From the charge date');
     expect(prompt).toContain('payload.choiceStatus "proposed"');
+    expect(prompt).toContain('proposedSuccessorOfId "dec-proration"');
+  });
+
+  it('asks to update a candidate in place by its id, never a second candidate', () => {
+    const prompt = agentPrompt(match({ authority: IntentAuthority.Candidate, version: 1 }), 'Make it 30 days');
+    expect(prompt).toContain('item br-refund-window (business_rule, candidate, v1)');
+    expect(prompt).toContain('using id "br-refund-window"');
+    expect(prompt).not.toContain('proposedSuccessorOfId "');
+    expect(prompt).not.toContain('reject the old one');
+  });
+
+  it('answers a candidate open question in place, with the whole payload', () => {
+    const prompt = agentPrompt(
+      match({
+        id: 'dec-proration',
+        kind: IntentItemKind.Decision,
+        authority: IntentAuthority.Candidate,
+        payload: { choiceStatus: 'open' },
+      }),
+      'From the charge date',
+    );
+    expect(prompt).toContain('This is an open question. Answer: From the charge date');
+    expect(prompt).toContain('using id "dec-proration"');
+    expect(prompt).toContain('payload.choiceStatus "proposed"');
+    expect(prompt).not.toContain('proposedSuccessorOfId "');
   });
 });

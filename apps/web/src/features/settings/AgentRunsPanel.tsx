@@ -25,7 +25,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Segmented } from '@/components/ui/segmented';
 import { Select } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { runnerRefusalText, runnerVersionsText } from '@/features/agent-runs/agent-run-presentation';
 import type {
   AgentRunSettings,
@@ -536,25 +535,25 @@ export function AgentRunsPanel({ wsId }: { wsId: string }) {
       <CardHead
         title="Agent runs"
         sub="Take Jira issues to draft pull requests with your own agent runner"
-        right={
-          <Switch
-            checked={enabled}
-            disabled={settings.isPending || update.isPending}
-            aria-label="Enable agent runs"
-            onChange={(event) => update.mutate({ wsId, enabled: event.target.checked })}
-          />
-        }
+        right={data && <span className="text-[12.5px] text-ink-3">{enabled ? 'Enabled' : 'Not enabled'}</span>}
       />
       <CardBody className="flex flex-col gap-4 pt-2">
         {settings.isError && (
           <p className={ERROR_CLASS}>{message(settings.error, 'Failed to load agent run settings')}</p>
         )}
         {update.error && <p className={ERROR_CLASS}>{message(update.error, 'Failed to update the setting')}</p>}
-        {owner ? (
+        {data && !enabled && (
+          <EmptyNote>
+            Agent runs are not enabled for this workspace. Ask your Coredoc administrator to enable them.
+          </EmptyNote>
+        )}
+        {enabled && (
           <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-ink-3">
             <span>
-              Jira-triggered runs act as {owner.email ?? owner.userId}
-              {!owner.valid && (
+              {owner
+                ? `Jira-triggered runs act as ${owner.email ?? owner.userId}`
+                : 'Jira-triggered runs need a run owner'}
+              {owner && !owner.valid && (
                 <span className="text-danger-text"> — no longer a member; take over to resume Jira triggers</span>
               )}
             </span>
@@ -567,10 +566,6 @@ export function AgentRunsPanel({ wsId }: { wsId: string }) {
               Take over ownership
             </Button>
           </div>
-        ) : (
-          !settings.isPending && (
-            <EmptyNote>Agent runs are off. Turning them on records you as the run owner.</EmptyNote>
-          )
         )}
         {data && <AvailabilitySection settings={data} />}
         {data && <SettingsForm key={JSON.stringify(editableValues(data))} wsId={wsId} settings={data} />}

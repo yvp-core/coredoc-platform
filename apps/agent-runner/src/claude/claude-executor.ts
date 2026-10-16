@@ -16,7 +16,7 @@ import { type Clone, TurnGit } from '../git/turn-git.js';
 import { type BotGithubOptions, botGithub, checkBotPermissions, requireBot } from '../github/bot-github.js';
 import { type PackageRegistry, writeUserRegistryConfig } from '../package-registries.js';
 import type { RunnerApiClient } from '../runner-api.js';
-import type { TurnExecutor, TurnIO, TurnResult } from '../runner.js';
+import { type TurnExecutor, type TurnIO, type TurnResult, TurnAbandoned } from '../runner.js';
 import { deliver } from '../delivery/deliver.js';
 import { failedOutcome as failed, reportingFailures, TurnFailure } from '../turn-failure.js';
 import { classifyModelFailure } from './model-failure.js';
@@ -40,9 +40,14 @@ const MAX_TIMER_MS = 2_147_483_647;
 /** Long enough for the plugin to suspend its run at session end, with several clones. */
 const SESSION_END_HOOK_TIMEOUT_MS = 120_000;
 const WIND_DOWN_GRACE_MS = 60_000;
+/** Leaves most of the runner's shutdown grace for pushing, archiving and completing. */
+const SHUTDOWN_WIND_DOWN_MS = 30_000;
 
 const DURATION_REACHED =
   'This turn reached its duration limit. Stop now and end your turn without calling more tools: the runner pushes your work and the run continues in a new turn.';
+
+const SHUTTING_DOWN =
+  'The runner is shutting down. Stop now and end your turn without calling more tools: the runner pushes your work and the run continues in a new turn.';
 
 export interface ClaudeExecutorOptions extends BotGithubOptions {
   query: QueryFn;
@@ -169,6 +174,7 @@ export class ClaudeExecutor implements TurnExecutor {
       budgetUsd: turn.run.remainingSpendUsd,
     };
     const questions = new QuestionBridge(turn, io);
+    if (io.checkpoint.aborted) throw new TurnAbandoned();
     let session = await this.runSession(turn, io, paths, prompt, resume, control, questions, limits);
     let result = session.result;
     for (let invocation = 1; ; invocation += 1) {
@@ -206,6 +212,8 @@ export class ClaudeExecutor implements TurnExecutor {
           repositories: turnGit.untouchedReports(clones),
         };
       }
+      // On a shutdown a scan-blocked turn is abandoned and redone rather than resumed.
+      if (io.checkpoint.aborted) throw new TurnAbandoned();
       // Both invocations count toward the turn's spend and limits.
       const budgetUsd = Math.max(0.01, limits.budgetUsd - (spend?.costUsd ?? 0));
       session = await this.runSession(
@@ -272,6 +280,7 @@ export class ClaudeExecutor implements TurnExecutor {
 
     const control: RunControlState = { proposedVersion: null, submitted: false };
     const questions = new QuestionBridge(turn, io);
+    if (io.checkpoint.aborted) throw new TurnAbandoned();
     const session = await this.runSession(turn, io, paths, prompt, resume, control, questions);
     const spend = spendOf(session.result, turn);
     if (io.signal.aborted) return { spend };
@@ -309,20 +318,29 @@ export class ClaudeExecutor implements TurnExecutor {
     const outcome: SessionOutcome = { failure: null, result: null, checkpoint: false };
 
     // Ending a turn refuses further tools so the session ends itself and reports its spend; else it is stopped.
+    const defaultGraceMs = this.options.windDownGraceMs ?? WIND_DOWN_GRACE_MS;
     let windDown: string | null = null;
     let grace: NodeJS.Timeout | undefined;
-    control.endTurn = (reason) => {
-      if (windDown) return;
-      windDown = reason;
-      grace = setTimeout(stop, this.options.windDownGraceMs ?? WIND_DOWN_GRACE_MS);
+    let stopAt = Number.POSITIVE_INFINITY;
+    control.endTurn = (reason, graceMs = defaultGraceMs) => {
+      windDown ??= reason;
+      // A later, more urgent end (a shutdown) may shorten the grace; nothing lengthens it.
+      if (Date.now() + graceMs >= stopAt) return;
+      stopAt = Date.now() + graceMs;
+      clearTimeout(grace);
+      grace = setTimeout(stop, graceMs);
+    };
+    const checkpointAt = (reason: string, graceMs?: number) => {
+      outcome.checkpoint = true;
+      control.endTurn?.(reason, graceMs);
     };
     const deadline = setTimeout(
-      () => {
-        outcome.checkpoint = true;
-        control.endTurn?.(DURATION_REACHED);
-      },
+      () => checkpointAt(DURATION_REACHED),
       Math.min(Math.max(0, limits.deadlineAt - Date.now()), MAX_TIMER_MS),
     );
+    const onShutdown = () => checkpointAt(SHUTTING_DOWN, Math.min(SHUTDOWN_WIND_DOWN_MS, defaultGraceMs));
+    io.checkpoint.addEventListener('abort', onShutdown, { once: true });
+    if (io.checkpoint.aborted) onShutdown();
 
     const fail = (failure: SessionFailure) => {
       outcome.failure ??= failure;
@@ -399,6 +417,7 @@ export class ClaudeExecutor implements TurnExecutor {
       clearTimeout(grace);
       control.endTurn = undefined;
       io.signal.removeEventListener('abort', stop);
+      io.checkpoint.removeEventListener('abort', onShutdown);
     }
     return outcome;
   }

@@ -73,7 +73,7 @@ export class CloudAgentRunAvailability {
     const triggerReasons: AvailabilityReason[] = [];
     if (!settings.runOwnerId) {
       triggerReasons.push(
-        reason('run_owner_missing', 'No run owner is recorded; switch agent runs on or take over ownership.'),
+        reason('run_owner_missing', 'No run owner is recorded; an admin takes over ownership in agent run settings.'),
       );
     } else if (!owner || owner.pending) {
       triggerReasons.push(

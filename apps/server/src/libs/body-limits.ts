@@ -37,9 +37,11 @@ export const OTLP_BODY_LIMIT = 25 * OneMB;
 /**
  * Intent workspace import — one whole `CloudIntentWorkspaceDocumentV1` plus its
  * envelope. Under DEFAULT_BODY_LIMIT a legal multi-megabyte document would be
- * rejected before the service ever saw it.
+ * rejected before the service ever saw it. A ~4,000-item knowledge base is
+ * ~5 MB of JSON; the ceiling keeps the same headroom as the import's item and
+ * structure-node budgets.
  */
-export const INTENT_IMPORT_BODY_LIMIT = 6 * OneMB;
+export const INTENT_IMPORT_BODY_LIMIT = 24 * OneMB;
 
 /**
  * Agent runner state archive PUT. Headroom over the archive cap lets the service, not the

@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { AgentRunSettings } from '../../generated/prisma/client.js';
 import { AGENT_RUNNER_TOKEN_PERMISSIONS } from '../../auth/token-permissions.js';
@@ -6,14 +6,7 @@ import { GithubRepositoryResolver } from '../../libs/github/github-repository-re
 import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
 import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js';
 import type { UpdateSettingsInput } from './cloud-agent-runs.contract.js';
-import {
-  cloudAgentRunError,
-  CloudAgentRunErrorCode,
-  QuestionsPolicy,
-  RunnerRefusal,
-  RunnerSeenAction,
-  ScopeAcceptancePolicy,
-} from './run-states.js';
+import { QuestionsPolicy, RunnerRefusal, RunnerSeenAction, ScopeAcceptancePolicy } from './run-states.js';
 import { CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock } from './run-store.js';
 
 const ADMIN_ROLES = new Set(['admin', 'owner']);
@@ -57,28 +50,17 @@ export class CloudAgentRunSettingsService {
     return (await this.prisma.agentRunSettings.findUnique({ where: { workspaceId } })) ?? defaultSettings(workspaceId);
   }
 
-  /** Switching on, or an explicit takeover, records the caller as run owner; nothing else changes it. */
+  /**
+   * `enabled` is not settable here: an operator switches agent runs on for a
+   * workspace in the database. Only an explicit takeover changes the run owner.
+   */
   async update(workspaceId: string, actorId: string, input: UpdateSettingsInput) {
-    const { enabled, takeOverOwnership, ...values } = input;
-    const before = await this.get(workspaceId);
-    if (enabled === true && !before.enabled) {
-      const availability = await this.availability.check(workspaceId, before);
-      if (!availability.available) {
-        throw cloudAgentRunError(
-          CloudAgentRunErrorCode.AgentRunsUnavailable,
-          `Agent runs cannot be switched on: ${availability.reasons.map((reason) => reason.message).join(' ')}`,
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-    }
+    const { takeOverOwnership, ...values } = input;
     await this.prisma.$transaction(async (tx) => {
       const current = await tx.agentRunSettings.findUnique({ where: { workspaceId } });
-      const switchingOn = enabled === true && !current?.enabled;
-      const runOwnerId = switchingOn || takeOverOwnership ? actorId : (current?.runOwnerId ?? null);
       const data = {
         ...values,
-        ...(enabled === undefined ? {} : { enabled }),
-        runOwnerId,
+        runOwnerId: takeOverOwnership ? actorId : (current?.runOwnerId ?? null),
         updatedBy: actorId,
         updatedAt: this.now(),
       };
