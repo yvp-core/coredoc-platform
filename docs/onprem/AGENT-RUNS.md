@@ -416,11 +416,12 @@ The server side has one setting of its own, `AGENT_RUN_RETENTION_ENABLED`
 - **Upgrade the server first, then the runner.** Every claim carries the
   runner's protocol version; a server that does not support it refuses the
   runner, and settings show *Refused: this runner version is not supported*.
-- **Rollouts discard in-flight turns.** On SIGTERM the runner stops the
-  session, skips its pushes and does not complete the turn. The turn's lease
-  expires and the turn runs again from the previous state archive and the
-  remote branches, so **its model spend is repeated**. If that matters, roll
-  the runner while the **Agent runs** page shows no turn in progress.
+- **Rollouts checkpoint in-flight turns.** On SIGTERM the runner tells the
+  session to stop, pushes the work, archives its state and completes the turn
+  as a checkpoint that the next turn continues. If that takes longer than
+  100 s, or the session had not started, the turn is discarded and runs again
+  from the previous state archive, so **that attempt's model spend is
+  repeated**.
 
 ## 10. Sizing
 
