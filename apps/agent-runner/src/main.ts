@@ -108,6 +108,7 @@ const pollSeconds = Number(process.env.COREDOC_RUNNER_POLL_SECONDS);
 const runner = new Runner({
   api,
   ...(Number.isFinite(pollSeconds) && pollSeconds >= 1 ? { idlePollMs: pollSeconds * 1000 } : {}),
+  once: process.env.COREDOC_RUNNER_ONCE === '1',
   executor: new ClaudeExecutor({
     query,
     api,
@@ -145,3 +146,5 @@ const runner = new Runner({
 log(`starting runner ${versions.runner}`);
 await runner.start(shutdown.signal);
 log('stopped');
+// A one-turn runner is a Job: an idle SDK or HTTP handle must not keep it from completing.
+process.exit(0);

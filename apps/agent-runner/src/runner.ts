@@ -83,6 +83,8 @@ export interface RunnerOptions {
   secrets?: string[];
   /** How long a turn may take to reach its checkpoint after a shutdown; the platform's stop timeout must exceed it. */
   shutdownGraceMs?: number;
+  /** One turn, then `start` returns: a scaler starts a fresh runner per queued turn. Until then it waits like any runner. */
+  once?: boolean;
   log?: (message: string) => void;
 }
 
@@ -182,7 +184,10 @@ export class Runner {
         continue;
       }
       if (end === 'idle') await sleep(this.idlePollMs, signal);
-      else this.log(`turn ended: ${end}`);
+      else {
+        this.log(`turn ended: ${end}`);
+        if (this.options.once) return;
+      }
     }
   }
 

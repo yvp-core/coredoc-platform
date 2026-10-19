@@ -284,6 +284,27 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     expect(results.map((res) => res.status).sort()).toEqual([201, 409, 409]);
   });
 
+  it('the queue counts turns waiting for a runner, for runner tokens only', async () => {
+    await enable();
+    const token = await mintRunnerToken('runner-queue');
+    await drainQueue(token);
+    const queue = (auth: string) => api().get(`${runnerBase()}/queue`).set('Authorization', auth);
+
+    await queue(human(ADMIN)).expect(403);
+    expect((await queue(`Bearer ${token}`).expect(200)).body).toEqual({ queued: 0 });
+
+    const { body: first } = await start(nextIssueKey()).expect(201);
+    const { body: second } = await start(nextIssueKey()).expect(201);
+    expect((await queue(`Bearer ${token}`).expect(200)).body).toEqual({ queued: 2 });
+
+    const claimed = await claim(token).expect(200);
+    expect((await queue(`Bearer ${token}`).expect(200)).body).toEqual({ queued: 1 });
+
+    const waiting = claimed.body.run.id === first.id ? second : first;
+    await api().post(`${runsBase()}/${waiting.id}/cancel`).set('Authorization', human(MEMBER)).expect(200);
+    expect((await queue(`Bearer ${token}`).expect(200)).body).toEqual({ queued: 0 });
+  });
+
   it('a runner claims, heartbeats, reports events and completes; the run page shows them in order', async () => {
     await enable();
     const token = await mintRunnerToken('runner-e2e');
