@@ -7,6 +7,7 @@ import { NodeType } from '@coredoc/core';
 import { resetCoverageCaveatCache } from '../../coverage.js';
 import { DETAIL_ESCALATION_HINT } from '../../detail-level.js';
 import { handleFindCallers } from './find-callers.js';
+import { CALLER_CAP } from '../../impact-caps.js';
 import type { ScopeContext, CallerInfo, DetailLevel, DetailLevelConfig } from '../../types.js';
 import {
   createMockRepository,
@@ -250,6 +251,7 @@ describe('get_callers Tool Handler', () => {
         'abc:function:pages/api/ai/sql/filter-v1.ts:wrapper',
         1,
         mockScope.repoHashes,
+        CALLER_CAP + 1,
       );
       // Sanity: the response references the file the agent asked about.
       expect(JSON.stringify(result.data)).not.toContain('code/complete.ts');

@@ -353,6 +353,39 @@ describe('Response Formatter', () => {
       };
     });
 
+    it('marks cut lists as lower bounds and lists only the first 20 entrypoints', () => {
+      const entrypoints = Array.from({ length: 100 }, (_, i) => ({
+        id: `abc123:entrypoint:http:${i}`,
+        type: 'http' as const,
+        method: 'GET',
+        path: `/r${i}`,
+        fullPath: `/r${i}`,
+        handlerId: 'h',
+        handlerName: 'h',
+        filePath: 'src/routes.ts',
+        startLine: i + 1,
+      }));
+      const text = String(
+        formatChangeImpact(
+          {
+            ...mockChangeImpact,
+            directCallers: Array.from({ length: 100 }, (_, i) => ({
+              ...mockChangeImpact.directCallers[0]!,
+              id: `c${i}`,
+            })),
+            affectedEntrypoints: entrypoints,
+            truncated: { callers: true, entrypoints: true },
+          },
+          mockMetadata,
+        ).data,
+      );
+      expect(text).toContain('### Direct Callers (100+)');
+      expect(text).toContain('### Affected Entrypoints (100+)');
+      expect(text).toContain('/r19');
+      expect(text).not.toContain('/r20');
+      expect(text).toContain('- ... and 80 more');
+    });
+
     it('should format change impact in summary mode', () => {
       const result = formatChangeImpact(mockChangeImpact, mockMetadata);
 

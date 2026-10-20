@@ -22,6 +22,8 @@ import {
   UNRESOLVED_CALL_LIMIT,
   clampLimit,
   BRIDGE_LIMIT,
+  REACHING_ENTRYPOINT_LIMIT,
+  TRANSITIVE_CALLER_LIMIT,
   DEAD_NODE_LIMIT,
   EDGES_AMONG_LIMIT,
   ENTRYPOINT_LIST_LIMIT,
@@ -1268,8 +1270,14 @@ export class LadybugRepository
    * surface is covered. Stated rather than silent: a transitive caller reached
    * only through an inferred hop currently renders unflagged on this backend.
    */
-  async getTransitiveCallers(targetId: string, depth: number, repoHashes: string[]): Promise<CallerInfo[]> {
+  async getTransitiveCallers(
+    targetId: string,
+    depth: number,
+    repoHashes: string[],
+    limit?: number,
+  ): Promise<CallerInfo[]> {
     const boundedDepth = clampTraversalDepth(depth);
+    const maxRows = clampLimit(limit ?? 0, TRANSITIVE_CALLER_LIMIT.max, TRANSITIVE_CALLER_LIMIT.fallback);
     const query = `
       MATCH path = (caller:${LADYBUG_NODE_TABLE})-[:CALLS*1..${boundedDepth}]->(target:${LADYBUG_NODE_TABLE} {id: $targetId})
       WHERE caller.id <> target.id AND ${repoClause('caller', repoHashes)}
@@ -1278,7 +1286,7 @@ export class LadybugRepository
       WHERE owner.type = $classType
       RETURN ${nodeReturn('caller')}, distance, owner.name AS className
       ORDER BY distance, coalesce(caller.filePath, ''), caller.id
-      LIMIT ${CALLER_LIMIT}
+      LIMIT ${maxRows}
     `;
     const rows = await this.driver.withReadTransaction((tx) =>
       tx.run<NodeRow & { distance: number | bigint; className: string | null }>(query, {
@@ -1293,7 +1301,7 @@ export class LadybugRepository
       if (seen.has(row.id) || row.id === targetId) continue;
       seen.add(row.id);
       callers.push(callerInfo(decodeNode(row), toNumber(row.distance), row.className ?? undefined));
-      if (callers.length === CALLER_LIMIT) break;
+      if (callers.length === maxRows) break;
     }
     return callers;
   }
@@ -1342,9 +1350,14 @@ export class LadybugRepository
     return callers;
   }
 
-  async getReachingEntrypoints(targetId: string, depth: number, repoHashes: string[]): Promise<EntrypointInfo[]> {
+  async getReachingEntrypoints(
+    targetId: string,
+    depth: number,
+    repoHashes: string[],
+    limit?: number,
+  ): Promise<EntrypointInfo[]> {
     const boundedDepth = clampTraversalDepth(depth + 3);
-    type EntrypointRow = NodeRow & { handlerId: string; handlerName: string };
+    type EntrypointRow = NodeRow & { handlerId: string; handlerName: string; distance?: number | bigint };
     const rows = await this.driver.withReadTransaction(async (tx) => {
       const direct = await tx.run<EntrypointRow>(
         `MATCH (ep:${LADYBUG_NODE_TABLE})-[:HANDLES]->(handler:${LADYBUG_NODE_TABLE} {id: $targetId}) ` +
@@ -1360,9 +1373,10 @@ export class LadybugRepository
       const transitive = await tx.run<EntrypointRow>(
         `MATCH path = (handler:${LADYBUG_NODE_TABLE})-[:CALLS*1..${boundedDepth}]->(target:${LADYBUG_NODE_TABLE} {id: $targetId}) ` +
           'WHERE handler.type = $functionType ' +
+          'WITH handler, min(length(path)) AS distance ' +
           `MATCH (ep:${LADYBUG_NODE_TABLE})-[:HANDLES]->(handler) ` +
           `WHERE ep.type = $entrypointType AND ${repoClause('ep', repoHashes)} ` +
-          `RETURN DISTINCT ${nodeReturn('ep')}, handler.id AS handlerId, handler.name AS handlerName ` +
+          `RETURN DISTINCT ${nodeReturn('ep')}, handler.id AS handlerId, handler.name AS handlerName, distance ` +
           'ORDER BY id',
         {
           targetId,
@@ -1373,7 +1387,8 @@ export class LadybugRepository
       );
       return [...direct, ...transitive];
     });
-    const byId = new Map<string, EntrypointInfo>();
+    // Direct rows (distance 0) come first, so the first row seen per entrypoint is its nearest.
+    const byId = new Map<string, { ep: EntrypointInfo; distance: number }>();
     for (const row of rows) {
       if (byId.has(row.id)) continue;
       const handler: StoredNode = {
@@ -1382,11 +1397,17 @@ export class LadybugRepository
         type: NodeType.Function,
         properties: {},
       };
-      byId.set(row.id, entrypointInfo(decodeNode(row), handler));
+      byId.set(row.id, { ep: entrypointInfo(decodeNode(row), handler), distance: toNumber(row.distance ?? 0) });
     }
     return [...byId.values()]
-      .sort((a, b) => (a.fullPath ?? '').localeCompare(b.fullPath ?? '') || a.id.localeCompare(b.id))
-      .slice(0, 20);
+      .sort(
+        (a, b) =>
+          a.distance - b.distance ||
+          (a.ep.fullPath ?? '').localeCompare(b.ep.fullPath ?? '') ||
+          a.ep.id.localeCompare(b.ep.id),
+      )
+      .slice(0, clampLimit(limit ?? 0, REACHING_ENTRYPOINT_LIMIT.max, REACHING_ENTRYPOINT_LIMIT.fallback))
+      .map((x) => x.ep);
   }
 
   async findShortestPath(startId: string, endId: string, repoHashes: string[]): Promise<PathStep[]> {

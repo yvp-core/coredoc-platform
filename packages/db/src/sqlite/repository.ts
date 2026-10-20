@@ -70,6 +70,8 @@ import {
   DEAD_CODE_DEFAULT_TYPES,
   clampLimit,
   BRIDGE_LIMIT,
+  REACHING_ENTRYPOINT_LIMIT,
+  TRANSITIVE_CALLER_LIMIT,
   DEAD_NODE_LIMIT,
   EDGES_AMONG_LIMIT,
   ENTRYPOINT_LIST_LIMIT,
@@ -1568,7 +1570,12 @@ export class SqliteRepository implements IGraphRepository {
     return callers;
   }
 
-  async getTransitiveCallers(targetId: string, depth: number, repoHashes: string[]): Promise<CallerInfo[]> {
+  async getTransitiveCallers(
+    targetId: string,
+    depth: number,
+    repoHashes: string[],
+    limit?: number,
+  ): Promise<CallerInfo[]> {
     const repoFilter = buildRepoFilter(repoHashes, 'caller');
 
     // Recursive walk of CALLS edges backward from targetId. Bounded by
@@ -1613,7 +1620,7 @@ export class SqliteRepository implements IGraphRepository {
       WHERE ${repoFilter}
         AND caller.id != @targetId
       ORDER BY shortest.distance, caller.file_path, caller.id
-      LIMIT 100
+      LIMIT ${clampLimit(limit ?? 0, TRANSITIVE_CALLER_LIMIT.max, TRANSITIVE_CALLER_LIMIT.fallback)}
     `;
 
     const results = await this.driver.withReadTransaction(async (tx) => {
@@ -1640,7 +1647,12 @@ export class SqliteRepository implements IGraphRepository {
     );
   }
 
-  async getReachingEntrypoints(targetId: string, depth: number, repoHashes: string[]): Promise<EntrypointInfo[]> {
+  async getReachingEntrypoints(
+    targetId: string,
+    depth: number,
+    repoHashes: string[],
+    limit?: number,
+  ): Promise<EntrypointInfo[]> {
     const repoFilter = buildRepoFilter(repoHashes, 'ep');
 
     // Two cases for "entrypoint reaches targetId":
@@ -1670,7 +1682,9 @@ export class SqliteRepository implements IGraphRepository {
         ep.end_line as endLine,
         ep.properties,
         handler.name as handlerName,
-        handler.id as handlerId
+        handler.id as handlerId,
+        CASE WHEN handler.id = @targetId THEN 0
+             ELSE (SELECT MIN(depth) FROM reachable_handlers WHERE id = handler.id) END AS distance
       FROM nodes ep
       JOIN edges handles ON handles.source_id = ep.id AND handles.type = 'HANDLES'
       JOIN nodes handler ON handler.id = handles.target_id
@@ -1680,8 +1694,8 @@ export class SqliteRepository implements IGraphRepository {
           handler.id = @targetId
           OR handler.id IN (SELECT id FROM reachable_handlers)
         )
-      ORDER BY json_extract(ep.properties, '$.fullPath'), ep.id
-      LIMIT 20
+      ORDER BY distance, json_extract(ep.properties, '$.fullPath'), ep.id
+      LIMIT ${clampLimit(limit ?? 0, REACHING_ENTRYPOINT_LIMIT.max, REACHING_ENTRYPOINT_LIMIT.fallback)}
     `;
 
     const results = await this.driver.withReadTransaction(async (tx) => {
