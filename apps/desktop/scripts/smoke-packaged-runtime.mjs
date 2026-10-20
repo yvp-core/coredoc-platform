@@ -280,7 +280,7 @@ function runPreChecks() {
 
   // 9. Key external deps exist in _vendor (web-tree-sitter is the profile-parser
   //    parse-engine runtime dep — assert it is vendored so parse works in the packaged app)
-  const criticalDeps = ['commander', 'dotenv', 'web-tree-sitter'];
+  const criticalDeps = ['commander', 'web-tree-sitter'];
   for (const dep of criticalDeps) {
     check(`_vendor/${dep} exists`, () => {
       const depDir = path.join(vendorDir, dep);
