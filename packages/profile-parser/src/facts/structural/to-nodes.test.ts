@@ -521,6 +521,19 @@ router.get('/x', (req, res) => {
     );
   });
 
+  it('keeps a helper that an inline handler calls, so the handler node made later reaches its work', async () => {
+    const { g, calls } = await nodesOf(
+      [
+        'export function install(app) {',
+        '  function work() { save(); }',
+        '  app.get("/x", () => work());',
+        '}',
+      ].join('\n'),
+    );
+    expect([...g.functions.values()].map((f) => f.name).sort()).toEqual(['install', 'work']);
+    expect(calls).toEqual(expect.arrayContaining([['save', 'work']]));
+  });
+
   it('gives the plain id of a name to its top-level function, so a lookup by name finds the visible one', async () => {
     const { g, idGen } = await nodesOf(
       [

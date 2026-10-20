@@ -702,16 +702,17 @@ export async function parseTsStructural(
   };
   /**
    * Every reference to `name` inside `scope` is a direct call made by `scope` itself: not from inside
-   * another nested function that stays a node (folding `b` would cut that function's path to `b`'s
-   * calls), and not as a value (returned, passed, stored — `b` escapes). `self` is `b`'s own node, so
-   * a recursive call does not count against it; a not-yet-decided sibling counts as a node.
+   * another nested function that is not folded (folding `b` would cut that function's path to `b`'s
+   * calls — an anonymous callback too, since the engine may later make it a handler node), and not as
+   * a value (returned, passed, stored — `b` escapes). `self` is `b`'s own node, so a recursive call
+   * does not count against it; a not-yet-decided sibling counts as not folded.
    */
   const onlyCalledDirectly = (scope: TsNode, name: string, declName: TsNode, self: TsNode): boolean => {
     const callsFromScope = (ref: TsNode): boolean => {
       const call = ref.parent;
       if (call?.type !== 'call_expression' || call.childForFieldName('function')?.id !== ref.id) return false;
       for (let p = ref.parent; p && p.id !== scope.id; p = p.parent) {
-        if (p.id !== self.id && FN_SCOPES.has(p.type) && isNodeShape(p) && !isolatedFns.has(p.id)) return false;
+        if (p.id !== self.id && FN_SCOPES.has(p.type) && !isolatedFns.has(p.id)) return false;
       }
       return true;
     };
