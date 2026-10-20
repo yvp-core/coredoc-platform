@@ -80,7 +80,13 @@ describe('pilot feedback: evidence boundaries', () => {
     const response = await handleFindCallers({ functionName: 'syncAttachments' }, scope, format, 'basic', config, repo);
     expect(response.metadata.warnings?.join(' ')).toContain('72 of 100 counted in-repo call sites are unbound');
     if (format === 'summary') expect(String(response.data).startsWith(response.metadata.warnings![0]!)).toBe(true);
-    else expect(response.data).toEqual({ callers: [], reachingEntrypoints: [], totalCallers: 0 });
+    else
+      expect(response.data).toEqual({
+        callers: [],
+        reachingEntrypoints: [],
+        totalCallers: 0,
+        totalReachingEntrypoints: 0,
+      });
   });
 
   it('rejects unknown parameters rather than dropping repository filtering', () => {

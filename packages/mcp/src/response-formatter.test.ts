@@ -1683,7 +1683,12 @@ describe('Response Formatter', () => {
       mockMetadata.format = 'raw';
       const result = formatCallerList(mockCallers, 'targetFunction', mockMetadata);
 
-      expect(result.data).toEqual({ callers: mockCallers, reachingEntrypoints: [], totalCallers: 2 });
+      expect(result.data).toEqual({
+        callers: mockCallers,
+        reachingEntrypoints: [],
+        totalCallers: 2,
+        totalReachingEntrypoints: 0,
+      });
     });
   });
 

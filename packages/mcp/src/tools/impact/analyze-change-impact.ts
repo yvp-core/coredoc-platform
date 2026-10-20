@@ -332,8 +332,7 @@ export async function handleAnalyzeChangeImpact(
   // on the connection but still tie up event-loop memory). 8 in flight gives
   // most of the parallel speed-up while protecting both backends.
   const CONCURRENCY = 8;
-  const seenEntrypointIds = new Set<string>();
-  const reachingEntrypoints: DbEntrypointInfo[] = [];
+  const perSeed: DbEntrypointInfo[][] = [];
   let entrypointsTruncated = false;
   let next = 0;
   await Promise.all(
@@ -342,19 +341,24 @@ export async function handleAnalyzeChangeImpact(
         const idx = next++;
         if (idx >= entrypointSeeds.length) return;
         const seedId = entrypointSeeds[idx]!;
-        const { items: eps, truncated } = await capped(
+        const { items, truncated } = await capped(
           (limit) => repository.getReachingEntrypoints(seedId, depth, scope.repoHashes, limit),
           ENTRYPOINT_CAP,
         );
         entrypointsTruncated ||= truncated;
-        for (const ep of eps) {
-          if (seenEntrypointIds.has(ep.id)) continue;
-          seenEntrypointIds.add(ep.id);
-          reachingEntrypoints.push(ep);
-        }
+        perSeed[idx] = items;
       }
     }),
   );
+  // Merged in seed order, not completion order: the target's own entrypoints (nearest first)
+  // come before its type users', so the shared cap below drops the farthest ones.
+  const seenEntrypointIds = new Set<string>();
+  const reachingEntrypoints: DbEntrypointInfo[] = [];
+  for (const ep of perSeed.flat()) {
+    if (seenEntrypointIds.has(ep.id)) continue;
+    seenEntrypointIds.add(ep.id);
+    reachingEntrypoints.push(ep);
+  }
   debugResult('getReachingEntrypoints', reachingEntrypoints.length);
   if (reachingEntrypoints.length > ENTRYPOINT_CAP) {
     reachingEntrypoints.length = ENTRYPOINT_CAP;
@@ -588,9 +592,7 @@ function buildImpactSummary(
     ]
       .filter(Boolean)
       .join(' and ');
-    parts.push(
-      `- Truncated: listed only the nearest ${lists}; more exist. A smaller \`depth\` gives the complete nearer set.`,
-    );
+    parts.push(`- Truncated: listed only the nearest ${lists}; more exist. A smaller \`depth\` may fit them all.`);
   }
 
   return parts.join('\n');

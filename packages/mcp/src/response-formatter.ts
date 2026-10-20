@@ -1321,6 +1321,7 @@ export function formatCallerList(
       callers: CallerInfo[];
       reachingEntrypoints: EntrypointInfo[];
       totalCallers: number;
+      totalReachingEntrypoints: number;
       truncated?: { callers?: true; entrypoints?: true };
     }
   | string
@@ -1328,11 +1329,13 @@ export function formatCallerList(
   const resultCount = callers.length;
   const resolve = buildRepoResolver(metadata.scope);
   if (metadata.format === 'raw') {
+    // Both lists are cut to `limit` here; the totals say how many the graph query returned.
     return {
       data: {
         callers: tagRepoArray(callers.slice(0, displayLimit), resolve),
         reachingEntrypoints: tagRepoArray((reachingEntrypoints || []).slice(0, displayLimit), resolve),
         totalCallers: callers.length,
+        totalReachingEntrypoints: reachingEntrypoints?.length ?? 0,
         ...(truncated && { truncated }),
       },
       metadata,
@@ -1388,7 +1391,7 @@ export function formatCallerList(
   if (truncated) {
     lines.push('');
     lines.push(
-      '> Truncated: only the nearest callers / entrypoints were returned; more exist. A smaller `depth` gives the complete nearer set.',
+      '> Truncated: only the nearest callers / entrypoints were returned; more exist. A smaller `depth` may fit them all.',
     );
   }
 

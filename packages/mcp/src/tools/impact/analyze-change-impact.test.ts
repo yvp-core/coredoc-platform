@@ -1052,6 +1052,30 @@ describe('analyze_change_impact Tool Handler', () => {
     const run = (repo: ReturnType<typeof repoWith>, format: 'raw' | 'summary') =>
       handleAnalyzeChangeImpact({ target: 'func' }, mockScope, format, defaultDetailLevel, defaultDetailConfig, repo);
 
+    it("keeps the target's own entrypoints when a type user's query fills the cap first", async () => {
+      const targetId = 'abc123:function:src/service.ts:func';
+      const own = createMockEntrypointInfo({ id: 'abc123:entrypoint:http:own', path: '/own', fullPath: '/own' });
+      const repo = createMockRepository({
+        findFunction: vi.fn().mockResolvedValue(createMockFunctionInfo({ id: targetId, name: 'func' })),
+        getTransitiveCallers: vi.fn().mockResolvedValue([]),
+        getTypeUsages: vi
+          .fn()
+          .mockResolvedValue([
+            { id: 'abc123:class:src/user.ts:User', name: 'User', type: 'class', filePath: 'src/user.ts', startLine: 1 },
+          ]),
+        // The type user's query answers immediately; the target's resolves later.
+        getReachingEntrypoints: vi.fn((seedId: string) =>
+          seedId === targetId
+            ? new Promise((resolve) => setTimeout(() => resolve([own]), 20))
+            : Promise.resolve(eps(ENTRYPOINT_CAP)),
+        ),
+      });
+      const raw = (await run(repo, 'raw')).data as ChangeImpactResult;
+      expect(raw.affectedEntrypoints[0]?.id).toBe(own.id);
+      expect(raw.affectedEntrypoints).toHaveLength(ENTRYPOINT_CAP);
+      expect(raw.truncated).toEqual({ entrypoints: true });
+    });
+
     it('says an entrypoint list cut at its cap is a lower bound', async () => {
       const repo = repoWith(eps(ENTRYPOINT_CAP + 1));
       const raw = (await run(repo, 'raw')).data as ChangeImpactResult;
