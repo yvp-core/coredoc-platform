@@ -1,6 +1,8 @@
 import { StableIdGenerator } from '@coredoc/core';
 import { describe, expect, it } from 'vitest';
 import { CodeGraph } from '../graph/graph-builder.js';
+import { structuralToNodes } from '../structural/to-nodes.js';
+import { parseTsStructural } from '../structural/ts-structural.js';
 import type { LoadedScip } from './decode.js';
 import { buildMappingHooks, scipToEdges, tagExportedMonikers } from './to-edges.js';
 
@@ -379,5 +381,110 @@ describe('tagExportedMonikers', () => {
     };
     tagExportedMonikers(scip, g);
     expect(g.functions.get('METHOD')?.moniker).toBeUndefined();
+  });
+});
+
+describe('scipToEdges — structural sites joined by name-token position', () => {
+  // Parsed for real, so the structural sites carry the walker's own positions; the SCIP occurrences
+  // sit on the tokens scip-typescript would mark.
+  const SRC = [
+    'function emit(x) {',
+    '  return log(x);',
+    '}',
+    'export function run(xs) {',
+    '  const send = (m) => emit(m);',
+    '  const io = { emit: (e) => emit(e) };',
+    '  send(wrap(xs));',
+    '  xs.map(wrap);',
+    '  return { io, send };',
+    '}',
+    'function wrap(v) {',
+    '  return v;',
+    '}',
+    'function log(v) {',
+    '  return v;',
+    '}',
+  ].join('\n');
+  const FILE = 'src/a.ts';
+  const global = (name: string) => `scip-typescript npm k . src/\`a.ts\`/${name}().`;
+  /** A SCIP occurrence on the `nth` (0-based) `token` of 1-based `line`. */
+  const occ = (symbol: string, line: number, token: string, def = false, nth = 0) => {
+    const text = SRC.split('\n')[line - 1];
+    let col = -1;
+    for (let i = 0; i <= nth; i++) col = text.indexOf(token, col + 1);
+    return { symbol, symbolRoles: def ? 1 : 0, range: [line - 1, col, col + token.length] };
+  };
+
+  async function parsed() {
+    const idGen = new StableIdGenerator('/repo', 'k');
+    const g = new CodeGraph();
+    structuralToNodes(await parseTsStructural(FILE, SRC, 'typescript'), g, idGen, 'r:package:.', SRC);
+    const scip: LoadedScip = {
+      projectRoot: 'file:///repo',
+      documents: [
+        {
+          relativePath: FILE,
+          occurrences: [
+            occ(global('emit'), 1, 'emit', true),
+            occ(global('log'), 2, 'log'),
+            occ('local 1', 5, 'send', true),
+            occ(global('emit'), 5, 'emit'),
+            occ(global('emit'), 6, 'emit', false, 1),
+            occ('local 1', 7, 'send'),
+            occ(global('wrap'), 7, 'wrap'),
+            occ(global('wrap'), 8, 'wrap'),
+            occ(global('wrap'), 11, 'wrap', true),
+            occ(global('log'), 14, 'log', true),
+          ],
+        },
+      ],
+    };
+    scipToEdges(scip, g, idGen, buildMappingHooks(scip, g));
+    const callAt = (line: number, expr: string) =>
+      [...g.calls.values()].filter((c) => c.location.startLine === line && c.calleeExpression === expr);
+    return { g, id: (name: string) => idGen.functionId(FILE, name), callAt };
+  }
+
+  it('resolves every call on a line with several calls, including a returned nested function', async () => {
+    const { id, callAt } = await parsed();
+    expect(callAt(7, 'send').map((c) => c.calleeId)).toEqual([id('send')]);
+    expect(callAt(7, 'wrap').map((c) => c.calleeId)).toEqual([id('wrap')]);
+  });
+
+  it('does not let a function passed as a value claim the call site it is an argument of', async () => {
+    const { id, callAt } = await parsed();
+    expect(callAt(8, 'xs.map').map((c) => c.calleeId)).toEqual([undefined]);
+    expect(callAt(8, 'wrap').map((c) => c.calleeId)).toEqual([id('wrap')]);
+  });
+
+  it('resolves a call through an aliased import to the original function under its own name', async () => {
+    const src = ["import { load as fetchIt } from './b';", 'export function run() {', '  return fetchIt();', '}'].join(
+      '\n',
+    );
+    const idGen = new StableIdGenerator('/repo', 'k');
+    const g = new CodeGraph();
+    structuralToNodes(await parseTsStructural('src/a.ts', src, 'typescript'), g, idGen, 'r:package:.', src);
+    fn(g, 'LOAD', 'src/b.ts', 1, 3, 'load');
+    const load = 'scip-typescript npm k . src/`b.ts`/load().';
+    const col = src.split('\n')[2].indexOf('fetchIt');
+    const scip: LoadedScip = {
+      projectRoot: 'file:///repo',
+      documents: [
+        { relativePath: 'src/b.ts', occurrences: [{ symbol: load, symbolRoles: 1, range: [0, 16, 20] }] },
+        { relativePath: 'src/a.ts', occurrences: [{ symbol: load, symbolRoles: 0, range: [2, col, col + 7] }] },
+      ],
+    };
+    scipToEdges(scip, g, idGen, buildMappingHooks(scip, g));
+    // The resolved edge names `load`, so the later callee-name gate accepts it.
+    const resolved = [...g.calls.values()].filter((c) => c.calleeId);
+    expect(resolved.map((c) => [c.calleeExpression, c.calleeId])).toEqual([['load', 'LOAD']]);
+  });
+
+  it('keeps two same-named functions of a file as two nodes, each the caller of its own calls', async () => {
+    const { g, id, callAt } = await parsed();
+    expect(g.functions.get(id('emit'))?.location.startLine).toBe(1);
+    expect(g.functions.get(id('emit#2'))?.location.startLine).toBe(6);
+    expect(callAt(2, 'log')[0]).toMatchObject({ callerId: id('emit'), calleeId: id('log') });
+    expect(callAt(6, 'emit')[0]).toMatchObject({ callerId: id('emit#2'), calleeId: id('emit') });
   });
 });

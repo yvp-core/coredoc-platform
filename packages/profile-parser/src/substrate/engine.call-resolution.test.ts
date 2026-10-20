@@ -35,18 +35,19 @@ export function run(n: number): number {
 }
 `;
 
-/** `setTimeout` declared in the repo — the BR-1 collision case for the same platform site. */
+/** `setTimeout` declared in the repo and imported by the app — the BR-1 collision case. */
 const LIB_WITH_COLLISION = `${LIB}export function setTimeout(ms: number): number {
   return ms;
 }
 `;
+const APP_WITH_COLLISION = APP.replace('import { helper }', 'import { helper, setTimeout }');
 
 const PROFILE: ExtractionProfile = {
   parserId: 'test-call-resolution',
   substrate: { language: 'ts', include: ['src/**/*.ts'], exclude: ['**/node_modules/**'] },
 };
 
-function writeFixture(lib: string): string {
+function writeFixture(lib: string, app = APP): string {
   const root = mkdtempSync(join(tmpdir(), 'pp-call-resolution-'));
   mkdirSync(join(root, 'src'), { recursive: true });
   // scip-typescript's prerequisite check is the presence of node_modules.
@@ -60,44 +61,34 @@ function writeFixture(lib: string): string {
     }),
   );
   writeFileSync(join(root, 'src', 'lib.ts'), lib);
-  writeFileSync(join(root, 'src', 'app.ts'), APP);
+  writeFileSync(join(root, 'src', 'app.ts'), app);
   return root;
 }
 
 describe('engine — stats.callResolution', () => {
-  it('counts the built-in-dropped site and calls it out of scope', async () => {
+  it('counts each call site once and resolves every call on a multi-call line', async () => {
     dir = writeFixture(LIB);
     const { repo } = await runProfile(PROFILE, dir, 'call-resolution');
 
-    // The `setTimeout` site survives to the engine's built-in drop, so it is a counted site
-    // that ships no edge — and `setTimeout` is declared by nothing here, so it is out of scope.
+    // The compiler proves `setTimeout` is the platform's, so the SCIP pass drops its site as stdlib
+    // noise — it is neither an edge nor a counted site. That leaves `local` on line 8 and `helper` and
+    // `local` on line 9, each bound by exactly one edge: two calls on one line resolve independently.
     expect(repo.calls.some((c) => c.calleeExpression === 'setTimeout')).toBe(false);
-    // 4 sites: `setTimeout` and `local` on line 8, `helper` and `local` on line 9. The two
-    // `local(n)` facts on line 9 (one structural, one SCIP — different edge ids) are ONE site.
-    expect(repo.stats.callResolution).toEqual({ callSites: 4, resolvedCalls: 2, outOfScopeCalls: 1 });
-    const { callSites, resolvedCalls, outOfScopeCalls } = repo.stats.callResolution as {
-      callSites: number;
-      resolvedCalls: number;
-      outOfScopeCalls: number;
-    };
-    expect(resolvedCalls + outOfScopeCalls).toBeLessThanOrEqual(callSites);
-    // The site with both a structural and a SCIP fact counts ONCE: five facts reach the engine
-    // and four edges ship, yet the line-9 `local` site contributes a single counted site.
-    const line9Local = repo.calls.filter((c) => c.calleeExpression === 'local' && c.location.startLine === 9);
-    expect(line9Local.length).toBe(2);
-    expect(callSites).toBe(4);
-    // `resolvedCalls` is read from the emitted set, and counts sites — two edges bind `local`
-    // on line 9 and line 8, so the emitted resolved-edge count and the site count agree here.
-    expect(resolvedCalls).toBe(repo.calls.filter((c) => c.calleeId).length);
+    expect(repo.stats.callResolution).toEqual({ callSites: 3, resolvedCalls: 3, outOfScopeCalls: 0 });
+    const line9 = repo.calls.filter((c) => c.location.startLine === 9).map((c) => [c.calleeExpression, c.calleeId]);
+    expect(line9).toEqual([
+      ['helper', expect.stringContaining(':helper')],
+      ['local', expect.stringContaining(':local')],
+    ]);
   });
 
-  it('keeps the platform site IN scope when the repo declares the same name (BR-1)', async () => {
-    dir = writeFixture(LIB_WITH_COLLISION);
+  it('keeps a repo function named like a platform built-in as a resolved, counted site (BR-1)', async () => {
+    dir = writeFixture(LIB_WITH_COLLISION, APP_WITH_COLLISION);
     const { repo } = await runProfile(PROFILE, dir, 'call-resolution-collision');
 
-    // Same sites, same dropped edge — but `setTimeout` is now an in-repo name, so the unbound
-    // site counts against the extractor instead of being excused as out of scope.
-    expect(repo.calls.some((c) => c.calleeExpression === 'setTimeout')).toBe(false);
-    expect(repo.stats.callResolution).toEqual({ callSites: 4, resolvedCalls: 2, outOfScopeCalls: 0 });
+    // `setTimeout` is now the repo's own import: the built-in drop must not hide the real call.
+    const setTimeoutCall = repo.calls.find((c) => c.calleeExpression === 'setTimeout');
+    expect(setTimeoutCall?.calleeId).toContain('src/lib.ts:setTimeout');
+    expect(repo.stats.callResolution).toEqual({ callSites: 4, resolvedCalls: 4, outOfScopeCalls: 0 });
   });
 });

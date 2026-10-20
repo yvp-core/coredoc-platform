@@ -44,8 +44,12 @@ export class CodeGraph {
   readonly classRefs = new Map<string, ClassReferenceEdge>();
 
   private readonly nodeIds = new Set<string>();
-  /** Index of UNRESOLVED structural call edges by call-site key, for in-place resolution. */
-  private readonly unresolvedCallSites = new Map<string, string>(); // `${callerId}|${file}|${line}` -> edge id
+  /**
+   * UNRESOLVED structural call sites by `file|line`, for in-place resolution. A site added with its
+   * callee name position is matched by that exact position, so several calls on one line resolve
+   * independently; a site without one falls back to (caller, line).
+   */
+  private readonly unresolvedCallSites = new Map<string, UnresolvedCallSite[]>();
 
   addPackage(n: Package): void {
     this.packages.set(n.id, { ...this.packages.get(n.id), ...n });
@@ -92,11 +96,18 @@ export class CodeGraph {
     this.nodeIds.add(n.id);
   }
 
-  addCall(e: CallEdge): void {
-    if (this.calls.has(e.id)) return;
-    this.calls.set(e.id, e);
-    if (!e.calleeId)
-      this.unresolvedCallSites.set(this.siteKey(e.callerId, e.location.filePath, e.location.startLine), e.id);
+  /**
+   * `site` is the callee name token (`foo` in `a.foo()`). Two identical calls on one line share an
+   * edge id but are two sites, so a positioned site registers even when the edge already exists.
+   */
+  addCall(e: CallEdge, site?: CallSitePosition): void {
+    const isNew = !this.calls.has(e.id);
+    if (isNew) this.calls.set(e.id, e);
+    if (e.calleeId || (!isNew && !site)) return;
+    const key = this.lineKey(e.location.filePath, site?.line ?? e.location.startLine);
+    const sites = this.unresolvedCallSites.get(key) ?? [];
+    sites.push({ edgeId: e.id, callerId: e.callerId, column: site?.column, name: site?.name });
+    this.unresolvedCallSites.set(key, sites);
   }
   addImport(e: ImportEdge): void {
     if (!this.imports.has(e.id)) this.imports.set(e.id, e);
@@ -121,36 +132,59 @@ export class CodeGraph {
     if (!this.classRefs.has(e.id)) this.classRefs.set(e.id, e);
   }
 
-  private siteKey(callerId: string, filePath: string, line: number): string {
-    return `${callerId}|${filePath}|${line}`;
+  private lineKey(filePath: string, line: number): string {
+    return `${filePath}|${line}`;
+  }
+
+  /**
+   * The unresolved site a reference at (file, 1-based line, column) points at: the call whose name
+   * token starts at that column (tree-sitter and scip-typescript both count UTF-16 units), else, for
+   * a site recorded without a position, the caller's site on the line. A reference matching neither
+   * is not a call (`xs.map(fn)`), so it never claims a call site.
+   */
+  private findSite(callerId: string, filePath: string, line: number, column?: number): UnresolvedCallSite | undefined {
+    const sites = this.unresolvedCallSites.get(this.lineKey(filePath, line)) ?? [];
+    return (
+      (column === undefined ? undefined : sites.find((s) => s.column === column)) ??
+      sites.find((s) => s.column === undefined && s.callerId === callerId)
+    );
+  }
+
+  private dropSites(filePath: string, line: number, drop: (s: UnresolvedCallSite) => boolean): void {
+    const key = this.lineKey(filePath, line);
+    const rest = (this.unresolvedCallSites.get(key) ?? []).filter((s) => !drop(s));
+    if (rest.length) this.unresolvedCallSites.set(key, rest);
+    else this.unresolvedCallSites.delete(key);
+  }
+
+  /** The name recorded for the unresolved call whose callee name token sits exactly at (file, line, column). */
+  unresolvedCallNameAt(filePath: string, line: number, column: number): string | undefined {
+    return this.unresolvedCallSites.get(this.lineKey(filePath, line))?.find((s) => s.column === column)?.name;
   }
 
   /**
    * Upgrade an existing unresolved structural call edge in place by setting calleeId — collapsing
    * the structural edge and the resolved edge into ONE. Returns true if a sibling existed; false if
-   * none (caller may then add a fresh resolved edge). Keyed on (callerId, file, call-expression start
-   * line). Known limitation: a multi-line member-call chain whose method token sits on a different
-   * line than the call-expression start will not collapse (rare; appears as two edges — best-effort).
+   * none (caller may then add a fresh resolved edge). `column` is the reference's column (see
+   * `findSite`); without it, the site is keyed on (callerId, file, line) only.
    */
-  resolveInternalCall(callerId: string, filePath: string, line: number, calleeId: string): boolean {
-    const key = this.siteKey(callerId, filePath, line);
-    const edgeId = this.unresolvedCallSites.get(key);
-    if (!edgeId) return false;
-    const edge = this.calls.get(edgeId);
+  resolveInternalCall(callerId: string, filePath: string, line: number, calleeId: string, column?: number): boolean {
+    const site = this.findSite(callerId, filePath, line, column);
+    if (!site) return false;
+    this.dropSites(filePath, line, (s) => s === site);
+    const edge = this.calls.get(site.edgeId);
     if (!edge) return false;
-    edge.calleeId = calleeId;
-    this.unresolvedCallSites.delete(key);
+    // A second identical call on the line shares the edge: it is already this edge, not a new one.
+    edge.calleeId ??= calleeId;
     return true;
   }
 
   /** Remove the unresolved structural call edge at a site (it is being reclassified as an external call). */
-  removeUnresolvedCallAt(callerId: string, filePath: string, line: number): void {
-    const key = this.siteKey(callerId, filePath, line);
-    const edgeId = this.unresolvedCallSites.get(key);
-    if (edgeId) {
-      this.calls.delete(edgeId);
-      this.unresolvedCallSites.delete(key);
-    }
+  removeUnresolvedCallAt(callerId: string, filePath: string, line: number, column?: number): void {
+    const site = this.findSite(callerId, filePath, line, column);
+    if (!site) return;
+    this.dropSites(filePath, line, (s) => s.edgeId === site.edgeId);
+    if (!this.calls.get(site.edgeId)?.calleeId) this.calls.delete(site.edgeId);
   }
 
   /** True if id was registered as a node (used to verify edge endpoints). */
@@ -178,4 +212,18 @@ export class CodeGraph {
     this.entities.delete(id);
     this.dbOperations.delete(id);
   }
+}
+
+/** Position of a call's callee name token: 1-based line, 0-based column, and the name itself. */
+export interface CallSitePosition {
+  line: number;
+  column: number;
+  name?: string;
+}
+
+interface UnresolvedCallSite {
+  edgeId: string;
+  callerId: string;
+  column?: number;
+  name?: string;
 }

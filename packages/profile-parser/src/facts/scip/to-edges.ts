@@ -5,8 +5,11 @@ import { isNoiseExternalPackage } from '../noise.js';
 import { decodeRange, isDefinition, type LoadedScip, packageSymbolKey, parseMoniker } from './decode.js';
 
 export interface ScipMappingHooks {
-  /** Resolve a SCIP symbol to an in-repo node id (its definition), or undefined if external. */
-  symbolToNodeId(symbol: string): string | undefined;
+  /**
+   * Resolve a SCIP symbol to an in-repo node id (its definition), or undefined if external. A
+   * document-`local` symbol needs `ref`: the file it occurs in and the name the call site uses.
+   */
+  symbolToNodeId(symbol: string, ref?: { file: string; name?: string }): string | undefined;
   /** Resolve the enclosing in-repo function/method node id for a reference at (file, 1-based line). */
   enclosingNodeIdAt(relativePath: string, line: number): string | undefined;
 }
@@ -40,6 +43,11 @@ function normalizeName(name: string): string {
   return name.startsWith('#') ? name.slice(1) : name;
 }
 
+/** Definition-map key: a document-`local` symbol (`local 12`) is only unique within its file. */
+function localSymbolKey(symbol: string, file: string): string {
+  return symbol.startsWith('local ') ? `${file}\0${symbol}` : symbol;
+}
+
 /**
  * Build the default symbol->definition-node and enclosing-node hooks from a CodeGraph
  * and the SCIP definition set. (The pipeline passes these; tests inject simpler ones.)
@@ -61,7 +69,8 @@ export function buildMappingHooks(scip: LoadedScip, g: CodeGraph): ScipMappingHo
       if (isDefinition(occ.symbolRoles)) {
         const r = decodeRange(occ.range);
         const loc = { file: doc.relativePath, line: r.startLine + 1 };
-        if (!defLoc.has(occ.symbol)) defLoc.set(occ.symbol, loc);
+        const symbolKey = localSymbolKey(occ.symbol, doc.relativePath);
+        if (!defLoc.has(symbolKey)) defLoc.set(symbolKey, loc);
         const key = packageSymbolKey(occ.symbol);
         if (key && !pkgDefAmbiguous.has(key)) {
           const existing = pkgDefLoc.get(key);
@@ -85,7 +94,22 @@ export function buildMappingHooks(scip: LoadedScip, g: CodeGraph): ScipMappingHo
     fnsByFile.set(fn.location.filePath, arr);
   }
   return {
-    symbolToNodeId(symbol) {
+    symbolToNodeId(symbol, ref) {
+      // A document-`local` symbol (scip-typescript's identity for a declaration inside a function
+      // body) carries no name and is only unique per file. It maps to a function node only when that
+      // node's own declaration is the definition (it starts on the definition line, or the next one
+      // for `const f =\n  () => …`) and bears the name the call site uses — so a local variable or
+      // parameter holding a function never resolves to whatever encloses it.
+      if (symbol.startsWith('local ')) {
+        if (!ref?.name) return undefined;
+        const loc = defLoc.get(localSymbolKey(symbol, ref.file));
+        if (!loc) return undefined;
+        const name = normalizeName(ref.name);
+        const cands = (fnsByFile.get(loc.file) ?? []).filter(
+          (f) => normalizeName(f.name) === name && (f.start === loc.line || f.start === loc.line + 1),
+        );
+        return cands.length === 1 ? cands[0].id : undefined;
+      }
       // Exact match first: same-package (and same-file) references carry the definition's own
       // symbol verbatim. Only when that misses do we try the cross-package suffix join — a
       // reference resolved through another workspace package's published `dist` declarations.
@@ -176,18 +200,27 @@ export function scipToEdges(
       const callerId = hooks.enclosingNodeIdAt(doc.relativePath, line);
       if (!callerId) continue; // reference not inside a known function (import line, type pos, etc.)
 
-      const calleeId = hooks.symbolToNodeId(occ.symbol);
+      // A local symbol has no name of its own; the call whose name token this occurrence covers does.
+      const isLocal = occ.symbol.startsWith('local ');
+      const calledName = isLocal
+        ? g.unresolvedCallNameAt(doc.relativePath, line, r.startChar)
+        : methodNameFromMoniker(occ.symbol);
+      const calleeId = hooks.symbolToNodeId(occ.symbol, { file: doc.relativePath, name: calledName });
       const loc = `${doc.relativePath}:${line}`;
       if (calleeId) {
         if (calleeId === callerId) continue; // self / trivial
         // Belt-and-suspenders: the resolved callee's node name MUST equal the called
-        // symbol's moniker tail. symbolToNodeId already guarantees this by construction;
+        // name. symbolToNodeId already guarantees this by construction;
         // this guard keeps the precision invariant even if a future hook regresses.
         const calleeName = fnNameById.get(calleeId);
-        if (calleeName !== undefined && normalizeName(calleeName) !== normalizeName(methodNameFromMoniker(occ.symbol)))
-          continue;
+        if (calleeName !== undefined && normalizeName(calleeName) !== normalizeName(calledName ?? '')) continue;
         // Collapse: upgrade the structural sibling in place if one exists; else add a fresh edge.
-        if (!g.resolveInternalCall(callerId, doc.relativePath, line, calleeId)) {
+        // An aliased import (`import { a as b }; b()`) keeps its structural edge apart: that edge
+        // names `b`, and the later name gate would refuse `b` → `a`; the fresh edge names `a`.
+        const siteName = isLocal ? undefined : g.unresolvedCallNameAt(doc.relativePath, line, r.startChar);
+        const aliased = siteName !== undefined && normalizeName(siteName) !== normalizeName(calledName ?? '');
+        if (aliased || !g.resolveInternalCall(callerId, doc.relativePath, line, calleeId, r.startChar)) {
+          if (isLocal) continue; // resolved through its call site, which is gone: nothing to mint
           const edge: CallEdge = {
             // Keyed on the raw symbol, unchanged by the calleeExpression fix below, so this
             // edge's identity stays stable across parses (artifact caching joins on it). One
@@ -212,7 +245,7 @@ export function scipToEdges(
         // Noise (empty package = TS stdlib like Array.map/Promise.then; @types/*; tslib/reflect-metadata):
         // not a real edge. Drop the structural sibling so it isn't counted or re-resolved by the overlay, and skip.
         if (isNoiseExternalPackage(mon.packageName)) {
-          g.removeUnresolvedCallAt(callerId, doc.relativePath, line);
+          g.removeUnresolvedCallAt(callerId, doc.relativePath, line, r.startChar);
           continue;
         }
         // The moniker names one of this repo's OWN workspace packages, yet `symbolToNodeId` found
@@ -225,7 +258,7 @@ export function scipToEdges(
         // later resolution tier (interface-dispatch binding) upgrades in place.
         if (ownPackages.has(mon.packageName)) continue;
         // Real external (service/IO) call — drop the structural unresolved sibling and emit the external edge.
-        g.removeUnresolvedCallAt(callerId, doc.relativePath, line);
+        g.removeUnresolvedCallAt(callerId, doc.relativePath, line, r.startChar);
         const method = methodNameFromMoniker(occ.symbol);
         const extId = idGen.externalCallId(callerId, mon.packageName, method, loc);
         const edge: ExternalCallEdge = {

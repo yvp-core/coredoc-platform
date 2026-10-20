@@ -324,11 +324,15 @@ describe('call graph — destructured accessor-hook bindings', () => {
   it('a nested rebinding shadows the outer one (narrowest scope wins), and a same-scope tie abstains', async () => {
     const { repo } = await runProfile(withHooks(['useStoreActions']), writeMintFixture(), 'accessor-hook');
     const edges = resolvedEdges(repo);
-    // Outer call sees the outer binding…
-    expect(edges).toContain('shadowedBinding->store-a.ts:run:accessor-hook');
-    // …and the call inside the nested arrow sees the arrow's own rebinding, not the outer one.
-    expect(edges).toContain('inner->store-b.ts:run:accessor-hook');
-    expect(edges).not.toContain('inner->store-a.ts:run:accessor-hook');
+    // `inner` is folded into `shadowedBinding` (no node) but is still its own scope: the outer call
+    // (consumer.ts line 48) sees the outer binding, the call inside the arrow (line 46) the arrow's
+    // own rebinding, not the outer one.
+    const runAt = (line: number) =>
+      repo.calls
+        .filter((c) => c.calleeExpression === 'run' && c.location.startLine === line && c.calleeId)
+        .map((c) => repo.functions.find((f) => f.id === c.calleeId)?.location.filePath);
+    expect(runAt(48)).toEqual(['src/store-a.ts']);
+    expect(runAt(46)).toEqual(['src/store-b.ts']);
     // Two bindings of one name, same scope, different targets: genuinely ambiguous → no edge.
     expect(edges.some((e) => e.startsWith('tiedBindings->') && e.includes(':run:'))).toBe(false);
   });

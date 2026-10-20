@@ -233,6 +233,7 @@ export class TreeSitterScipSubstrate implements Substrate {
   // bindings (built lazily on first use; a file with no binding is absent, which is the
   // skip gate the per-call-site scan needs).
   private accessorHookBindings: Map<string, Map<string, AccessorHookBinding[]>> | undefined;
+  private fnSpansByFileName: Map<string, { id: string; startLine: number; endLine: number }[]> | undefined;
   // file → names DECLARED in it (CST bindings), for the barrel hop's stop condition.
   private readonly declaredBindingsByFile = new Map<string, Set<string>>();
   // `file::name` → barrel-hop answer, memoized (a barrel is asked for hundreds of names).
@@ -460,9 +461,36 @@ export class TreeSitterScipSubstrate implements Substrate {
     return this.methodsByClass.get(className)?.get(methodName);
   }
 
-  functionId(filePath: string, name: string): string | undefined {
-    if (this.fnNamesByFile.get(filePath)?.has(name)) return this.idGen.functionId(filePath, name);
+  functionId(filePath: string, name: string, line?: number): string | undefined {
+    if (this.fnNamesByFile.get(filePath)?.has(name)) return this.functionIdAt(filePath, name, line);
     return undefined;
+  }
+
+  /**
+   * Same-named functions of one file are distinct nodes (`name`, `name#2`, … — see
+   * `structuralToNodes`), so a name alone picks the first. Given a line inside one of them, the
+   * innermost same-named node spanning it is the right one.
+   */
+  private functionIdAt(filePath: string, name: string, line?: number): string {
+    if (line !== undefined) {
+      if (!this.fnSpansByFileName) {
+        this.fnSpansByFileName = new Map();
+        for (const fn of this.baseline.graph.functions.values()) {
+          const key = `${fn.location.filePath}\0${fn.name}`;
+          const spans = this.fnSpansByFileName.get(key) ?? [];
+          spans.push({ id: fn.id, startLine: fn.location.startLine, endLine: fn.location.endLine });
+          this.fnSpansByFileName.set(key, spans);
+        }
+      }
+      const spans = this.fnSpansByFileName.get(`${filePath}\0${name}`) ?? [];
+      if (spans.length > 1) {
+        const hit = spans
+          .filter((s) => s.startLine <= line && line <= s.endLine)
+          .sort((a, b) => b.startLine - a.startLine)[0];
+        if (hit) return hit.id;
+      }
+    }
+    return this.idGen.functionId(filePath, name);
   }
 
   // ── RAW-CST call-shape query ───────────────────────────────────────────────
@@ -2135,16 +2163,13 @@ export class TreeSitterScipSubstrate implements Substrate {
     //     graph.functions too, which is why a name can legitimately be claimed more than once.
     //   file → spans                  — the binding's enclosing function.
     const fnIdsByFileName = new Map<string, Map<string, string[]>>();
-    const spansByFile = new Map<string, { startLine: number; endLine: number }[]>();
     for (const fn of this.baseline.graph.functions.values()) {
       const path = fn.location.filePath;
       const byName = fnIdsByFileName.get(path) ?? new Map<string, string[]>();
       byName.set(fn.name, [...(byName.get(fn.name) ?? []), fn.id]);
       fnIdsByFileName.set(path, byName);
-      const spans = spansByFile.get(path) ?? [];
-      spans.push({ startLine: fn.location.startLine, endLine: fn.location.endLine });
-      spansByFile.set(path, spans);
     }
+    const spansByFile = this.lexicalScopeSpans();
     for (const [file, root] of this.cstRoots) {
       const refs = this.scipRefsByFile?.get(file) ?? [];
       for (const decl of this.descendantsOfType(root, 'variable_declarator')) {
@@ -2310,15 +2335,31 @@ export class TreeSitterScipSubstrate implements Substrate {
     return idx;
   }
 
-  /** Innermost function-node span containing (file, line). */
+  /** Innermost lexical function scope (see `lexicalScopeSpans`) containing (file, line). */
   private enclosingFunctionSpan(file: string, line: number): { startLine: number; endLine: number } | undefined {
     let best: { startLine: number; endLine: number } | undefined;
-    for (const fn of this.baseline.graph.functions.values()) {
-      const loc = fn.location;
-      if (loc.filePath !== file || loc.startLine > line || loc.endLine < line) continue;
-      if (!best || loc.startLine > best.startLine) best = { startLine: loc.startLine, endLine: loc.endLine };
+    for (const span of this.lexicalScopeSpans().get(file) ?? []) {
+      if (span.startLine > line || span.endLine < line) continue;
+      if (!best || span.startLine > best.startLine) best = span;
     }
     return best;
+  }
+
+  /**
+   * Function spans per file as LEXICAL scopes: every function node plus the nested functions the
+   * structural pass folded into their enclosing function (they are no nodes, but still scopes).
+   */
+  private lexicalScopeSpans(): Map<string, { startLine: number; endLine: number }[]> {
+    const spans = new Map<string, { startLine: number; endLine: number }[]>();
+    const add = (file: string, span: { startLine: number; endLine: number }) => {
+      const list = spans.get(file);
+      if (list) list.push(span);
+      else spans.set(file, [span]);
+    };
+    for (const fn of this.baseline.graph.functions.values())
+      add(fn.location.filePath, { startLine: fn.location.startLine, endLine: fn.location.endLine });
+    for (const f of this.baseline.structuralFiles) for (const span of f.foldedScopes ?? []) add(f.path, span);
+    return spans;
   }
 
   /** Resolve `this.<injected>.method()` at a site to the real method id via the DI map. */
@@ -2562,7 +2603,7 @@ export class TreeSitterScipSubstrate implements Substrate {
       return this.idGen.methodId(filePath, call.enclosingClass, call.enclosingName);
     }
     if (call.enclosingKind === 'function' && call.enclosingName) {
-      return this.idGen.functionId(filePath, call.enclosingName);
+      return this.functionIdAt(filePath, call.enclosingName, call.startLine);
     }
     return undefined;
   }
@@ -2827,7 +2868,7 @@ export class TreeSitterScipSubstrate implements Substrate {
       }
     }
     for (const fn of f.functions) {
-      if (fn.startLine <= line && line <= fn.endLine) return this.idGen.functionId(f.path, fn.name);
+      if (fn.startLine <= line && line <= fn.endLine) return this.functionIdAt(f.path, fn.name, line);
     }
     return undefined;
   }
