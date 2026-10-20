@@ -268,8 +268,11 @@ export interface Substrate {
   hasFunctionId(id: string): boolean;
   /** Resolve a method id on a class by name (DI target resolution). */
   resolveMethodOnClass(className: string, methodName: string): string | undefined;
-  /** Resolve a top-level function id by (file, name). */
-  functionId(filePath: string, name: string): string | undefined;
+  /**
+   * Resolve a top-level function id by (file, name). `line`, when given, picks among same-named
+   * functions of the file the one spanning it.
+   */
+  functionId(filePath: string, name: string, line?: number): string | undefined;
   /**
    * Tightest already-emitted function node whose span contains (filePath, line) —
    * how a caller is attributed for a call site known only by location (e.g. a

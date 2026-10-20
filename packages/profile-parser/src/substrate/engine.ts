@@ -2271,7 +2271,7 @@ export class SubstrateProfileEngine {
     for (const f of this.substrate.functions()) {
       if (f.loc.filePath !== site.file) continue;
       if (f.loc.startLine <= site.loc.startLine && site.loc.startLine <= f.loc.endLine) {
-        return this.substrate.functionId(site.file, f.name);
+        return this.substrate.functionId(site.file, f.name, site.loc.startLine);
       }
     }
     return undefined;

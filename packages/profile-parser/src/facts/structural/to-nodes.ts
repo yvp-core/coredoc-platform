@@ -53,8 +53,19 @@ export function structuralToNodes(
     g.addImport(edge);
   }
 
+  // Two functions may share a name in one file (a top-level `function emit` and an `emit:` arrow in
+  // an object literal, or same-named helpers nested in two methods). `functionId(file, name)` would
+  // give both one id and the later would overwrite the earlier, so the first keeps the plain id and
+  // each later one is suffixed `#2`, `#3`… in document order. `fnSpans` lets callers pick the right one.
+  const fnSpans = new Map<string, { id: string; startLine: number; endLine: number }[]>();
   for (const fn of file.functions) {
-    const id = idGen.functionId(file.path, fn.name || 'anonymous');
+    const name = fn.name || 'anonymous';
+    const spans = fnSpans.get(name) ?? [];
+    // The walker can report one declaration twice; that is the same function, not a namesake.
+    const same = spans.find((s) => s.startLine === fn.startLine);
+    const id = same?.id ?? idGen.functionId(file.path, spans.length && fn.name ? `${name}#${spans.length + 1}` : name);
+    if (!same) spans.push({ id, startLine: fn.startLine, endLine: fn.endLine });
+    fnSpans.set(name, spans);
     const sourceCode = sliceSrc(fn.startLine, fn.endLine);
     const node: FunctionNode = {
       id,
@@ -249,7 +260,7 @@ export function structuralToNodes(
     // Skip calls on built-in globals (console.log, Math.max, JSON.parse, …): never a graph edge,
     // and dropping them here also keeps them out of the overlay residue.
     if (isBuiltinReceiverCall(call.receiver)) continue;
-    const callerId = resolveEnclosingId(call, file, idGen);
+    const callerId = resolveEnclosingId(call, file, idGen, fnSpans);
     if (!callerId) continue;
     const loc = `${file.path}:${call.startLine}`;
     const edge: CallEdge = {
@@ -261,14 +272,19 @@ export function structuralToNodes(
       arguments: call.arguments.length ? call.arguments : undefined,
       location: { filePath: file.path, startLine: call.startLine, endLine: call.endLine },
     };
-    g.addCall(edge);
+    g.addCall(
+      edge,
+      call.nameLine !== undefined && call.nameColumn !== undefined
+        ? { line: call.nameLine, column: call.nameColumn, name: call.methodName }
+        : undefined,
+    );
   }
 
   // Value-position enum-member references (`Status.Locked`). The enum stays UNRESOLVED here —
   // `assemble` keeps only references naming an emitted enum, and the storage layer resolves the
   // (name, importedFrom) pair to the declaring enum node.
   for (const ref of file.enumMemberRefs) {
-    const sourceId = resolveEnclosingId(ref, file, idGen);
+    const sourceId = resolveEnclosingId(ref, file, idGen, fnSpans);
     if (!sourceId) continue; // module-level references have no function node to source the edge at
     g.addEnumMemberRef({
       id: idGen.enumMemberRefEdgeId(sourceId, ref.enumName, ref.member, ref.importedFrom),
@@ -291,7 +307,8 @@ export function structuralToNodes(
   // references naming an emitted class, and the storage layer links the node.
   for (const ref of file.classRefs) {
     const sourceId =
-      (ref.refKind === 'construction' ? resolveEnclosingId(ref, file, idGen) : undefined) ?? idGen.fileId(file.path);
+      (ref.refKind === 'construction' ? resolveEnclosingId(ref, file, idGen, fnSpans) : undefined) ??
+      idGen.fileId(file.path);
     g.addClassRef({
       id: idGen.classRefEdgeId(sourceId, ref.className, ref.refKind, ref.importedFrom),
       sourceId,
@@ -306,17 +323,29 @@ export function structuralToNodes(
   }
 }
 
-/** The enclosing function/method id of a site, or undefined for module scope. */
+/**
+ * The enclosing function/method id of a site, or undefined for module scope. Among same-named
+ * functions of the file, the innermost one whose span contains the site.
+ */
 function resolveEnclosingId(
-  site: { enclosingKind: 'method' | 'function' | 'module'; enclosingClass?: string; enclosingName?: string },
+  site: {
+    enclosingKind: 'method' | 'function' | 'module';
+    enclosingClass?: string;
+    enclosingName?: string;
+    startLine: number;
+  },
   file: StructuralFile,
   idGen: StableIdGenerator,
+  fnSpans: Map<string, { id: string; startLine: number; endLine: number }[]>,
 ): string | undefined {
   if (site.enclosingKind === 'method' && site.enclosingClass && site.enclosingName) {
     return idGen.methodId(file.path, site.enclosingClass, site.enclosingName);
   }
   if (site.enclosingKind === 'function' && site.enclosingName) {
-    return idGen.functionId(file.path, site.enclosingName);
+    const containing = (fnSpans.get(site.enclosingName) ?? [])
+      .filter((s) => s.startLine <= site.startLine && site.startLine <= s.endLine)
+      .sort((a, b) => b.startLine - a.startLine);
+    return containing[0]?.id ?? idGen.functionId(file.path, site.enclosingName);
   }
   return undefined; // module-level calls have no FunctionNode caller in v1
 }

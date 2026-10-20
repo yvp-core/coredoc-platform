@@ -460,4 +460,40 @@ router.get('/x', (req, res) => {
     // and it is NOT the old name+location seed
     expect(node.versionedId).not.toBe(idGen.versionedId(id, 'f:2-4'));
   });
+
+  it('folds a nested function called only directly into its enclosing function', async () => {
+    const SRC = [
+      'export function run(xs) {',
+      '  const norm = (x) => trim(x);',
+      '  function sum() {',
+      '    return total(xs);',
+      '  }',
+      '  const onDone = () => notify();',
+      '  emitter.on("done", onDone);',
+      '  const fmt = (x) => format(x);',
+      '  xs.forEach(fmt);',
+      '  return norm(xs) + sum();',
+      '}',
+    ].join('\n');
+    const file = await parseTsStructural('src/run.ts', SRC, 'typescript');
+    const idGen = new StableIdGenerator('/repo', 'k');
+    const g = new CodeGraph();
+    structuralToNodes(file, g, idGen, 'r:package:.', SRC);
+
+    // `norm`, `sum` and `fmt` (handed only to an array method) never leave `run`; `onDone` escapes
+    // as an event handler.
+    expect([...g.functions.values()].map((f) => f.name).sort()).toEqual(['onDone', 'run']);
+    const calls = [...g.calls.values()].map((c) => [c.calleeExpression, c.callerId.split(':').pop()]);
+    // Their bodies' calls belong to `run`; calling them is not an edge.
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        ['trim', 'run'],
+        ['total', 'run'],
+        ['format', 'run'],
+        ['notify', 'onDone'],
+      ]),
+    );
+    expect(calls.map(([expr]) => expr)).not.toContain('norm');
+    expect(calls.map(([expr]) => expr)).not.toContain('sum');
+  });
 });

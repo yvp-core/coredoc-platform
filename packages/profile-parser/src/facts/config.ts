@@ -13,6 +13,12 @@ export const PARSER_ID = 'coredoc-code-graph-tsjs-v1';
  * EXTRACTS — new node/edge kinds, changed ids, changed resolution — must bump this, or callers
  * with a warm cache and unchanged source keep the old graph and the change ships invisibly.
  *
+ * 1.3.0: TS/JS call graph. SCIP references join structural call sites by name-token position
+ * (several calls per line, chained calls); document-local symbols resolve nested functions;
+ * same-named functions of one file get distinct ids (`name`, `name#2`, …); a nested function that
+ * is only called directly inside its enclosing function is folded into it (no node, no edge).
+ * Node ids change for those functions and resolved call edges retarget. See MIGRATION below.
+ *
  * 1.2.6: distinguish incomplete semantic indexing from structural extraction errors in cache reuse.
  * Re-parse warm caches once; graph IDs are unchanged.
  *
@@ -42,7 +48,30 @@ export const PARSER_ID = 'coredoc-code-graph-tsjs-v1';
  * entrypoints, await-import CALLS, USES_TYPE member types, lazy() route componentIds, python
  * file/class nodes + DRF/urlconf/model-base lanes, rust classes, package-import facts).
  */
-export const PARSER_VERSION = '1.2.6';
+export const PARSER_VERSION = '1.3.0';
+
+/**
+ * MIGRATION — 1.2.6 → 1.3.0 (TS/JS call-graph join)
+ *
+ * WHAT CHANGED (TypeScript/JavaScript, including Vue `<script>`; other languages are untouched):
+ *   - Resolved call edges: calls that shared a line with another call, chained calls, calls to
+ *     nested functions and calls inside same-named functions now resolve; the duplicate
+ *     resolved + unresolved record a call used to leave behind is gone. Call-site counts in
+ *     `stats.callResolution` drop and the resolved share rises.
+ *   - Node ids: the second and later same-named function of a file is `name#2`, `name#3`, … (the
+ *     first keeps `name`). Before, they shared one id and the last one won, so `name` may now
+ *     point at a different body. A nested function only called directly inside its enclosing
+ *     function is no longer a node.
+ *
+ * WHO IS AFFECTED: every TS/JS repo. Manual intent anchors on a folded nested function read
+ * `missing` and on a same-named function may read `changed`; re-anchor them. CI anchors re-sync
+ * themselves. A feature seed on a node that no longer exists stops contributing silently.
+ * Summaries/embeddings are regenerated for changed and new nodes.
+ *
+ * PROCEDURE: `coredoc parse` + `coredoc push` per project. Release desktop, CLI and the CI action
+ * together, so one repo is not published alternately by both parser versions. Rollback requires
+ * re-parsing with the prior parser.
+ */
 
 /**
  * MIGRATION — 1.2.3 → 1.2.4 (Ruby association readers + resolution records)
