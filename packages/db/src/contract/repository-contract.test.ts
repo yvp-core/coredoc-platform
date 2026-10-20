@@ -624,6 +624,8 @@ const contractCases = {
       const depth10 = await repository.getTransitiveCallers(CONTRACT_IDS.cycleB, 10, [CONTRACT_REPO_A]);
       const clamped = await repository.getTransitiveCallers(CONTRACT_IDS.cycleB, 99, [CONTRACT_REPO_A]);
       const capped = await repository.getTransitiveCallers(CONTRACT_IDS.capTarget, 1, [CONTRACT_REPO_A]);
+      // MCP asks for one row beyond its cap to learn whether more exist.
+      const limited = await repository.getTransitiveCallers(CONTRACT_IDS.capTarget, 1, [CONTRACT_REPO_A], 101);
       const deepMax = await repository.getTransitiveCallers(CONTRACT_IDS.deepCallNodeIds[12] as string, 10, [
         CONTRACT_REPO_A,
       ]);
@@ -638,6 +640,7 @@ const contractCases = {
         depth10: depth10.map((row) => ({ id: row.id, distance: row.distance })),
         clampMatches: clamped.map((row) => row.id).join('|') === depth10.map((row) => row.id).join('|'),
         cappedIds: capped.map((row) => row.id),
+        limitedIds: limited.map((row) => row.id),
         deepMax: deepMax.map((row) => ({ id: row.id, distance: row.distance })),
         deepOverMax: deepOverMax.map((row) => ({ id: row.id, distance: row.distance })),
       };
@@ -655,13 +658,14 @@ const contractCases = {
       ],
       clampMatches: true,
       cappedIds: CONTRACT_IDS.capCallerIds.slice(0, 100),
+      limitedIds: CONTRACT_IDS.capCallerIds.slice(0, 101),
       deepMax: deepCallerGolden,
       deepOverMax: deepCallerGolden,
     },
   },
 
   getReachingEntrypoints: {
-    normalization: 'exact fullPath order; depth 1, 10, and clamp tested directly',
+    normalization: 'exact nearest-handler-then-fullPath order; depth 1, 10, clamp and limit tested directly',
     run: async (repository) => {
       const depth1 = await repository.getReachingEntrypoints(CONTRACT_IDS.cycleB, 1, [CONTRACT_REPO_A]);
       const depth10 = await repository.getReachingEntrypoints(CONTRACT_IDS.cycleB, 10, [CONTRACT_REPO_A]);
@@ -673,6 +677,7 @@ const contractCases = {
         CONTRACT_REPO_A,
       ]);
       const capped = await repository.getReachingEntrypoints(CONTRACT_IDS.handlerB1, 1, [CONTRACT_REPO_B]);
+      const limited = await repository.getReachingEntrypoints(CONTRACT_IDS.handlerB1, 1, [CONTRACT_REPO_B], 101);
       return {
         depth1: depth1.map((row) => row.id),
         depth10: depth10.map((row) => row.id),
@@ -680,6 +685,7 @@ const contractCases = {
         deepMax: deepMax.map((row) => row.id),
         deepOverMax: deepOverMax.map((row) => row.id),
         cappedIds: capped.map((row) => row.id),
+        limitedIds: limited.map((row) => row.id),
       };
     },
     golden: {
@@ -689,6 +695,8 @@ const contractCases = {
       deepMax: [CONTRACT_IDS.deepAllowedEntrypoint],
       deepOverMax: [CONTRACT_IDS.deepAllowedEntrypoint],
       cappedIds: CONTRACT_IDS.entrypointLimitIds.slice(0, 20),
+      // A limit above the 26 reaching entrypoints returns all of them, in the same order.
+      limitedIds: [...CONTRACT_IDS.entrypointLimitIds.slice(0, 25), CONTRACT_IDS.entrypointB1],
     },
   },
 

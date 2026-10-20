@@ -17,6 +17,8 @@ import {
   DEAD_CODE_DEFAULT_TYPES,
   clampLimit,
   BRIDGE_LIMIT,
+  REACHING_ENTRYPOINT_LIMIT,
+  TRANSITIVE_CALLER_LIMIT,
   DEAD_NODE_LIMIT,
   EDGES_AMONG_LIMIT,
   ENTRYPOINT_LIST_LIMIT,
@@ -1379,7 +1381,12 @@ export class Neo4jRepository implements IGraphRepository {
     );
   }
 
-  async getTransitiveCallers(targetId: string, depth: number, repoHashes: string[]): Promise<CallerInfo[]> {
+  async getTransitiveCallers(
+    targetId: string,
+    depth: number,
+    repoHashes: string[],
+    limit?: number,
+  ): Promise<CallerInfo[]> {
     const repoFilter = buildRepoFilter('caller', repoHashes);
 
     const query = `
@@ -1394,7 +1401,7 @@ export class Neo4jRepository implements IGraphRepository {
       OPTIONAL MATCH (caller)<-[:HAS_METHOD]-(cls:Class)
       RETURN DISTINCT caller, distance, inferred as provenanceInferred, cls.name as className
       ORDER BY distance, caller.filePath
-      LIMIT 100
+      LIMIT ${clampLimit(limit ?? 0, TRANSITIVE_CALLER_LIMIT.max, TRANSITIVE_CALLER_LIMIT.fallback)}
     `;
 
     const results = await this.driver.withReadTransaction(async (tx) => {
@@ -1415,7 +1422,12 @@ export class Neo4jRepository implements IGraphRepository {
     );
   }
 
-  async getReachingEntrypoints(targetId: string, depth: number, repoHashes: string[]): Promise<EntrypointInfo[]> {
+  async getReachingEntrypoints(
+    targetId: string,
+    depth: number,
+    repoHashes: string[],
+    limit?: number,
+  ): Promise<EntrypointInfo[]> {
     const repoFilter = buildRepoFilter('ep', repoHashes);
 
     // Prune from the target outward, not from every entrypoint inward. Binding
@@ -1425,13 +1437,13 @@ export class Neo4jRepository implements IGraphRepository {
     // variable-length path from each. `*0` keeps the handler-IS-target case.
     const query = `
       MATCH (target:Function {id: $targetId})
-      MATCH (handler:Function)-[:CALLS*0..${intDepth(depth) + 3}]->(target)
-      WITH DISTINCT handler
+      MATCH path = (handler:Function)-[:CALLS*0..${intDepth(depth) + 3}]->(target)
+      WITH handler, min(length(path)) AS distance
       MATCH (ep:Entrypoint)-[:HANDLES]->(handler)
       WHERE ${repoFilter}
-      RETURN DISTINCT ep, handler.name as handlerName, handler.id as handlerId
-      ORDER BY ep.fullPath
-      LIMIT 20
+      RETURN DISTINCT ep, handler.name as handlerName, handler.id as handlerId, distance
+      ORDER BY distance, ep.fullPath
+      LIMIT ${clampLimit(limit ?? 0, REACHING_ENTRYPOINT_LIMIT.max, REACHING_ENTRYPOINT_LIMIT.fallback)}
     `;
 
     const results = await this.driver.withReadTransaction(async (tx) => {

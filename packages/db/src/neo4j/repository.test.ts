@@ -264,7 +264,7 @@ describe('Neo4jRepository — entrypoint type parity', () => {
     expect(queryMatching(driver, 'MATCH (n:Route)')).toBeUndefined();
   });
 
-  it('getReachingEntrypoints reads entrypointType, orders by fullPath, clamps depth', async () => {
+  it('getReachingEntrypoints reads entrypointType, orders nearest handler first, clamps depth and limit', async () => {
     const { repo, driver } = makeRepo();
     driver.responder = () => [
       { ep: { id: 'h:entrypoint:1', entrypointType: 'queue' }, handlerName: 'h', handlerId: 'h:fn:1' },
@@ -273,9 +273,12 @@ describe('Neo4jRepository — entrypoint type parity', () => {
     const result = await repo.getReachingEntrypoints('h:fn:target', 2, ['hash']);
 
     const q = lastQuery(driver);
-    expect(q).toContain('ORDER BY ep.fullPath');
+    expect(q).toContain('ORDER BY distance, ep.fullPath');
     expect(q).toContain('CALLS*0..5'); // intDepth(2) + 3
+    expect(q).toContain('LIMIT 20');
     expect(result[0]?.type).toBe('queue');
+    await repo.getReachingEntrypoints('h:fn:target', 2, ['hash'], 101);
+    expect(lastQuery(driver)).toContain('LIMIT 101');
   });
 
   it('getReachingEntrypoints coerces a NaN depth to a safe integer literal', async () => {

@@ -7,6 +7,8 @@ import { NodeType } from '@coredoc/core';
 import { resetCoverageCaveatCache } from '../../coverage.js';
 import { DETAIL_ESCALATION_HINT } from '../../detail-level.js';
 import { handleFindCallers } from './find-callers.js';
+import { formatCallerList } from '../../response-formatter.js';
+import { CALLER_CAP } from '../../impact-caps.js';
 import type { ScopeContext, CallerInfo, DetailLevel, DetailLevelConfig } from '../../types.js';
 import {
   createMockRepository,
@@ -250,6 +252,7 @@ describe('get_callers Tool Handler', () => {
         'abc:function:pages/api/ai/sql/filter-v1.ts:wrapper',
         1,
         mockScope.repoHashes,
+        CALLER_CAP + 1,
       );
       // Sanity: the response references the file the agent asked about.
       expect(JSON.stringify(result.data)).not.toContain('code/complete.ts');
@@ -767,6 +770,31 @@ describe('get_callers Tool Handler', () => {
       const data = result.data as { callers: CallerInfo[]; reachingEntrypoints: unknown[] };
       expect(data.callers).toHaveLength(1);
       expect(data.callers[0].name).toBe('UserPage');
+    });
+
+    it('marks a full direct-caller list of a state_store as possibly cut', async () => {
+      const callers = Array.from({ length: CALLER_CAP }, (_, i) =>
+        createMockCallerInfo({ id: `abc123:function:src/p${i}.ts:p${i}`, name: `p${i}`, distance: 1 }),
+      );
+      const mockRepo = createMockRepository({
+        findFunction: vi.fn().mockResolvedValue(null),
+        findCode: vi
+          .fn()
+          .mockResolvedValue([
+            { id: 'abc123:state_store:src/s.ts:s', name: 's', type: 'state_store', filePath: 'src/s.ts', startLine: 1 },
+          ]),
+        getDirectCallers: vi.fn().mockResolvedValue(callers),
+      });
+      await handleFindCallers(
+        { functionName: 's', limit: 500 },
+        mockScope,
+        'raw',
+        defaultDetailLevel,
+        defaultDetailConfig,
+        mockRepo,
+      );
+      // The formatter is mocked in this file: check the truncation it was handed.
+      expect(vi.mocked(formatCallerList).mock.lastCall?.[5]).toEqual({ callers: true });
     });
 
     it('still reports "not found" when neither function nor state_store/variable matches', async () => {

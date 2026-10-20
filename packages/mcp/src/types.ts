@@ -606,6 +606,11 @@ export interface ChangeImpactResult {
     /** Consumers in that repo */
     consumers: CallerInfo[];
   }[];
+  /**
+   * Set when a list was cut at its cap (nearest first): more callers / entrypoints exist than
+   * the ones listed, and the counts above are lower bounds.
+   */
+  truncated?: { callers?: true; entrypoints?: true };
   /** Risk assessment */
   riskLevel: 'low' | 'medium' | 'high';
   /** Summary of impact */

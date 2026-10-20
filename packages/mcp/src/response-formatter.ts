@@ -38,6 +38,7 @@ import type {
 } from './types.js';
 import { displayEntrypointAddress } from './entrypoint-address.js';
 import { ZERO_RESULTS_MARKER, zeroResultsLine } from './empty-results.js';
+import { ENTRYPOINT_SUMMARY_ROWS, callerCuts, countLabel } from './impact-caps.js';
 import {
   formatPercent,
   DYNAMIC_DISPATCH_CAVEAT,
@@ -591,9 +592,11 @@ export function formatChangeImpact(
   // Impact summary
   lines.push(`${result.impactSummary}\n`);
 
+  const cuts = callerCuts(result.transitiveCallers, result.truncated);
+
   // Direct callers
   if (result.directCallers.length > 0) {
-    lines.push(`### Direct Callers (${result.directCallers.length})\n`);
+    lines.push(`### Direct Callers (${countLabel(result.directCallers.length, cuts.direct)})\n`);
     for (const caller of result.directCallers.slice(0, 10)) {
       lines.push(`- ${formatCallerSummary(caller, resolve)}`);
     }
@@ -605,7 +608,7 @@ export function formatChangeImpact(
 
   // Transitive callers
   if (result.transitiveCallers.length > 0) {
-    lines.push(`### Transitive Callers (${result.transitiveCallers.length})\n`);
+    lines.push(`### Transitive Callers (${countLabel(result.transitiveCallers.length, cuts.transitive)})\n`);
     for (const caller of result.transitiveCallers.slice(0, 10)) {
       lines.push(`- ${formatCallerSummary(caller, resolve)}`);
     }
@@ -632,11 +635,17 @@ export function formatChangeImpact(
     lines.push('');
   }
 
-  // Affected entrypoints
+  // Affected entrypoints, nearest handler first
   if (result.affectedEntrypoints.length > 0) {
-    lines.push(`### Affected Entrypoints (${result.affectedEntrypoints.length})\n`);
-    for (const ep of result.affectedEntrypoints) {
+    const count = countLabel(result.affectedEntrypoints.length, result.truncated?.entrypoints);
+    lines.push(`### Affected Entrypoints (${count})\n`);
+    for (const ep of result.affectedEntrypoints.slice(0, ENTRYPOINT_SUMMARY_ROWS)) {
       lines.push(`- ${formatEntrypointSummary(ep, resolve)}`);
+    }
+    if (result.affectedEntrypoints.length > ENTRYPOINT_SUMMARY_ROWS) {
+      lines.push(
+        `- ... and ${result.affectedEntrypoints.length - ENTRYPOINT_SUMMARY_ROWS} more (\`format: "raw"\` lists them)`,
+      );
     }
     lines.push('');
   }
@@ -1305,15 +1314,29 @@ export function formatCallerList(
   metadata: McpResponseMetadata,
   reachingEntrypoints?: EntrypointInfo[],
   displayLimit: number = 20,
-): McpResponse<{ callers: CallerInfo[]; reachingEntrypoints: EntrypointInfo[]; totalCallers: number } | string> {
+  /** Set when the graph query hit its cap: more callers / entrypoints exist than counted here. */
+  truncated?: { callers?: true; entrypoints?: true },
+): McpResponse<
+  | {
+      callers: CallerInfo[];
+      reachingEntrypoints: EntrypointInfo[];
+      totalCallers: number;
+      totalReachingEntrypoints: number;
+      truncated?: { callers?: true; entrypoints?: true };
+    }
+  | string
+> {
   const resultCount = callers.length;
   const resolve = buildRepoResolver(metadata.scope);
   if (metadata.format === 'raw') {
+    // Both lists are cut to `limit` here; the totals say how many the graph query returned.
     return {
       data: {
         callers: tagRepoArray(callers.slice(0, displayLimit), resolve),
         reachingEntrypoints: tagRepoArray((reachingEntrypoints || []).slice(0, displayLimit), resolve),
         totalCallers: callers.length,
+        totalReachingEntrypoints: reachingEntrypoints?.length ?? 0,
+        ...(truncated && { truncated }),
       },
       metadata,
       resultCount,
@@ -1322,7 +1345,7 @@ export function formatCallerList(
 
   const lines: string[] = [];
   lines.push(formatHeaderBanners(metadata));
-  lines.push(`## Callers of \`${functionName}\` (${callers.length})\n`);
+  lines.push(`## Callers of \`${functionName}\` (${countLabel(callers.length, truncated?.callers)})\n`);
 
   if (callers.length === 0 && (!reachingEntrypoints || reachingEntrypoints.length === 0)) {
     lines.push(zeroResultsLine(`no caller or reaching entrypoint found for \`${functionName}\` in this scope`));
@@ -1331,9 +1354,10 @@ export function formatCallerList(
   // Group by distance
   const direct = callers.filter((c) => c.distance === 1);
   const transitive = callers.filter((c) => c.distance > 1);
+  const cuts = callerCuts(transitive, truncated);
 
   if (direct.length > 0) {
-    lines.push(`### Direct Callers (${direct.length})`);
+    lines.push(`### Direct Callers (${countLabel(direct.length, cuts.direct)})`);
     for (const caller of direct.slice(0, displayLimit)) {
       lines.push(`- ${formatFunctionSummary(caller, { resolve })}`);
     }
@@ -1344,7 +1368,7 @@ export function formatCallerList(
   }
 
   if (transitive.length > 0) {
-    lines.push(`### Transitive Callers (${transitive.length})`);
+    lines.push(`### Transitive Callers (${countLabel(transitive.length, cuts.transitive)})`);
     for (const caller of transitive.slice(0, displayLimit)) {
       lines.push(`- ${formatCallerSummary(caller, resolve)}`);
     }
@@ -1355,13 +1379,20 @@ export function formatCallerList(
 
   if (reachingEntrypoints && reachingEntrypoints.length > 0) {
     lines.push('');
-    lines.push(`### Reaching Entrypoints (${reachingEntrypoints.length})`);
+    lines.push(`### Reaching Entrypoints (${countLabel(reachingEntrypoints.length, truncated?.entrypoints)})`);
     for (const ep of reachingEntrypoints.slice(0, displayLimit)) {
       lines.push(`- ${formatEntrypointSummary(ep, resolve)}`);
     }
     if (reachingEntrypoints.length > displayLimit) {
       lines.push(`- ... and ${reachingEntrypoints.length - displayLimit} more`);
     }
+  }
+
+  if (truncated) {
+    lines.push('');
+    lines.push(
+      '> Truncated: only the nearest callers / entrypoints were returned; more exist. A smaller `depth` may fit them all.',
+    );
   }
 
   pushDetailFooter(lines, metadata);

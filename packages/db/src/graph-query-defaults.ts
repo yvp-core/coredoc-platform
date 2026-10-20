@@ -113,6 +113,10 @@ export const SUBGRAPH_EXPANSION_LIMIT = { max: 100_000, fallback: 1000 } as cons
 export const DEAD_NODE_LIMIT = { max: 200, fallback: 50 } as const;
 /** `getCrossRepoBridges`. */
 export const BRIDGE_LIMIT = { max: 200, fallback: 50 } as const;
+/** `getTransitiveCallers` — nearest first; callers ask for one more than they show. */
+export const TRANSITIVE_CALLER_LIMIT = { max: 1000, fallback: 100 } as const;
+/** `getReachingEntrypoints` — nearest handler first; callers ask for one more than they show. */
+export const REACHING_ENTRYPOINT_LIMIT = { max: 1000, fallback: 20 } as const;
 /** `queryUnresolvedCalls` — falls back to {@link UNRESOLVED_CALL_DEFAULT_LIMIT}. */
 export const UNRESOLVED_CALL_LIMIT = { max: 1000, fallback: UNRESOLVED_CALL_DEFAULT_LIMIT } as const;
 

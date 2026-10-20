@@ -8,6 +8,7 @@ import { type IGraphReadRepository, type EntrypointInfo as DbEntrypointInfo } fr
 import { formatChangeImpact, createMetadata } from '../../response-formatter.js';
 import { boundariesInFiles, appendBoundarySection } from '../../boundaries.js';
 import { ZERO_RESULTS_MARKER } from '../../empty-results.js';
+import { CALLER_CAP, ENTRYPOINT_CAP, callerCuts, capped, countLabel } from '../../impact-caps.js';
 import { isTestFilePath } from '../../test-file.js';
 import { debug, debugResult } from '../../debug-logger.js';
 import type {
@@ -219,10 +220,15 @@ export async function handleAnalyzeChangeImpact(
 
   const directCallers: CallerInfo[] = [];
   const transitiveCallers: CallerInfo[] = [];
+  let callersTruncated = false;
 
   if (traverseCalls) {
     debug('getCallers', `targetId=${targetElement.id}, depth=${depth}`);
-    const allCallers = await repository.getTransitiveCallers(targetElement.id, depth, scope.repoHashes);
+    const { items: allCallers, truncated } = await capped(
+      (limit) => repository.getTransitiveCallers(targetElement.id, depth, scope.repoHashes, limit),
+      CALLER_CAP,
+    );
+    callersTruncated = truncated;
     debugResult('getCallers', allCallers.length);
 
     for (const caller of allCallers) {
@@ -326,8 +332,8 @@ export async function handleAnalyzeChangeImpact(
   // on the connection but still tie up event-loop memory). 8 in flight gives
   // most of the parallel speed-up while protecting both backends.
   const CONCURRENCY = 8;
-  const seenEntrypointIds = new Set<string>();
-  const reachingEntrypoints: DbEntrypointInfo[] = [];
+  const perSeed: DbEntrypointInfo[][] = [];
+  let entrypointsTruncated = false;
   let next = 0;
   await Promise.all(
     Array.from({ length: Math.min(CONCURRENCY, entrypointSeeds.length) }, async () => {
@@ -335,16 +341,36 @@ export async function handleAnalyzeChangeImpact(
         const idx = next++;
         if (idx >= entrypointSeeds.length) return;
         const seedId = entrypointSeeds[idx]!;
-        const eps = await repository.getReachingEntrypoints(seedId, depth, scope.repoHashes);
-        for (const ep of eps) {
-          if (seenEntrypointIds.has(ep.id)) continue;
-          seenEntrypointIds.add(ep.id);
-          reachingEntrypoints.push(ep);
-        }
+        const { items, truncated } = await capped(
+          (limit) => repository.getReachingEntrypoints(seedId, depth, scope.repoHashes, limit),
+          ENTRYPOINT_CAP,
+        );
+        entrypointsTruncated ||= truncated;
+        perSeed[idx] = items;
       }
     }),
   );
+  // Merged in seed order, not completion order: the target's own entrypoints (nearest first)
+  // come before its type users', so the shared cap below drops the farthest ones.
+  const seenEntrypointIds = new Set<string>();
+  const reachingEntrypoints: DbEntrypointInfo[] = [];
+  for (const ep of perSeed.flat()) {
+    if (seenEntrypointIds.has(ep.id)) continue;
+    seenEntrypointIds.add(ep.id);
+    reachingEntrypoints.push(ep);
+  }
   debugResult('getReachingEntrypoints', reachingEntrypoints.length);
+  if (reachingEntrypoints.length > ENTRYPOINT_CAP) {
+    reachingEntrypoints.length = ENTRYPOINT_CAP;
+    entrypointsTruncated = true;
+  }
+  const truncated =
+    callersTruncated || entrypointsTruncated
+      ? {
+          ...(callersTruncated && { callers: true as const }),
+          ...(entrypointsTruncated && { entrypoints: true as const }),
+        }
+      : undefined;
 
   const affectedEntrypoints: EntrypointInfo[] = reachingEntrypoints.map((ep) => ({
     id: ep.id,
@@ -411,6 +437,7 @@ export async function handleAnalyzeChangeImpact(
     affectedTests,
     crossRepoImpacts,
     typeUsersOut,
+    truncated,
   );
 
   // Filter results based on detail level (use default 'full' config if not provided)
@@ -436,6 +463,7 @@ export async function handleAnalyzeChangeImpact(
     affectedEntrypoints: filteredEntrypoints,
     affectedTests: filteredTests,
     crossRepoImpacts,
+    truncated,
     riskLevel,
     impactSummary,
   };
@@ -526,22 +554,25 @@ function buildImpactSummary(
   affectedTests: CodeElementInfo[],
   crossRepoImpacts?: { repo: string; consumers: CallerInfo[] }[],
   typeUsers?: CodeElementInfo[],
+  truncated?: ChangeImpactResult['truncated'],
 ): string {
   const parts: string[] = [];
 
   parts.push(`Changing \`${target.name}\` would affect:`);
 
+  // Callers come nearest first, so a cut list is short at its farthest distance.
+  const { direct: directCut, transitive: transitiveCut } = callerCuts(transitiveCallers, truncated);
   if (directCallers.length > 0) {
-    parts.push(`- ${directCallers.length} direct caller(s)`);
+    parts.push(`- ${countLabel(directCallers.length, directCut)} direct caller(s)`);
   }
   if (transitiveCallers.length > 0) {
-    parts.push(`- ${transitiveCallers.length} transitive caller(s)`);
+    parts.push(`- ${countLabel(transitiveCallers.length, transitiveCut)} transitive caller(s)`);
   }
   if (typeUsers && typeUsers.length > 0) {
     parts.push(`- ${typeUsers.length} type user(s)`);
   }
   if (affectedEntrypoints.length > 0) {
-    parts.push(`- ${affectedEntrypoints.length} API endpoint(s)`);
+    parts.push(`- ${countLabel(affectedEntrypoints.length, truncated?.entrypoints)} API endpoint(s)`);
   }
   if (affectedTests.length > 0) {
     parts.push(`- ${affectedTests.length} test file(s)`);
@@ -553,6 +584,15 @@ function buildImpactSummary(
 
   if (parts.length === 1) {
     parts.push(`- ${ZERO_RESULTS_MARKER} — No detected impacts (may be unused or only used by untracked code)`);
+  }
+  if (truncated) {
+    const lists = [
+      truncated.callers && `${CALLER_CAP} callers`,
+      truncated.entrypoints && `${ENTRYPOINT_CAP} entrypoints`,
+    ]
+      .filter(Boolean)
+      .join(' and ');
+    parts.push(`- Truncated: listed only the nearest ${lists}; more exist. A smaller \`depth\` may fit them all.`);
   }
 
   return parts.join('\n');

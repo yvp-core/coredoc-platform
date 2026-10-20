@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { TypeUseKind } from '@coredoc/db/types';
 import { handleAnalyzeChangeImpact, BOUNDARY_FILE_SCOPE_CAP } from './analyze-change-impact.js';
+import { CALLER_CAP, ENTRYPOINT_CAP } from '../../impact-caps.js';
 import type { ScopeContext, ChangeImpactResult } from '../../types.js';
 import { resolveDetailLevel, DETAIL_ESCALATION_HINT } from '../../detail-level.js';
 
@@ -699,7 +700,7 @@ describe('analyze_change_impact Tool Handler', () => {
         }),
       ]);
       expect(getReachingEntrypoints).toHaveBeenCalledTimes(1);
-      expect(getReachingEntrypoints).toHaveBeenCalledWith(targetId, 3, mockScope.repoHashes);
+      expect(getReachingEntrypoints).toHaveBeenCalledWith(targetId, 3, mockScope.repoHashes, ENTRYPOINT_CAP + 1);
     });
   });
 
@@ -1035,6 +1036,65 @@ describe('analyze_change_impact Tool Handler', () => {
   // Depth Parameter Tests
   // ===========================================================================
 
+  describe('Capped lists', () => {
+    const eps = (n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        createMockEntrypointInfo({ id: `abc123:entrypoint:http:${i}`, path: `/r${i}`, fullPath: `/r${i}` }),
+      );
+    const repoWith = (entrypoints: ReturnType<typeof eps>) =>
+      createMockRepository({
+        findFunction: vi
+          .fn()
+          .mockResolvedValue(createMockFunctionInfo({ id: 'abc123:function:src/service.ts:func', name: 'func' })),
+        getTransitiveCallers: vi.fn().mockResolvedValue([]),
+        getReachingEntrypoints: vi.fn().mockResolvedValue(entrypoints),
+      });
+    const run = (repo: ReturnType<typeof repoWith>, format: 'raw' | 'summary') =>
+      handleAnalyzeChangeImpact({ target: 'func' }, mockScope, format, defaultDetailLevel, defaultDetailConfig, repo);
+
+    it("keeps the target's own entrypoints when a type user's query fills the cap first", async () => {
+      const targetId = 'abc123:function:src/service.ts:func';
+      const own = createMockEntrypointInfo({ id: 'abc123:entrypoint:http:own', path: '/own', fullPath: '/own' });
+      const repo = createMockRepository({
+        findFunction: vi.fn().mockResolvedValue(createMockFunctionInfo({ id: targetId, name: 'func' })),
+        getTransitiveCallers: vi.fn().mockResolvedValue([]),
+        getTypeUsages: vi
+          .fn()
+          .mockResolvedValue([
+            { id: 'abc123:class:src/user.ts:User', name: 'User', type: 'class', filePath: 'src/user.ts', startLine: 1 },
+          ]),
+        // The type user's query answers immediately; the target's resolves later.
+        getReachingEntrypoints: vi.fn((seedId: string) =>
+          seedId === targetId
+            ? new Promise((resolve) => setTimeout(() => resolve([own]), 20))
+            : Promise.resolve(eps(ENTRYPOINT_CAP)),
+        ),
+      });
+      const raw = (await run(repo, 'raw')).data as ChangeImpactResult;
+      expect(raw.affectedEntrypoints[0]?.id).toBe(own.id);
+      expect(raw.affectedEntrypoints).toHaveLength(ENTRYPOINT_CAP);
+      expect(raw.truncated).toEqual({ entrypoints: true });
+    });
+
+    it('says an entrypoint list cut at its cap is a lower bound', async () => {
+      const repo = repoWith(eps(ENTRYPOINT_CAP + 1));
+      const raw = (await run(repo, 'raw')).data as ChangeImpactResult;
+      expect(raw.affectedEntrypoints).toHaveLength(ENTRYPOINT_CAP);
+      expect(raw.truncated).toEqual({ entrypoints: true });
+
+      // The impact summary (the formatter is mocked in this file; its rendering is tested with it).
+      const text = String((await run(repo, 'summary')).data);
+      expect(text).toContain(`${ENTRYPOINT_CAP}+ API endpoint(s)`);
+      expect(text).toContain(`listed only the nearest ${ENTRYPOINT_CAP} entrypoints; more exist`);
+    });
+
+    it('reports a list that fits its cap as complete', async () => {
+      const raw = (await run(repoWith(eps(ENTRYPOINT_CAP)), 'raw')).data as ChangeImpactResult;
+      expect(raw.affectedEntrypoints).toHaveLength(ENTRYPOINT_CAP);
+      expect(raw.truncated).toBeUndefined();
+    });
+  });
+
   describe('Depth Parameter', () => {
     it('should use default depth of 3', async () => {
       const getTransitiveCallers = vi.fn().mockResolvedValue([]);
@@ -1059,7 +1119,12 @@ describe('analyze_change_impact Tool Handler', () => {
         mockRepo,
       );
 
-      expect(getTransitiveCallers).toHaveBeenCalledWith('abc123:function:src/service.ts:func', 3, mockScope.repoHashes);
+      expect(getTransitiveCallers).toHaveBeenCalledWith(
+        'abc123:function:src/service.ts:func',
+        3,
+        mockScope.repoHashes,
+        CALLER_CAP + 1,
+      );
     });
 
     it('should respect custom depth parameter', async () => {
@@ -1085,7 +1150,12 @@ describe('analyze_change_impact Tool Handler', () => {
         mockRepo,
       );
 
-      expect(getTransitiveCallers).toHaveBeenCalledWith('abc123:function:src/service.ts:func', 5, mockScope.repoHashes);
+      expect(getTransitiveCallers).toHaveBeenCalledWith(
+        'abc123:function:src/service.ts:func',
+        5,
+        mockScope.repoHashes,
+        CALLER_CAP + 1,
+      );
     });
   });
 
@@ -1778,7 +1848,9 @@ describe('analyze_change_impact Tool Handler', () => {
         );
       }
 
-      it('appends the truncation note inside the boundary section when sites were also found', async () => {
+      // Callers are capped at CALLER_CAP (nearest first) before the boundary scan, so the scan's own
+      // file cap cannot be reached: the answer discloses the caller cut instead.
+      it('caps callers before the boundary scan and says so, so the scan covers every impacted file', async () => {
         const callers = callersAcrossManyFiles(BOUNDARY_FILE_SCOPE_CAP + 1);
         const mockRepo = createMockRepository({
           findFunction: vi.fn().mockResolvedValue(
@@ -1811,42 +1883,10 @@ describe('analyze_change_impact Tool Handler', () => {
           mockRepo,
         );
 
+        expect(result.data).toContain(`${CALLER_CAP}+ direct caller(s)`);
+        expect(result.data).toContain(`listed only the nearest ${CALLER_CAP} callers; more exist`);
         expect(result.data).toContain('Dynamic boundaries');
-        // 1 target file + (CAP+1) caller files, all distinct → CAP+2 total.
-        expect(result.data).toContain(
-          `boundary scan covered the first ${BOUNDARY_FILE_SCOPE_CAP} of ${BOUNDARY_FILE_SCOPE_CAP + 2} impacted files`,
-        );
-      });
-
-      it('emits the boundary section with just the note when truncation happened but nothing matched', async () => {
-        const callers = callersAcrossManyFiles(BOUNDARY_FILE_SCOPE_CAP + 1);
-        const mockRepo = createMockRepository({
-          findFunction: vi.fn().mockResolvedValue(
-            createMockFunctionInfo({
-              id: 'abc123:function:src/service.ts:processData',
-              name: 'processData',
-              filePath: 'src/service.ts',
-            }),
-          ),
-          getTransitiveCallers: vi.fn().mockResolvedValue(callers),
-          getReachingEntrypoints: vi.fn().mockResolvedValue([]),
-          findUnresolvedCallsInFiles: vi.fn().mockResolvedValue([]),
-        });
-        (getRepository as Mock).mockResolvedValue(mockRepo);
-
-        const result = await handleAnalyzeChangeImpact(
-          { target: 'processData', targetType: 'function' },
-          mockScope,
-          'summary',
-          defaultDetailLevel,
-          defaultDetailConfig,
-          mockRepo,
-        );
-
-        expect(result.data).toContain('Dynamic boundaries');
-        expect(result.data).toContain(
-          `boundary scan covered the first ${BOUNDARY_FILE_SCOPE_CAP} of ${BOUNDARY_FILE_SCOPE_CAP + 2} impacted files`,
-        );
+        expect(result.data).not.toContain('boundary scan covered the first');
       });
 
       it('adds no truncation note and no boundary section when the file count never hit the cap', async () => {

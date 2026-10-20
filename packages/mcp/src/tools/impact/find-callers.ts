@@ -30,6 +30,7 @@ import {
 } from '../../function-name.js';
 import { detectAmbiguity, toNodeTypes } from '../../ambiguity.js';
 import { appendLowCoverageCaveat } from '../../coverage.js';
+import { CALLER_CAP, ENTRYPOINT_CAP, capped } from '../../impact-caps.js';
 
 /**
  * Handle find_callers tool
@@ -124,9 +125,18 @@ export async function handleFindCallers(
   // doesn't exist for a non-callable target. Direct callers (depth=1)
   // already cover the use case: "who in the codebase references this?".
   debug('getCallers', `targetId=${targetId}, depth=${depth}, callable=${targetIsCallable}`);
-  const dbCallers = targetIsCallable
-    ? await repository.getTransitiveCallers(targetId, depth, scope.repoHashes)
-    : await repository.getDirectCallers(targetId, scope.repoHashes);
+  let dbCallers: DbCallerInfo[];
+  let callersTruncated: boolean;
+  if (targetIsCallable) {
+    ({ items: dbCallers, truncated: callersTruncated } = await capped(
+      (limit) => repository.getTransitiveCallers(targetId, depth, scope.repoHashes, limit),
+      CALLER_CAP,
+    ));
+  } else {
+    // getDirectCallers takes no limit and stops at CALLER_CAP per edge kind: a full list may be cut.
+    dbCallers = await repository.getDirectCallers(targetId, scope.repoHashes);
+    callersTruncated = dbCallers.length >= CALLER_CAP;
+  }
   // Calls bound to an interface method the target implements reach it through dispatch the
   // call graph cannot see; merge them, flagged as inferred.
   const interfaceMethods =
@@ -135,8 +145,16 @@ export async function handleFindCallers(
       : [];
   for (const methodId of interfaceMethods) {
     const seen = new Set(dbCallers.map((caller) => caller.id));
-    for (const caller of await repository.getTransitiveCallers(methodId, depth, scope.repoHashes))
-      if (!seen.has(caller.id)) dbCallers.push({ ...caller, provenanceInferred: true });
+    const { items, truncated } = await capped(
+      (limit) => repository.getTransitiveCallers(methodId, depth, scope.repoHashes, limit),
+      CALLER_CAP,
+    );
+    callersTruncated ||= truncated;
+    for (const caller of items) if (!seen.has(caller.id)) dbCallers.push({ ...caller, provenanceInferred: true });
+  }
+  if (dbCallers.length > CALLER_CAP) {
+    dbCallers.length = CALLER_CAP;
+    callersTruncated = true;
   }
   debugResult('getCallers', dbCallers.length);
 
@@ -144,13 +162,25 @@ export async function handleFindCallers(
   // only has CALLS edges, so reaching-entrypoints is a no-op for non-
   // callable targets.
   let entrypoints: EntrypointInfo[] = [];
+  let entrypointsTruncated = false;
   if (includeEntrypoints && targetIsCallable) {
     debug('getReachingEntrypoints', `targetId=${targetId}, depth=${depth}`);
-    entrypoints = await repository.getReachingEntrypoints(targetId, depth, scope.repoHashes);
+    ({ items: entrypoints, truncated: entrypointsTruncated } = await capped(
+      (limit) => repository.getReachingEntrypoints(targetId, depth, scope.repoHashes, limit),
+      ENTRYPOINT_CAP,
+    ));
     for (const methodId of interfaceMethods) {
       const seen = new Set(entrypoints.map((entrypoint) => entrypoint.id));
-      for (const entrypoint of await repository.getReachingEntrypoints(methodId, depth, scope.repoHashes))
-        if (!seen.has(entrypoint.id)) entrypoints.push(entrypoint);
+      const { items, truncated } = await capped(
+        (limit) => repository.getReachingEntrypoints(methodId, depth, scope.repoHashes, limit),
+        ENTRYPOINT_CAP,
+      );
+      entrypointsTruncated ||= truncated;
+      for (const entrypoint of items) if (!seen.has(entrypoint.id)) entrypoints.push(entrypoint);
+    }
+    if (entrypoints.length > ENTRYPOINT_CAP) {
+      entrypoints.length = ENTRYPOINT_CAP;
+      entrypointsTruncated = true;
     }
     debugResult('getReachingEntrypoints', entrypoints.length);
   }
@@ -220,7 +250,21 @@ export async function handleFindCallers(
       })
     : undefined;
   const metadata = await createMetadata(scope, format, detailLevel, detailConfig, repository, ambiguity);
-  const response = formatCallerList(filteredCallers, functionName, metadata, filteredEntrypoints, displayLimit);
+  const truncated =
+    callersTruncated || entrypointsTruncated
+      ? {
+          ...(callersTruncated && { callers: true as const }),
+          ...(entrypointsTruncated && { entrypoints: true as const }),
+        }
+      : undefined;
+  const response = formatCallerList(
+    filteredCallers,
+    functionName,
+    metadata,
+    filteredEntrypoints,
+    displayLimit,
+    truncated,
+  );
   // Function found but zero callers AND zero reaching entrypoints: with counted call sites left
   // unbound (or none counted at all) the absence may be a profile gap — append the one-line
   // caveat (lazy: only computed on the empty path, and only on the summary text).

@@ -1210,14 +1210,21 @@ export interface IGraphReadRepository {
   getDirectCallers(targetId: string, repoHashes: string[]): Promise<CallerInfo[]>;
 
   /**
-   * Get transitive callers up to a certain depth.
+   * Get transitive callers up to a certain depth, nearest first, at most `limit` (default 100).
+   * Ask for one more than you show to learn whether there are more.
    */
-  getTransitiveCallers(targetId: string, depth: number, repoHashes: string[]): Promise<CallerInfo[]>;
+  getTransitiveCallers(targetId: string, depth: number, repoHashes: string[], limit?: number): Promise<CallerInfo[]>;
 
   /**
-   * Get entrypoints that can reach a target function.
+   * Get entrypoints that can reach a target function, nearest handler first, at most `limit`
+   * (default 20). Ask for one more than you show to learn whether there are more.
    */
-  getReachingEntrypoints(targetId: string, depth: number, repoHashes: string[]): Promise<EntrypointInfo[]>;
+  getReachingEntrypoints(
+    targetId: string,
+    depth: number,
+    repoHashes: string[],
+    limit?: number,
+  ): Promise<EntrypointInfo[]>;
 
   /**
    * Find the shortest call path between two functions.
