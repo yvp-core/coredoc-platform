@@ -131,6 +131,20 @@ export function foldMap(before: ParsedRepo, after: ParsedRepo): Map<string, Fn |
   return out;
 }
 
+/**
+ * A call site whose caller changed between nested scopes is attribution getting more precise only
+ * when the new caller is where the call is: moved inward into a function that contains the call
+ * line, or moved outward off a one-line function on that same line (`f(x, { k: () => y })`, where a
+ * line cannot tell the two apart). Moving out of a multi-line function that holds the call is not.
+ */
+function refinedCaller(before: Fn, after: Fn, line: number): boolean {
+  if (encloses(before, spanOf(after))) return after.location.startLine <= line && line <= after.location.endLine;
+  if (encloses(after, spanOf(before))) return before.location.startLine === line && before.location.endLine === line;
+  return false;
+}
+
+const spanOf = (f: Fn) => ({ filePath: f.location.filePath, startLine: f.location.startLine, endLine: f.location.endLine });
+
 export function diffParsedRepos(before: ParsedRepo, after: ParsedRepo, opts: GraphDiffOptions = {}): GraphDiff {
   const maxLostEdgeRate = opts.maxLostEdgeRate ?? 0.005;
   const b = indexFunctions(before);
@@ -279,7 +293,6 @@ export function diffParsedRepos(before: ParsedRepo, after: ParsedRepo, opts: Gra
     becameRecursion: bucket(),
     lost: bucket(),
   };
-  const spanOf = (f: Fn) => ({ filePath: f.location.filePath, startLine: f.location.startLine, endLine: f.location.endLine });
   for (const s of beforeSites) {
     const candidates = (afterBySiteKey.get(`${s.file}|${fnKey(s.callee)}`) ?? []).filter((x) => !matched.has(x));
     // Exact line first, then the tightest overlapping span (a chain's calls share their first line).
@@ -292,11 +305,10 @@ export function diffParsedRepos(before: ParsedRepo, after: ParsedRepo, opts: Gra
     if (hit) {
       matched.add(hit);
       const rel = relation(s.caller, hit.caller);
-      // A caller moved between nested scopes is attribution getting more precise (position, not
-      // line, decides which scope a call is in); an unrelated caller is a regression.
-      const nested = encloses(s.caller, spanOf(hit.caller)) || encloses(hit.caller, spanOf(s.caller));
-      if (rel === 'changed' && nested) add(calls.callerRefined, `${label} now in ${hit.caller.name}`);
-      else if (rel === 'changed') add(calls.callerChanged, `${label} now in ${hit.caller.name}`);
+      if (rel === 'changed') {
+        const bucket = refinedCaller(s.caller, hit.caller, s.start) ? calls.callerRefined : calls.callerChanged;
+        add(bucket, `${label} now in ${hit.caller.name}`);
+      }
       continue;
     }
     const host = foldedInto.get(fnKey(s.caller)) ?? s.caller;

@@ -100,15 +100,18 @@ async function main(): Promise<void> {
   const graphs = { before: await loadGraph(before, join(dir, 'before.lbdb')), after: await loadGraph(after, join(dir, 'after.lbdb')) };
   const results: Comparison[] = [];
   try {
-    // Every HTTP entrypoint, explained.
-    for (const e of after.entrypoints) {
+    // Every HTTP entrypoint of either graph, explained: one the new parse lost must still be asked.
+    const httpTargets = new Set<string>();
+    for (const e of [...before.entrypoints, ...after.entrypoints]) {
       const d = e.details as { type?: string; method?: string; fullPath?: string; path?: string } | undefined;
-      if (d?.type !== 'http' || !d.method || !(d.fullPath ?? d.path)) continue;
-      const target = `${d.method} ${d.fullPath ?? d.path}`;
+      if (d?.type === 'http' && d.method && (d.fullPath ?? d.path)) httpTargets.add(`${d.method} ${d.fullPath ?? d.path}`);
+    }
+    for (const target of [...httpTargets].sort()) {
       const [b, a] = await Promise.all([
         graphs.before.ask(handleExplain, { target }),
         graphs.after.ask(handleExplain, { target }),
       ]);
+      results.push(compare(`explain ${target} · found`, b ? [target] : [], a ? [target] : [], (k) => k));
       const pick = (r: unknown) => r as { callTree?: unknown; entities?: unknown; externalServices?: string[] } | undefined;
       results.push(compare(`explain ${target} · callTree`, keysOf(pick(b)?.callTree), keysOf(pick(a)?.callTree), mapBefore));
       results.push(

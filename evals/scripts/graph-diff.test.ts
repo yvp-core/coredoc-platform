@@ -47,6 +47,13 @@ describe('diffParsedRepos', () => {
     expect(d.failures).toEqual(['1 resolved call edges lost (> 0.0% of 2)']);
   });
 
+  it('fails when a call moves out of the nested function that still holds it', () => {
+    const after = repo([RUN, HELPER, LOAD], [call('r:run', 'r:helper', 5, 'helper'), call('r:run', 'r:load', 3, 'load')]);
+    const d = diffParsedRepos(BEFORE, after, { maxLostEdgeRate: 0 });
+    expect(d.calls.callerChanged.count).toBe(1);
+    expect(d.failures).toEqual(['1 resolved call edges moved to an unrelated caller']);
+  });
+
   it('fails when an entrypoint disappears', () => {
     const ep = { id: 'r:ep:1', handlerId: 'r:run', location: { filePath: 'a.ts', startLine: 1, endLine: 1 } };
     const d = diffParsedRepos(

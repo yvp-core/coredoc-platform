@@ -461,39 +461,88 @@ router.get('/x', (req, res) => {
     expect(node.versionedId).not.toBe(idGen.versionedId(id, 'f:2-4'));
   });
 
-  it('folds a nested function called only directly into its enclosing function', async () => {
-    const SRC = [
-      'export function run(xs) {',
-      '  const norm = (x) => trim(x);',
-      '  function sum() {',
-      '    return total(xs);',
-      '  }',
-      '  const onDone = () => notify();',
-      '  emitter.on("done", onDone);',
-      '  const fmt = (x) => format(x);',
-      '  xs.forEach(fmt);',
-      '  return norm(xs) + sum();',
-      '}',
-    ].join('\n');
-    const file = await parseTsStructural('src/run.ts', SRC, 'typescript');
+  const nodesOf = async (src: string) => {
+    const file = await parseTsStructural('src/run.ts', src, 'typescript');
     const idGen = new StableIdGenerator('/repo', 'k');
     const g = new CodeGraph();
-    structuralToNodes(file, g, idGen, 'r:package:.', SRC);
-
-    // `norm`, `sum` and `fmt` (handed only to an array method) never leave `run`; `onDone` escapes
-    // as an event handler.
-    expect([...g.functions.values()].map((f) => f.name).sort()).toEqual(['onDone', 'run']);
+    structuralToNodes(file, g, idGen, 'r:package:.', src);
     const calls = [...g.calls.values()].map((c) => [c.calleeExpression, c.callerId.split(':').pop()]);
+    return { g, idGen, calls };
+  };
+
+  it('folds a nested function called only directly into its enclosing function', async () => {
+    const { g, calls } = await nodesOf(
+      [
+        'export function run(xs) {',
+        '  const norm = (x) => trim(x);',
+        '  function sum() {',
+        '    return total(xs);',
+        '  }',
+        '  const onDone = () => notify();',
+        '  emitter.on("done", onDone);',
+        '  const fmt = (x) => format(x);',
+        '  xs.forEach(fmt);',
+        '  return norm(xs) + sum();',
+        '}',
+      ].join('\n'),
+    );
+    // `norm` and `sum` never leave `run`. `onDone` escapes as an event handler, and `fmt` is handed to
+    // a method the parser cannot prove calls it in place.
+    expect([...g.functions.values()].map((f) => f.name).sort()).toEqual(['fmt', 'onDone', 'run']);
     // Their bodies' calls belong to `run`; calling them is not an edge.
     expect(calls).toEqual(
       expect.arrayContaining([
         ['trim', 'run'],
         ['total', 'run'],
-        ['format', 'run'],
+        ['format', 'fmt'],
         ['notify', 'onDone'],
       ]),
     );
     expect(calls.map(([expr]) => expr)).not.toContain('norm');
     expect(calls.map(([expr]) => expr)).not.toContain('sum');
+  });
+
+  it('keeps a helper that a surviving nested function calls, so its path to the work stays', async () => {
+    const { g, calls } = await nodesOf(
+      [
+        'export function factory() {',
+        '  const work = () => save();',
+        '  const onEvent = () => work();',
+        '  return onEvent;',
+        '}',
+      ].join('\n'),
+    );
+    expect([...g.functions.values()].map((f) => f.name).sort()).toEqual(['factory', 'onEvent', 'work']);
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        ['work', 'onEvent'],
+        ['save', 'work'],
+      ]),
+    );
+  });
+
+  it('gives the plain id of a name to its top-level function, so a lookup by name finds the visible one', async () => {
+    const { g, idGen } = await nodesOf(
+      [
+        'export function factory() {',
+        '  const handler = () => inner();',
+        '  return handler;',
+        '}',
+        'function handler() {',
+        '  return real();',
+        '}',
+        "app.get('/x', handler);",
+      ].join('\n'),
+    );
+    expect(g.functions.get(idGen.functionId('src/run.ts', 'handler'))?.location.startLine).toBe(5);
+    expect(g.functions.get(idGen.functionId('src/run.ts', 'handler#2'))?.location.startLine).toBe(2);
+  });
+
+  it('keeps two same-named functions that start on one line as two nodes', async () => {
+    const { g } = await nodesOf('export const a = { run: () => foo() }, b = { run: () => bar() };');
+    expect([...g.functions.values()].filter((f) => f.name === 'run').map((f) => f.id.split(':').pop())).toEqual([
+      'run',
+      'run#2',
+    ]);
   });
 });

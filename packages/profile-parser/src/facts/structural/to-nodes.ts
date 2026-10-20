@@ -11,7 +11,7 @@ import type {
 } from '@coredoc/core/types';
 import type { CodeGraph } from '../graph/graph-builder.js';
 import { isBuiltinReceiverCall } from '../noise.js';
-import type { StructuralFile } from './ts-structural.js';
+import type { StructuralFile, StructuralFunction } from './ts-structural.js';
 
 /**
  * Map a StructuralFile to OutputFormat nodes using the canonical id scheme.
@@ -55,16 +55,17 @@ export function structuralToNodes(
 
   // Two functions may share a name in one file (a top-level `function emit` and an `emit:` arrow in
   // an object literal, or same-named helpers nested in two methods). `functionId(file, name)` would
-  // give both one id and the later would overwrite the earlier, so the first keeps the plain id and
-  // each later one is suffixed `#2`, `#3`… in document order. `fnSpans` lets callers pick the right one.
+  // give both one id and the later would overwrite the earlier. So one keeps the plain id and the
+  // others are suffixed `#2`, `#3`…: top-level ones first, then nested, each in document order. A
+  // lookup by name alone (a route registered by handler name) then lands on the module-level one.
+  // `fnSpans` lets a site pick the namesake that spans it.
+  const fnIds = functionIds(file, idGen);
   const fnSpans = new Map<string, { id: string; startLine: number; endLine: number }[]>();
   for (const fn of file.functions) {
     const name = fn.name || 'anonymous';
+    const id = fnIds.get(fn) as string;
     const spans = fnSpans.get(name) ?? [];
-    // The walker can report one declaration twice; that is the same function, not a namesake.
-    const same = spans.find((s) => s.startLine === fn.startLine);
-    const id = same?.id ?? idGen.functionId(file.path, spans.length && fn.name ? `${name}#${spans.length + 1}` : name);
-    if (!same) spans.push({ id, startLine: fn.startLine, endLine: fn.endLine });
+    if (!spans.some((s) => s.id === id)) spans.push({ id, startLine: fn.startLine, endLine: fn.endLine });
     fnSpans.set(name, spans);
     const sourceCode = sliceSrc(fn.startLine, fn.endLine);
     const node: FunctionNode = {
@@ -324,8 +325,52 @@ export function structuralToNodes(
 }
 
 /**
+ * The id of every function of the file (see the namesake note in `structuralToNodes`). A function
+ * reported twice at one position is one function and gets one id.
+ */
+function functionIds(file: StructuralFile, idGen: StableIdGenerator): Map<StructuralFunction, string> {
+  const spans = [...file.functions, ...file.classes.flatMap((c) => c.methods)];
+  const nested = (fn: StructuralFunction): boolean =>
+    spans.some(
+      (s) =>
+        s !== fn &&
+        s.startLine <= fn.startLine &&
+        s.endLine >= fn.endLine &&
+        !(s.startLine === fn.startLine && s.endLine === fn.endLine),
+    );
+  const byName = new Map<string, StructuralFunction[]>();
+  for (const fn of file.functions) {
+    const name = fn.name || 'anonymous';
+    byName.set(name, [...(byName.get(name) ?? []), fn]);
+  }
+  const ids = new Map<StructuralFunction, string>();
+  for (const [name, fns] of byName) {
+    const ordered = [...fns].sort(
+      (a, b) =>
+        Number(nested(a)) - Number(nested(b)) ||
+        a.startLine - b.startLine ||
+        (a.startColumn ?? 0) - (b.startColumn ?? 0),
+    );
+    const byPosition = new Map<string, string>();
+    for (const fn of ordered) {
+      const position = `${fn.startLine}:${fn.startColumn ?? ''}`;
+      let id = byPosition.get(position);
+      if (!id) {
+        const n = byPosition.size;
+        id = idGen.functionId(file.path, n && fn.name ? `${name}#${n + 1}` : name);
+        byPosition.set(position, id);
+      }
+      ids.set(fn, id);
+    }
+  }
+  return ids;
+}
+
+/**
  * The enclosing function/method id of a site, or undefined for module scope. Among same-named
  * functions of the file, the innermost one whose span contains the site.
+ * ponytail: spans are line-granular, so same-named functions starting on ONE line share their
+ * callers; carry end columns on StructuralFunction if that shape ever matters.
  */
 function resolveEnclosingId(
   site: {

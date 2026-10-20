@@ -95,6 +95,8 @@ export interface StructuralFunction {
   /** Leading JSDoc (`/** … *\/`) description, stripped of comment markup; undefined when absent. */
   documentation?: string;
   startLine: number;
+  /** 0-based column of the declaration start; with `startLine` it identifies the declaration. */
+  startColumn?: number;
   endLine: number;
   decorators: string[];
 }
@@ -553,6 +555,7 @@ export async function parseTsStructural(
       returnType: returnTypeOf(valueNode),
       documentation: jsdocOf(docNode),
       startLine: lineOf(valueNode),
+      startColumn: valueNode.startPosition.column,
       endLine: endLineOf(valueNode),
       decorators: [],
     });
@@ -651,7 +654,8 @@ export async function parseTsStructural(
   };
 
   // Isolated nested functions: a `function b() {}` / `const b = () => {}` declared inside another
-  // function and referenced there ONLY as a direct call `b(...)`. Nothing outside can reach `b`, so it
+  // function and referenced there ONLY as a direct call `b(...)` made by that function itself (see
+  // `onlyCalledDirectly`). Nothing outside can reach `b`, so it
   // is part of its enclosing function, not a graph node: its body attributes to the enclosing function
   // (whose source slice already contains it) and `b(...)` is not a call edge. A `b` used as a value —
   // returned, passed as a callback or handler, put in an object — escapes and stays a node, as do
@@ -673,54 +677,9 @@ export async function parseTsStructural(
     for (let p = node.parent; p; p = p.parent) if (FN_SCOPES.has(p.type)) return p;
     return undefined;
   };
-  // `xs.map(b)` hands `b` to an array method that calls it right there — still inside the function.
-  const ARRAY_CALLBACK_METHODS = new Set([
-    'map',
-    'flatMap',
-    'filter',
-    'forEach',
-    'some',
-    'every',
-    'find',
-    'findIndex',
-    'findLast',
-    'findLastIndex',
-    'reduce',
-    'reduceRight',
-    'sort',
-    'toSorted',
-  ]);
-  const isDirectUse = (ref: TsNode): boolean => {
-    const parent = ref.parent;
-    if (parent?.type === 'call_expression') return parent.childForFieldName('function')?.id === ref.id;
-    if (parent?.type !== 'arguments') return false;
-    const callee = parent.parent?.childForFieldName('function');
-    return (
-      callee?.type === 'member_expression' && ARRAY_CALLBACK_METHODS.has(text(callee.childForFieldName('property')))
-    );
-  };
-  const onlyCalledDirectly = (scope: TsNode, name: string, declName: TsNode): boolean => {
-    const visit = (n: TsNode): boolean => {
-      if (
-        (n.type === 'identifier' || n.type === 'shorthand_property_identifier') &&
-        n.text === name &&
-        n.id !== declName.id &&
-        !isDirectUse(n)
-      ) {
-        return false;
-      }
-      return n.namedChildren.every(visit);
-    };
-    return visit(scope);
-  };
-  // Folding needs a host that IS a function node, or the folded body's calls would have no caller:
-  // a class constructor and an anonymous callback (`create((set, get) => { … })`) are not nodes.
-  // Ancestors are decided before descendants, so a host that is itself folded defers to its own host.
-  const isNodeScope = (scope: TsNode): boolean => {
-    if (isolatedFns.has(scope.id)) {
-      const up = nearestFnScope(scope);
-      return !!up && isNodeScope(up);
-    }
+  // A function scope the walker turns into a graph node: a declaration, a method (not a class
+  // constructor), or an arrow/function expression bound to a name or an object key.
+  const isNodeShape = (scope: TsNode): boolean => {
     switch (scope.type) {
       case 'function_declaration':
       case 'generator_function_declaration':
@@ -732,6 +691,42 @@ export async function parseTsStructural(
         return owner?.type === 'variable_declarator' || owner?.type === 'pair';
       }
     }
+  };
+  // Folding needs a host that IS a function node, or the folded body's calls would have no caller:
+  // a class constructor and an anonymous callback (`create((set, get) => { … })`) are not nodes.
+  // Ancestors are decided before descendants, so a host that is itself folded defers to its own host.
+  const isNodeScope = (scope: TsNode): boolean => {
+    if (!isolatedFns.has(scope.id)) return isNodeShape(scope);
+    const up = nearestFnScope(scope);
+    return !!up && isNodeScope(up);
+  };
+  /**
+   * Every reference to `name` inside `scope` is a direct call made by `scope` itself: not from inside
+   * another nested function that stays a node (folding `b` would cut that function's path to `b`'s
+   * calls), and not as a value (returned, passed, stored — `b` escapes). `self` is `b`'s own node, so
+   * a recursive call does not count against it; a not-yet-decided sibling counts as a node.
+   */
+  const onlyCalledDirectly = (scope: TsNode, name: string, declName: TsNode, self: TsNode): boolean => {
+    const callsFromScope = (ref: TsNode): boolean => {
+      const call = ref.parent;
+      if (call?.type !== 'call_expression' || call.childForFieldName('function')?.id !== ref.id) return false;
+      for (let p = ref.parent; p && p.id !== scope.id; p = p.parent) {
+        if (p.id !== self.id && FN_SCOPES.has(p.type) && isNodeShape(p) && !isolatedFns.has(p.id)) return false;
+      }
+      return true;
+    };
+    const visit = (n: TsNode): boolean => {
+      if (
+        (n.type === 'identifier' || n.type === 'shorthand_property_identifier') &&
+        n.text === name &&
+        n.id !== declName.id &&
+        !callsFromScope(n)
+      ) {
+        return false;
+      }
+      return n.namedChildren.every(visit);
+    };
+    return visit(scope);
   };
   const collectIsolated = (n: TsNode): void => {
     const fnNode =
@@ -747,7 +742,7 @@ export async function parseTsStructural(
       (fnNode === n || fnNode.type === 'arrow_function' || fnNode.type === 'function_expression')
     ) {
       const scope = nearestFnScope(n);
-      if (scope && isNodeScope(scope) && onlyCalledDirectly(scope, nameNode.text, nameNode)) {
+      if (scope && isNodeScope(scope) && onlyCalledDirectly(scope, nameNode.text, nameNode, fnNode)) {
         isolatedFns.add(fnNode.id);
         file.foldedScopes?.push({ startLine: lineOf(fnNode), endLine: endLineOf(fnNode) });
         isolatedScopesByName.set(nameNode.text, [...(isolatedScopesByName.get(nameNode.text) ?? []), scope]);
@@ -1023,6 +1018,7 @@ export async function parseTsStructural(
           returnType: returnTypeOf(n),
           documentation: jsdocOf(n),
           startLine: lineOf(n),
+          startColumn: n.startPosition.column,
           endLine: endLineOf(n),
           decorators: [],
         });
