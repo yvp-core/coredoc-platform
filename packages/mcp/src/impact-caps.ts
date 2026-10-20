@@ -29,5 +29,4 @@ export function callerCuts(
   return { direct: cut && transitiveCallers.length === 0, transitive: cut && transitiveCallers.length > 0 };
 }
 
-/** `12`, or `100+` for a list cut at its cap. */
 export const countLabel = (n: number, truncated?: boolean): string => (truncated ? `${n}+` : String(n));
