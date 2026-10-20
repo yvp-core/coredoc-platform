@@ -155,6 +155,26 @@ pnpm --filter @coredoc/evals exec tsx scripts/rewrite-report.ts runs/<run-id>
 
 When `run-manifest.json` exists, the rewrite uses its harness HEAD, actual target SHA(s), graph parsed SHA(s), models, backend, and cohort. Legacy directories without a manifest remain readable but display explicit `unknown (legacy: no run-manifest.json)` provenance. Rewriting changes only derived `REPORT.md` and `mcp-gaps.jsonl`; `results.jsonl`, `run-manifest.json`, and per-run source artifacts stay unchanged.
 
+## Parser regression gate
+
+Use this before releasing a parser change. Parse the same source twice, once with the old parser
+and once with the new one, then compare the two `ParsedRepo` JSON files. Neither command calls a
+model.
+
+```bash
+# Graph: entrypoints, entities, db operations and external calls must not disappear or move to an
+# unrelated function; resolved call sites must not be lost.
+pnpm --filter @coredoc/evals graph:regression <before.json> <after.json> [<before.json> <after.json> …]
+
+# MCP: both parses go into throwaway Ladybug graphs, and the real tool handlers answer the same
+# questions (`explain` per HTTP entrypoint, `find_callers` / `analyze_change_impact` on a sample).
+pnpm --filter @coredoc/evals mcp:regression <before.json> <after.json> [--sample=200]
+```
+
+Functions and edges are matched by source location, so renamed node ids do not count as changes.
+A nested function that was folded into its enclosing function counts as that function. Either
+command exits 1 on a regression and prints samples. Build `@coredoc/db` and `@coredoc/mcp` first.
+
 ## Target manifests
 
 Every `evals/targets/*.json` file is schema v2 and must contain exactly the 20 canonical kebab-case case IDs under `cells`. Top-level fields are `schemaVersion`, `name`, `path`, optional `baseBranch`, `repoKey`, and full `gitSha`.

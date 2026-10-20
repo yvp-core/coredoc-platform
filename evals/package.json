@@ -11,6 +11,8 @@
     "eval:intent": "tsx harness/run-intent.ts",
     "eval:intent:setup": "tsx cases-intent/setup.ts",
     "analyze": "tsx harness/analyze.ts",
+    "graph:regression": "tsx scripts/graph-regression.ts",
+    "mcp:regression": "tsx scripts/mcp-regression.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist tsconfig.tsbuildinfo *.tsbuildinfo"
