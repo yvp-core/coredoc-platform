@@ -136,6 +136,17 @@ export class CloudAgentTurnService {
     return assignment;
   }
 
+  /** Turns a runner of this workspace could claim now: a scaler starts one runner per queued turn. */
+  queuedTurns(runner: RunnerPrincipal): Promise<number> {
+    return this.prisma.cloudAgentRunTurn.count({
+      where: {
+        workspaceId: runner.workspaceId,
+        state: TurnState.Queued,
+        run: { status: { notIn: [...TERMINAL_RUN_STATUSES] } },
+      },
+    });
+  }
+
   /**
    * A runner whose start-up check fails reports why instead of claiming;
    * settings show the reason until its next claim clears it.

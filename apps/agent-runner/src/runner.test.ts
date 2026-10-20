@@ -117,6 +117,27 @@ describe('runner loop', () => {
     expect(api.claims).toHaveLength(1);
   });
 
+  it('a one-turn runner waits for a turn, runs it and returns without claiming another', async () => {
+    const executor = blockingExecutor();
+    const done = new Runner({
+      api: new RunnerApiClient({ baseUrl: api.baseUrl, workspaceId: WORKSPACE, token: TOKEN }),
+      executor,
+      versions: VERSIONS,
+      heartbeatIntervalMs: 5,
+      idlePollMs: 5,
+      once: true,
+    }).start(new AbortController().signal);
+    await waitFor(() => api.claims.length >= 2);
+    api.queue.push(assignment());
+    api.queue.push(assignment());
+    await waitFor(() => api.heartbeats >= 1);
+    executor.release();
+
+    await done;
+    expect(api.completions).toHaveLength(1);
+    expect(api.queue).toHaveLength(1);
+  });
+
   it('a turn that does not wind down within the shutdown grace is stopped and not completed', async () => {
     api.queue.push(assignment());
     const executor = blockingExecutor();

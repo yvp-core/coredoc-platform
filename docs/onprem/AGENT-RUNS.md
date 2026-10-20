@@ -393,6 +393,7 @@ them set. It still checks that Claude Code starts and logs the result.
 | `COREDOC_PACKAGE_REGISTRIES` | no | | JSON object keyed by package scope (`@scope`) or `default`: `{"@scope": {"url": "https://npm.pkg.github.com", "credential": "github"}, "default": {"url": "https://npm-mirror.example.com/"}}`. `credential` is `github`, `env:<VARIABLE>` or omitted; a credential is only sent to an `https` registry. An invalid value is reported as a start-up problem (§6). |
 | `COREDOC_RUNNER_SCRATCH` | no | `/scratch` (image) | The scratch volume. |
 | `COREDOC_RUNNER_POLL_SECONDS` | no | `5` | Seconds an idle runner waits between claims. |
+| `COREDOC_RUNNER_ONCE` | no | | `1` makes the runner exit after one turn, for one Job per turn ([§10](#10-sizing)). Until it claims a turn it waits like any runner. |
 | `COREDOC_WORKFLOWS_PLUGIN_PATH` | no | `/opt/coredoc-workflows` (image) | The pinned plugin in the image. |
 | `ANTHROPIC_API_KEY` | yes | | The dedicated model key (§2.1). |
 | `ANTHROPIC_BASE_URL` | no | Anthropic API | Your model gateway. |
@@ -432,6 +433,68 @@ The server side has one setting of its own, `AGENT_RUN_RETENTION_ENABLED`
 | Runner CPU / memory | 1 CPU / 2Gi request, 4 CPU / 8Gi limit | Builds and tests run inside the pod; raise with your toolchains. |
 | Base image | about 700 MB (about 290 MB compressed) | A derived image with five Node majors and Go measured about 1.9 GB. |
 | State archives (object storage) | capped at 128 MiB per archive | Measured median 2.3 MiB; deleted 30 days after the run ends. |
+
+### One Job per turn
+
+Instead of the chart's always-on Deployment, a scaler can start a runner for
+each queued turn and let it exit afterwards. Nothing idles between turns, turns
+of different runs proceed in parallel up to the scaler's limit, and every turn
+gets a fresh pod. The cost is a start-up per turn: tens of seconds with the
+image cached on the node, more when the node or the image pull is cold.
+
+- Run the runner with `COREDOC_RUNNER_ONCE=1`.
+- The scaler reads `GET /api/v1/workspaces/<workspace-id>/agent-runner/queue`
+  with the runner token as a bearer token. It answers `{"queued": <n>}`, the
+  turns waiting for a runner of that workspace.
+- The runner claims its own turn: the scaler only decides how many runners
+  start. A runner that finds nothing waits for the next turn, so a scaler
+  minimum of 1 keeps a warm runner ready.
+
+With [KEDA](https://keda.sh), outside the chart:
+
+```yaml
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata: { name: coredoc-agent-runner }
+spec:
+  pollingInterval: 15
+  minReplicaCount: 0              # 1 keeps a warm runner waiting
+  maxReplicaCount: 3              # concurrent turns
+  jobTargetRef:
+    backoffLimit: 0               # a failed turn is re-queued by its lease, not by the Job
+    template:
+      spec:
+        restartPolicy: Never
+        terminationGracePeriodSeconds: 180
+        automountServiceAccountToken: false
+        containers:
+          - name: runner
+            image: registry.example.com/coredoc/agent-runner-derived:<version>
+            envFrom: [{ secretRef: { name: coredoc-agent-runner } }]
+            env:
+              - { name: COREDOC_RUNNER_ONCE, value: "1" }
+              - { name: COREDOC_API_URL, value: "http://coredoc:3000" }
+              - { name: COREDOC_WORKSPACE_ID, value: "<workspace-id>" }
+              - { name: COREDOC_GIT_AUTHOR_EMAIL, value: "<bot-id>+<bot-login>@users.noreply.github.com" }
+            volumeMounts: [{ name: scratch, mountPath: /scratch }]
+            # plus the chart's securityContext: non-root, read-only root filesystem, no capabilities
+        volumes: [{ name: scratch, emptyDir: { sizeLimit: 16Gi } }]
+  triggers:
+    - type: metrics-api
+      metadata:
+        url: "http://coredoc:3000/api/v1/workspaces/<workspace-id>/agent-runner/queue"
+        valueLocation: queued
+        targetValue: "1"
+        authMode: bearer
+      authenticationRef: { name: coredoc-agent-runner }
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata: { name: coredoc-agent-runner }
+spec:
+  secretTargetRef:
+    - { parameter: token, name: coredoc-agent-runner, key: COREDOC_RUNNER_TOKEN }
+```
 
 ## 11. Limitations and risks
 
@@ -486,7 +549,7 @@ The server side has one setting of its own, `AGENT_RUN_RETENTION_ENABLED`
   push once more before its next heartbeat; the re-claimed turn then fails
   with `push_rejected` or builds on that commit.
 - **Throughput.** One replica runs one turn at a time. Size replicas for the
-  expected load.
+  expected load, or run one Job per turn (§10).
 
 Machine-derived data (run events, turn rows and state archives) is deleted 30
 days after a run ends unless `AGENT_RUN_RETENTION_ENABLED=false`. Runs, specs,

@@ -88,6 +88,14 @@ export class CloudAgentRunnerController {
     return assignment ?? undefined;
   }
 
+  /** Read by a scaler (KEDA's metrics-api trigger, `valueLocation: queued`) to start one runner per turn. */
+  @Get('queue')
+  @WorkspaceRole('admin')
+  @RequirePermission(TokenPermission.AgentRunnerRun)
+  async queue(@Req() request: RunnerRequest) {
+    return { queued: await this.turns.queuedTurns(principal(request)) };
+  }
+
   @Post('startup-check')
   @HttpCode(200)
   @WorkspaceRole('admin')
