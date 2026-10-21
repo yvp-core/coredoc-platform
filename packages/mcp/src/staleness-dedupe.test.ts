@@ -3,7 +3,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { isRepeatBanner, STALENESS_REFRESH_INTERVAL, STALENESS_SESSION_CAP } from './staleness-dedupe.js';
+import {
+  isRepeatBanner,
+  STALENESS_BANNERS_PER_SESSION,
+  STALENESS_REFRESH_INTERVAL,
+  STALENESS_SESSION_CAP,
+} from './staleness-dedupe.js';
 
 // Each test uses its own session key(s) — the module keeps process-lifetime
 // state, so reusing a key across tests would leak state between them.
@@ -54,5 +59,12 @@ describe('isRepeatBanner', () => {
     isRepeatBanner(firstKey, banner);
     for (let i = 0; i < STALENESS_SESSION_CAP; i++) isRepeatBanner(freshKey(), banner);
     expect(isRepeatBanner(firstKey, banner)).toBe(false);
+  });
+
+  it('forgets the oldest banner once a session holds STALENESS_BANNERS_PER_SESSION', () => {
+    const key = freshKey();
+    isRepeatBanner(key, banner);
+    for (let i = 0; i < STALENESS_BANNERS_PER_SESSION; i++) isRepeatBanner(key, `> other ${i}\n`);
+    expect(isRepeatBanner(key, banner)).toBe(false);
   });
 });

@@ -1321,6 +1321,21 @@ describe('Response Formatter', () => {
         expect(body).toContain('> 3 repos in scope · parsed 2024-01-10–2024-01-20 · see describe_repository');
         expect(body).not.toContain('snapshot');
       });
+
+      it('names the repo a caller came from in other list formatters too', () => {
+        const caller: CallerInfo = {
+          name: 'c',
+          filePath: 'b.ts',
+          startLine: 1,
+          type: 'function',
+          kind: 'function',
+          id: 'h2:function:b.ts:c',
+          distance: 1,
+        };
+        const body = formatCallerList([caller], 'f', multi()).data as string;
+        expect(body).toContain('> snapshot beta · 2024-01-10');
+        expect(body).toContain('> 2 other repos in scope');
+      });
     });
 
     it('should return raw data in raw mode', () => {

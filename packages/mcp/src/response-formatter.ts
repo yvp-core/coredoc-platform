@@ -338,15 +338,20 @@ function pushDetailFooter(lines: string[], metadata: McpResponseMetadata): void 
   }
 }
 
-function formatHeaderBanners(metadata: McpResponseMetadata, items?: Array<{ id?: string }>): string {
+function formatHeaderBanners(
+  metadata: McpResponseMetadata,
+  items: ReadonlyArray<{ id?: string } | undefined> = [],
+  repoNames: ReadonlyArray<string | undefined> = [],
+): string {
   const warnings = (metadata.warnings ?? []).map((warning) => `> ${warning}\n`).join('');
-  // When the caller hands over its result rows, the multi-repo header shrinks to the
-  // repos those rows came from. Without a resolver (single-repo scope) it is moot.
-  const resolve = items ? buildRepoResolver(metadata.scope) : null;
-  const contributing =
-    items && resolve
-      ? new Set(items.map((item) => resolve(item.id)).filter((name): name is string => name !== undefined))
-      : undefined;
+  // The multi-repo header names only the repos the answer's rows came from (by id
+  // or by name); every other repo in scope collapses into one line.
+  const resolve = metadata.scope ? buildRepoResolver(metadata.scope) : null;
+  const contributing = new Set(repoNames.filter((name): name is string => name !== undefined));
+  for (const item of items) {
+    const name = resolve?.(item?.id);
+    if (name) contributing.add(name);
+  }
   const staleness = formatStalenessHeader(metadata.staleness, metadata.scope?.sessionKey, contributing);
   const ambiguity = metadata.ambiguity ? `> ⚠ ${metadata.ambiguity.hint}\n` : '';
   return `${warnings}${staleness}${ambiguity}`;
@@ -550,8 +555,16 @@ export function formatChangeImpact(
 
   const lines: string[] = [];
 
-  // Staleness warning
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(
+    formatHeaderBanners(metadata, [
+      result.target,
+      ...result.directCallers,
+      ...result.transitiveCallers,
+      ...(result.typeUsers ?? []),
+      ...result.affectedEntrypoints,
+      ...result.affectedTests,
+    ]),
+  );
 
   // Header
   lines.push(`## Impact Analysis: \`${result.target.name}\`\n`);
@@ -694,8 +707,7 @@ export function formatFunctionExplanation(
   const lines: string[] = [];
   const fn = result.function;
 
-  // Staleness warning
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, [fn, ...(result.callees ?? []), ...(result.callers ?? [])]));
 
   // Header
   const fullName = fn.className ? `${fn.className}.${fn.name}` : fn.name;
@@ -806,8 +818,7 @@ export function formatEntrypointExplanation(
   const lines: string[] = [];
   const ep = result.entrypoint;
 
-  // Staleness warning
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, [ep, result.handler.function, ...result.callTree, ...result.entities]));
 
   // Header based on type
   const epRepo = resolve ? resolve(ep.id) : undefined;
@@ -1247,7 +1258,7 @@ export function formatEntrypointList(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, entrypoints));
   lines.push(`## Entrypoints (${entrypoints.length} total)\n`);
 
   if (entrypoints.length === 0) {
@@ -1319,7 +1330,7 @@ export function formatCallerList(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, [...callers, ...(reachingEntrypoints ?? [])]));
   lines.push(`## Callers of \`${functionName}\` (${countLabel(callers.length, truncated?.callers)})\n`);
 
   if (callers.length === 0 && (!reachingEntrypoints || reachingEntrypoints.length === 0)) {
@@ -1389,7 +1400,7 @@ export function formatEntityConsumers(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, consumers));
   lines.push(`## Functions Operating on \`${entityName}\` (${consumers.length})\n`);
 
   if (consumers.length === 0) {
@@ -1462,7 +1473,7 @@ export function formatDbSchema(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, entities));
   lines.push(opts.single ? '## DB Schema\n' : `## DB Schema — ${entities.length} table(s)\n`);
 
   // Compact one-line-per-table overview (column names + relation count only, no
@@ -1526,7 +1537,7 @@ export function formatServiceDependencies(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, [], [repoName]));
   lines.push(`## Service Dependencies of \`${repoName}\` (${deps.length})\n`);
 
   if (deps.length === 0) {
@@ -1570,7 +1581,7 @@ export function formatSemanticSearchResults(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, results));
   lines.push(`## Semantic matches for "${query}" (top ${results.length} of ${embeddedCount} embedded symbols)\n`);
 
   for (const r of results) {
@@ -1601,7 +1612,13 @@ export function formatExtractionCoverage(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(
+    formatHeaderBanners(
+      metadata,
+      [],
+      stats.map((stat) => stat.repoName),
+    ),
+  );
   lines.push(`## Extraction Coverage — ${stats.length} repo(s)\n`);
 
   if (stats.length === 0) {
@@ -1833,7 +1850,13 @@ export function formatExplain(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(
+    formatHeaderBanners(
+      metadata,
+      [],
+      (result.candidates ?? []).map((c) => c.repo),
+    ),
+  );
 
   switch (result.resolution) {
     case 'metadata':

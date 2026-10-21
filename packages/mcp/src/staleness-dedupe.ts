@@ -16,6 +16,9 @@ export const STALENESS_REFRESH_INTERVAL = 20;
 // only if session churn ever makes eviction order matter.
 export const STALENESS_SESSION_CAP = 100;
 
+/** Distinct banners remembered per session; the oldest is forgotten first (it may then render once more). */
+export const STALENESS_BANNERS_PER_SESSION = 50;
+
 interface SessionState {
   shown: Set<string>;
   emissions: number;
@@ -51,6 +54,11 @@ export function isRepeatBanner(sessionKey: string | undefined, banner: string): 
   const session = getOrCreateSession(sessionKey);
   session.emissions += 1;
   const repeat = session.shown.has(banner) && session.emissions % STALENESS_REFRESH_INTERVAL !== 0;
+  session.shown.delete(banner); // re-insert so a banner still in use stays newest
   session.shown.add(banner);
+  if (session.shown.size > STALENESS_BANNERS_PER_SESSION) {
+    const oldest = session.shown.values().next().value;
+    if (oldest !== undefined) session.shown.delete(oldest);
+  }
   return repeat;
 }
