@@ -10,7 +10,8 @@
  * personal Google account on a work address, and it stays verified after the
  * mailbox is gone (e.g. an ex-employee). The `hd` claim is set only for
  * accounts managed by that domain's Google Workspace, so it must match too —
- * which means allowed domains must be on Google Workspace.
+ * which means allowed domains must be on Google Workspace. Gmail addresses are
+ * the exception: Google owns those mailboxes, so they carry no `hd`.
  */
 
 import { Logger } from '@nestjs/common';
@@ -19,6 +20,8 @@ import { emailDomain, parseCsv } from './provider-utils.js';
 import { type AuthConfig, configFromEnv } from '../../config/app-config.js';
 
 const gateLogger = new Logger('GoogleLoginGate');
+
+const GOOGLE_OWNED_DOMAINS = new Set(['gmail.com', 'googlemail.com']);
 
 interface GoogleProfile {
   id?: string;
@@ -43,14 +46,15 @@ export function buildGoogleProvider(auth: AuthConfig = configFromEnv().auth): OA
         gateLogger.warn(`Login denied for "${id}": email=${email || '(none)'} email_verified=${String(verified)}`);
         throw new Error(`Google user "${id}" has no verified email`);
       }
-      if (!allowedDomains.includes(emailDomain(email.toLowerCase()))) {
+      const domain = emailDomain(email.toLowerCase());
+      if (!allowedDomains.includes(domain)) {
         gateLogger.warn(
           `Login denied for "${id}": verifiedEmail=${email} | gate domains=[${allowedDomains.join(',')}]`,
         );
         throw new Error(`Google user "${id}" is not in an allowed email domain`);
       }
       const hostedDomain = profile._json?.hd?.toLowerCase();
-      if (hostedDomain !== emailDomain(email.toLowerCase())) {
+      if (hostedDomain !== domain && !GOOGLE_OWNED_DOMAINS.has(domain)) {
         gateLogger.warn(`Login denied for "${id}": verifiedEmail=${email} | hd=${hostedDomain ?? '(none)'}`);
         throw new Error(`Google user "${id}" is not managed by the email's Google Workspace domain`);
       }

@@ -168,7 +168,8 @@ upstream (or add a separate mail provider integration).
    an account managed by that domain's **Google Workspace** (Google's `hd`
    claim). A personal Google account registered on a work address is refused,
    because it stays verified after the mailbox is deleted. A domain that isn't
-   on Google Workspace therefore can't use Google sign-in.
+   on Google Workspace therefore can't use Google sign-in. `gmail.com` is the
+   exception: Google owns those mailboxes, so allowing it admits any Gmail user.
 
 With `upstream: github,google`, Coredoc shows a sign-in page where each user
 picks GitHub or Google. Both apps from §4.1 and §4.2 are needed. The two

@@ -35,6 +35,11 @@ describe('buildGoogleProvider', () => {
     expect(() => mapper(profile('alice@example.com', true, 'other.com'))).toThrow(/not managed/);
   });
 
+  it('accepts an allowed Gmail address, which never carries hd', () => {
+    const mapper = buildGoogleProvider(auth({ ALLOWED_EMAIL_DOMAINS: 'gmail.com' })).profileMapper;
+    expect(mapper(profile('alice@gmail.com', true, null))).toMatchObject({ email: 'alice@gmail.com' });
+  });
+
   it('rejects a verified email outside the allowed domains', () => {
     expect(() => buildGoogleProvider(auth()).profileMapper(profile('alice@gmail.com', true))).toThrow(
       /not in an allowed email domain/,
