@@ -5,13 +5,6 @@
  * authenticate, so an empty ALLOWED_EMAIL_DOMAINS is a boot error, and only a
  * Google-verified email passes — it feeds invite linking in
  * `linkPendingMemberships`, where an unverified address could hijack an invite.
- *
- * A verified email alone is not enough for Google: anyone can register a
- * personal Google account on a work address, and it stays verified after the
- * mailbox is gone (e.g. an ex-employee). The `hd` claim is set only for
- * accounts managed by that domain's Google Workspace, so it must match too —
- * which means allowed domains must be on Google Workspace. Gmail addresses are
- * the exception: Google owns those mailboxes, so they carry no `hd`.
  */
 
 import { Logger } from '@nestjs/common';
@@ -21,12 +14,9 @@ import { type AuthConfig, configFromEnv } from '../../config/app-config.js';
 
 const gateLogger = new Logger('GoogleLoginGate');
 
-const GOOGLE_OWNED_DOMAINS = new Set(['gmail.com', 'googlemail.com']);
-
 interface GoogleProfile {
   id?: string;
   emails?: Array<{ value?: string; verified?: boolean }>;
-  _json?: { hd?: string };
 }
 
 export function buildGoogleProvider(auth: AuthConfig = configFromEnv().auth): OAuthProviderConfig {
@@ -46,17 +36,11 @@ export function buildGoogleProvider(auth: AuthConfig = configFromEnv().auth): OA
         gateLogger.warn(`Login denied for "${id}": email=${email || '(none)'} email_verified=${String(verified)}`);
         throw new Error(`Google user "${id}" has no verified email`);
       }
-      const domain = emailDomain(email.toLowerCase());
-      if (!allowedDomains.includes(domain)) {
+      if (!allowedDomains.includes(emailDomain(email.toLowerCase()))) {
         gateLogger.warn(
           `Login denied for "${id}": verifiedEmail=${email} | gate domains=[${allowedDomains.join(',')}]`,
         );
         throw new Error(`Google user "${id}" is not in an allowed email domain`);
-      }
-      const hostedDomain = profile._json?.hd?.toLowerCase();
-      if (hostedDomain !== domain && !GOOGLE_OWNED_DOMAINS.has(domain)) {
-        gateLogger.warn(`Login denied for "${id}": verifiedEmail=${email} | hd=${hostedDomain ?? '(none)'}`);
-        throw new Error(`Google user "${id}" is not managed by the email's Google Workspace domain`);
       }
 
       // The SDK's mapper uses the email's local part as username; the full
