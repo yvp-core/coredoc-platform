@@ -991,8 +991,13 @@ function formatCrossRepoCall(
 ): string {
   const lines: string[] = [];
 
-  // Staleness warning
-  lines.push(formatStalenessHeader(metadata.staleness, metadata.scope?.sessionKey));
+  lines.push(
+    formatStalenessHeader(
+      metadata.staleness,
+      metadata.scope?.sessionKey,
+      new Set([result.caller.repo, result.target.repo]),
+    ),
+  );
 
   lines.push(`## Cross-Repo Call Trace\n`);
   lines.push(`**Summary:** ${result.summary}\n`);

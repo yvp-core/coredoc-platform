@@ -112,11 +112,12 @@ describe('pilot feedback: evidence boundaries', () => {
     expect(metadata.staleness.parsedAt).toBe('unknown');
     expect(metadata.staleness.parsedCommit).toBeUndefined();
     expect(metadata.staleness.repositories).toEqual([
-      { name: 'api', parsedAt: '2026-06-01T00:00:00Z', parsedCommit: 'old-api', parserVersion: '1.0' },
-      { name: 'web', parsedAt: '2026-09-01T00:00:00Z', parsedCommit: 'new-web', parserVersion: '1.1' },
+      { name: 'api', parsedAt: '2026-06-01T00:00:00Z', parsedCommit: 'old-api' },
+      { name: 'web', parsedAt: '2026-09-01T00:00:00Z', parsedCommit: 'new-web' },
     ]);
-    const text = formatStalenessHeader(metadata.staleness);
-    for (const value of ['api', 'web', '2026-06-01', '2026-09-01', 'old-api', 'new-web']) expect(text).toContain(value);
+    expect(formatStalenessHeader(metadata.staleness)).toBe(
+      '> 2 repos in scope · parsed 2026-06-01–2026-09-01 · see describe_repository\n',
+    );
   });
 
   it('includes repository snapshots in a cross-repo trace summary', async () => {
@@ -139,8 +140,9 @@ describe('pilot feedback: evidence boundaries', () => {
       config,
       repo,
     );
-    expect(response.data).toContain('api-commit');
-    expect(response.data).toContain('web-commit');
+    // Only the repos on the traced call get a line; the rest collapse into one.
+    expect(response.data).toContain('> snapshot api@api-com · 2026-06-01');
+    expect(response.data).toContain('> 1 other repo in scope · parsed 2026-09-01 · see describe_repository');
   });
 
   it('does not assign a scope-wide snapshot when only one of several repositories has metadata', async () => {

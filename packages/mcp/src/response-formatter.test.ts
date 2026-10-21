@@ -194,14 +194,13 @@ describe('Response Formatter', () => {
         parsedAt: '2024-01-15T10:30:00.000Z',
         parsedCommit: 'abc123def456',
       });
-      expect(withCommit).toContain('Parsed at commit: abc123def456');
+      expect(withCommit).toBe('> snapshot @abc123d · 2024-01-15\n');
 
       const withoutCommit = formatStalenessHeader({
         warning: 'Data reflects parsed stable branch, not local changes',
         parsedAt: '2024-01-15T10:30:00.000Z',
       });
-      expect(withoutCommit).not.toContain('Parsed at commit');
-      expect(withoutCommit).toContain('Last parsed: 2024-01-15T10:30:00.000Z');
+      expect(withoutCommit).toBe('> snapshot · 2024-01-15\n');
     });
 
     describe('session-scoped dedupe', () => {
@@ -221,35 +220,24 @@ describe('Response Formatter', () => {
         return `test-formatter-session-${sessionKeyCounter}`;
       }
 
-      it('renders the full banner on first mention, compact on an unchanged repeat', () => {
+      it('renders the banner on first mention and nothing on an unchanged repeat', () => {
         const key = freshSessionKey();
-        const full = formatStalenessHeader(staleness, key);
-        expect(full).toContain('Data reflects indexed snapshots, not live code');
-        expect(full).toContain('test-repo — Last parsed: 2024-01-15T10:30:00.000Z; Parsed at commit: abcdef1234567');
-
-        const compact = formatStalenessHeader(staleness, key);
-        expect(compact).not.toContain('Data reflects indexed snapshots, not live code');
         // commit7 = first 7 chars; date = YYYY-MM-DD.
-        expect(compact).toBe('> snapshot test-repo@abcdef1 · 2024-01-15\n');
+        expect(formatStalenessHeader(staleness, key)).toBe('> snapshot test-repo@abcdef1 · 2024-01-15\n');
+        expect(formatStalenessHeader(staleness, key)).toBe('');
       });
 
-      it('drops the commit segment in compact form when commit is unknown', () => {
-        const key = freshSessionKey();
-        formatStalenessHeader(
-          { ...staleness, repositories: [{ name: 'no-commit-repo', parsedAt: '2024-02-01T00:00:00.000Z' }] },
-          key,
-        );
-        const compact = formatStalenessHeader(
-          { ...staleness, repositories: [{ name: 'no-commit-repo', parsedAt: '2024-02-01T00:00:00.000Z' }] },
-          key,
-        );
-        expect(compact).toBe('> snapshot no-commit-repo · 2024-02-01\n');
+      it('drops the commit segment when commit is unknown', () => {
+        const banner = formatStalenessHeader({
+          ...staleness,
+          repositories: [{ name: 'no-commit-repo', parsedAt: '2024-02-01T00:00:00.000Z' }],
+        });
+        expect(banner).toBe('> snapshot no-commit-repo · 2024-02-01\n');
       });
 
-      it('renders full again after the repo parse state changes', () => {
+      it('renders again after the repo parse state changes', () => {
         const key = freshSessionKey();
         formatStalenessHeader(staleness, key);
-        formatStalenessHeader(staleness, key); // compact
         const changed = formatStalenessHeader(
           {
             ...staleness,
@@ -257,26 +245,20 @@ describe('Response Formatter', () => {
           },
           key,
         );
-        expect(changed).toContain('Data reflects indexed snapshots, not live code');
-        expect(changed).toContain('Parsed at commit: newcommit99');
+        expect(changed).toBe('> snapshot test-repo@newcomm · 2024-03-01\n');
       });
 
-      it('always renders full without a session key', () => {
-        const first = formatStalenessHeader(staleness);
-        const second = formatStalenessHeader(staleness);
-        expect(first).toContain('Data reflects indexed snapshots, not live code');
-        expect(second).toContain('Data reflects indexed snapshots, not live code');
+      it('always renders without a session key', () => {
+        expect(formatStalenessHeader(staleness)).not.toBe('');
+        expect(formatStalenessHeader(staleness)).not.toBe('');
       });
 
       it('falls back to the raw parsedAt string instead of throwing on a malformed date', () => {
-        const key = freshSessionKey();
-        const malformed = {
+        const banner = formatStalenessHeader({
           ...staleness,
           repositories: [{ name: 'bad-date-repo', parsedAt: 'not-a-real-date' }],
-        };
-        formatStalenessHeader(malformed, key); // full — no compact path exercised yet
-        const compact = formatStalenessHeader(malformed, key);
-        expect(compact).toBe('> snapshot bad-date-repo · not-a-real-date\n');
+        });
+        expect(banner).toBe('> snapshot bad-date-repo · not-a-real-date\n');
       });
     });
   });
@@ -398,7 +380,7 @@ describe('Response Formatter', () => {
       expect(result.data).toContain('UserController.userController');
     });
 
-    it('keeps warnings and ambiguity banners unaffected when the staleness portion goes compact', () => {
+    it('keeps warnings and ambiguity banners unaffected when the staleness banner is deduped', () => {
       const dedupedMetadata: McpResponseMetadata = {
         ...mockMetadata,
         scope: { ...mockScope, sessionKey: 'change-impact-session' },
@@ -414,15 +396,14 @@ describe('Response Formatter', () => {
       const first = formatChangeImpact(mockChangeImpact, dedupedMetadata);
       expect(first.data as string).toContain('Some entities were excluded by the extraction profile');
       expect(first.data as string).toContain('1 more match — disambiguate with fileHint');
-      expect(first.data as string).toContain('Data reflects parsed stable branch, not local changes');
+      expect(first.data as string).toContain('> snapshot test-repo@abc123d · 2024-01-15');
 
-      // Second call, same session + unchanged repo state -> staleness compacts,
+      // Second call, same session + unchanged repo state -> staleness is omitted,
       // but warnings/ambiguity are unconditional and must still render.
       const second = formatChangeImpact(mockChangeImpact, dedupedMetadata);
       expect(second.data as string).toContain('Some entities were excluded by the extraction profile');
       expect(second.data as string).toContain('1 more match — disambiguate with fileHint');
-      expect(second.data as string).not.toContain('Data reflects parsed stable branch, not local changes');
-      expect(second.data as string).toContain('> snapshot test-repo@abc123d · 2024-01-15');
+      expect(second.data as string).not.toContain('> snapshot');
     });
 
     // An omitted "Affected Tests" section reads as "no test covers this", but
@@ -465,8 +446,7 @@ describe('Response Formatter', () => {
     it('should include staleness warning in summary', () => {
       const result = formatChangeImpact(mockChangeImpact, mockMetadata);
 
-      expect(result.data).toContain('> Data reflects parsed stable branch, not local changes');
-      expect(result.data).toContain('> Last parsed: 2024-01-15T10:30:00.000Z');
+      expect(result.data).toContain('> snapshot · 2024-01-15');
     });
 
     it('should format high risk changes', () => {
@@ -1338,7 +1318,7 @@ describe('Response Formatter', () => {
 
       it('renders only the collapsed line on zero results', () => {
         const body = formatCodeElementList([], 'R', multi()).data as string;
-        expect(body).toContain('> 3 other repos in scope · parsed 2024-01-10–2024-01-20 · see describe_repository');
+        expect(body).toContain('> 3 repos in scope · parsed 2024-01-10–2024-01-20 · see describe_repository');
         expect(body).not.toContain('snapshot');
       });
     });
