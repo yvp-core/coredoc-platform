@@ -48,7 +48,7 @@ import {
   type RepoCoverageStats,
 } from './coverage.js';
 import { getDefaultDetailLevel, resolveDetailLevel, detailEscalationFooter } from './detail-level.js';
-import { shouldRenderFullBanner } from './staleness-dedupe.js';
+import { isRepeatBanner } from './staleness-dedupe.js';
 
 // =============================================================================
 // Staleness Information
@@ -108,7 +108,6 @@ export async function getStalenessInfo(scope: ScopeContext, repository?: IGraphR
         name: overview.name,
         parsedAt: overview.parsedAt || 'unknown',
         ...(overview.gitCommitHash ? { parsedCommit: overview.gitCommitHash } : {}),
-        ...(overview.parserVersion ? { parserVersion: overview.parserVersion } : {}),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
     // A newest-repo timestamp made older slices look fresh. Only a single-repo
@@ -240,11 +239,6 @@ function repoTag(id: string | undefined, resolve: RepoResolver | null): string {
 // Summary Formatters
 // =============================================================================
 
-/**
- * Render the compact repeat-mention form of the staleness banner: one line
- * per repo, no warning sentence. `commit unknown` drops the `@<hash>`
- * segment entirely rather than rendering a placeholder.
- */
 function shortParseDate(parsedAt: string): string {
   if (parsedAt === 'unknown') return parsedAt;
   const parsed = new Date(parsedAt);
@@ -253,22 +247,22 @@ function shortParseDate(parsedAt: string): string {
   return Number.isNaN(parsed.getTime()) ? parsedAt : parsed.toISOString().slice(0, 10);
 }
 
-function compactStalenessLine(repo: NonNullable<StalenessInfo['repositories']>[number]): string {
-  const commit = repo.parsedCommit ? `@${repo.parsedCommit.slice(0, 7)}` : '';
-  return `> snapshot ${repo.name}${commit} · ${shortParseDate(repo.parsedAt)}`;
+/** `@<7-char commit>`, or nothing when the commit is unknown. Full hashes live in raw output. */
+function shortCommit(commit: string | undefined): string {
+  return commit ? `@${commit.slice(0, 7)}` : '';
 }
 
-function formatCompactStalenessBanner(repositories: NonNullable<StalenessInfo['repositories']>): string {
-  return `${repositories.map(compactStalenessLine).join('\n')}\n`;
+function compactStalenessLine(repo: NonNullable<StalenessInfo['repositories']>[number]): string {
+  return `> snapshot ${repo.name}${shortCommit(repo.parsedCommit)} · ${shortParseDate(repo.parsedAt)}`;
 }
 
 /**
- * Multi-repo header for an answer whose contributing repos are known: one
- * compact line per repo that contributed a result, and every other repo in
- * scope collapsed into a single line (count + parse-date range, no names).
- * Zero contributing repos yields the collapsed line alone.
+ * Multi-repo header: one compact line per repo that contributed a result, and
+ * every other repo in scope collapsed into a single line (count + parse-date
+ * range, no names). No contributing repos yields the collapsed line alone, so
+ * a large workspace never lists every repo on every answer.
  */
-function formatContributingStalenessBanner(
+function formatMultiRepoStalenessBanner(
   repositories: NonNullable<StalenessInfo['repositories']>,
   contributing: ReadonlySet<string>,
 ): string {
@@ -288,61 +282,42 @@ function formatContributingStalenessBanner(
             .map((t) => new Date(t).toISOString().slice(0, 10))
             .filter((d, i, all) => i === 0 || d !== all[0])
             .join('–');
-    lines.push(
-      `> ${others.length} other repo${others.length === 1 ? '' : 's'} in scope · parsed ${range} · see describe_repository`,
-    );
+    const label = `${shown.length > 0 ? 'other ' : ''}repo${others.length === 1 ? '' : 's'}`;
+    lines.push(`> ${others.length} ${label} in scope · parsed ${range} · see describe_repository`);
   }
   return `${lines.join('\n')}\n`;
 }
 
+function renderStalenessBanner(staleness: StalenessInfo, contributingRepos?: ReadonlySet<string>): string {
+  const repositories = staleness.repositories;
+  if (repositories && repositories.length > 1) {
+    return formatMultiRepoStalenessBanner(repositories, contributingRepos ?? new Set());
+  }
+  if (repositories?.length) return `${compactStalenessLine(repositories[0]!)}\n`;
+  // The commit rides the SUMMARY header too, not only the raw metadata. It is
+  // the only field here a consumer can ask a binary question of — "does this
+  // graph see my base?" — and a timestamp cannot answer it.
+  const commit = staleness.parsedCommit ? ` ${shortCommit(staleness.parsedCommit)}` : '';
+  const branch = staleness.parsedBranch ? ` (${staleness.parsedBranch})` : '';
+  return `> snapshot${commit} · ${shortParseDate(staleness.parsedAt)}${branch}\n`;
+}
+
 /**
  * Format staleness header for summary output. Exported for tools that build
- * their summary text outside this module, so the
- * banner stays byte-identical everywhere.
+ * their summary text outside this module, so the banner stays byte-identical
+ * everywhere.
  *
  * `sessionKey` (when provided) drives session-scoped dedupe
- * (staleness-dedupe.ts): a repeat mention of the same repo(s) at unchanged
- * parse state renders the compact one-line form instead of the full banner.
- * Undefined `sessionKey`, or a staleness shape with no named repositories
- * (nothing to key dedupe on), always renders full.
+ * (staleness-dedupe.ts): a banner already shown in the session renders as
+ * nothing. Undefined `sessionKey` always renders.
  */
 export function formatStalenessHeader(
   staleness: StalenessInfo,
   sessionKey?: string,
   contributingRepos?: ReadonlySet<string>,
 ): string {
-  if (contributingRepos && staleness.repositories && staleness.repositories.length > 1) {
-    return formatContributingStalenessBanner(staleness.repositories, contributingRepos);
-  }
-  if (staleness.repositories?.length) {
-    const full = shouldRenderFullBanner(
-      sessionKey,
-      staleness.repositories.map((repo) => ({
-        name: repo.name,
-        parsedAt: repo.parsedAt,
-        parsedCommit: repo.parsedCommit,
-      })),
-    );
-    if (!full) {
-      return formatCompactStalenessBanner(staleness.repositories);
-    }
-    const lines = staleness.repositories.map(
-      (repo) =>
-        `> ${repo.name} — Last parsed: ${repo.parsedAt}` +
-        (repo.parsedCommit ? `; Parsed at commit: ${repo.parsedCommit}` : '; commit unknown') +
-        (repo.parserVersion ? `; parser: ${repo.parserVersion}` : ''),
-    );
-    return `> ${staleness.warning}\n${lines.join('\n')}\n`;
-  }
-  const date = staleness.parsedAt !== 'unknown' ? new Date(staleness.parsedAt).toISOString() : 'unknown';
-  const branch = staleness.parsedBranch ? ` (${staleness.parsedBranch})` : '';
-  // The commit rides the SUMMARY header too, not only the raw metadata. It is
-  // the only field here a consumer can ask a binary question of — "does this
-  // graph see my base?" — and a timestamp cannot answer it, so a field reachable
-  // only through `format: "raw"` is a field the default caller never sees.
-  // Absent stays absent: no line at all rather than an empty one.
-  const commit = staleness.parsedCommit ? `\n> Parsed at commit: ${staleness.parsedCommit}` : '';
-  return `> ${staleness.warning}\n> Last parsed: ${date}${branch}${commit}\n`;
+  const banner = renderStalenessBanner(staleness, contributingRepos);
+  return isRepeatBanner(sessionKey, banner) ? '' : banner;
 }
 
 /**
@@ -363,15 +338,20 @@ function pushDetailFooter(lines: string[], metadata: McpResponseMetadata): void 
   }
 }
 
-function formatHeaderBanners(metadata: McpResponseMetadata, items?: Array<{ id?: string }>): string {
+function formatHeaderBanners(
+  metadata: McpResponseMetadata,
+  items: ReadonlyArray<{ id?: string } | undefined> = [],
+  repoNames: ReadonlyArray<string | undefined> = [],
+): string {
   const warnings = (metadata.warnings ?? []).map((warning) => `> ${warning}\n`).join('');
-  // When the caller hands over its result rows, the multi-repo header shrinks to the
-  // repos those rows came from. Without a resolver (single-repo scope) it is moot.
-  const resolve = items ? buildRepoResolver(metadata.scope) : null;
-  const contributing =
-    items && resolve
-      ? new Set(items.map((item) => resolve(item.id)).filter((name): name is string => name !== undefined))
-      : undefined;
+  // The multi-repo header names only the repos the answer's rows came from (by id
+  // or by name); every other repo in scope collapses into one line.
+  const resolve = metadata.scope ? buildRepoResolver(metadata.scope) : null;
+  const contributing = new Set(repoNames.filter((name): name is string => name !== undefined));
+  for (const item of items) {
+    const name = resolve?.(item?.id);
+    if (name) contributing.add(name);
+  }
   const staleness = formatStalenessHeader(metadata.staleness, metadata.scope?.sessionKey, contributing);
   const ambiguity = metadata.ambiguity ? `> ⚠ ${metadata.ambiguity.hint}\n` : '';
   return `${warnings}${staleness}${ambiguity}`;
@@ -575,8 +555,16 @@ export function formatChangeImpact(
 
   const lines: string[] = [];
 
-  // Staleness warning
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(
+    formatHeaderBanners(metadata, [
+      result.target,
+      ...result.directCallers,
+      ...result.transitiveCallers,
+      ...(result.typeUsers ?? []),
+      ...result.affectedEntrypoints,
+      ...result.affectedTests,
+    ]),
+  );
 
   // Header
   lines.push(`## Impact Analysis: \`${result.target.name}\`\n`);
@@ -719,8 +707,7 @@ export function formatFunctionExplanation(
   const lines: string[] = [];
   const fn = result.function;
 
-  // Staleness warning
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, [fn, ...(result.callees ?? []), ...(result.callers ?? [])]));
 
   // Header
   const fullName = fn.className ? `${fn.className}.${fn.name}` : fn.name;
@@ -831,8 +818,7 @@ export function formatEntrypointExplanation(
   const lines: string[] = [];
   const ep = result.entrypoint;
 
-  // Staleness warning
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, [ep, result.handler.function, ...result.callTree, ...result.entities]));
 
   // Header based on type
   const epRepo = resolve ? resolve(ep.id) : undefined;
@@ -1272,7 +1258,7 @@ export function formatEntrypointList(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, entrypoints));
   lines.push(`## Entrypoints (${entrypoints.length} total)\n`);
 
   if (entrypoints.length === 0) {
@@ -1344,7 +1330,7 @@ export function formatCallerList(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, [...callers, ...(reachingEntrypoints ?? [])]));
   lines.push(`## Callers of \`${functionName}\` (${countLabel(callers.length, truncated?.callers)})\n`);
 
   if (callers.length === 0 && (!reachingEntrypoints || reachingEntrypoints.length === 0)) {
@@ -1414,7 +1400,7 @@ export function formatEntityConsumers(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, consumers));
   lines.push(`## Functions Operating on \`${entityName}\` (${consumers.length})\n`);
 
   if (consumers.length === 0) {
@@ -1487,7 +1473,7 @@ export function formatDbSchema(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, entities));
   lines.push(opts.single ? '## DB Schema\n' : `## DB Schema — ${entities.length} table(s)\n`);
 
   // Compact one-line-per-table overview (column names + relation count only, no
@@ -1551,7 +1537,7 @@ export function formatServiceDependencies(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, [], [repoName]));
   lines.push(`## Service Dependencies of \`${repoName}\` (${deps.length})\n`);
 
   if (deps.length === 0) {
@@ -1595,7 +1581,7 @@ export function formatSemanticSearchResults(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(formatHeaderBanners(metadata, results));
   lines.push(`## Semantic matches for "${query}" (top ${results.length} of ${embeddedCount} embedded symbols)\n`);
 
   for (const r of results) {
@@ -1626,7 +1612,13 @@ export function formatExtractionCoverage(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(
+    formatHeaderBanners(
+      metadata,
+      [],
+      stats.map((stat) => stat.repoName),
+    ),
+  );
   lines.push(`## Extraction Coverage — ${stats.length} repo(s)\n`);
 
   if (stats.length === 0) {
@@ -1858,7 +1850,13 @@ export function formatExplain(
   }
 
   const lines: string[] = [];
-  lines.push(formatHeaderBanners(metadata));
+  lines.push(
+    formatHeaderBanners(
+      metadata,
+      [],
+      (result.candidates ?? []).map((c) => c.repo),
+    ),
+  );
 
   switch (result.resolution) {
     case 'metadata':

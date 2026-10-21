@@ -134,7 +134,6 @@ export interface StalenessInfo {
     name: string;
     parsedAt: string;
     parsedCommit?: string;
-    parserVersion?: string;
   }>;
 }
 

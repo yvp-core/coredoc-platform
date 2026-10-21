@@ -2,14 +2,13 @@
  * Session-scoped dedupe for the staleness banner (see formatStalenessHeader
  * in response-formatter.ts).
  *
- * Every MCP answer repeats the full freshness banner, which over a long
- * session is pure token repetition and trains agents to skip `>`-prefixed
- * lines. This tracks, per session and per repo, the parse state
- * (`parsedAt` + `parsedCommit`) last shown, so a repeat mention with
- * unchanged state can render a one-line compact form instead.
+ * Repeating the same banner on every MCP answer is pure token cost. This
+ * records, per session, the banner texts already shown, so an exact repeat
+ * renders nothing. Any change in what the banner says (another repo, a new
+ * commit or parse date) changes the text, so it renders again.
  */
 
-/** Every Nth banner emission in a session renders full regardless, so a long-running session still gets periodic reminders. */
+/** Every Nth banner emission in a session renders regardless, so a long-running session still gets periodic reminders. */
 export const STALENESS_REFRESH_INTERVAL = 20;
 
 // ponytail: simple insertion-order eviction (oldest session dropped once the
@@ -17,13 +16,11 @@ export const STALENESS_REFRESH_INTERVAL = 20;
 // only if session churn ever makes eviction order matter.
 export const STALENESS_SESSION_CAP = 100;
 
-interface RepoStamp {
-  parsedAt: string;
-  parsedCommit?: string;
-}
+/** Distinct banners remembered per session; the oldest is forgotten first (it may then render once more). */
+export const STALENESS_BANNERS_PER_SESSION = 50;
 
 interface SessionState {
-  perRepo: Map<string, RepoStamp>;
+  shown: Set<string>;
   emissions: number;
 }
 
@@ -36,47 +33,32 @@ function getOrCreateSession(key: string): SessionState {
       const oldestKey = sessions.keys().next().value;
       if (oldestKey !== undefined) sessions.delete(oldestKey);
     }
-    session = { perRepo: new Map(), emissions: 0 };
+    session = { shown: new Set(), emissions: 0 };
     sessions.set(key, session);
   }
   return session;
 }
 
-function stampsEqual(a: RepoStamp | undefined, b: RepoStamp): boolean {
-  return a !== undefined && a.parsedAt === b.parsedAt && a.parsedCommit === b.parsedCommit;
-}
-
-export interface RepoStalenessState {
-  name: string;
-  parsedAt: string;
-  parsedCommit?: string;
-}
-
 /**
- * Decide whether a staleness banner mentioning `repos` should render FULL
- * (true) or may render compact (false), and record the emission as a side
- * effect. Call exactly once per banner emission.
+ * True when `banner` was already shown in this session and may be omitted.
+ * Records the emission as a side effect; call exactly once per banner.
  *
- * - No `sessionKey` → always full (safe fallback; never silently compact
- *   without a key to dedupe against).
- * - Any repo whose state is new or changed since last shown in this session
- *   → full (for every repo in the banner, not just the changed one).
- * - Otherwise every `STALENESS_REFRESH_INTERVAL`-th emission in the session
- *   forces a refresh even when nothing changed.
+ * - No `sessionKey` → never a repeat (the stateless cloud transport has no
+ *   session to dedupe against).
+ * - Every `STALENESS_REFRESH_INTERVAL`-th emission in the session renders
+ *   even when unchanged.
  */
-export function shouldRenderFullBanner(sessionKey: string | undefined, repos: RepoStalenessState[]): boolean {
-  if (!sessionKey) return true;
+export function isRepeatBanner(sessionKey: string | undefined, banner: string): boolean {
+  if (!sessionKey) return false;
 
   const session = getOrCreateSession(sessionKey);
   session.emissions += 1;
-  const forceRefresh = session.emissions % STALENESS_REFRESH_INTERVAL === 0;
-
-  let anyChanged = false;
-  for (const repo of repos) {
-    const stamp: RepoStamp = { parsedAt: repo.parsedAt, parsedCommit: repo.parsedCommit };
-    if (!stampsEqual(session.perRepo.get(repo.name), stamp)) anyChanged = true;
-    session.perRepo.set(repo.name, stamp);
+  const repeat = session.shown.has(banner) && session.emissions % STALENESS_REFRESH_INTERVAL !== 0;
+  session.shown.delete(banner); // re-insert so a banner still in use stays newest
+  session.shown.add(banner);
+  if (session.shown.size > STALENESS_BANNERS_PER_SESSION) {
+    const oldest = session.shown.values().next().value;
+    if (oldest !== undefined) session.shown.delete(oldest);
   }
-
-  return anyChanged || forceRefresh;
+  return repeat;
 }
