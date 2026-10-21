@@ -177,6 +177,20 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaOAuthStore (integration)', () => {
     expect(await store.getUserProfileById(`${RUN}-nope`)).toBeUndefined();
   });
 
+  it('resolves every IdP login with the same verified email to the first profile', async () => {
+    const email = `same-${RUN}@example.com`;
+    const github = await store.upsertUserProfile({ id: `${RUN}-gh-7`, username: 'gene', email }, 'github');
+    const google = await store.upsertUserProfile(
+      { id: `${RUN}-g-7`, username: email.toUpperCase(), email: email.toUpperCase() },
+      'google',
+    );
+    expect(google).toBe(github);
+    expect((await store.getUserProfileById(google))?.username).toBe('gene');
+
+    const other = await store.upsertUserProfile({ id: `${RUN}-g-8`, username: 'x', email: `x-${email}` }, 'google');
+    expect(other).not.toBe(github);
+  });
+
   it('links a pending invite to the profile on first login (re-keys by email)', async () => {
     const ws = await prisma.workspace.create({ data: { name: `${RUN}-ws`, slug: `${RUN}-ws` } });
     const email = `invitee-${RUN}@example.com`;

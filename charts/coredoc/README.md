@@ -27,8 +27,8 @@ server:
   publicUrl: https://coredoc.example.com   # REQUIRED
 
 auth:
-  upstream: github                          # or workos
-  allowedEmailDomains: [example.com]        # REQUIRED for github upstream
+  upstream: github                          # or google, "github,google", workos
+  allowedEmailDomains: [example.com]        # REQUIRED for github/google upstreams
   existingSecret: coredoc-auth              # OAUTH_JWT_SECRET + client id/secret
 
 postgres:

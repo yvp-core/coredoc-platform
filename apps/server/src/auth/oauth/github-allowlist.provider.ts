@@ -145,6 +145,7 @@ export function buildGitHubProvider(auth: AuthConfig = configFromEnv().auth): OA
 
   return {
     name: 'github',
+    displayName: 'GitHub',
     strategy: makePolicyStrategy(false),
     strategyOptions: ({ serverUrl, clientId, clientSecret, callbackPath }) => ({
       clientID: clientId,

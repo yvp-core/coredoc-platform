@@ -55,16 +55,19 @@ server:
 
 auth:
   # Upstream identity provider for the self-hosted OAuth 2.1 server:
-  # "github" (GitHub OAuth App) or "workos" (WorkOS AuthKit OIDC).
+  # "github" (GitHub OAuth App), "google" (Google OAuth client),
+  # "github,google" (sign-in page lets each user pick) or "workos" (WorkOS
+  # AuthKit OIDC).
   upstream: github
   # Login gate — verified-email domains allowed to sign in, e.g. [example.com].
-  # REQUIRED for the github upstream (the server refuses to boot with an empty
-  # gate). Optional defense-in-depth for workos (AuthKit tenant config is the
+  # REQUIRED for the github and google upstreams (the server refuses to boot
+  # with an empty gate). Optional defense-in-depth for workos (AuthKit tenant config is the
   # primary gate there).
   allowedEmailDomains: []
   # REQUIRED. Name of a pre-created Secret loaded via envFrom. Expected keys:
   #   OAUTH_JWT_SECRET                        (>= 32 chars; openssl rand -hex 32)
   #   GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET (github upstream)
+  #   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (google upstream)
   #   WORKOS_CLIENT_ID / WORKOS_CLIENT_SECRET (workos upstream)
   #   WORKOS_AUTHKIT_CLIENT_ID / WORKOS_API_KEY (workos invitation completion + workspace orgs)
   # Optional extra keys (loaded too, since envFrom loads every key):

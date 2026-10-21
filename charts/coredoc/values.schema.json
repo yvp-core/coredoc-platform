@@ -39,7 +39,7 @@
     "auth": {
       "type": "object",
       "properties": {
-        "upstream": { "enum": ["github", "workos"] },
+        "upstream": { "enum": ["github", "google", "github,google", "workos"] },
         "allowedEmailDomains": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 }
@@ -192,12 +192,12 @@
   "required": ["server"],
   "allOf": [
     {
-      "description": "The github upstream requires a non-empty login gate — the server refuses to boot with an empty ALLOWED_EMAIL_DOMAINS.",
+      "description": "The github and google upstreams require a non-empty login gate — the server refuses to boot with an empty ALLOWED_EMAIL_DOMAINS.",
       "if": {
         "properties": {
           "auth": {
             "properties": {
-              "upstream": { "const": "github" }
+              "upstream": { "enum": ["github", "google", "github,google"] }
             }
           }
         }

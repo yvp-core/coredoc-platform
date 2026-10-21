@@ -1,6 +1,7 @@
 /**
  * Tiny pure helpers shared by the OAuth upstream providers
- * (github-allowlist.provider.ts, workos.provider.ts).
+ * (github-allowlist.provider.ts, google.provider.ts, workos.provider.ts) and
+ * their selection in oauth-upstream.ts.
  */
 
 /** Parse a comma-separated env value into trimmed, lowercased, non-empty entries. */

@@ -55,9 +55,11 @@ spec:
             - name: ALLOWED_EMAIL_DOMAINS
               value: {{ join "," .Values.auth.allowedEmailDomains | quote }}
             {{- end }}
-            {{- if eq .Values.auth.upstream "workos" }}
+            {{- if ne .Values.auth.upstream "github" }}
             - name: OAUTH_UPSTREAM
-              value: workos
+              value: {{ .Values.auth.upstream | quote }}
+            {{- end }}
+            {{- if eq .Values.auth.upstream "workos" }}
             - name: WORKOS_AUTHKIT_DOMAIN
               value: {{ required "auth.workos.authkitDomain is required when auth.upstream=workos" .Values.auth.workos.authkitDomain | quote }}
             {{- end }}

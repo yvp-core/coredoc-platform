@@ -5,6 +5,8 @@ const ENV_KEYS = [
   'OAUTH_UPSTREAM',
   'GITHUB_CLIENT_ID',
   'GITHUB_CLIENT_SECRET',
+  'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET',
   'WORKOS_AUTHKIT_DOMAIN',
   'WORKOS_CLIENT_ID',
   'WORKOS_CLIENT_SECRET',
@@ -83,6 +85,27 @@ describe('resolveUpstream', () => {
     process.env.WORKOS_AUTHKIT_DOMAIN = 'https://acme.authkit.app';
     process.env.WORKOS_CLIENT_ID = 'wos_id';
     expect(() => resolveUpstream()).toThrow(/requires: WORKOS_CLIENT_SECRET/);
+  });
+
+  it('fails fast listing every missing GOOGLE_* env', () => {
+    process.env.OAUTH_UPSTREAM = 'google';
+    process.env.ALLOWED_EMAIL_DOMAINS = 'example.com';
+    expect(() => resolveUpstream()).toThrow(/OAUTH_UPSTREAM=google requires: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET/);
+  });
+
+  it('puts a chooser in front of a list, validating every member', () => {
+    process.env.OAUTH_UPSTREAM = 'github, google';
+    process.env.ALLOWED_EMAIL_DOMAINS = 'example.com';
+    process.env.GOOGLE_CLIENT_ID = 'g_id';
+    expect(() => resolveUpstream()).toThrow(/requires: GOOGLE_CLIENT_SECRET/);
+
+    process.env.GOOGLE_CLIENT_SECRET = 'g_secret';
+    expect(resolveUpstream().provider.name).toBe('chooser');
+  });
+
+  it('refuses to combine workos with other upstreams', () => {
+    process.env.OAUTH_UPSTREAM = 'workos,github';
+    expect(() => resolveUpstream()).toThrow(/cannot be combined/);
   });
 
   it('throws on an unknown OAUTH_UPSTREAM value (never a silent fallback)', () => {
