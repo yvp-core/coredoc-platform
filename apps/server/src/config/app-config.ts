@@ -98,6 +98,8 @@ const RawEnvSchema = z.object({
   OAUTH_REFRESH_TTL: optionalString,
   GITHUB_CLIENT_ID: optionalString,
   GITHUB_CLIENT_SECRET: optionalString,
+  GOOGLE_CLIENT_ID: optionalString,
+  GOOGLE_CLIENT_SECRET: optionalString,
   WORKOS_API_KEY: optionalString,
   WORKOS_CLIENT_ID: optionalString,
   WORKOS_CLIENT_SECRET: optionalString,
@@ -228,6 +230,9 @@ export interface AuthConfig {
   githubClientId: string;
   /** Former default `''` at `auth/oauth/oauth-upstream.ts`. */
   githubClientSecret: string;
+  /** Raw; `resolveUpstream` trims and names a missing one. */
+  googleClientId: string;
+  googleClientSecret: string;
   workos: WorkOSConfig;
   /** Raw CSV; `parseCsv` at the site decides what an entry is. */
   allowedEmailDomains?: string;
@@ -248,6 +253,8 @@ function toAuth(raw: z.infer<typeof RawEnvSchema>): AuthConfig {
     refreshTtl: raw.OAUTH_REFRESH_TTL ?? '30d',
     githubClientId: raw.GITHUB_CLIENT_ID ?? '',
     githubClientSecret: raw.GITHUB_CLIENT_SECRET ?? '',
+    googleClientId: raw.GOOGLE_CLIENT_ID ?? '',
+    googleClientSecret: raw.GOOGLE_CLIENT_SECRET ?? '',
     workos: {
       apiKey: raw.WORKOS_API_KEY,
       clientId: raw.WORKOS_CLIENT_ID,

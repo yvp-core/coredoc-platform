@@ -38,7 +38,7 @@ external prerequisites by design.
 | **Postgres** (external) | 16+; managed/production-grade (backups, PITR). Holds workspaces, members, tokens. |
 | **Object storage** | Any S3-compatible endpoint: GCS interop, Cloudflare R2, MinIO, AWS S3 |
 | DNS + TLS | A public hostname for the server (e.g. `coredoc.example.com`) with TLS termination at the ingress |
-| Upstream identity provider | A GitHub OAuth App **or** a WorkOS AuthKit application (§4) |
+| Upstream identity provider | A GitHub OAuth App and/or a Google OAuth client, **or** a WorkOS AuthKit application (§4) |
 
 > **It's two databases, not one.** Neo4j is the code-graph data plane; Postgres
 > is the control plane. Both are required.
@@ -153,7 +153,27 @@ again has `emailSent: false`, a renewed `expiresAt`, and the `signInUrl` to
 share. Deployments that require automatic email delivery must use the WorkOS
 upstream (or add a separate mail provider integration).
 
-### 4.2 WorkOS AuthKit (`auth.upstream: workos`)
+### 4.2 Google (`auth.upstream: google` or `github,google`)
+
+1. Google Cloud console → **APIs & Services → Credentials** → *Create
+   credentials → OAuth client ID*, type **Web application**. (Configure the
+   OAuth consent screen first if prompted; an *Internal* screen limits sign-in
+   to your Google Workspace.)
+2. **Authorized redirect URI**: `<server.publicUrl>/callback`, the same URL
+   GitHub uses.
+3. Put the Client ID and secret into the auth Secret (§5) as
+   `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+4. `auth.allowedEmailDomains` is required, as for GitHub. Only a
+   Google-verified email in one of these domains may sign in.
+
+With `upstream: github,google`, Coredoc shows a sign-in page where each user
+picks GitHub or Google. Both apps from §4.1 and §4.2 are needed. The two
+logins are **separate identities**: someone who signs in with both appears as
+two users, so each person should stick to one. Invitations are by email and
+link to whichever login first presents that verified address. Existing GitHub
+users keep their identity and memberships when Google is added.
+
+### 4.3 WorkOS AuthKit (`auth.upstream: workos`)
 
 > **Upgrading an existing WorkOS deployment? Set the two new secrets first.**
 > `WORKOS_AUTHKIT_CLIENT_ID` and `WORKOS_API_KEY` are now **required** whenever
@@ -203,8 +223,9 @@ The chart never writes secrets — it references pre-created ones
 
 ```bash
 # Auth — OAuth credentials + token-signing secret (>= 32 chars).
-# github upstream shown; for workos use WORKOS_CLIENT_ID,
-# WORKOS_CLIENT_SECRET, WORKOS_AUTHKIT_CLIENT_ID, and WORKOS_API_KEY.
+# github upstream shown; google adds GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET;
+# for workos use WORKOS_CLIENT_ID, WORKOS_CLIENT_SECRET,
+# WORKOS_AUTHKIT_CLIENT_ID, and WORKOS_API_KEY.
 kubectl create secret generic coredoc-auth \
   --from-literal=OAUTH_JWT_SECRET="$(openssl rand -hex 32)" \
   --from-literal=GITHUB_CLIENT_ID="Ov23li..." \
@@ -263,9 +284,9 @@ chart's `values.yaml` with fuller inline comments.
 
 | Key | Meaning |
 |---|---|
-| `auth.upstream` | `github` (default) or `workos` (§4). |
-| `auth.allowedEmailDomains` | Login gate — verified-email domains, e.g. `[example.com]`. **REQUIRED for github** (boot failure if empty); optional defense-in-depth for workos. |
-| `auth.existingSecret` | **REQUIRED.** Pre-created Secret loaded via `envFrom`. Keys: `OAUTH_JWT_SECRET` (≥ 32 chars) plus `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` or `WORKOS_CLIENT_ID`/`WORKOS_CLIENT_SECRET`/`WORKOS_AUTHKIT_CLIENT_ID`/`WORKOS_API_KEY`; optionally `SERVER_ENCRYPTION_KEY` (encrypts CI/service tokens). |
+| `auth.upstream` | `github` (default), `google`, `github,google` or `workos` (§4). |
+| `auth.allowedEmailDomains` | Login gate — verified-email domains, e.g. `[example.com]`. **REQUIRED for github and google** (boot failure if empty); optional defense-in-depth for workos. |
+| `auth.existingSecret` | **REQUIRED.** Pre-created Secret loaded via `envFrom`. Keys: `OAUTH_JWT_SECRET` (≥ 32 chars) plus `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` and/or `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, or `WORKOS_CLIENT_ID`/`WORKOS_CLIENT_SECRET`/`WORKOS_AUTHKIT_CLIENT_ID`/`WORKOS_API_KEY`; optionally `SERVER_ENCRYPTION_KEY` (encrypts CI/service tokens). |
 | `auth.workos.authkitDomain` | AuthKit domain, e.g. `https://yourco.authkit.app`. Required when `upstream: workos`. |
 
 ### 6.4 `config` (feature flags)

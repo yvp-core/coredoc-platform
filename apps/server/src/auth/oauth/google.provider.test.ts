@@ -1,0 +1,36 @@
+import { describe, it, expect } from 'vitest';
+import { buildGoogleProvider } from './google.provider.js';
+import { loadAppConfig } from '../../config/app-config.js';
+
+const auth = (env: Record<string, string> = {}) =>
+  loadAppConfig({ ALLOWED_EMAIL_DOMAINS: 'example.com', ...env }, 'worker').auth;
+
+const profile = (email: string, verified: unknown) => ({
+  id: 'g-123',
+  displayName: 'Alice Doe',
+  emails: [{ value: email, verified }],
+  photos: [{ value: 'https://img.example.com/alice.png' }],
+});
+
+describe('buildGoogleProvider', () => {
+  it('refuses to boot with an empty login gate', () => {
+    expect(() => buildGoogleProvider(auth({ ALLOWED_EMAIL_DOMAINS: '' }))).toThrow(/Login gate is empty/);
+  });
+
+  it('maps a verified in-domain user, keyed on the Google id with the full email as username', () => {
+    const mapped = buildGoogleProvider(auth()).profileMapper(profile('Alice@Example.com', true));
+    expect(mapped).toMatchObject({ id: 'g-123', username: 'Alice@Example.com', email: 'Alice@Example.com' });
+  });
+
+  it('rejects an unverified email even in an allowed domain', () => {
+    const mapper = buildGoogleProvider(auth()).profileMapper;
+    expect(() => mapper(profile('alice@example.com', false))).toThrow(/no verified email/);
+    expect(() => mapper(profile('alice@example.com', 'true'))).toThrow(/no verified email/);
+  });
+
+  it('rejects a verified email outside the allowed domains', () => {
+    expect(() => buildGoogleProvider(auth()).profileMapper(profile('alice@gmail.com', true))).toThrow(
+      /not in an allowed email domain/,
+    );
+  });
+});
