@@ -33,6 +33,9 @@ export function resolveUpstream(auth: AuthConfig = configFromEnv().auth): Upstre
   // Blank counts as unset (dotenv/compose yield '' for `OAUTH_UPSTREAM=`);
   // only a non-empty unknown value is a config error.
   const names = [...new Set(parseCsv(auth.upstream || 'github'))];
+  if (names.length === 0) {
+    throw new Error('OAUTH_UPSTREAM must name at least one provider.');
+  }
   if (names.length === 1) return resolveOne(names[0] as string, auth);
   if (names.includes('workos')) {
     // AuthKit already offers its own method picker, and the WorkOS invitation
