@@ -167,11 +167,12 @@ upstream (or add a separate mail provider integration).
    Google-verified email in one of these domains may sign in.
 
 With `upstream: github,google`, Coredoc shows a sign-in page where each user
-picks GitHub or Google. Both apps from §4.1 and §4.2 are needed. The two
-logins are **separate identities**: someone who signs in with both appears as
-two users, so each person should stick to one. Invitations are by email and
-link to whichever login first presents that verified address. Existing GitHub
-users keep their identity and memberships when Google is added.
+picks GitHub or Google. Both apps from §4.1 and §4.2 are needed. A user is
+identified by their **verified email**, so signing in with GitHub or with
+Google as the same address reaches the same account and workspaces. Existing
+GitHub users keep their identity and memberships when Google is added.
+Removing someone from their workspaces revokes access whichever provider they
+use.
 
 ### 4.3 WorkOS AuthKit (`auth.upstream: workos`)
 

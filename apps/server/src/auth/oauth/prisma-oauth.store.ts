@@ -10,6 +10,8 @@
  * Semantics mirror the shipped `MemoryStore` exactly:
  *  - deterministic `generateClientId` → idempotent (re)registration;
  *  - `profile_id = sha256("<provider>:<id>").slice(0,24)`;
+ *  - except that one verified email is one user across IdPs (see
+ *    `upsertUserProfile`);
  *  - sessions expire on read (delete + return undefined);
  *  - `expires_at` / `expiresAt` are BigInt millisecond epochs.
  *
@@ -240,10 +242,29 @@ export class PrismaOAuthStore implements IOAuthStore {
       update: mutable,
     });
 
+    // One person signing in through GitHub and Google is one user: the oldest
+    // profile with this email is the identity every IdP resolves to. Every
+    // provider's gate passes only an IdP-verified email, so the address is
+    // proof of the mailbox. Workspace membership stays the access boundary.
+    const userId = (await this.oldestProfileIdByEmail(profile.email)) ?? profileId;
+
     // upsertUserProfile is the one reliable per-login event we own, so it is
     // also where invited-by-email members are linked to their real identity.
-    await linkPendingMemberships(this.prisma, profileId, profile.email, profile.displayName);
-    return profileId;
+    await linkPendingMemberships(this.prisma, userId, profile.email, profile.displayName);
+    return userId;
+  }
+
+  private async oldestProfileIdByEmail(email: string | undefined): Promise<string | undefined> {
+    if (!email) return undefined;
+    // lower() on both sides: rows keep the IdP's casing. Parameterized, and an
+    // exact `=` — never ILIKE (see link-pending-memberships.ts).
+    // ponytail: unindexed scan of oauth_user_profiles, add a lower(email) index if logins slow down.
+    const rows = await this.prisma.$queryRaw<Array<{ profile_id: string }>>`
+      SELECT profile_id FROM oauth_user_profiles
+      WHERE lower(email) = ${email.toLowerCase()}
+      ORDER BY created_at ASC, profile_id ASC
+      LIMIT 1`;
+    return rows[0]?.profile_id;
   }
 
   async getUserProfileById(profileId: string): Promise<StoredUserProfile | undefined> {
