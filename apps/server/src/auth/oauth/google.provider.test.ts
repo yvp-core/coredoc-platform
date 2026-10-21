@@ -5,8 +5,9 @@ import { loadAppConfig } from '../../config/app-config.js';
 const auth = (env: Record<string, string> = {}) =>
   loadAppConfig({ ALLOWED_EMAIL_DOMAINS: 'example.com', ...env }, 'worker').auth;
 
-const profile = (email: string, verified: unknown) => ({
+const profile = (email: string, verified: unknown, hd: string | null = email.split('@')[1] ?? null) => ({
   id: 'g-123',
+  _json: { hd: hd ?? undefined },
   displayName: 'Alice Doe',
   emails: [{ value: email, verified }],
   photos: [{ value: 'https://img.example.com/alice.png' }],
@@ -26,6 +27,12 @@ describe('buildGoogleProvider', () => {
     const mapper = buildGoogleProvider(auth()).profileMapper;
     expect(() => mapper(profile('alice@example.com', false))).toThrow(/no verified email/);
     expect(() => mapper(profile('alice@example.com', 'true'))).toThrow(/no verified email/);
+  });
+
+  it('rejects a personal Google account on an allowed address (no or foreign hd)', () => {
+    const mapper = buildGoogleProvider(auth()).profileMapper;
+    expect(() => mapper(profile('alice@example.com', true, null))).toThrow(/not managed/);
+    expect(() => mapper(profile('alice@example.com', true, 'other.com'))).toThrow(/not managed/);
   });
 
   it('rejects a verified email outside the allowed domains', () => {
