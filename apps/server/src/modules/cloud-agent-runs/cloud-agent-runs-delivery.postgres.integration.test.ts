@@ -265,7 +265,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
   const opened = (key: string, number: number): DeliveryReport => ({ key, pullRequest: { number } });
 
   /** Both repositories pushed and `submit_result` accepted; the delivery turn is claimed. */
-  async function delivering() {
+  async function delivering(result: Record<string, unknown> = {}) {
     issueSeed += 1;
     const issue = jira.add({
       key: `PROJ-${issueSeed}`,
@@ -292,6 +292,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       ],
       assumptions: ['CSV only'],
       notBuiltOrTested: [{ key: 'billing-api', reason: 'Its tests need Docker compose' }],
+      ...result,
     }).expect(200);
     for (const key of ['orders-api', 'billing-api']) {
       await turnCall(implement, 'branches', { repository: key }).expect(200);
@@ -362,6 +363,31 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
     expect(timeline.map((event) => event.payload.code).filter(Boolean)).toEqual(
       expect.arrayContaining(['pull_request_opened', 'jira_commented']),
     );
+  });
+
+  it('a partial result still opens its pull requests, then fails as incomplete_result with the criteria on the run page only', async () => {
+    const { runId, issue, branch, turn } = await delivering({
+      status: 'partial',
+      unmetCriteria: ['Pending requests are not recalculated', 'No balance_impact endpoint'],
+    });
+    const reports = openPulls(branch);
+    await complete(turn, { deliveries: reports }).expect(200);
+
+    const failed = await detail(runId);
+    expect(failed).toMatchObject({ status: 'failed', failureCode: 'incomplete_result' });
+    expect(failed.failureReason).toBe('Pending requests are not recalculated; No balance_impact endpoint');
+    expect(failed.pullRequests.map((pull: { repository: string }) => pull.repository)).toEqual([
+      'billing-api',
+      'orders-api',
+    ]);
+
+    await sweep.tick();
+    const comments = jira.commentsOn(issue.key);
+    expect(comments).toHaveLength(1);
+    const text = JSON.stringify(comments[0]!.body);
+    expect(text).toContain('The agent delivered a partial result; some acceptance criteria are not met.');
+    expect(text).toContain(`https://github.com/example-org/orders-api/pull/${reports[1]!.pullRequest!.number}`);
+    expect(text).not.toContain('recalculated');
   });
 
   it('a crash after the done comment is recovered without a second comment or transition', async () => {

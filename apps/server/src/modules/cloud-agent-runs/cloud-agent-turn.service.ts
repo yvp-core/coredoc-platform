@@ -185,14 +185,19 @@ export class CloudAgentTurnService {
       if (assignment.turn.kind === RunPhase.Delivery)
         return { ...assignment, ...(await this.delivery.assignment(run)) };
       await checkRunOwnerAndConnectors(this.prisma, run);
-      // A scope turn reads the issue for its PRD below; an implement turn only checks it is still readable.
-      if (assignment.turn.kind === RunPhase.Implement) await this.jira.resolveIssue(run.workspaceId, run.jiraIssueId);
-      const repositories = await this.implement.repositoriesFor(run, assignment.turn.kind);
+      // The PRD is read fresh every turn: the implement turn checks its acceptance criteria against it.
+      const [repositories, prd] = await Promise.all([
+        this.implement.repositoriesFor(run, assignment.turn.kind),
+        this.jira.readPrd(run.workspaceId, run.jiraIssueId),
+      ]);
       if (assignment.turn.kind === RunPhase.Implement) {
-        return { ...assignment, repositories, acceptedSpec: await this.implement.acceptedSpec(run) };
+        return {
+          ...assignment,
+          prd: { markdown: prd.markdown },
+          repositories,
+          acceptedSpec: await this.implement.acceptedSpec(run),
+        };
       }
-      if (assignment.turn.kind !== RunPhase.Scope) return assignment;
-      const prd = await this.jira.readPrd(run.workspaceId, run.jiraIssueId);
       if (prd.issueKey !== assignment.run.issueKey) {
         // The key changes when an issue moves between projects; the id is the identity.
         await this.prisma.cloudAgentRun.updateMany({
@@ -329,10 +334,12 @@ export class CloudAgentTurnService {
         tokenHash: createHash('sha256').update(plaintext).digest('hex'),
         tokenPrefix: plaintext.slice(0, 12),
         tokenEncrypted: null,
-        permissions:
-          kind === RunPhase.Implement
-            ? [TokenPermission.IntentRead, TokenPermission.IntentPropose]
-            : [TokenPermission.IntentRead],
+        // The run checks an active Jira connector before every scope and implement turn.
+        permissions: [
+          TokenPermission.IntentRead,
+          TokenPermission.JiraRead,
+          ...(kind === RunPhase.Implement ? [TokenPermission.IntentPropose] : []),
+        ],
         expiresAt: new Date(at.getTime() + run.maxTurnDurationSeconds * 1000 + MCP_TOKEN_GRACE_MS),
         createdBy: run.runOwnerId,
         owningTurnId: turnId,

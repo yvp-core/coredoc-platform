@@ -15,6 +15,7 @@ export interface RunControlState {
   proposedVersion: number | null;
   submitted: boolean;
   repositoryRequested?: boolean;
+  entrySkillInvoked?: boolean;
   /** Implement turns only; throws when the repository cannot be used, which fails the turn. */
   cloneRepository?: (repository: AssignedRepository) => Promise<string>;
   /** Further tool calls are refused with the reason; a session that does not end itself within `graceMs` is stopped. */
@@ -39,12 +40,23 @@ function rejected(name: string, errors: string[]) {
   };
 }
 
-export function runControlServer(io: TurnIO, state: RunControlState, kind: TurnKind = TurnKind.Scope) {
+export function runControlServer(
+  io: TurnIO,
+  state: RunControlState,
+  kind: TurnKind = TurnKind.Scope,
+  entrySkill?: string,
+) {
+  const skipped = (name: string) =>
+    entrySkill && !state.entrySkillInvoked
+      ? rejected(name, [`Invoke the skill ${entrySkill} first, and follow it.`])
+      : null;
   const proposeScope = tool(
     'propose_scope',
     'Propose the scope of this run: the specification and the repositories it affects. Errors list the rules to fix.',
     ProposeScopeRequestSchema.shape,
     async (args) => {
+      const refusal = skipped('propose_scope');
+      if (refusal) return refusal;
       const answer = await io.proposeScope(args);
       if (!answer.accepted) return rejected('propose_scope', answer.errors);
       state.proposedVersion = answer.version;
@@ -60,9 +72,11 @@ export function runControlServer(io: TurnIO, state: RunControlState, kind: TurnK
   );
   const submitResult = tool(
     'submit_result',
-    'Finish the implementation: a summary, what changed per repository, assumptions, repositories that could not be built or tested here, and notes. It ends your turn.',
+    'Finish the implementation: a summary, what changed per repository, assumptions, repositories that could not be built or tested here, notes, and whether the result is complete, partial or blocked (with every unmet acceptance criterion). It ends your turn.',
     SubmitResultRequestSchema.shape,
     async (args) => {
+      const refusal = skipped('submit_result');
+      if (refusal) return refusal;
       const answer = await io.submitResult(args);
       if (!answer.accepted) return rejected('submit_result', answer.errors);
       state.submitted = true;

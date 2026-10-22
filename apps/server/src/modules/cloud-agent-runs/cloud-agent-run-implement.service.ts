@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import {
+  ResultStatus,
   type AssignedRepository,
   MAX_WORKFLOW_DIFF_BYTES,
   type RepositoryReport,
@@ -43,6 +44,9 @@ export interface RunResult {
   summary: string;
   repositories: Array<{ key: string; summary: string }>;
   notes: string;
+  /** Absent on results recorded before the field existed: complete. */
+  status?: ResultStatus;
+  unmetCriteria?: string[];
 }
 
 /** Room for the event's other fields around a withheld workflow diff. */
@@ -129,9 +133,16 @@ export class CloudAgentRunImplementService {
       ...result.repositories.map((repository) => repository.key),
       ...result.notBuiltOrTested.map((repository) => repository.key),
     ].filter((key) => !keys.has(key));
-    return [...new Set(unknown)].map(
+    const errors = [...new Set(unknown)].map(
       (key) => `Repository "${key}" is not one of this run's repositories (${[...keys].join(', ')}).`,
     );
+    if (result.status !== ResultStatus.Complete && result.unmetCriteria.length === 0) {
+      errors.push(`unmetCriteria must list every acceptance criterion not met when status is ${result.status}.`);
+    }
+    if (result.status === ResultStatus.Complete && result.unmetCriteria.length > 0) {
+      errors.push('A result with unmet criteria is not complete: submit status partial or blocked.');
+    }
+    return errors;
   }
 
   /** The completion transaction adopts it; a repeated call replaces it. */
@@ -250,7 +261,13 @@ export class CloudAgentRunImplementService {
       ...((Array.isArray(run.assumptions) ? run.assumptions : []) as unknown as RunAssumption[]),
       ...result.assumptions.map((text) => ({ phase: RunPhase.Implement, text })),
     ];
-    const adopted: RunResult = { summary: result.summary, repositories: result.repositories, notes: result.notes };
+    const adopted: RunResult = {
+      summary: result.summary,
+      repositories: result.repositories,
+      notes: result.notes,
+      status: result.status,
+      unmetCriteria: result.unmetCriteria,
+    };
     const updated = await tx.cloudAgentRun.update({
       where: { id: run.id },
       data: {

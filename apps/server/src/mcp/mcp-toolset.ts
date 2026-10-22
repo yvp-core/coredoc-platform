@@ -23,6 +23,7 @@ import type { McpOptions } from '@rekog/mcp-nest';
 
 export enum McpToolset {
   Intent = 'intent',
+  AgentJira = 'agent-jira',
 }
 
 export const TOOLSET_QUERY_PARAM = 'toolset';
@@ -40,7 +41,15 @@ export const TOOLSET_TOOLS: Readonly<Record<McpToolset, ReadonlySet<string>>> = 
     'intent_source_update',
     'submit_session_feedback',
   ]),
+  [McpToolset.AgentJira]: new Set(['jira_get_issue', 'jira_search']),
 };
+
+/** Toolsets whose tools are served only with the toolset selected, never in the every-tool default. */
+const EXCLUSIVE_TOOLSETS: readonly McpToolset[] = [McpToolset.AgentJira];
+
+const TOOLSET_ONLY_TOOLS: ReadonlyMap<string, McpToolset> = new Map(
+  EXCLUSIVE_TOOLSETS.flatMap((toolset) => [...TOOLSET_TOOLS[toolset]].map((name) => [name, toolset] as const)),
+);
 
 const VALID_TOOLSETS: readonly string[] = Object.values(McpToolset);
 
@@ -67,8 +76,8 @@ type ServerMutator = NonNullable<McpOptions['serverMutator']>;
 
 export const restrictToToolset: ServerMutator = (server) => {
   const toolset = mcpToolsetContext.getStore();
-  if (toolset === undefined) return server;
-  const allowed = TOOLSET_TOOLS[toolset];
+  const allowed = (name: string) =>
+    toolset === undefined ? !TOOLSET_ONLY_TOOLS.has(name) : TOOLSET_TOOLS[toolset].has(name);
 
   const protocol = server.server;
   const register = protocol.setRequestHandler.bind(protocol);
@@ -79,17 +88,20 @@ export const restrictToToolset: ServerMutator = (server) => {
     if (method === 'tools/list') {
       return register(schema, async (request, extra) => {
         const result = (await handler(request, extra)) as { tools: Array<{ name: string }> };
-        return { ...result, tools: result.tools.filter((tool) => allowed.has(tool.name)) };
+        return { ...result, tools: result.tools.filter((tool) => allowed(tool.name)) };
       });
     }
     if (method === 'tools/call') {
       return register(schema, (request, extra) => {
         const { name } = (request as { params: { name: string } }).params;
-        if (!allowed.has(name)) {
+        if (!allowed(name)) {
+          const only = TOOLSET_ONLY_TOOLS.get(name);
           throw new McpError(
             ErrorCode.InvalidRequest,
-            `Tool '${name}' is not in the '${toolset}' toolset this connection selected with ` +
-              `?${TOOLSET_QUERY_PARAM}=${toolset}. Reconnect without the ${TOOLSET_QUERY_PARAM} parameter to use it.`,
+            only
+              ? `Tool '${name}' is only available with ?${TOOLSET_QUERY_PARAM}=${only}.`
+              : `Tool '${name}' is not in the '${toolset}' toolset this connection selected with ` +
+                  `?${TOOLSET_QUERY_PARAM}=${toolset}. Reconnect without the ${TOOLSET_QUERY_PARAM} parameter to use it.`,
           );
         }
         return handler(request, extra);

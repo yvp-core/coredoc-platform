@@ -120,8 +120,14 @@ export function runnerRefusalText(token: Pick<RunnerTokenStatus, 'refusal' | 're
 
 export function runnerVersionsText(versions: RunnerTokenStatus['versions']): string | null {
   if (!versions) return null;
-  const parts = Object.entries(versions)
+  const { manifest, ...tools } = versions;
+  const parts = Object.entries(tools)
     .filter(([, value]) => Boolean(value))
     .map(([name, value]) => `${name === 'claudeCode' ? 'claude code' : name} ${value}`);
+  if (manifest) {
+    const models = Object.entries(manifest.models).map(([phase, model]) => `${phase} ${model}`);
+    const plugins = manifest.plugins.map(({ name, version }) => (version ? `${name} ${version}` : name));
+    parts.push(`manifest: ${[...models, ...plugins].join(', ')}`);
+  }
   return parts.length > 0 ? parts.join(' · ') : null;
 }

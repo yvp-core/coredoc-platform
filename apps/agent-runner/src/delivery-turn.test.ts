@@ -1,7 +1,13 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type AssignedRepository, RunFailureCode, type TurnAssignment, TurnKind } from '@coredoc/core/agent-runner';
+import {
+  resolveManifest,
+  type AssignedRepository,
+  RunFailureCode,
+  type TurnAssignment,
+  TurnKind,
+} from '@coredoc/core/agent-runner';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ClaudeExecutor } from './claude/claude-executor.js';
 import { assignment, FakeCoredocApi, TOKEN, WORKSPACE } from './fake-coredoc-api.test-support.js';
@@ -74,7 +80,7 @@ describe('delivery turns in the runner loop', () => {
         },
         api: client,
         scratchRoot: scratch,
-        pluginPath: join(scratch, 'no-plugin'),
+        manifest: resolveManifest(undefined, join(scratch, 'no-plugin')),
         modelApiKey: 'sk-ant-test',
         hostEnv: { PATH: process.env.PATH },
         bot: { token: BOT_TOKEN, name: 'Coredoc Bot', email: 'bot@users.noreply.example.com' },

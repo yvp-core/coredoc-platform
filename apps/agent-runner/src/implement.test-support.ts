@@ -80,6 +80,8 @@ export async function fakePlugin(root: string): Promise<{ path: string; log: str
   const path = join(root, 'plugin');
   const log = join(root, 'preflight.jsonl');
   await mkdir(join(path, 'bin'), { recursive: true });
+  await mkdir(join(path, '.claude-plugin'), { recursive: true });
+  await writeFile(join(path, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'coredoc-workflows' }));
   const script = `#!/usr/bin/env node
 const { execFileSync } = require('node:child_process');
 const { appendFileSync } = require('node:fs');
@@ -317,6 +319,8 @@ export function implementAssignment(repositories: AssignedRepository[], override
 }
 
 export interface SessionStep {
+  /** Skills the agent invokes first, through the PreToolUse hook as Claude Code does. */
+  skills?: string[];
   /** `request_repo` calls, and work between them, before `act`; tool results land in `toolResults`. */
   calls?: Array<RequestRepoRequest | ((cwd: string) => Promise<void>)>;
   /** Edits the agent makes; `cwd` is the work directory holding the clones. */
@@ -336,13 +340,17 @@ export interface SeenSession {
   toolResults: string[];
 }
 
-async function preToolUse(options: Options, toolName: string): Promise<string | null> {
+async function preToolUse(
+  options: Options,
+  toolName: string,
+  toolInput: Record<string, unknown> = { command: 'ls' },
+): Promise<string | null> {
   const hook = options.hooks?.PreToolUse?.[0]?.hooks[0] as HookCallback;
   const answer = (await hook(
     {
       hook_event_name: 'PreToolUse',
       tool_name: toolName,
-      tool_input: { command: 'ls' },
+      tool_input: toolInput,
       tool_use_id: randomUUID(),
       session_id: options.sessionId ?? options.resume ?? '',
       transcript_path: '',
@@ -389,6 +397,10 @@ export function fakeImplementQuery(steps: SessionStep[], seen: SeenSession[]): Q
         }
         return client.callTool({ name, arguments: args as Record<string, unknown> });
       };
+      for (const skill of step.skills ?? []) {
+        const denial = await preToolUse(options, 'Skill', { skill });
+        if (denial) record.denials.push(denial);
+      }
       for (const call of step.calls ?? []) {
         if (typeof call === 'function') await call(options.cwd!);
         else {

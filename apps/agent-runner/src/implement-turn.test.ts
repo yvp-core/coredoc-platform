@@ -4,7 +4,14 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type AssignedRepository, RunFailureCode, type TurnAssignment, TurnKind } from '@coredoc/core/agent-runner';
+import {
+  type AssignedRepository,
+  type ResolvedManifest,
+  RunFailureCode,
+  resolveManifest,
+  type TurnAssignment,
+  TurnKind,
+} from '@coredoc/core/agent-runner';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ClaudeExecutor } from './claude/claude-executor.js';
 import { FakeCoredocApi, TOKEN, WORKSPACE } from './fake-coredoc-api.test-support.js';
@@ -63,7 +70,13 @@ describe('implement turns in the runner loop', () => {
     return { bare, repo: repository(bare, github, 'orders-api', overrides) };
   }
 
-  function runTurn(turn: TurnAssignment, steps: SessionStep[], heartbeatIntervalMs = 60_000, shutdown?: AbortSignal) {
+  function runTurn(
+    turn: TurnAssignment,
+    steps: SessionStep[],
+    heartbeatIntervalMs = 60_000,
+    shutdown?: AbortSignal,
+    manifest: ResolvedManifest = resolveManifest(undefined, plugin.path),
+  ) {
     const seen: SeenSession[] = [];
     api.queue.push(turn);
     const client = new RunnerApiClient({ baseUrl: api.baseUrl, workspaceId: WORKSPACE, token: TOKEN });
@@ -75,7 +88,7 @@ describe('implement turns in the runner loop', () => {
         query: fakeImplementQuery(steps, seen),
         api: client,
         scratchRoot: scratch,
-        pluginPath: plugin.path,
+        manifest,
         modelApiKey: 'sk-ant-test',
         hostEnv: { PATH: process.env.PATH },
         bot: { token: BOT_TOKEN, name: 'Coredoc Bot', email: 'bot@users.noreply.example.com' },
@@ -84,6 +97,60 @@ describe('implement turns in the runner loop', () => {
     });
     return { done: runner.runOnce(shutdown), seen };
   }
+
+  it('writes the PRD beside the accepted spec and names both in the first prompt', async () => {
+    const { repo } = await orders();
+    const turn = implementAssignment([repo], { prd: { markdown: '# PROJ-1\n\n| 1 | Exports are CSV |\n' } });
+    let prd: string | undefined;
+    const { done, seen } = runTurn(turn, [
+      {
+        act: async (cwd) => {
+          prd = await readFile(join(cwd, 'PRD.md'), 'utf8');
+          await writeFile(join(cwd, 'orders-api', 'src', 'export.ts'), 'export {};\n');
+        },
+        submit: RESULT,
+      },
+    ]);
+    await expect(done).resolves.toBe('completed');
+    expect(prd).toBe('# PROJ-1\n\n| 1 | Exports are CSV |\n');
+    expect(seen[0]!.prompt).toMatch(/SPEC\.md[\s\S]*PRD\.md|PRD\.md[\s\S]*SPEC\.md/);
+  });
+
+  it.each([
+    ['no skill', [], false],
+    ['another skill', ['coredoc-workflows:review'], false],
+    ['the entry skill', ['coredoc-workflows:implement'], true],
+    ['the entry skill as a slash command', ['/coredoc-workflows:implement'], true],
+  ])('with a manifest entry skill, after %s submit_result is recorded: %s', async (_case, skills, recorded) => {
+    const { repo } = await orders();
+    const manifest = resolveManifest(
+      JSON.stringify({
+        version: 1,
+        plugins: [{ path: plugin.path }],
+        phases: { implement: { entrySkill: 'coredoc-workflows:implement' } },
+      }),
+      '/opt/unused',
+    );
+    const { done, seen } = runTurn(
+      implementAssignment([repo]),
+      [
+        {
+          skills,
+          act: async (cwd) => writeFile(join(cwd, 'orders-api', 'src', 'export.ts'), 'export {};\n'),
+          submit: RESULT,
+        },
+      ],
+      60_000,
+      undefined,
+      manifest,
+    );
+    await expect(done).resolves.toBe('completed');
+    expect(seen[0]!.options.systemPrompt).toMatchObject({
+      append: expect.stringContaining('coredoc-workflows:implement'),
+    });
+    expect(api.results.length).toBe(recorded ? 1 : 0);
+    if (!recorded) expect(seen[0]!.toolResults.join()).toContain('Invoke the skill coredoc-workflows:implement');
+  });
 
   it('clones over HTTPS, works on the run branch, then commits and pushes the turn after the session', async () => {
     const { bare, repo } = await orders();

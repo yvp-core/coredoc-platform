@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import {
+  resolveManifest,
   type ProposeScopeRequest,
   QuestionsPolicy,
   RunFailureCode,
@@ -53,6 +54,9 @@ interface AskRecord {
 interface SessionScript {
   reportSessionId?: string;
   plugins?: Array<{ name: string; path: string }>;
+  initSkills?: string[];
+  /** Skills the agent invokes before proposing, through the PreToolUse hook as Claude Code does. */
+  skills?: string[];
   pluginErrors?: Array<{ plugin: string; type: string; message: string }>;
   propose?: ProposeScopeRequest[];
   ask?: AskScript[];
@@ -105,7 +109,7 @@ function fakeQuery(
         model: 'default',
         plugins: script.plugins ?? [{ name: 'coredoc-workflows', path: PLUGIN }],
         ...(script.pluginErrors ? { plugin_errors: script.pluginErrors } : {}),
-        skills: ['coredoc-workflows:spec'],
+        skills: script.initSkills ?? ['coredoc-workflows:spec'],
         cwd: options.cwd,
       } as unknown as SDKMessage;
       if (options.abortController?.signal.aborted) return;
@@ -143,6 +147,8 @@ function fakeQuery(
           return;
         }
       }
+
+      for (const skill of script.skills ?? []) await invokeSkill(options, skill, sessionId);
 
       if (script.propose?.length) {
         const server = options.mcpServers!.agent_run as { instance: { connect(transport: unknown): Promise<void> } };
@@ -204,6 +210,26 @@ async function* apiFailure(failure: ApiFailure, sessionId: string): AsyncGenerat
     session_id: sessionId,
   } as unknown as SDKMessage;
   throw new Error(`Claude Code returned an error result: ${failure.text}`);
+}
+
+async function invokeSkill(options: Options, skill: string, sessionId: string): Promise<void> {
+  for (const matcher of options.hooks?.PreToolUse ?? []) {
+    for (const hook of matcher.hooks) {
+      await hook(
+        {
+          hook_event_name: 'PreToolUse',
+          session_id: sessionId,
+          transcript_path: '/dev/null',
+          cwd: options.cwd!,
+          tool_name: 'Skill',
+          tool_input: { skill },
+          tool_use_id: crypto.randomUUID(),
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+    }
+  }
 }
 
 /** Claude Code's order: pre-tool hooks decide first (deny over defer over allow), then the permission callback. */
@@ -284,7 +310,7 @@ describe('Claude executor in the runner loop', () => {
         query: fakeQuery(script, seen),
         api: client,
         scratchRoot: scratch,
-        pluginPath: PLUGIN,
+        manifest: resolveManifest(undefined, PLUGIN),
         modelApiKey: 'sk-ant-test',
         hostEnv: { PATH: '/usr/bin' },
         ...executorOptions,
@@ -317,6 +343,69 @@ describe('Claude executor in the runner loop', () => {
       },
     ]);
     expect(await readdir(scratch)).toEqual([]);
+  });
+
+  describe('the runner manifest', () => {
+    const DAY_PLUGIN = '/opt/dayio/plugins/day-agent-run';
+    const dayManifest = resolveManifest(
+      JSON.stringify({
+        version: 1,
+        plugins: [{ path: PLUGIN }, { path: DAY_PLUGIN }],
+        tools: { jira: ['read'] },
+        phases: { scope: { model: 'claude-opus-5-5', entrySkill: 'day-agent-run:scope' } },
+      }),
+      PLUGIN,
+    );
+    const dayInit = {
+      plugins: [
+        { name: 'coredoc-workflows', path: PLUGIN },
+        { name: 'day-agent-run', path: DAY_PLUGIN },
+      ],
+      initSkills: ['coredoc-workflows:spec', 'day-agent-run:scope'],
+    };
+
+    it('without a manifest, keeps the workspace model, the one plugin and no Jira server', async () => {
+      const turn = assignment({ run: { ...assignment().run, model: 'claude-workspace' } });
+      const { done, seen } = runTurn(turn, { propose: [proposal] });
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.options).toMatchObject({ model: 'claude-workspace', plugins: [{ type: 'local', path: PLUGIN }] });
+      expect(Object.keys(seen[0]!.options.mcpServers!).sort()).toEqual(['agent_run', 'coredoc']);
+    });
+
+    it('with a manifest, uses its phase model and plugins and adds the Jira toolset over the turn token', async () => {
+      const turn = assignment({ run: { ...assignment().run, model: 'claude-workspace' } });
+      const { done, seen } = runTurn(
+        turn,
+        { ...dayInit, skills: ['day-agent-run:scope'], propose: [proposal] },
+        { manifest: dayManifest },
+      );
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.options).toMatchObject({
+        model: 'claude-opus-5-5',
+        plugins: [
+          { type: 'local', path: PLUGIN },
+          { type: 'local', path: DAY_PLUGIN },
+        ],
+      });
+      expect(seen[0]!.options.mcpServers!.jira).toEqual({
+        type: 'http',
+        url: `${api.baseUrl}/api/v1/workspaces/${WORKSPACE}/mcp?toolset=agent-jira`,
+        headers: { Authorization: 'Bearer cdt_turn_token' },
+        timeout: 120_000,
+      });
+      expect(seen[0]!.options.systemPrompt).toMatchObject({ append: expect.stringContaining('day-agent-run:scope') });
+    });
+
+    it('refuses propose_scope until the entry skill was invoked', async () => {
+      const { done, seen } = runTurn(
+        assignment(),
+        { ...dayInit, skills: ['coredoc-workflows:spec'], propose: [proposal] },
+        { manifest: dayManifest },
+      );
+      await expect(done).resolves.toBe('completed');
+      expect(api.proposals).toEqual([]);
+      expect(seen[0]!.toolErrors.join()).toContain('Invoke the skill day-agent-run:scope');
+    });
   });
 
   it('a later turn restores the archive and resumes the same session with its input text', async () => {
@@ -494,7 +583,7 @@ describe('Claude executor in the runner loop', () => {
       query: fakeQuery({ propose: [proposal] }, seen),
       api: new RunnerApiClient({ baseUrl: api.baseUrl, workspaceId: WORKSPACE, token: TOKEN }),
       scratchRoot: scratch,
-      pluginPath: PLUGIN,
+      manifest: resolveManifest(undefined, PLUGIN),
       modelApiKey: 'sk-ant-test',
       hostEnv: {},
     });
@@ -780,7 +869,7 @@ describe('Claude executor in the runner loop', () => {
         query: fakeQuery({ propose: [proposal] }, []),
         api: client,
         scratchRoot: scratch,
-        pluginPath: PLUGIN,
+        manifest: resolveManifest(undefined, PLUGIN),
         modelApiKey: 'sk-ant-test',
         hostEnv: {},
         maxArchiveBytes: 10,

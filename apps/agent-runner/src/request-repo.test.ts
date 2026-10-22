@@ -3,7 +3,12 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type AssignedRepository, RunFailureCode, type TurnAssignment } from '@coredoc/core/agent-runner';
+import {
+  resolveManifest,
+  type AssignedRepository,
+  RunFailureCode,
+  type TurnAssignment,
+} from '@coredoc/core/agent-runner';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ClaudeExecutor } from './claude/claude-executor.js';
 import { FakeCoredocApi, TOKEN, WORKSPACE } from './fake-coredoc-api.test-support.js';
@@ -68,7 +73,7 @@ describe('request_repo in implement turns', () => {
         query: fakeImplementQuery(steps, seen),
         api: client,
         scratchRoot: scratch,
-        pluginPath: plugin.path,
+        manifest: resolveManifest(undefined, plugin.path),
         modelApiKey: 'sk-ant-test',
         hostEnv: { PATH: process.env.PATH },
         bot: { token: BOT_TOKEN, name: 'Coredoc Bot', email: 'bot@users.noreply.example.com' },

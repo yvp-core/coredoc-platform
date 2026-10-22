@@ -2,7 +2,9 @@ import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { HookCallback, Options, SDKAssistantMessageError, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import {
+  JiraAccess,
   MAX_STATE_ARCHIVE_BYTES,
+  type ResolvedManifest,
   RunFailureCode,
   RunnerStartupProblemCode,
   defaultRetryDelay,
@@ -14,6 +16,7 @@ import { Git, gitEnvironment } from '../git/git.js';
 import { SecretScanner } from '../git/secret-scan.js';
 import { type Clone, TurnGit } from '../git/turn-git.js';
 import { type BotGithubOptions, botGithub, checkBotPermissions, requireBot } from '../github/bot-github.js';
+import { corePluginPath, sdkPlugins } from '../manifest.js';
 import { type PackageRegistry, writeUserRegistryConfig } from '../package-registries.js';
 import type { RunnerApiClient } from '../runner-api.js';
 import { type TurnExecutor, type TurnIO, type TurnResult, TurnAbandoned } from '../runner.js';
@@ -54,7 +57,7 @@ export interface ClaudeExecutorOptions extends BotGithubOptions {
   api: Pick<RunnerApiClient, 'resolve'>;
   /** The only writable volume; wiped at the end of every turn. */
   scratchRoot: string;
-  pluginPath: string;
+  manifest: ResolvedManifest;
   modelApiKey: string;
   modelCredentialKind?: 'api_key' | 'subscription';
   modelBaseUrl?: string;
@@ -92,8 +95,15 @@ const TOOL_DEFERRED = 'tool_deferred';
 export class ClaudeExecutor implements TurnExecutor {
   private readonly log: (message: string) => void;
 
+  private corePluginPath: Promise<string> | undefined;
+
   constructor(private readonly options: ClaudeExecutorOptions) {
     this.log = options.log ?? (() => undefined);
+  }
+
+  private corePlugin(): Promise<string> {
+    this.corePluginPath ??= corePluginPath(this.options.manifest);
+    return this.corePluginPath;
   }
 
   async run(turn: TurnAssignment, io: TurnIO): Promise<TurnResult> {
@@ -129,7 +139,7 @@ export class ClaudeExecutor implements TurnExecutor {
     const git = new Git(gitEnvironment({ hostEnv: this.options.hostEnv, home: paths.home, author: bot }), bot.token);
     const turnGit = new TurnGit({
       git,
-      scanner: new SecretScanner(this.options.pluginPath),
+      scanner: new SecretScanner(await this.corePlugin()),
       issueKey: turn.run.issueKey,
       branch: turn.run.branch,
       turnNumber: turn.turn.ordinal,
@@ -141,9 +151,11 @@ export class ClaudeExecutor implements TurnExecutor {
     const clones = await turnGit.prepare(turn.repositories, paths.work);
     const specPath = join(paths.work, 'SPEC.md');
     await writeFile(specPath, turn.acceptedSpec?.markdown ?? '(The server sent no accepted specification.)\n', 'utf8');
+    const prdPath = join(paths.work, 'PRD.md');
+    await writeFile(prdPath, turn.prd?.markdown ?? '(The server sent no PRD.)\n', 'utf8');
 
     const resume = sessionExists(paths, turn.run.sessionId);
-    const firstPrompt = implementPrompt(turn, specPath, clones.map(promptClone));
+    const firstPrompt = implementPrompt(turn, specPath, prdPath, clones.map(promptClone));
     const prompt = resume
       ? resumeInput(turn, clones)
       : turn.turn.inputText
@@ -432,7 +444,10 @@ export class ClaudeExecutor implements TurnExecutor {
         reason: `Claude Code reported session ${init.session_id}; the run expects ${sessionId}.`,
       };
     }
-    const problem = pluginProblem(init, this.options.pluginPath);
+    const problem = pluginProblem(
+      init,
+      this.options.manifest.plugins.map(({ path }) => path),
+    );
     return problem ? { code: RunFailureCode.PluginMissing, reason: problem.detail } : null;
   }
 
@@ -447,6 +462,9 @@ export class ClaudeExecutor implements TurnExecutor {
     windDown: () => string | null,
     budgetUsd: number,
   ): Options {
+    const { manifest } = this.options;
+    const phase = turn.turn.kind === TurnKind.Implement ? manifest.phases.implement : manifest.phases.scope;
+    const model = phase.model ?? turn.run.model;
     const preToolUse: HookCallback = async (input) => {
       if (input.hook_event_name !== 'PreToolUse') return {};
       // A turn that is ending refuses every further tool, questions included.
@@ -462,8 +480,15 @@ export class ClaudeExecutor implements TurnExecutor {
       }
       const bridged = await questions.preToolUse(input);
       if (bridged) return bridged;
-      const verdict = evaluateToolUse(input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
-      if (verdict.decision === 'allow') return {};
+      const toolInput = (input.tool_input ?? {}) as Record<string, unknown>;
+      const verdict = evaluateToolUse(input.tool_name, toolInput);
+      if (verdict.decision === 'allow') {
+        const skill = typeof toolInput.skill === 'string' ? toolInput.skill.replace(/^\//, '') : null;
+        if (input.tool_name === 'Skill' && phase.entrySkill && skill === phase.entrySkill) {
+          control.entrySkillInvoked = true;
+        }
+        return {};
+      }
       return {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
@@ -473,21 +498,26 @@ export class ClaudeExecutor implements TurnExecutor {
       };
     };
     const mcpServers: Options['mcpServers'] = {
-      [RUN_CONTROL_SERVER]: runControlServer(io, control, turn.turn.kind),
+      [RUN_CONTROL_SERVER]: runControlServer(io, control, turn.turn.kind, phase.entrySkill),
     };
     if (turn.mcp) {
-      // Under the key `coredoc`: the plugin recognises Coredoc tools by that name segment.
-      mcpServers.coredoc = {
-        type: 'http',
+      const server = {
+        type: 'http' as const,
         url: this.options.api.resolve(turn.mcp.path),
         headers: { Authorization: `Bearer ${turn.mcp.token}` },
         timeout: MCP_TOOL_TIMEOUT_MS,
       };
+      // Under the key `coredoc`: the plugin recognises Coredoc tools by that name segment.
+      mcpServers.coredoc = server;
+      // No `coredoc` segment: Jira reads must not count as Coredoc reads.
+      if (manifest.tools.jira.includes(JiraAccess.Read)) {
+        mcpServers.jira = { ...server, url: `${server.url}?toolset=agent-jira` };
+      }
     }
     return {
       cwd: paths.work,
       ...(resume ? { resume: turn.run.sessionId } : { sessionId: turn.run.sessionId }),
-      ...(turn.run.model ? { model: turn.run.model } : {}),
+      ...(model ? { model } : {}),
       env: sessionEnvironment({
         hostEnv: this.options.hostEnv,
         paths,
@@ -499,10 +529,10 @@ export class ClaudeExecutor implements TurnExecutor {
       }),
       // The target repositories' own Claude settings and hooks are never loaded.
       settingSources: [],
-      plugins: [{ type: 'local', path: this.options.pluginPath }],
+      plugins: sdkPlugins(manifest),
       mcpServers,
       strictMcpConfig: true,
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: runPreamble(turn) },
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: runPreamble(turn, phase.entrySkill) },
       permissionMode: 'default',
       // AskUserQuestion is offered only when a permission callback is set; the policy lives in the hook.
       canUseTool: questions.canUseTool,
@@ -523,7 +553,7 @@ export function pluginProblem(
     plugin_errors?: Array<{ plugin: string; message: string }>;
     skills?: string[];
   },
-  pluginPath: string,
+  pluginPaths: string[],
 ): {
   code:
     | RunnerStartupProblemCode.PluginErrors
@@ -537,17 +567,19 @@ export function pluginProblem(
       detail: init.plugin_errors.map((error) => `${error.plugin}: ${error.message}`).join('; '),
     };
   }
-  const plugin = init.plugins?.find((candidate) => resolve(candidate.path) === resolve(pluginPath));
-  if (!plugin)
-    return {
-      code: RunnerStartupProblemCode.PluginMissing,
-      detail: `The plugin at ${pluginPath} is not listed by Claude Code.`,
-    };
-  if (!init.skills?.some((skill) => skill.startsWith(`${plugin.name}:`))) {
-    return {
-      code: RunnerStartupProblemCode.PluginSkillsMissing,
-      detail: `The plugin ${plugin.name} loaded without its skills.`,
-    };
+  for (const pluginPath of pluginPaths) {
+    const plugin = init.plugins?.find((candidate) => resolve(candidate.path) === resolve(pluginPath));
+    if (!plugin)
+      return {
+        code: RunnerStartupProblemCode.PluginMissing,
+        detail: `The plugin at ${pluginPath} is not listed by Claude Code.`,
+      };
+    if (!init.skills?.some((skill) => skill.startsWith(`${plugin.name}:`))) {
+      return {
+        code: RunnerStartupProblemCode.PluginSkillsMissing,
+        detail: `The plugin ${plugin.name} loaded without its skills.`,
+      };
+    }
   }
   return null;
 }

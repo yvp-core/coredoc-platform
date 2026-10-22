@@ -268,7 +268,11 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
     expect(turn.body.mcp.path).toBe(`/api/v1/workspaces/${workspaceId}/mcp`);
 
     const tokenRow = await prisma.serviceToken.findFirst({ where: { owningTurnId: turn.id } });
-    expect(tokenRow).toMatchObject({ permissions: ['intent:read'], createdBy: MEMBER.id, tokenEncrypted: null });
+    expect(tokenRow).toMatchObject({
+      permissions: ['intent:read', 'jira:read'],
+      createdBy: MEMBER.id,
+      tokenEncrypted: null,
+    });
     // MCP-only: the per-turn token is refused on REST.
     await api().get(runsBase()).set('Authorization', `Bearer ${turn.body.mcp.token}`).expect(403);
 
@@ -447,9 +451,9 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
 
     const implement = await claimTurn();
     expect(implement.body.run.sessionId).not.toBe(first.body.run.sessionId);
-    expect(implement.body.prd).toBeNull();
+    expect(implement.body.prd.markdown).toMatch(/^# PROJ-/);
     const implementToken = await prisma.serviceToken.findFirst({ where: { owningTurnId: implement.id } });
-    expect(implementToken?.permissions.sort()).toEqual(['intent:propose', 'intent:read']);
+    expect(implementToken?.permissions.sort()).toEqual(['intent:propose', 'intent:read', 'jira:read']);
   });
 
   describe('automatic acceptance', () => {

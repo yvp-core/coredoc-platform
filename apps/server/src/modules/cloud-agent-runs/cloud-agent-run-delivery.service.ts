@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
+  ResultStatus,
   type DeliveryReport,
   defaultRetryDelay,
   type RetryDelay,
@@ -287,6 +288,12 @@ export class CloudAgentRunDeliveryService {
     if (!verification || failure) {
       await failRun(tx, run, RunFailureCode.DeliveryFailed, failure, at);
       return RunFailureCode.DeliveryFailed;
+    }
+    // The pull requests stay open for review; the unmet criteria are agent text, so they stay on the run page.
+    const result = run.result as unknown as RunResult | null;
+    if (result?.status && result.status !== ResultStatus.Complete) {
+      await failRun(tx, run, RunFailureCode.IncompleteResult, (result.unmetCriteria ?? []).join('; '), at);
+      return RunFailureCode.IncompleteResult;
     }
     const done: JiraCommentOutcome = { state: 'pending', attempts: 0, nextAttemptAt: at.toISOString() };
     await tx.cloudAgentRun.update({

@@ -293,10 +293,11 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
       acceptedAt: now.toISOString(),
       digest: createHash('sha256').update(proposal.specMarkdown).digest('hex'),
     });
+    expect(turn.body.prd.markdown).toContain(`# ${issue.key}: Seeded`);
 
     // The per-turn MCP token reads and proposes intent as the run owner, and is not in the token list.
     const tokenRow = await prisma.serviceToken.findFirstOrThrow({ where: { owningTurnId: turn.id } });
-    expect(tokenRow.permissions.sort()).toEqual(['intent:propose', 'intent:read']);
+    expect(tokenRow.permissions.sort()).toEqual(['intent:propose', 'intent:read', 'jira:read']);
     const listed = await api().get(`/api/v1/workspaces/${workspaceId}/tokens`).set('Authorization', human(ADMIN));
     expect(JSON.stringify(listed.body)).not.toContain(tokenRow.id);
   });
@@ -333,6 +334,18 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     }).expect(200);
     expect(invalid.body.accepted).toBe(false);
     expect(invalid.body.errors.join('\n')).toMatch(/nope-api/);
+    const partialWithoutCriteria = await turnCall(turn, 'submit-result', {
+      summary: 'Half.',
+      status: 'partial',
+    }).expect(200);
+    expect(partialWithoutCriteria.body.accepted).toBe(false);
+    expect(partialWithoutCriteria.body.errors.join('\n')).toMatch(/unmetCriteria/);
+    const completeWithCriteria = await turnCall(turn, 'submit-result', {
+      summary: 'Done.',
+      unmetCriteria: ['No export for billing'],
+    }).expect(200);
+    expect(completeWithCriteria.body.accepted).toBe(false);
+    expect(completeWithCriteria.body.errors.join('\n')).toMatch(/not complete/);
 
     const accepted = await turnCall(turn, 'submit-result', {
       summary: 'Added the orders export.',
