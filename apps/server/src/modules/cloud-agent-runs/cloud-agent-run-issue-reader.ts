@@ -28,6 +28,14 @@ export class JiraReadFailure extends Error {
   }
 }
 
+export interface IssueSearch {
+  parent?: string;
+  keys?: string[];
+  text?: string;
+  type?: string;
+  status?: string;
+}
+
 export interface SearchRow {
   key: string;
   summary: string;
@@ -114,20 +122,28 @@ export class CloudAgentRunIssueReader {
   }
 
   /**
-   * The agent's JQL, confined to the configured projects twice: in the query and again on the
-   * rows, since a clause such as `x) OR (project = OTHER` escapes the query's parentheses.
+   * The query is built here from escaped values, never from agent JQL: a JQL function or an escaping clause
+   * could otherwise ask about issues outside the configured projects. Rows are filtered again regardless.
    */
-  async searchIssues(workspaceId: string, jql: string, limit: number): Promise<SearchRow[]> {
+  async searchIssues(workspaceId: string, query: IssueSearch, limit: number): Promise<SearchRow[]> {
     const connector = await this.connector(workspaceId);
-    const projects = [...connector.projects].map(jqlString).join(', ');
-    const order = /\s*\border\s+by\b(.*)$/is.exec(jql);
-    const condition = (order ? jql.slice(0, order.index) : jql).trim();
-    const confined = `project in (${projects})${condition ? ` AND (${condition})` : ''}${order ? ` ORDER BY${order[1]}` : ''}`;
+    const clauses = [
+      `project in (${[...connector.projects].map(jqlString).join(', ')})`,
+      ...(query.parent ? [`parent = ${jqlString(query.parent)}`] : []),
+      ...(query.keys?.length ? [`key in (${query.keys.map(jqlString).join(', ')})`] : []),
+      ...(query.text ? [`text ~ ${jqlString(query.text)}`] : []),
+      ...(query.type ? [`issuetype = ${jqlString(query.type)}`] : []),
+      ...(query.status ? [`status = ${jqlString(query.status)}`] : []),
+    ];
     const found = await this.withRetries(() =>
-      connector.client.searchIssues(confined, ['summary', 'issuetype', 'status', 'project'], {
-        expandChangelog: false,
-        maxPages: 1,
-      }),
+      connector.client.searchIssues(
+        `${clauses.join(' AND ')} ORDER BY rank`,
+        ['summary', 'issuetype', 'status', 'project'],
+        {
+          expandChangelog: false,
+          maxPages: 1,
+        },
+      ),
     );
     return found.items
       .filter((issue) => inConfiguredProjects(connector, issue))
