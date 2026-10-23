@@ -184,6 +184,8 @@ export const TurnAssignmentSchema = z.object({
   acceptedSpec: z
     .object({
       version: z.number().int().positive(),
+      /** The accepted scope's title; absent from older servers. */
+      title: z.string().nullable().default(null),
       markdown: z.string(),
       /** Null when the system accepted it under automatic acceptance. */
       acceptedBy: z.string().nullable(),
@@ -194,8 +196,9 @@ export const TurnAssignmentSchema = z.object({
     .nullable(),
   repositories: z.array(AssignedRepositorySchema),
   /**
-   * Scope turns only: the workspace's eligible repositories the runner lists base-branch candidates
-   * from (branches containing the parent epic's key) and `read_repo` may clone.
+   * Scope and implement turns: the workspace's eligible repositories `read_repo` may clone, and in
+   * scope turns the ones the runner lists base-branch candidates from (branches containing the parent
+   * epic's key).
    */
   branchScan: z
     .object({
@@ -509,7 +512,7 @@ export const SubmitResultResponseSchema = z.discriminatedUnion('accepted', [
 ]);
 export type SubmitResultResponse = z.infer<typeof SubmitResultResponseSchema>;
 
-/** Scope phase, runner-local: a shallow read-only clone of a workspace repository at a branch. */
+/** Runner-local, scope and implement: a shallow read-only clone of a workspace repository at a branch. */
 export const ReadRepoRequestSchema = z.object({
   key: z.string().trim().min(1).max(255),
   /** The default branch when omitted. */

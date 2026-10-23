@@ -63,6 +63,10 @@ interface SessionScript {
   readRepo?: Array<{ key: string; branch?: string }>;
   pluginErrors?: Array<{ plugin: string; type: string; message: string }>;
   propose?: ProposeScopeRequest[];
+  /** What the agent writes to spec.md before each proposal: the proposal's markdown by default, nothing when null. */
+  specFile?: string | null;
+  /** Run-control tool names a subagent calls before the proposals; each hook decision lands in `subagentDenials`. */
+  subagentCalls?: string[];
   ask?: AskScript[];
   result?: Partial<Extract<SDKMessage, { type: 'result' }>> | 'throw';
   /** End on a model API failure, in the shape the pinned SDK reports one. */
@@ -93,6 +97,7 @@ function fakeQuery(
     readPaths: string[];
     readPathsAlive: boolean[];
     asks: AskRecord[];
+    subagentDenials: Array<string | undefined>;
   }>,
 ): QueryFn {
   return ({ prompt, options }) =>
@@ -110,6 +115,7 @@ function fakeQuery(
         npmrc: undefined as string | undefined,
         workNpmrc: existsSync(join(options.cwd!, '.npmrc')),
         asks: [] as AskRecord[],
+        subagentDenials: [] as Array<string | undefined>,
       };
       // What a package manager in the session would read as the user-level registry configuration.
       const userNpmrc = join(options.env!.HOME!, '.npmrc');
@@ -191,6 +197,10 @@ function fakeQuery(
         await client.close();
       }
 
+      for (const tool of script.subagentCalls ?? []) {
+        record.subagentDenials.push(await subagentToolCall(options, tool, sessionId));
+      }
+
       if (script.propose?.length) {
         const server = options.mcpServers!.agent_run as { instance: { connect(transport: unknown): Promise<void> } };
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -198,6 +208,9 @@ function fakeQuery(
         const client = new Client({ name: 'fake-claude-code', version: '0' });
         await client.connect(clientTransport);
         for (const call of script.propose) {
+          if (script.specFile !== null) {
+            await writeFile(join(options.cwd!, 'spec.md'), script.specFile ?? call.specMarkdown);
+          }
           const answer = await client.callTool({
             name: 'propose_scope',
             arguments: call as unknown as Record<string, unknown>,
@@ -271,6 +284,34 @@ async function invokeSkill(options: Options, skill: string, sessionId: string): 
       );
     }
   }
+}
+
+/** A tool call from inside a subagent: the hook input carries `agent_id`. Answers the deny reason, if any. */
+async function subagentToolCall(options: Options, tool: string, sessionId: string): Promise<string | undefined> {
+  for (const matcher of options.hooks?.PreToolUse ?? []) {
+    for (const hook of matcher.hooks) {
+      const output = await hook(
+        {
+          hook_event_name: 'PreToolUse',
+          session_id: sessionId,
+          transcript_path: '/dev/null',
+          cwd: options.cwd!,
+          tool_name: tool,
+          tool_input: {},
+          tool_use_id: crypto.randomUUID(),
+          agent_id: 'scout-1',
+          agent_type: 'coredoc-workflows:coredoc-scout',
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+      if ('hookSpecificOutput' in output && output.hookSpecificOutput?.hookEventName === 'PreToolUse') {
+        if (output.hookSpecificOutput.permissionDecision === 'deny')
+          return output.hookSpecificOutput.permissionDecisionReason;
+      }
+    }
+  }
+  return undefined;
 }
 
 /** Claude Code's order: pre-tool hooks decide first (deny over defer over allow), then the permission callback. */
@@ -385,6 +426,37 @@ describe('Claude executor in the runner loop', () => {
       },
     ]);
     expect(await readdir(scratch)).toEqual([]);
+  });
+
+  it('proposes the content of spec.md, whatever the call carries, and refuses without the file', async () => {
+    const full = '# Order exports\n\n## Acceptance\n\n| AC-1 | CSV download |\n';
+    const { done, seen } = runTurn(assignment(), {
+      propose: [{ ...proposal, specMarkdown: 'See spec.md. Key points: exports.' }],
+      specFile: full,
+    });
+    await expect(done).resolves.toBe('completed');
+    expect(api.proposals).toEqual([expect.objectContaining({ specMarkdown: full })]);
+    expect(seen[0]!.prompt).toContain('the content of');
+
+    api.proposals.length = 0;
+    const missing = runTurn(assignment(), { propose: [proposal], specFile: null });
+    await expect(missing.done).resolves.toBe('completed');
+    expect(missing.seen[0]!.toolErrors.join()).toContain('Write the full specification to');
+    expect(api.proposals).toEqual([]);
+  });
+
+  it('refuses run-control calls from a subagent without ending the turn', async () => {
+    const { done, seen } = runTurn(assignment(), {
+      subagentCalls: ['mcp__agent_run__propose_scope', 'mcp__agent_run__read_repo', 'Read'],
+      propose: [proposal],
+    });
+    await expect(done).resolves.toBe('completed');
+    const [propose, read, ordinary] = seen[0]!.subagentDenials;
+    expect(propose).toMatch(/Only the main agent may call run-control tools/);
+    expect(read).toMatch(/Only the main agent/);
+    expect(ordinary).toBeUndefined();
+    // The main session's proposal still goes through after the refusals.
+    expect(api.proposals).toHaveLength(1);
   });
 
   describe('the runner manifest', () => {
@@ -538,6 +610,24 @@ describe('Claude executor in the runner loop', () => {
       expect(prompt).not.toContain('feat/PROJ-12-other-epic');
       expect(prompt).not.toContain('feat/SUBPROJ-1-x');
       expect(prompt).toMatch(/could not be checked: broken-api/);
+    });
+
+    it('refuses a proposal that leaves out a candidate repository, and accepts one that drops it with a reason', async () => {
+      const left = { ...proposal, repositories: [{ key: 'billing-api', reason: 'Bills', changes: 'Export' }] };
+      const { done, seen } = runTurn(scanTurn(), {
+        propose: [
+          left,
+          { ...left, droppedSeeds: [{ key: 'orders-api', reason: 'Its epic branch holds no export work' }] },
+        ],
+      });
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.prompt).toContain('every base-branch candidate repository');
+      expect(seen[0]!.toolErrors.join()).toContain(
+        'Base-branch candidate repository \\"orders-api\\" must be included',
+      );
+      expect(api.proposals).toEqual([
+        expect.objectContaining({ droppedSeeds: [expect.objectContaining({ key: 'orders-api' })] }),
+      ]);
     });
 
     it('read_repo keeps a separate clone for keys that share a directory-safe name', async () => {
