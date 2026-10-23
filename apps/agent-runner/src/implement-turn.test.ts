@@ -205,6 +205,7 @@ describe('implement turns in the runner loop', () => {
     expect(sessionView).toMatchObject({ spec: turn.acceptedSpec!.markdown, branch: BRANCH, origin: `file://${bare}` });
     expect(sessionView!.config).not.toContain(BOT_TOKEN);
     expect(seen[0]!.prompt).toContain('orders-api');
+    expect(seen[0]!.prompt).not.toContain('Notes from the person who started this run');
     expect(seen[0]!.toolResults.join()).toMatch(/turn is over/i);
     expect(seen[0]!.denials.join()).toMatch(/turn is over/i);
 

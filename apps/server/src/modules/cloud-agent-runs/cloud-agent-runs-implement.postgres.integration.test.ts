@@ -257,7 +257,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     await api()
       .post(runsBase())
       .set('Authorization', human(MEMBER))
-      .send({ issueKey: issue.key, repositoryKeys: ['orders-api'] })
+      .send({ issueKey: issue.key, repositoryKeys: ['orders-api'], notes: 'Orders only.' })
       .expect(201);
     const scope = await claimTurn();
     expect(scope.body.repositories).toEqual([
@@ -295,6 +295,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
       digest: createHash('sha256').update(proposal.specMarkdown).digest('hex'),
     });
     expect(turn.body.prd.markdown).toContain(`# ${issue.key}: Seeded`);
+    expect(turn.body.run.notes).toBe('Orders only.');
 
     // The per-turn MCP token reads and proposes intent as the run owner, and is not in the token list.
     const tokenRow = await prisma.serviceToken.findFirstOrThrow({ where: { owningTurnId: turn.id } });
