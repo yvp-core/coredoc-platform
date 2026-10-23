@@ -51,6 +51,7 @@ export interface AgentRun {
   branch: string;
   /** Repository keys named by labels or the start request. */
   seeds: string[];
+  notes: string | null;
   failureCode: string | null;
   failureReason: string | null;
   spend: { usd: number; maxUsd: number; unknownTurns: number };

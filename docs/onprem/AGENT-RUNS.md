@@ -350,6 +350,13 @@ the **Agent runs** page:
 | *Refused: its creator is no longer an admin* | Mint a new token and update the Secret. |
 | *Never connected* | No runner has used the token yet. |
 
+A member starts a run from **Agent runs** with the Jira issue key, optional
+seed repositories, and optional **notes for the agent** (up to 4,000
+characters): what the agent should know, such as a base branch or repositories
+to leave alone. Notes reach the agent in both phases, outrank Jira text, and
+never override the run's rules. A re-run keeps the previous run's notes; a run
+started by the Jira label has none.
+
 Runs queue without a runner and say they are waiting, so a runner restart
 never refuses a start. The runner logs its runner, SDK, Claude Code and plugin
 versions at start-up.

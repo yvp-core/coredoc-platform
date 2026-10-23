@@ -258,6 +258,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     expect(created.map((run) => run.issueKey).sort()).toEqual(['ORD-1', 'ORD-2']);
     const started = created.find((run) => run.issueKey === 'ORD-1')!;
     expect(started).toMatchObject({
+      notes: null,
       trigger: 'jira_label',
       status: 'scoping',
       runOwner: { userId: OWNER.id },
@@ -455,6 +456,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
       questionsPolicy: 'assume',
       scopeAcceptancePolicy: 'automatic',
       repositoryKeys: ['orders-api'],
+      notes: 'Orders only.',
     }).expect(201);
 
     const early = await api()
@@ -483,6 +485,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
       questionsPolicy: 'assume',
       scopeAcceptancePolicy: 'automatic',
       seeds: ['orders-api'],
+      notes: 'Orders only.',
       model: 'test-model',
       spend: { maxUsd: 40 },
     });

@@ -297,6 +297,7 @@ export class CloudAgentTurnService {
           questionsPolicy: fromColumn(QuestionsPolicy, run.questionsPolicy),
           scopeAcceptancePolicy: fromColumn(ScopeAcceptancePolicy, run.scopeAcceptancePolicy),
           model: run.model,
+          notes: run.notes,
           sessionId: run.phase === RunPhase.Implement ? run.implementSessionId : run.scopeSessionId,
           remainingSpendUsd: Math.max(0, run.maxSpendUsd - run.spendUsd),
           priorSessionSpendUsd: prior._sum.spendUsd ?? 0,

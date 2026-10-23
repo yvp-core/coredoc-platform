@@ -412,6 +412,30 @@ describe('agent runs routes', () => {
     expect(screen.getByText('The GitHub connector is paused.')).toBeInTheDocument();
   });
 
+  it('starts a run with notes for the agent', async () => {
+    mount('/w/acme/agent-runs');
+    fireEvent.change(await screen.findByLabelText('Jira issue key'), { target: { value: 'PROJ-9' } });
+    fireEvent.change(screen.getByLabelText('Notes for the agent (optional)'), {
+      target: { value: 'Build on feat/PROJ-1-exports.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+
+    await waitFor(() =>
+      expect(posts).toEqual([
+        {
+          path: '/api/v1/workspaces/ws1/cloud-agent-runs',
+          body: { issueKey: 'PROJ-9', notes: 'Build on feat/PROJ-1-exports.' },
+        },
+      ]),
+    );
+  });
+
+  it('shows the notes the run was started with, as plain text', async () => {
+    detail = run({ notes: 'Build on <b>feat/PROJ-1</b>.' });
+    mount(`/w/acme/agent-runs/${RUN_ID}`);
+    expect(await screen.findByText('Build on <b>feat/PROJ-1</b>.')).toBeInTheDocument();
+  });
+
   it('re-runs a finished run and opens the new run, which links back to the previous one', async () => {
     detail = run({ status: 'failed', failureCode: 'no_outcome', failureReason: 'Stopped', currentTurn: null });
     mount(`/w/acme/agent-runs/${RUN_ID}`);

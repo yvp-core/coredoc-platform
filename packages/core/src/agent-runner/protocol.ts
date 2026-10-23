@@ -168,6 +168,8 @@ export const TurnAssignmentSchema = z.object({
     scopeAcceptancePolicy: z.enum(ScopeAcceptancePolicy),
     /** Null means Claude Code's default model. */
     model: z.string().nullable(),
+    /** What the person who started the run wrote for the agent; absent from older servers. */
+    notes: z.string().nullable().default(null),
     sessionId: z.uuid(),
     remainingSpendUsd: z.number(),
     /** The SDK reports a resumed session's cost cumulatively, so a turn's spend is the result's total minus this. */

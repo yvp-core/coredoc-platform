@@ -16,6 +16,12 @@ export const StartRunSchema = z.object({
     .array(z.string().trim().min(1).max(255), { error: 'repositoryKeys must be an array of repository keys' })
     .max(50)
     .optional(),
+  notes: z
+    .string({ error: 'notes must be a string' })
+    .trim()
+    .max(4_000, { error: 'notes must be at most 4000 characters' })
+    .optional()
+    .transform((value) => value || undefined),
 });
 export type StartRunInput = z.infer<typeof StartRunSchema>;
 

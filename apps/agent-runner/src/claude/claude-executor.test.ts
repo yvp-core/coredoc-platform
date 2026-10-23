@@ -332,6 +332,7 @@ describe('Claude executor in the runner loop', () => {
     expect(session!.options.sessionId).toBe(turn.run.sessionId);
     expect(session!.options.resume).toBeUndefined();
     expect(session!.prompt).toContain('PRD');
+    expect(session!.prompt).not.toContain('Notes from the person who started this run');
     expect(session!.toolErrors.join()).toContain('Propose at least one repository.');
     expect(api.proposals).toEqual([expect.objectContaining({ title: 'Order exports' })]);
     expect(api.uploads).toBe(1);
@@ -406,6 +407,15 @@ describe('Claude executor in the runner loop', () => {
       expect(api.proposals).toEqual([]);
       expect(seen[0]!.toolErrors.join()).toContain('Invoke the skill day-agent-run:scope');
     });
+  });
+
+  it('a scope turn’s first prompt carries the run’s notes under their heading', async () => {
+    const turn = assignment({ run: { ...assignment().run, notes: 'Build on feat/PROJ-1-exports.' } });
+    const { done, seen } = runTurn(turn, { propose: [proposal] });
+    await expect(done).resolves.toBe('completed');
+    expect(seen[0]!.prompt).toMatch(
+      /Notes from the person who started this run[^\n]*\n+Build on feat\/PROJ-1-exports\./,
+    );
   });
 
   it('a later turn restores the archive and resumes the same session with its input text', async () => {

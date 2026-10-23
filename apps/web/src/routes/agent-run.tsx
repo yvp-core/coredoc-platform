@@ -41,9 +41,9 @@ import { findWorkspace } from './workspace';
 
 const TRIGGER_LABELS: Record<string, string> = { jira_label: 'Jira label', manual: 'Manual', rerun: 'Re-run' };
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className={`flex flex-col gap-0.5${wide ? ' col-span-2' : ''}`}>
       <dt className="text-[11.5px] uppercase tracking-[0.04em] text-ink-4">{label}</dt>
       <dd className="break-words text-[13px] text-ink-2">{children}</dd>
     </div>
@@ -141,6 +141,11 @@ function RunDetails({ run }: { run: AgentRunDetail }) {
       {run.seeds.length > 0 && (
         <Field label="Seed repositories">
           <span className="font-mono text-[12px]">{run.seeds.join(', ')}</span>
+        </Field>
+      )}
+      {run.notes && (
+        <Field label="Notes for the agent" wide>
+          <span className="whitespace-pre-wrap">{run.notes}</span>
         </Field>
       )}
     </dl>

@@ -78,6 +78,7 @@ export function startAgentRun(params: {
   wsId: string;
   issueKey: string;
   repositoryKeys?: string[];
+  notes?: string;
 }): Promise<AgentRun> {
   const { wsId, ...body } = params;
   return request<AgentRun>(base(wsId), {

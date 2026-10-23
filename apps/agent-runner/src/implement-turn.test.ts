@@ -100,7 +100,8 @@ describe('implement turns in the runner loop', () => {
 
   it('writes the PRD beside the accepted spec and names both in the first prompt', async () => {
     const { repo } = await orders();
-    const turn = implementAssignment([repo], { prd: { markdown: '# PROJ-1\n\n| 1 | Exports are CSV |\n' } });
+    const base = implementAssignment([repo], { prd: { markdown: '# PROJ-1\n\n| 1 | Exports are CSV |\n' } });
+    const turn = { ...base, run: { ...base.run, notes: 'Leave billing-api alone.' } };
     let prd: string | undefined;
     const { done, seen } = runTurn(turn, [
       {
@@ -114,6 +115,7 @@ describe('implement turns in the runner loop', () => {
     await expect(done).resolves.toBe('completed');
     expect(prd).toBe('# PROJ-1\n\n| 1 | Exports are CSV |\n');
     expect(seen[0]!.prompt).toMatch(/SPEC\.md[\s\S]*PRD\.md|PRD\.md[\s\S]*SPEC\.md/);
+    expect(seen[0]!.prompt).toMatch(/Notes from the person who started this run[^\n]*\n+Leave billing-api alone\./);
   });
 
   it.each([
