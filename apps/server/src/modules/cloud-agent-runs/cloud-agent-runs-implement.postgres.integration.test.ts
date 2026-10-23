@@ -293,10 +293,11 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
       acceptedAt: now.toISOString(),
       digest: createHash('sha256').update(proposal.specMarkdown).digest('hex'),
     });
+    expect(turn.body.prd.markdown).toContain(`# ${issue.key}: Seeded`);
 
     // The per-turn MCP token reads and proposes intent as the run owner, and is not in the token list.
     const tokenRow = await prisma.serviceToken.findFirstOrThrow({ where: { owningTurnId: turn.id } });
-    expect(tokenRow.permissions.sort()).toEqual(['intent:propose', 'intent:read']);
+    expect(tokenRow.permissions.sort()).toEqual(['intent:propose', 'intent:read', 'jira:read']);
     const listed = await api().get(`/api/v1/workspaces/${workspaceId}/tokens`).set('Authorization', human(ADMIN));
     expect(JSON.stringify(listed.body)).not.toContain(tokenRow.id);
   });
@@ -333,6 +334,18 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     }).expect(200);
     expect(invalid.body.accepted).toBe(false);
     expect(invalid.body.errors.join('\n')).toMatch(/nope-api/);
+    const partialWithoutCriteria = await turnCall(turn, 'submit-result', {
+      summary: 'Half.',
+      status: 'partial',
+    }).expect(200);
+    expect(partialWithoutCriteria.body.accepted).toBe(false);
+    expect(partialWithoutCriteria.body.errors.join('\n')).toMatch(/unmetCriteria/);
+    const completeWithCriteria = await turnCall(turn, 'submit-result', {
+      summary: 'Done.',
+      unmetCriteria: ['No export for billing'],
+    }).expect(200);
+    expect(completeWithCriteria.body.accepted).toBe(false);
+    expect(completeWithCriteria.body.errors.join('\n')).toMatch(/not complete/);
 
     const accepted = await turnCall(turn, 'submit-result', {
       summary: 'Added the orders export.',
@@ -406,6 +419,33 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     expect(run.repositories.find((r: { key: string }) => r.key === 'orders-api').withheldPaths).toEqual([
       'config/id_rsa',
     ]);
+  });
+
+  it('a blocked result with no touched repository fails as incomplete_result with its criteria as the reason', async () => {
+    const { runId, turn } = await implementing();
+    await turnCall(turn, 'submit-result', {
+      summary: 'Stopped before any change.',
+      status: 'blocked',
+      unmetCriteria: ['The schedules API returns no planned hours'],
+    }).expect(200);
+    await complete(turn, { kind: 'ended' }, [report('orders-api')]).expect(200);
+    expect(await detail(runId)).toMatchObject({
+      status: 'failed',
+      failureCode: 'incomplete_result',
+      failureReason: 'The schedules API returns no planned hours',
+    });
+  });
+
+  it('a result saved before status existed completes as before: no change means no_changes', async () => {
+    const { runId, turn } = await implementing();
+    await turnCall(turn, 'submit-result', { summary: 'Nothing needed changing.' }).expect(200);
+    // As an older server stored it: no status, no unmetCriteria.
+    const row = await prisma.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { result: true } });
+    const { status: _status, unmetCriteria: _unmet, ...older } = row.result as Record<string, unknown>;
+    await prisma.cloudAgentRunTurn.update({ where: { id: turn.id }, data: { result: older as never } });
+
+    await complete(turn, { kind: 'ended' }, [report('orders-api')]).expect(200);
+    expect(await detail(runId)).toMatchObject({ status: 'failed', failureCode: 'no_changes' });
   });
 
   it('a duration checkpoint records the push and continues the same session in a new turn', async () => {

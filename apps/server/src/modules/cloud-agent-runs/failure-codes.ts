@@ -26,4 +26,5 @@ export const FAILURE_MESSAGES: Record<RunFailureCode, string> = {
   report_limit_exceeded: 'The runner sent more events, proposals or questions than a turn allows.',
   delivery_failed: 'Opening or verifying the pull requests, or posting the Jira done comment, failed.',
   runner_lost: 'The agent runner stopped responding during the same turn three times.',
+  incomplete_result: 'The agent delivered a partial result; some acceptance criteria are not met.',
 };

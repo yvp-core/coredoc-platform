@@ -33,6 +33,9 @@ import { DiscoveryTools } from './tools/discovery.tools.js';
 import { CrossRepoTools } from './tools/cross-repo.tools.js';
 import { CypherTools } from './tools/cypher.tools.js';
 import { IntentTools } from './tools/intent.tools.js';
+import { AgentJiraTools } from './tools/agent-jira.tools.js';
+import { CloudAgentRunIssueReader } from '../modules/cloud-agent-runs/cloud-agent-run-issue-reader.js';
+import { CloudAgentRunJiraConnector } from '../modules/cloud-agent-runs/cloud-agent-run-jira-connector.js';
 
 /** The MCP-Nest options, exported so the transport tests run the same server configuration. */
 export const MCP_SERVER_OPTIONS: McpOptions = {
@@ -85,6 +88,10 @@ export const MCP_SERVER_OPTIONS: McpOptions = {
     CypherTools,
     IntentTools,
     SessionFeedbackTools,
+    AgentJiraTools,
+    // Stateless over Prisma; provided here rather than importing the cloud agent runs graph.
+    CloudAgentRunIssueReader,
+    CloudAgentRunJiraConnector,
   ],
   exports: [McpRewriteMiddleware],
 })

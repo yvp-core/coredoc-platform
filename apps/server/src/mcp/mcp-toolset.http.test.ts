@@ -47,6 +47,11 @@ class StubTools {
   feedback() {
     return 'feedback answer';
   }
+
+  @Tool({ name: 'jira_get_issue', description: 'jira', parameters: z.object({}) })
+  jiraGetIssue() {
+    return 'jira answer';
+  }
 }
 
 @Module({
@@ -133,6 +138,27 @@ describe('?toolset= on the MCP transports', () => {
       });
     });
 
+    it('neither lists nor calls the agent Jira tools without their toolset', async () => {
+      const client = await connect(path);
+
+      expect(await listedNames(client)).not.toContain('jira_get_issue');
+      await expect(client.callTool({ name: 'jira_get_issue', arguments: {} })).rejects.toThrow(
+        "Tool 'jira_get_issue' is only available with ?toolset=agent-jira",
+      );
+    });
+
+    it('lists and calls only the agent Jira tools with toolset=agent-jira', async () => {
+      const client = await connect(`${path}?toolset=agent-jira`);
+
+      expect(await listedNames(client)).toEqual(['jira_get_issue']);
+      await expect(client.callTool({ name: 'jira_get_issue', arguments: {} })).resolves.toMatchObject({
+        content: [{ type: 'text', text: '"jira answer"' }],
+      });
+      await expect(client.callTool({ name: 'explain', arguments: {} })).rejects.toThrow(
+        "Tool 'explain' is not in the 'agent-jira' toolset",
+      );
+    });
+
     it('lists and calls only the intent tools with toolset=intent', async () => {
       const client = await connect(`${path}?toolset=intent`);
 
@@ -173,8 +199,8 @@ describe('?toolset= on the MCP transports', () => {
 
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error: string; validToolsets: string[] };
-    expect(body.error).toMatch(/^Unknown toolset '.*'\. Valid values: intent\./);
-    expect(body.validToolsets).toEqual(['intent']);
+    expect(body.error).toMatch(/^Unknown toolset '.*'\. Valid values: intent, agent-jira\./);
+    expect(body.validToolsets).toEqual(['intent', 'agent-jira']);
   });
 });
 

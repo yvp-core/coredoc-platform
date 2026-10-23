@@ -28,6 +28,21 @@ export class JiraReadFailure extends Error {
   }
 }
 
+export interface IssueSearch {
+  parent?: string;
+  keys?: string[];
+  text?: string;
+  type?: string;
+  status?: string;
+}
+
+export interface SearchRow {
+  key: string;
+  summary: string;
+  issueType: string | null;
+  status: string | null;
+}
+
 export interface ResolvedIssue {
   /** The immutable Jira issue id: the run's identity. */
   issueId: string;
@@ -86,9 +101,7 @@ export class CloudAgentRunIssueReader {
       const children = await this.withRetries(() =>
         connector.client.searchIssues(`parent = ${issueKey} ORDER BY rank`, ISSUE_FIELDS, { expandChangelog: false }),
       );
-      epicChildren = children.items
-        .filter((child) => connector.projects.has(text(record(record(child.fields).project).key) ?? ''))
-        .map(toPrdIssue);
+      epicChildren = children.items.filter((child) => inConfiguredProjects(connector, child)).map(toPrdIssue);
     }
 
     let parentEpic: PrdIssue | null = null;
@@ -108,6 +121,39 @@ export class CloudAgentRunIssueReader {
     };
   }
 
+  /**
+   * The query is built here from escaped values, never from agent JQL: a JQL function or an escaping clause
+   * could otherwise ask about issues outside the configured projects. Rows are filtered again regardless.
+   */
+  async searchIssues(workspaceId: string, query: IssueSearch, limit: number): Promise<SearchRow[]> {
+    const connector = await this.connector(workspaceId);
+    const clauses = [
+      `project in (${[...connector.projects].map(jqlString).join(', ')})`,
+      ...(query.parent ? [`parent = ${jqlString(query.parent)}`] : []),
+      ...(query.keys?.length ? [`key in (${query.keys.map(jqlString).join(', ')})`] : []),
+      ...(query.text ? [`text ~ ${jqlString(query.text)}`] : []),
+      ...(query.type ? [`issuetype = ${jqlString(query.type)}`] : []),
+      ...(query.status ? [`status = ${jqlString(query.status)}`] : []),
+    ];
+    const found = await this.withRetries(() =>
+      connector.client.searchIssues(
+        `${clauses.join(' AND ')} ORDER BY rank`,
+        ['summary', 'issuetype', 'status', 'project'],
+        {
+          expandChangelog: false,
+          maxPages: 1,
+        },
+      ),
+    );
+    return found.items
+      .filter((issue) => inConfiguredProjects(connector, issue))
+      .slice(0, limit)
+      .map((issue) => {
+        const { key, summary, issueType, status } = toPrdIssue(issue);
+        return { key, summary, issueType, status };
+      });
+  }
+
   private async readIssue(connector: Connector, idOrKey: string, fields: string[]) {
     let issue: Record<string, unknown>;
     try {
@@ -116,8 +162,7 @@ export class CloudAgentRunIssueReader {
       if (isPermanent(error)) throw notReadable(idOrKey);
       throw error;
     }
-    const project = text(record(record(issue.fields).project).key);
-    if (!project || !connector.projects.has(project)) throw notReadable(idOrKey);
+    if (!inConfiguredProjects(connector, issue)) throw notReadable(idOrKey);
     return issue;
   }
 
@@ -146,6 +191,15 @@ export class CloudAgentRunIssueReader {
       throw new JiraReadFailure(RunFailureCode.ConnectorInactive, 'The Jira connector’s credentials are unusable');
     }
   }
+}
+
+/** A JQL string literal; Atlassian's reference recommends quoting labels and relative dates. */
+export function jqlString(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function inConfiguredProjects(connector: Connector, issue: Record<string, unknown>): boolean {
+  return connector.projects.has(text(record(record(issue.fields).project).key) ?? '');
 }
 
 function notReadable(idOrKey: string): JiraReadFailure {

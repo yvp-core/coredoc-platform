@@ -8,7 +8,7 @@ import { Runner, type TurnExecutor } from '../runner.js';
 import { GithubApi } from '../github/github-api.js';
 import { BOT_TOKEN, FakeGithub } from '../implement.test-support.js';
 import { checkClaudeStartup, checkRunnerStartup, type StartupQueryFn } from './startup-check.js';
-import { RunnerStartupProblemCode } from '@coredoc/core/agent-runner';
+import { RunnerStartupProblemCode, resolveManifest, type ResolvedManifest } from '@coredoc/core/agent-runner';
 
 /** Claude Code's initialize answer listing these commands; the plugin's skills are prefixed with its name. */
 function initResult(commands: string[]): StartupQueryFn {
@@ -18,6 +18,14 @@ function initResult(commands: string[]): StartupQueryFn {
 const VERSIONS = { runner: '1.1.0-test', sdk: '0.3.285', claudeCode: '2.1.285' };
 
 const idleExecutor: TurnExecutor = { run: async () => ({ spend: null }) };
+
+async function writePlugin(dir: string, name: string, version?: string) {
+  await mkdir(join(dir, '.claude-plugin'), { recursive: true });
+  await writeFile(
+    join(dir, '.claude-plugin', 'plugin.json'),
+    JSON.stringify({ name, ...(version ? { version } : {}) }),
+  );
+}
 
 describe('runner start-up check', () => {
   let api: FakeCoredocApi;
@@ -42,7 +50,7 @@ describe('runner start-up check', () => {
     await rm(plugin, { recursive: true, force: true });
   });
 
-  async function startFor(query: StartupQueryFn, github?: FakeGithub) {
+  async function startFor(query: StartupQueryFn, github?: FakeGithub, manifest = resolveManifest(undefined, plugin)) {
     const logs: string[] = [];
     api.queue.push(assignment());
     const runner = new Runner({
@@ -52,7 +60,7 @@ describe('runner start-up check', () => {
       idlePollMs: 5,
       startupRetryMs: 5,
       startupCheck: () => {
-        const claude = { query, pluginPath: plugin, scratchRoot: scratch, versions: VERSIONS };
+        const claude = { query, manifest, manifestDigest: null, scratchRoot: scratch, versions: VERSIONS };
         return github
           ? checkRunnerStartup({
               ...claude,
@@ -84,7 +92,8 @@ describe('runner start-up check', () => {
     const report = await checkClaudeStartup({
       // A Claude Code that never answers its initialize request.
       query: () => ({ initializationResult: () => new Promise<never>(() => undefined) }),
-      pluginPath: plugin,
+      manifest: resolveManifest(undefined, plugin),
+      manifestDigest: null,
       scratchRoot: scratch,
       versions: VERSIONS,
       timeoutMs: 20,
@@ -152,6 +161,97 @@ describe('runner start-up check', () => {
     await startFor(initResult(['init', 'coredoc-workflows:spec']));
     expect(api.claims[0]).toMatchObject({
       versions: { runner: '1.1.0-test', sdk: '0.3.285', claudeCode: '2.1.285', plugin: '0.14.0' },
+    });
+  });
+
+  describe('a runner manifest', () => {
+    let dayPlugin: string;
+
+    beforeEach(async () => {
+      dayPlugin = await mkdtemp(join(tmpdir(), 'runner-day-plugin-'));
+      await writePlugin(dayPlugin, 'day-agent-run', '0.1.0');
+    });
+
+    afterEach(async () => {
+      await rm(dayPlugin, { recursive: true, force: true });
+    });
+
+    function dayManifest(overrides: Partial<{ plugins: string[]; entrySkill: string }> = {}): ResolvedManifest {
+      return resolveManifest(
+        JSON.stringify({
+          version: 1,
+          plugins: (overrides.plugins ?? [plugin, dayPlugin]).map((path) => ({ path })),
+          phases: {
+            scope: { model: 'claude-opus-5-5', entrySkill: overrides.entrySkill ?? 'day-agent-run:scope' },
+            implement: { model: 'claude-sonnet-5-5' },
+          },
+        }),
+        '/opt/unused',
+      );
+    }
+
+    const bothLoaded = initResult(['init', 'coredoc-workflows:spec', 'day-agent-run:scope']);
+
+    it('claims with the effective manifest in its versions once every plugin and entry skill loads', async () => {
+      const report = await checkClaudeStartup({
+        query: bothLoaded,
+        manifest: dayManifest(),
+        manifestDigest: 'sha256:abc',
+        scratchRoot: scratch,
+        versions: VERSIONS,
+      });
+      expect(report).toEqual({
+        problem: null,
+        versions: {
+          ...VERSIONS,
+          plugin: '0.14.0',
+          manifest: {
+            digest: 'sha256:abc',
+            models: { scope: 'claude-opus-5-5', implement: 'claude-sonnet-5-5' },
+            plugins: [
+              { name: 'coredoc-workflows', version: '0.14.0' },
+              { name: 'day-agent-run', version: '0.1.0' },
+            ],
+          },
+        },
+      });
+    });
+
+    it.each([
+      [
+        'an entry skill Claude Code does not list',
+        () => dayManifest({ entrySkill: 'day-agent-run:implement' }),
+        RunnerStartupProblemCode.PluginSkillsMissing,
+        'day-agent-run:implement',
+      ],
+      [
+        'a plugin without a manifest',
+        () => dayManifest({ plugins: [plugin, join(scratch, 'missing')] }),
+        RunnerStartupProblemCode.PluginMissing,
+        'No plugin manifest',
+      ],
+      [
+        'no coredoc-workflows plugin',
+        () => dayManifest({ plugins: [dayPlugin] }),
+        RunnerStartupProblemCode.ManifestInvalid,
+        'coredoc-workflows',
+      ],
+      [
+        'two coredoc-workflows plugins',
+        () => dayManifest({ plugins: [plugin, plugin, dayPlugin] }),
+        RunnerStartupProblemCode.ManifestInvalid,
+        'coredoc-workflows',
+      ],
+    ])('reports %s', async (_case, manifest, code, detail) => {
+      const report = await checkClaudeStartup({
+        query: bothLoaded,
+        manifest: manifest(),
+        manifestDigest: null,
+        scratchRoot: scratch,
+        versions: VERSIONS,
+      });
+      expect(report.problem?.code).toBe(code);
+      expect(report.problem?.detail).toContain(detail);
     });
   });
 });

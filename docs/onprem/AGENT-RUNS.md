@@ -215,6 +215,36 @@ everything is installed at build time because the root filesystem is
 read-only. Verify the base image like the server's (INSTALL.md §3.1) before you
 build on it. Rebuild the derived image from **every** runner release (§9).
 
+### 3.1 Runner manifest (optional)
+
+A derived image can carry a manifest at `/etc/coredoc/agent-runner.json` (or the
+path in `COREDOC_RUNNER_MANIFEST`). Without one, the runner behaves as above.
+With one, its keys override the defaults:
+
+```json
+{
+  "version": 1,
+  "plugins": [{ "path": "/opt/coredoc-workflows" }, { "path": "/opt/acme/plugins/acme-agent-run" }],
+  "tools": { "jira": ["read"] },
+  "phases": {
+    "scope": { "model": "claude-opus-5-5", "entrySkill": "acme-agent-run:scope" },
+    "implement": { "model": "claude-sonnet-5-5", "entrySkill": "acme-agent-run:implement" }
+  }
+}
+```
+
+| Key | Effect |
+|---|---|
+| `plugins` | Replaces the default plugin list. Exactly one must be `coredoc-workflows`; the runner uses it for the secret scan. Copy your plugins into the image read-only. |
+| `phases.<scope\|implement>.model` | The model for that phase; it wins over the workspace's model setting. |
+| `phases.<scope\|implement>.entrySkill` | `<plugin>:<skill>`. The agent is told to start with it, and `propose_scope` / `submit_result` are refused until the session has invoked it. |
+| `tools.jira` | `["read"]` gives the agent `jira_get_issue` and `jira_search` over the workspace Jira connector, confined to its projects. Leaving it out hides the tools from the agent but is not an access boundary: every scope and implement turn token may read those projects, the same issues the run already reads as its PRD. |
+
+A manifest that does not parse, a plugin that does not load, or an entry skill
+Claude Code does not list is a start-up problem (§6): the runner claims nothing
+until it is fixed. Settings show the manifest the runner reported with its
+versions.
+
 ## 4. Runner token and Secret
 
 1. In the web app, open **Settings → Agent runs → Runner tokens** and create a
@@ -315,7 +345,7 @@ the **Agent runs** page:
 | Shown | Meaning |
 |---|---|
 | `claim …` / `heartbeat …` with versions | The runner is polling or working. |
-| *Start-up check failed: …* | The runner started but claims nothing: the Agent SDK could not start Claude Code, the plugin did not load or loaded with errors or without its skills, the bot account has admin or maintain permission, GitHub refused to list the bot's repositories, or `COREDOC_PACKAGE_REGISTRIES` is invalid. It checks again every minute. |
+| *Start-up check failed: …* | The runner started but claims nothing: the Agent SDK could not start Claude Code, the plugin did not load or loaded with errors or without its skills, the bot account has admin or maintain permission, GitHub refused to list the bot's repositories, `COREDOC_PACKAGE_REGISTRIES` is invalid, or the runner manifest is invalid or names a plugin or entry skill that did not load (§3.1). It checks again every minute. |
 | *Refused: this runner version is not supported* | The runner's protocol version is one the server does not support. Upgrade the runner (or the server, §9). |
 | *Refused: its creator is no longer an admin* | Mint a new token and update the Secret. |
 | *Never connected* | No runner has used the token yet. |
@@ -394,7 +424,8 @@ them set. It still checks that Claude Code starts and logs the result.
 | `COREDOC_RUNNER_SCRATCH` | no | `/scratch` (image) | The scratch volume. |
 | `COREDOC_RUNNER_POLL_SECONDS` | no | `5` | Seconds an idle runner waits between claims. |
 | `COREDOC_RUNNER_ONCE` | no | | `1` makes the runner exit after one turn, for one Job per turn ([§10](#10-sizing)). Until it claims a turn it waits like any runner. |
-| `COREDOC_WORKFLOWS_PLUGIN_PATH` | no | `/opt/coredoc-workflows` (image) | The pinned plugin in the image. |
+| `COREDOC_WORKFLOWS_PLUGIN_PATH` | no | `/opt/coredoc-workflows` (image) | The pinned plugin in the image; the default manifest's only plugin. |
+| `COREDOC_RUNNER_MANIFEST` | no | `/etc/coredoc/agent-runner.json` | The runner manifest (§3.1). A missing file means the defaults. |
 | `ANTHROPIC_API_KEY` | yes | | The dedicated model key (§2.1). |
 | `ANTHROPIC_BASE_URL` | no | Anthropic API | Your model gateway. |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | no | | Outbound proxy; passed to Claude Code, git and package managers. |

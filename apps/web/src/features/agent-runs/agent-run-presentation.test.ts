@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { mergeTimeline, pollInterval, spendText, waitingForRunnerSince } from './agent-run-presentation.js';
+import {
+  mergeTimeline,
+  pollInterval,
+  runnerVersionsText,
+  spendText,
+  waitingForRunnerSince,
+} from './agent-run-presentation.js';
 import type { AgentRun, AgentRunEvent } from './types.js';
 
 function event(seq: number, type: string, payload: Record<string, unknown> = {}): AgentRunEvent {
@@ -64,5 +70,24 @@ describe('waitingForRunnerSince', () => {
       ),
     ).toBeNull();
     expect(waitingForRunnerSince(run(null))).toBeNull();
+  });
+});
+
+describe('runnerVersionsText', () => {
+  it('names the manifest’s models and plugins after the tool versions', () => {
+    expect(
+      runnerVersionsText({
+        runner: '1.9.0',
+        claudeCode: '2.1.285',
+        plugin: '0.14.0',
+        manifest: {
+          digest: 'sha256:abc',
+          models: { scope: 'claude-opus-5-5', implement: 'claude-sonnet-5-5' },
+          plugins: [{ name: 'coredoc-workflows', version: '0.14.0' }, { name: 'day-agent-run' }],
+        },
+      }),
+    ).toBe(
+      'runner 1.9.0 · claude code 2.1.285 · plugin 0.14.0 · manifest: scope claude-opus-5-5, implement claude-sonnet-5-5, coredoc-workflows 0.14.0, day-agent-run',
+    );
   });
 });

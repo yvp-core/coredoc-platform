@@ -2,11 +2,17 @@
  * Uses the control protocol's initialize answer: no prompt and no model call (Claude Code sends its
  * init message only after a first user message). Plugin load errors surface in each session's init.
  */
-import { readFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { RunnerStartupProblemCode, type RunnerVersions } from '@coredoc/core/agent-runner';
+import {
+  CORE_PLUGIN_NAME,
+  type ResolvedManifest,
+  RunnerStartupProblemCode,
+  type RunnerVersions,
+} from '@coredoc/core/agent-runner';
 import type { GithubApi } from '../github/github-api.js';
+import { readPluginManifest, sdkPlugins } from '../manifest.js';
 import type { StartupProblem, StartupReport } from '../runner.js';
 
 export type StartupQueryFn = (params: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => {
@@ -15,32 +21,50 @@ export type StartupQueryFn = (params: { prompt: AsyncIterable<SDKUserMessage>; o
 
 export interface StartupCheckOptions {
   query: StartupQueryFn;
-  pluginPath: string;
+  manifest: ResolvedManifest;
+  manifestDigest: string | null;
   scratchRoot: string;
   versions: RunnerVersions;
   timeoutMs?: number;
 }
 
-async function pluginManifest(pluginPath: string): Promise<{ name: string; version?: string } | null> {
-  try {
-    const manifest = JSON.parse(await readFile(join(pluginPath, '.claude-plugin', 'plugin.json'), 'utf8'));
-    return typeof manifest?.name === 'string' ? manifest : null;
-  } catch {
-    return null;
-  }
-}
-
 export async function checkClaudeStartup(options: StartupCheckOptions): Promise<StartupReport> {
-  const manifest = await pluginManifest(options.pluginPath);
-  if (!manifest) {
+  const { manifest } = options;
+  const plugins: Array<{ name: string; version?: string }> = [];
+  for (const { path } of manifest.plugins) {
+    const plugin = await readPluginManifest(path);
+    if (!plugin) {
+      return {
+        versions: options.versions,
+        problem: { code: RunnerStartupProblemCode.PluginMissing, detail: `No plugin manifest at ${path}.` },
+      };
+    }
+    plugins.push(plugin);
+  }
+  const core = plugins.filter((plugin) => plugin.name === CORE_PLUGIN_NAME);
+  if (core.length !== 1) {
     return {
       versions: options.versions,
-      problem: { code: RunnerStartupProblemCode.PluginMissing, detail: `No plugin manifest at ${options.pluginPath}.` },
+      problem: {
+        code: RunnerStartupProblemCode.ManifestInvalid,
+        detail: `The runner manifest names ${core.length} ${CORE_PLUGIN_NAME} plugins; it needs exactly one.`,
+      },
     };
   }
+  const { scope, implement } = manifest.phases;
   const versions: RunnerVersions = {
     ...options.versions,
-    ...(manifest.version ? { plugin: manifest.version } : {}),
+    ...(core[0]!.version ? { plugin: core[0]!.version } : {}),
+    // Only a manifest file is reported: the defaults are what the other versions already say.
+    ...(options.manifestDigest
+      ? {
+          manifest: {
+            digest: options.manifestDigest,
+            models: { scope: scope.model, implement: implement.model },
+            plugins: plugins.map(({ name, version }) => ({ name, version })),
+          },
+        }
+      : {}),
   };
   const timeoutMs = options.timeoutMs ?? 60_000;
   const abort = new AbortController();
@@ -64,7 +88,7 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
       options: {
         cwd: dir,
         settingSources: [],
-        plugins: [{ type: 'local', path: options.pluginPath }],
+        plugins: sdkPlugins(manifest),
         tools: [],
         canUseTool: async () => ({ behavior: 'deny', message: 'The start-up check runs no tools.' }),
         abortController: abort,
@@ -83,13 +107,11 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
       abort.signal.addEventListener('abort', () => reject(new Error('timed out')), { once: true }),
     );
     const init = await Promise.race([session.initializationResult(), timedOut]);
-    const skills = (init.commands ?? []).filter((command) => command.name.startsWith(`${manifest.name}:`));
-    problem = skills.length
-      ? null
-      : {
-          code: RunnerStartupProblemCode.PluginSkillsMissing,
-          detail: `Claude Code lists no skills from the plugin ${manifest.name}.`,
-        };
+    problem = skillsProblem(
+      (init.commands ?? []).map((command) => command.name),
+      plugins,
+      [scope.entrySkill, implement.entrySkill].filter((skill) => skill !== undefined),
+    );
   } catch (error) {
     problem = {
       code: RunnerStartupProblemCode.SdkUnusable,
@@ -105,6 +127,28 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
     await rm(dir, { recursive: true, force: true });
   }
   return { versions, problem };
+}
+
+function skillsProblem(
+  listed: string[],
+  plugins: Array<{ name: string }>,
+  entrySkills: string[],
+): StartupProblem | null {
+  const withoutSkills = plugins.find((plugin) => !listed.some((name) => name.startsWith(`${plugin.name}:`)));
+  if (withoutSkills) {
+    return {
+      code: RunnerStartupProblemCode.PluginSkillsMissing,
+      detail: `Claude Code lists no skills from the plugin ${withoutSkills.name}.`,
+    };
+  }
+  const missingEntry = entrySkills.find((skill) => !listed.includes(skill));
+  if (missingEntry) {
+    return {
+      code: RunnerStartupProblemCode.PluginSkillsMissing,
+      detail: `Claude Code does not list the manifest entry skill ${missingEntry}.`,
+    };
+  }
+  return null;
 }
 
 export async function checkRunnerStartup(

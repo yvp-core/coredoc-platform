@@ -7,11 +7,12 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { ClaudeExecutor } from './claude/claude-executor.js';
 import { checkClaudeStartup, checkRunnerStartup } from './claude/startup-check.js';
 import { GithubApi } from './github/github-api.js';
+import { type LoadedManifest, loadManifest } from './manifest.js';
 import { type PackageRegistry, packageRegistries } from './package-registries.js';
 import { secretMasker } from './mask-secrets.js';
 import { RunnerApiClient } from './runner-api.js';
-import { Runner } from './runner.js';
-import { RunnerStartupProblemCode } from '@coredoc/core/agent-runner';
+import { Runner, type StartupProblem, type StartupReport } from './runner.js';
+import { RunnerStartupProblemCode, resolveManifest } from '@coredoc/core/agent-runner';
 
 // Local development only (set by the dev compose service): a Claude subscription token instead of an API key.
 const DEV_SUBSCRIPTION =
@@ -48,6 +49,18 @@ const versions = {
 
 const scratchRoot = process.env.COREDOC_RUNNER_SCRATCH?.trim() || '/scratch';
 const pluginPath = process.env.COREDOC_WORKFLOWS_PLUGIN_PATH?.trim() || '/opt/coredoc-workflows';
+// Like the registries: reported through the start-up check, and the runner claims nothing until it is fixed.
+let loaded: LoadedManifest = { manifest: resolveManifest(undefined, pluginPath), digest: null };
+let manifestProblem: StartupProblem | null = null;
+try {
+  loaded = await loadManifest(process.env, pluginPath);
+} catch (error) {
+  manifestProblem = {
+    code: RunnerStartupProblemCode.ManifestInvalid,
+    detail: error instanceof Error ? error.message : String(error),
+  };
+}
+const claudeCheck = { query, manifest: loaded.manifest, manifestDigest: loaded.digest, scratchRoot, versions };
 
 const shutdown = new AbortController();
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
@@ -64,7 +77,9 @@ if (missing.length > 0) {
   const notConfigured = `not configured: ${missing.join(', ')} not set; claiming nothing. Create a runner token in Settings → Agent runs, set the missing variables and restart the runner.`;
   log(notConfigured);
   // Claude Code needs none of these settings, so a host that cannot run it shows up before enrolment.
-  const { versions: checked, problem } = await checkClaudeStartup({ query, pluginPath, scratchRoot, versions });
+  const { versions: checked, problem }: StartupReport = manifestProblem
+    ? { versions, problem: manifestProblem }
+    : await checkClaudeStartup(claudeCheck);
   const mask = secretMasker(
     ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'COREDOC_GITHUB_TOKEN', 'COREDOC_RUNNER_TOKEN'].map((name) =>
       process.env[name]?.trim(),
@@ -113,7 +128,7 @@ const runner = new Runner({
     query,
     api,
     scratchRoot,
-    pluginPath,
+    manifest: loaded.manifest,
     modelApiKey,
     modelCredentialKind: DEV_SUBSCRIPTION ? 'subscription' : 'api_key',
     modelBaseUrl: process.env.ANTHROPIC_BASE_URL?.trim() || undefined,
@@ -130,16 +145,11 @@ const runner = new Runner({
   versions,
   secrets: [modelApiKey, botToken, runnerToken, ...registries.map((registry) => registry.token ?? '')],
   startupCheck: async () =>
-    registryProblem
-      ? { versions, problem: { code: RunnerStartupProblemCode.RegistryConfigInvalid, detail: registryProblem } }
-      : checkRunnerStartup({
-          query,
-          pluginPath,
-          scratchRoot,
-          versions,
-          github: new GithubApi({ token: botToken }),
-          githubApiUrl,
-        }),
+    manifestProblem
+      ? { versions, problem: manifestProblem }
+      : registryProblem
+        ? { versions, problem: { code: RunnerStartupProblemCode.RegistryConfigInvalid, detail: registryProblem } }
+        : checkRunnerStartup({ ...claudeCheck, github: new GithubApi({ token: botToken }), githubApiUrl }),
   log,
 });
 

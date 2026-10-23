@@ -250,7 +250,17 @@ export interface RunnerTokenStatus {
   lastSeenAt: string | null;
   lastAction: 'claim' | 'heartbeat' | 'startup_check' | null;
   protocolVersion: number | null;
-  versions: { runner?: string; sdk?: string; claudeCode?: string; plugin?: string } | null;
+  versions: {
+    runner?: string;
+    sdk?: string;
+    claudeCode?: string;
+    plugin?: string;
+    manifest?: {
+      digest: string;
+      models: { scope?: string; implement?: string };
+      plugins: Array<{ name: string; version?: string }>;
+    };
+  } | null;
   refusal: RunnerRefusal | null;
   refusalDetail: string | null;
 }

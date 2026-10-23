@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
+import { jqlString } from './cloud-agent-run-issue-reader.js';
 import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js';
 import { CloudAgentRunSettingsService } from './cloud-agent-run-settings.service.js';
 import { CloudAgentRunService, type TriggeredIssue } from './cloud-agent-run.service.js';
@@ -9,11 +10,6 @@ import { CloudAgentRunService, type TriggeredIssue } from './cloud-agent-run.ser
 const TRIGGER_FIELDS = ['summary', 'labels', 'issuetype', 'status', 'updated'];
 /** One bounded search per tick: at most this many 100-issue pages. */
 const TRIGGER_MAX_PAGES = 5;
-
-/** A JQL string literal; Atlassian's reference recommends quoting labels and relative dates. */
-function jqlString(value: string): string {
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
 
 /** Never issued without the project clause. */
 export function triggerJql(projectKeys: readonly string[], label: string): string {

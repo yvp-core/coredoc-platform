@@ -64,6 +64,8 @@ export enum RunFailureCode {
   ReportLimitExceeded = 'report_limit_exceeded',
   DeliveryFailed = 'delivery_failed',
   RunnerLost = 'runner_lost',
+  /** The agent submitted a partial or blocked result; its pull requests are still delivered. */
+  IncompleteResult = 'incomplete_result',
 }
 
 /** The failure codes a runner may report; its reason stays on the run page, never in Jira. */
@@ -101,6 +103,14 @@ export const RunnerVersionsSchema = z.object({
   sdk: versionString.optional(),
   claudeCode: versionString.optional(),
   plugin: versionString.optional(),
+  /** The effective runner manifest: what actually ran, for the run page. */
+  manifest: z
+    .object({
+      digest: z.string().max(100),
+      models: z.object({ scope: z.string().max(100).optional(), implement: z.string().max(100).optional() }),
+      plugins: z.array(z.object({ name: z.string().max(100), version: versionString.optional() })).max(10),
+    })
+    .optional(),
 });
 export type RunnerVersions = z.infer<typeof RunnerVersionsSchema>;
 
@@ -119,6 +129,7 @@ export enum RunnerStartupProblemCode {
   BotAdmin = 'bot_admin',
   BotUnreadable = 'bot_unreadable',
   RegistryConfigInvalid = 'registry_config_invalid',
+  ManifestInvalid = 'manifest_invalid',
 }
 
 /**
@@ -440,6 +451,12 @@ export const RunnerErrorBodySchema = z.object({
   message: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
+export enum ResultStatus {
+  Complete = 'complete',
+  Partial = 'partial',
+  Blocked = 'blocked',
+}
+
 /** Ends the turn; the run moves to delivery only when the end-of-turn push touched a repository. */
 export const SubmitResultRequestSchema = z.object({
   summary: z.string().trim().min(1).max(4_000),
@@ -453,6 +470,9 @@ export const SubmitResultRequestSchema = z.object({
     .max(50)
     .default([]),
   notes: z.string().trim().max(4_000).default(''),
+  /** `partial` and `blocked` need `unmetCriteria`; the run then ends `incomplete_result` after delivery. */
+  status: z.enum(ResultStatus).default(ResultStatus.Complete),
+  unmetCriteria: z.array(shortText).max(50).default([]),
 });
 export type SubmitResultRequest = z.input<typeof SubmitResultRequestSchema>;
 export type SubmitResult = z.output<typeof SubmitResultRequestSchema>;

@@ -58,6 +58,9 @@ export const COREDOC_TOOL_CLASSES: Readonly<Record<string, ToolClass>> = {
   search_symbols: ToolAccess.Read,
   semantic_search: ToolAccess.Read,
   trace_cross_repo_call: ToolAccess.Read,
+  // Agent-run Jira reads, served only on the agent-jira toolset.
+  jira_get_issue: ToolAccess.Read,
+  jira_search: ToolAccess.Read,
 
   // State-changing.
   intent_propose: ToolAccess.Write,

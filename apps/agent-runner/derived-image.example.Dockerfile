@@ -68,4 +68,8 @@ RUN set -eu; \
 
 ENV PATH=/usr/local/share/mise/shims:${PATH}
 
+# Optional: your own plugin and a runner manifest (docs/onprem/AGENT-RUNS.md §3.1), root-owned like the base plugin.
+# COPY plugins/acme-agent-run /opt/acme/plugins/acme-agent-run
+# COPY agent-runner.json /etc/coredoc/agent-runner.json
+
 USER 10001:10001

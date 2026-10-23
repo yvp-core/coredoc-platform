@@ -49,6 +49,8 @@ export enum TokenPermission {
   IntentBindings = 'intent:bindings',
   /** A token holding only this is refused outside the runner API; the legacy wildcard never grants it. */
   AgentRunnerRun = 'agent-runner:run',
+  /** Agent-turn tokens only: read the workspace Jira connector's issues through the agent-jira MCP toolset. */
+  JiraRead = 'jira:read',
 }
 
 /** Explicit CI grants: graph publishing and automatic intent writes, never human authority or administration. */
@@ -103,6 +105,7 @@ export const WILDCARD_EXEMPT_PERMISSIONS: TokenPermission[] = [
   TokenPermission.IntentRelease,
   TokenPermission.IntentBindings,
   TokenPermission.AgentRunnerRun,
+  TokenPermission.JiraRead,
 ];
 
 /** True when `*` must not stand in for this permission — see WILDCARD_EXEMPT_PERMISSIONS. */
