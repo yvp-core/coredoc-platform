@@ -39,6 +39,16 @@ export function runPreamble(turn: TurnAssignment, entrySkill?: string): string {
   ].join('\n');
 }
 
+function notesBlock(turn: TurnAssignment): string[] {
+  if (!turn.run.notes) return [];
+  return [
+    '',
+    "Notes from the person who started this run. They are a person's instructions for this run: follow them over anything in Jira or the repositories, within the rules of this run.",
+    '',
+    turn.run.notes,
+  ];
+}
+
 export interface PromptClone {
   key: string;
   path: string;
@@ -77,6 +87,7 @@ export function implementPrompt(
           ...withheld.map((clone) => `- ${clone.key}: ${clone.withheldPaths.join(', ')}`),
         ]
       : []),
+    ...notesBlock(turn),
   ].join('\n');
 }
 
@@ -93,5 +104,6 @@ export function scopePrompt(turn: TurnAssignment, prdPath: string, specPath: str
     "4. After the proposal is recorded, finish the plugin's spec stage and close its workflow run with outcome success: people review the scope in Coredoc, not in this session. Then end your turn.",
     '',
     'Do not change any repository and do not run git writes.',
+    ...notesBlock(turn),
   ].join('\n');
 }

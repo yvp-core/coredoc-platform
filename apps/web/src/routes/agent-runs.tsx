@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import {
   runnerRefusalText,
@@ -38,6 +39,7 @@ function StartRunCard({ wsId, slug }: { wsId: string; slug: string }) {
   const navigate = useNavigate();
   const [issueKey, setIssueKey] = useState('');
   const [repositories, setRepositories] = useState('');
+  const [notes, setNotes] = useState('');
   const mutation = useMutation({
     mutationFn: startAgentRun,
     onSuccess: (run) => {
@@ -59,7 +61,14 @@ function StartRunCard({ wsId, slug }: { wsId: string; slug: string }) {
               .split(',')
               .map((value) => value.trim())
               .filter(Boolean);
-            if (key) mutation.mutate({ wsId, issueKey: key, ...(repositoryKeys.length ? { repositoryKeys } : {}) });
+            const trimmedNotes = notes.trim();
+            if (key)
+              mutation.mutate({
+                wsId,
+                issueKey: key,
+                ...(repositoryKeys.length ? { repositoryKeys } : {}),
+                ...(trimmedNotes ? { notes: trimmedNotes } : {}),
+              });
           }}
         >
           <div className="flex min-w-[200px] flex-col gap-1.5">
@@ -78,6 +87,17 @@ function StartRunCard({ wsId, slug }: { wsId: string; slug: string }) {
               value={repositories}
               placeholder="orders-api, billing-api"
               onChange={(event) => setRepositories(event.target.value)}
+            />
+          </div>
+          <div className="flex w-full flex-col gap-1.5">
+            <Label htmlFor="agent-run-notes">Notes for the agent (optional)</Label>
+            <Textarea
+              id="agent-run-notes"
+              value={notes}
+              maxLength={4000}
+              rows={3}
+              placeholder="What the agent should know: a base branch, repositories to leave alone, where the tests are"
+              onChange={(event) => setNotes(event.target.value)}
             />
           </div>
           <Button type="submit" disabled={mutation.isPending || issueKey.trim() === ''}>

@@ -277,6 +277,30 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     expect(listed.body.runs.filter((run: { issueKey: string }) => run.issueKey === issueKey)).toHaveLength(1);
   });
 
+  it('a start keeps its trimmed notes for the run page and every turn; blank is none and too long is refused', async () => {
+    await enable();
+    const token = await mintRunnerToken('runner-notes');
+    await drainQueue(token);
+    const send = (body: Record<string, unknown>) =>
+      api().post(runsBase()).set('Authorization', human(MEMBER)).send(body);
+
+    await send({ issueKey: nextIssueKey(), notes: 'x'.repeat(4_001) }).expect(400);
+    const { body: blank } = await send({ issueKey: nextIssueKey(), notes: '   ' }).expect(201);
+    expect(blank.notes).toBeNull();
+    await drainQueue(token);
+
+    const { body: run } = await send({
+      issueKey: nextIssueKey(),
+      notes: '  Build on feat/PROJ-1-exports; leave billing-api alone.  ',
+    }).expect(201);
+    expect(run.notes).toBe('Build on feat/PROJ-1-exports; leave billing-api alone.');
+    const claimed = await claim(token).expect(200);
+    expect(claimed.body.run).toMatchObject({
+      id: run.id,
+      notes: 'Build on feat/PROJ-1-exports; leave billing-api alone.',
+    });
+  });
+
   it('concurrent starts for one issue create exactly one run', async () => {
     await enable();
     const issueKey = nextIssueKey();

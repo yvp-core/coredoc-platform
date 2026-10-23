@@ -1682,6 +1682,8 @@ model CloudAgentRun {
   model                  String?   @db.VarChar(128)
   repositories           Json      @default("[]") @db.JsonB
   seeds                  String[]  @default([])
+  /// What the person who started the run wrote for the agent; a rerun copies it, the Jira trigger leaves it null.
+  notes                  String?   @db.Text
   droppedSeeds           Json      @default("[]") @map("dropped_seeds") @db.JsonB
   runOrdinal             Int       @map("run_ordinal")
   branch                 String    @db.VarChar(255)

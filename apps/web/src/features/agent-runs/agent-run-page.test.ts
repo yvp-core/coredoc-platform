@@ -23,6 +23,7 @@ function run(overrides: Partial<AgentRunDetail> = {}): AgentRunDetail {
     scopeAcceptancePolicy: 'required',
     model: null,
     branch: 'coredoc/PROJ-7',
+    notes: null,
     seeds: [],
     failureCode: null,
     failureReason: null,

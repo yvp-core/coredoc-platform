@@ -29,6 +29,7 @@ export interface NewRun {
   questionsPolicy: QuestionsPolicy;
   scopeAcceptancePolicy: ScopeAcceptancePolicy;
   seeds: string[];
+  notes?: string | null;
   /** A Jira-triggered run that fails validation is created `failed`. */
   failure?: { code: RunFailureCode; reason: string };
 }
@@ -63,6 +64,7 @@ export async function createRun(
       scopeAcceptancePolicy: input.scopeAcceptancePolicy,
       model: settings.model,
       seeds: input.seeds,
+      notes: input.notes ?? null,
       runOrdinal: ordinal,
       branch: runBranch(input.issueKey, ordinal),
       scopeSessionId: randomUUID(),

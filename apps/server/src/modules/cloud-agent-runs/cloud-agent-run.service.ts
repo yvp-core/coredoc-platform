@@ -74,6 +74,7 @@ export class CloudAgentRunService {
         scopeAcceptancePolicy:
           input.scopeAcceptancePolicy ?? fromColumn(ScopeAcceptancePolicy, settings.scopeAcceptancePolicy),
         seeds,
+        notes: input.notes,
       });
     });
     return this.detail(workspaceId, runId);
@@ -108,6 +109,7 @@ export class CloudAgentRunService {
         questionsPolicy: fromColumn(QuestionsPolicy, previous.questionsPolicy),
         scopeAcceptancePolicy: fromColumn(ScopeAcceptancePolicy, previous.scopeAcceptancePolicy),
         seeds: previous.seeds,
+        notes: previous.notes,
       });
     });
     return this.detail(workspaceId, runId);
@@ -397,6 +399,7 @@ export class CloudAgentRunService {
     const turn = run.turns[0];
     return {
       id: run.id,
+      notes: run.notes,
       issueKey: run.issueKey,
       status: run.status,
       phase: run.phase,
