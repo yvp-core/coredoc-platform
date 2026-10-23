@@ -279,8 +279,9 @@ export class CloudAgentRunImplementService {
     });
     if (!repositories.some((repository) => repository.touched)) {
       // A partial or blocked result keeps its unmet criteria as the reason, even with nothing to deliver.
-      if (result.status !== ResultStatus.Complete) {
-        await failRun(tx, updated, RunFailureCode.IncompleteResult, result.unmetCriteria.join('; '), at);
+      // A result saved before `status` existed has none: it is complete.
+      if (result.status && result.status !== ResultStatus.Complete) {
+        await failRun(tx, updated, RunFailureCode.IncompleteResult, (result.unmetCriteria ?? []).join('; '), at);
         return RunFailureCode.IncompleteResult;
       }
       await failRun(tx, updated, RunFailureCode.NoChanges, null, at);
