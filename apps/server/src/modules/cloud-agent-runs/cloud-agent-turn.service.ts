@@ -189,14 +189,19 @@ export class CloudAgentTurnService {
       const [repositories, prd, eligible] = await Promise.all([
         this.implement.repositoriesFor(run, assignment.turn.kind),
         this.jira.readPrd(run.workspaceId, run.jiraIssueId),
-        assignment.turn.kind === RunPhase.Scope ? this.scope.eligibleRepositories(run.workspaceId) : null,
+        this.scope.eligibleRepositories(run.workspaceId),
       ]);
+      const readable = [...eligible.resolved]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, { cloneUrl }]) => ({ key, cloneUrl }));
       if (assignment.turn.kind === RunPhase.Implement) {
         return {
           ...assignment,
           prd: { markdown: prd.markdown },
           repositories,
           acceptedSpec: await this.implement.acceptedSpec(run),
+          // For read_repo only: the implement phase never lists base-branch candidates.
+          branchScan: { epicKey: null, repositories: readable, maxReads: run.maxRepositories },
         };
       }
       if (prd.issueKey !== assignment.run.issueKey) {
@@ -211,13 +216,7 @@ export class CloudAgentTurnService {
         run: { ...assignment.run, issueKey: prd.issueKey },
         prd: { markdown: prd.markdown },
         repositories,
-        branchScan: {
-          epicKey: prd.epicKey,
-          repositories: [...eligible!.resolved]
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([key, { cloneUrl }]) => ({ key, cloneUrl })),
-          maxReads: run.maxRepositories,
-        },
+        branchScan: { epicKey: prd.epicKey, repositories: readable, maxReads: run.maxRepositories },
       };
     } catch (error) {
       if (!(error instanceof JiraReadFailure) && !(error instanceof RunCheckFailure)) throw error;

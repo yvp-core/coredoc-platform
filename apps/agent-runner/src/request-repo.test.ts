@@ -86,6 +86,36 @@ describe('request_repo in implement turns', () => {
 
   const workDir = (turn: TurnAssignment) => join(scratch, 'runs', turn.run.id, 'work');
 
+  it('read_repo clones a workspace repository for reference; nothing in it is pushed', async () => {
+    const orders = await remote('orders-api');
+    const search = await remote('search-api');
+    const turn = implementAssignment([orders.repo], {
+      branchScan: {
+        epicKey: null,
+        maxReads: 3,
+        repositories: [{ key: 'search-api', cloneUrl: `file://${search.bare}` }],
+      },
+    });
+    let readPath: string | undefined;
+    const { done, seen } = runTurn(turn, [
+      {
+        reads: [{ key: 'search-api' }, { key: 'billing-api' }],
+        act: async (cwd) => {
+          readPath = /cloned at (\S+?) read-only/.exec(seen[0]!.toolResults[0]!)?.[1];
+          await writeFile(join(readPath!, 'src', 'index.ts'), 'export const leaked = 1;\n');
+          await writeFile(join(cwd, 'orders-api', 'src', 'index.ts'), 'export const orders = 1;\n');
+        },
+        submit: { summary: 'Orders.', repositories: [{ key: 'orders-api', summary: 'Orders' }] },
+      },
+    ]);
+    await expect(done).resolves.toBe('completed');
+    expect(JSON.stringify(seen[0]!.options.systemPrompt)).toContain('mcp__agent_run__read_repo');
+    expect(readPath).toContain(join(workDir(turn), 'read'));
+    expect(JSON.parse(seen[0]!.toolResults[1]!).isError).toBe(true);
+    expect(remoteHead(search.bare, BRANCH)).toBeNull();
+    expect(remoteHead(orders.bare, BRANCH)).not.toBeNull();
+  });
+
   describe('under automatic acceptance', () => {
     it('clones the added repository on the run branch mid-turn, returns its path, and pushes it with the turn', async () => {
       const orders = await remote('orders-api');
@@ -206,9 +236,11 @@ describe('request_repo in implement turns', () => {
       const { done: resumedDone, seen } = runTurn(resumed, [{}]);
       await expect(resumedDone).resolves.toBe('completed');
       expect(seen[0]!.options.resume).toBe(first.run.sessionId);
-      expect(seen[0]!.prompt).toBe(
+      expect(seen[0]!.prompt).toContain(
         `Repository \`search-api\` is now cloned at \`${join(workDir(resumed), 'search-api')}\`. Continue where you stopped.`,
       );
+      // Everything outside git was wiped with the scratch volume: the session is told to set up again.
+      expect(seen[0]!.prompt).toContain('cloned again from the pushed run branch');
     });
 
     it('the turn after "Don\'t add" resumes with the server’s decline', async () => {
@@ -226,7 +258,8 @@ describe('request_repo in implement turns', () => {
       });
       const { done, seen } = runTurn(resumed, [{}]);
       await expect(done).resolves.toBe('completed');
-      expect(seen[0]!.prompt).toBe(decline);
+      expect(seen[0]!.prompt.startsWith(decline)).toBe(true);
+      expect(seen[0]!.prompt).toContain('set the repositories up again');
     });
   });
 });

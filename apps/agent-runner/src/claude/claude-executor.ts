@@ -166,6 +166,7 @@ export class ClaudeExecutor implements TurnExecutor {
         : firstPrompt;
 
     const control: RunControlState = { proposedVersion: null, submitted: false };
+    if (turn.branchScan) control.readRepository = repositoryReader(git, turn.branchScan, paths.work);
     // request_repo under automatic acceptance: the server added the repository, so clone it mid-turn.
     let cloneFailure: TurnFailure | null = null;
     control.cloneRepository = async (repository) => {
@@ -205,7 +206,9 @@ export class ClaudeExecutor implements TurnExecutor {
           repositories: turnGit.untouchedReports(clones),
         };
       }
-      const published = await this.publish(turnGit, clones);
+      // The turn that recorded the result names its commit after the accepted scope.
+      const title = control.submitted ? (turn.acceptedSpec?.title ?? null) : null;
+      const published = await this.publish(turnGit, clones, title);
       if (published.kind === 'failed') return { spend, outcome: published.outcome, repositories: published.reports };
       if (published.kind === 'published') {
         // A parked question pauses the run with the work pushed; a checkpoint continues it.
@@ -251,13 +254,14 @@ export class ClaudeExecutor implements TurnExecutor {
   private async publish(
     turnGit: TurnGit,
     clones: Clone[],
+    title: string | null,
   ): Promise<
     | { kind: 'published'; reports: RepositoryReports }
     | { kind: 'blocked'; findings: string[] }
     | { kind: 'failed'; outcome: TurnOutcome; reports: RepositoryReports }
   > {
     try {
-      const outcome = await turnGit.publish(clones);
+      const outcome = await turnGit.publish(clones, title);
       if (outcome.kind === 'failed')
         return { kind: 'failed', outcome: failed(outcome.failure), reports: outcome.reports };
       return outcome.kind === 'published' ? outcome : { kind: 'blocked', findings: outcome.findings };
@@ -292,14 +296,20 @@ export class ClaudeExecutor implements TurnExecutor {
     );
     const resume = sessionExists(paths, turn.run.sessionId);
     const candidates = turn.branchScan && !resume ? await listBaseCandidates(git, turn.branchScan, paths.work) : null;
-    const firstPrompt = scopePrompt(turn, prdPath, join(paths.work, 'spec.md'), candidates);
+    const specPath = join(paths.work, 'spec.md');
+    const firstPrompt = scopePrompt(turn, prdPath, specPath, candidates);
     const prompt = resume
       ? (turn.turn.inputText ?? 'Continue where you stopped.')
       : turn.turn.inputText
         ? `${firstPrompt}\n\n${turn.turn.inputText}`
         : firstPrompt;
 
-    const control: RunControlState = { proposedVersion: null, submitted: false };
+    const control: RunControlState = {
+      proposedVersion: null,
+      submitted: false,
+      specPath,
+      candidateKeys: candidates?.listings.map(({ key }) => key) ?? [],
+    };
     if (turn.branchScan) control.readRepository = repositoryReader(git, turn.branchScan, paths.work);
     const questions = new QuestionBridge(turn, io);
     if (io.checkpoint.aborted) throw new TurnAbandoned();
@@ -480,6 +490,16 @@ export class ClaudeExecutor implements TurnExecutor {
     const entrySkill = resume && readMarker(invokedMarker) === phase.entrySkill ? undefined : phase.entrySkill;
     const preToolUse: HookCallback = async (input) => {
       if (input.hook_event_name !== 'PreToolUse') return {};
+      // A subagent's run-control call would end or redirect the turn the main agent owns.
+      if (input.agent_id && input.tool_name.startsWith(`mcp__${RUN_CONTROL_SERVER}__`)) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'deny',
+            permissionDecisionReason: SUBAGENT_RUN_CONTROL_REFUSAL,
+          },
+        };
+      }
       // A turn that is ending refuses every further tool, questions included.
       const ending = windDown();
       if (ending) {
@@ -651,10 +671,17 @@ function promptClone(clone: Clone) {
 function resumeInput(turn: TurnAssignment, clones: Clone[]): string {
   const decision = turn.repositoryDecision;
   const clone = decision?.added ? clones.find((candidate) => candidate.repository.key === decision.key) : undefined;
-  if (clone)
-    return `Repository \`${clone.repository.key}\` is now cloned at \`${clone.dir}\`. Continue where you stopped.`;
-  return turn.turn.inputText ?? 'Continue where you stopped.';
+  const input = clone
+    ? `Repository \`${clone.repository.key}\` is now cloned at \`${clone.dir}\`. Continue where you stopped.`
+    : (turn.turn.inputText ?? 'Continue where you stopped.');
+  return `${input}\n\n${RECLONED_NOTICE}`;
 }
+
+const RECLONED_NOTICE =
+  'The repositories were cloned again from the pushed run branch: dependencies, build output and files outside the repositories are gone, so set the repositories up again before running anything.';
+
+export const SUBAGENT_RUN_CONTROL_REFUSAL =
+  'Only the main agent may call run-control tools; return what you need to the main agent instead.';
 
 /** Paths and rule ids only, never the matched text. */
 function scanBlockedPrompt(findings: string[]): string {

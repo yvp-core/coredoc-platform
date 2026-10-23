@@ -8,8 +8,8 @@ import { assertBranchName, cloneDirName } from './turn-git.js';
 type BranchScan = NonNullable<TurnAssignment['branchScan']>;
 
 /**
- * The scope phase's `read_repo`: a shallow, single-branch clone of an eligible repository under
- * `<workDir>/read`. Nothing from the scope phase is pushed. Throws with the reason the agent sees.
+ * `read_repo`, in scope and implement turns: a shallow, single-branch clone of an eligible repository
+ * under `<workDir>/read`. Nothing in it is pushed. Throws with the reason the agent sees.
  */
 export function repositoryReader(git: Git, scan: BranchScan, workDir: string) {
   // A key counts toward the cap once its read starts, so parallel calls cannot pass it or share a directory.

@@ -289,6 +289,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     ]);
     expect(turn.body.acceptedSpec).toEqual({
       version: 1,
+      title: proposal.title,
       markdown: proposal.specMarkdown,
       acceptedBy: MEMBER.email,
       acceptedAt: now.toISOString(),
@@ -296,7 +297,14 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     });
     expect(turn.body.prd.markdown).toContain(`# ${issue.key}: Seeded`);
     expect(turn.body.run.notes).toBe('Orders only.');
-    expect(turn.body.branchScan).toBeNull();
+    // read_repo in implement: the workspace's eligible repositories, no candidate scan.
+    expect(turn.body.branchScan).toEqual({
+      epicKey: null,
+      repositories: expect.arrayContaining([
+        { key: 'billing-api', cloneUrl: 'https://github.com/example-org/billing-api.git' },
+      ]),
+      maxReads: expect.any(Number),
+    });
 
     // The per-turn MCP token reads and proposes intent as the run owner, and is not in the token list.
     const tokenRow = await prisma.serviceToken.findFirstOrThrow({ where: { owningTurnId: turn.id } });

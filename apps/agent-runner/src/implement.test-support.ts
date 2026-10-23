@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import type { HookCallback, Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import {
   type AssignedRepository,
+  type ReadRepoRequest,
   type RequestRepoRequest,
   type SubmitResultRequest,
   type TurnAssignment,
@@ -308,6 +309,7 @@ export function implementAssignment(repositories: AssignedRepository[], override
     prd: null,
     acceptedSpec: {
       version: 2,
+      title: 'Orders export',
       markdown: '# Spec\n\nAdd an orders export.\n',
       acceptedBy: 'member@example.com',
       acceptedAt: '2026-10-10T09:00:00.000Z',
@@ -323,6 +325,8 @@ export interface SessionStep {
   skills?: string[];
   /** `request_repo` calls, and work between them, before `act`; tool results land in `toolResults`. */
   calls?: Array<RequestRepoRequest | ((cwd: string) => Promise<void>)>;
+  /** `read_repo` calls before `act`; tool results land in `toolResults`. */
+  reads?: ReadRepoRequest[];
   /** Edits the agent makes; `cwd` is the work directory holding the clones. */
   act?: (cwd: string) => Promise<void>;
   submit?: SubmitResultRequest;
@@ -407,6 +411,10 @@ export function fakeImplementQuery(steps: SessionStep[], seen: SeenSession[]): Q
           const answer = await callTool('request_repo', call);
           record.toolResults.push(JSON.stringify({ isError: answer.isError ?? false, content: answer.content }));
         }
+      }
+      for (const read of step.reads ?? []) {
+        const answer = await callTool('read_repo', read);
+        record.toolResults.push(JSON.stringify({ isError: answer.isError ?? false, content: answer.content }));
       }
       await step.act?.(options.cwd!);
       if (step.submit) {

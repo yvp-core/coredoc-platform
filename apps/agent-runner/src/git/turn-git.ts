@@ -156,13 +156,13 @@ export class TurnGit {
    * Pushes only when no clone blocks. A blocked attempt leaves the work trees as the agent left them,
    * with no commit, so the session can fix them and this can run again.
    */
-  async publish(clones: Clone[]): Promise<PublishOutcome> {
+  async publish(clones: Clone[], title: string | null = null): Promise<PublishOutcome> {
     const { git, scanner } = this.options;
     const message = join(this.options.tmp, 'commit-message.txt');
-    await writeFile(
-      message,
-      `wip(${this.options.issueKey}): turn ${this.options.turnNumber}\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n`,
-    );
+    const subject = title
+      ? `${this.options.issueKey}: ${title.replace(/\s+/g, ' ').trim()}`
+      : `wip(${this.options.issueKey}): turn ${this.options.turnNumber}`;
+    await writeFile(message, `${subject}\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n`);
     // The session could rewrite anything under .git: restore what git reads before running any.
     for (const clone of clones) await this.restoreGitDir(clone);
     const env = git.env();

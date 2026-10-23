@@ -1,4 +1,5 @@
 /** No "coredoc" segment in the server name: the plugin counts calls to any "coredoc" server as Coredoc MCP writes. */
+import { readFile } from 'node:fs/promises';
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import {
   type AssignedRepository,
@@ -17,7 +18,11 @@ export interface RunControlState {
   submitted: boolean;
   repositoryRequested?: boolean;
   entrySkillInvoked?: boolean;
-  /** Scope turns with a branch scan; throws with the reason the agent should see. */
+  /** Scope turns: the file the agent writes the specification to; its content is what is proposed. */
+  specPath?: string;
+  /** Scope turns with a branch scan: repositories with an epic branch, each to be included or dropped. */
+  candidateKeys?: string[];
+  /** Turns with a branch scan (scope and implement); throws with the reason the agent should see. */
   readRepository?: (key: string, branch?: string) => Promise<string>;
   /** Implement turns only; throws when the repository cannot be used, which fails the turn. */
   cloneRepository?: (repository: AssignedRepository) => Promise<string>;
@@ -60,14 +65,29 @@ export function runControlServer(
     async (args) => {
       const refusal = skipped('propose_scope');
       if (refusal) return refusal;
-      const answer = await io.proposeScope(args);
+      const specMarkdown = state.specPath ? await readSpec(state.specPath) : args.specMarkdown;
+      if (!specMarkdown) {
+        return rejected('propose_scope', [`Write the full specification to ${state.specPath}, then call again.`]);
+      }
+      const listed = new Set([...args.repositories.map(({ key }) => key), ...args.droppedSeeds.map(({ key }) => key)]);
+      const missing = (state.candidateKeys ?? []).filter((key) => !listed.has(key));
+      if (missing.length) {
+        return rejected(
+          'propose_scope',
+          missing.map(
+            (key) =>
+              `Base-branch candidate repository "${key}" must be included or listed in droppedSeeds with a reason.`,
+          ),
+        );
+      }
+      const answer = await io.proposeScope({ ...args, specMarkdown });
       if (!answer.accepted) return rejected('propose_scope', answer.errors);
       state.proposedVersion = answer.version;
       return {
         content: [
           {
             type: 'text',
-            text: `Scope version ${answer.version} is recorded and goes to reviewers when your turn ends. Close the plugin's spec run and end your turn; call propose_scope again only to replace this proposal.`,
+            text: `Scope version ${answer.version} is recorded${state.specPath ? ` with the content of ${state.specPath} as its specification` : ''} and goes to reviewers when your turn ends. Close the plugin's spec run and end your turn; call propose_scope again only to replace this proposal.`,
           },
         ],
       };
@@ -127,7 +147,7 @@ export function runControlServer(
           content: [
             {
               type: 'text' as const,
-              text: `Repository ${args.key} (${args.branch ?? 'default branch'}) is cloned at ${path} read-only: nothing from the scope phase is pushed.`,
+              text: `Repository ${args.key} (${args.branch ?? 'default branch'}) is cloned at ${path} read-only: nothing in it is pushed.`,
             },
           ],
         };
@@ -136,11 +156,21 @@ export function runControlServer(
       }
     },
   );
-  const scopeTools = state.readRepository ? [readRepo, proposeScope] : [proposeScope];
+  const reading = state.readRepository ? [readRepo] : [];
   return createSdkMcpServer({
     name: RUN_CONTROL_SERVER,
     version: '1.0.0',
     alwaysLoad: true,
-    tools: kind === TurnKind.Implement ? [requestRepo, submitResult] : scopeTools,
+    tools: kind === TurnKind.Implement ? [...reading, requestRepo, submitResult] : [...reading, proposeScope],
   });
+}
+
+async function readSpec(path: string): Promise<string | null> {
+  try {
+    const content = await readFile(path, 'utf8');
+    return content.trim() ? content : null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
 }

@@ -122,6 +122,7 @@ export class CloudAgentRunImplementService {
       : null;
     return {
       version: spec.version,
+      title: spec.title,
       markdown: spec.markdown,
       acceptedBy: spec.reviewedBy ? (reviewer?.email ?? spec.reviewedBy) : null,
       acceptedAt: (spec.reviewedAt ?? spec.proposedAt).toISOString(),

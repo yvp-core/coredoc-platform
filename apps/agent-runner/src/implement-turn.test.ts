@@ -212,7 +212,7 @@ describe('implement turns in the runner loop', () => {
     // One commit on top of the default branch, with the trailer, author and only the agent's edits.
     const head = remoteHead(bare, BRANCH)!;
     expect(git(bare, 'log', '-1', '--format=%s%n%b%n%an <%ae>', BRANCH)).toBe(
-      'wip(PROJ-1): turn 3\nCo-Authored-By: Claude <noreply@anthropic.com>\n\nCoredoc Bot <bot@users.noreply.example.com>',
+      'PROJ-1: Orders export\nCo-Authored-By: Claude <noreply@anthropic.com>\n\nCoredoc Bot <bot@users.noreply.example.com>',
     );
     expect(git(bare, 'rev-parse', `${BRANCH}~1`)).toBe(git(bare, 'rev-parse', 'main'));
     expect(remoteFiles(bare, BRANCH)).toEqual(['README.md', 'src/export.ts', 'src/orders.ts']);
@@ -753,6 +753,8 @@ describe('implement turns in the runner loop', () => {
       const { done } = runTurn(implementAssignment([repo]), [{ act: edit, resultSubtype: 'error_max_turns' }]);
       await expect(done).resolves.toBe('completed');
       expect(remoteHead(bare, BRANCH)).not.toBeNull();
+      // No recorded result: the commit stays a work-in-progress one.
+      expect(git(bare, 'log', '-1', '--format=%s', BRANCH)).toBe('wip(PROJ-1): turn 3');
       expect(api.uploads).toBe(1);
       expect(api.completions[0]!.body.outcome).toEqual({ kind: 'checkpoint' });
     });
