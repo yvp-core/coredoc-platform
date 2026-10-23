@@ -436,6 +436,18 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     });
   });
 
+  it('a result saved before status existed completes as before: no change means no_changes', async () => {
+    const { runId, turn } = await implementing();
+    await turnCall(turn, 'submit-result', { summary: 'Nothing needed changing.' }).expect(200);
+    // As an older server stored it: no status, no unmetCriteria.
+    const row = await prisma.cloudAgentRunTurn.findUniqueOrThrow({ where: { id: turn.id }, select: { result: true } });
+    const { status: _status, unmetCriteria: _unmet, ...older } = row.result as Record<string, unknown>;
+    await prisma.cloudAgentRunTurn.update({ where: { id: turn.id }, data: { result: older as never } });
+
+    await complete(turn, { kind: 'ended' }, [report('orders-api')]).expect(200);
+    expect(await detail(runId)).toMatchObject({ status: 'failed', failureCode: 'no_changes' });
+  });
+
   it('a duration checkpoint records the push and continues the same session in a new turn', async () => {
     const { runId, turn } = await implementing();
     await turnCall(turn, 'branches', { repository: 'orders-api' }).expect(200);
