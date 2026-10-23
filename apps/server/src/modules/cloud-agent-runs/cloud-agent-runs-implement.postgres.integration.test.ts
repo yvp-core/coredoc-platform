@@ -424,6 +424,21 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     ]);
   });
 
+  it('a blocked result with no touched repository fails as incomplete_result with its criteria as the reason', async () => {
+    const { runId, turn } = await implementing();
+    await turnCall(turn, 'submit-result', {
+      summary: 'Stopped before any change.',
+      status: 'blocked',
+      unmetCriteria: ['The schedules API returns no planned hours'],
+    }).expect(200);
+    await complete(turn, { kind: 'ended' }, [report('orders-api')]).expect(200);
+    expect(await detail(runId)).toMatchObject({
+      status: 'failed',
+      failureCode: 'incomplete_result',
+      failureReason: 'The schedules API returns no planned hours',
+    });
+  });
+
   it('a duration checkpoint records the push and continues the same session in a new turn', async () => {
     const { runId, turn } = await implementing();
     await turnCall(turn, 'branches', { repository: 'orders-api' }).expect(200);
