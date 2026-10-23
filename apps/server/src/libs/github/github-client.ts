@@ -163,6 +163,13 @@ export class GithubClient {
     return this.get(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`);
   }
 
+  /** Throws GithubApiError 404 when the branch does not exist. */
+  async getBranch(owner: string, repo: string, branch: string): Promise<unknown> {
+    return this.get(
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches/${encodeURIComponent(branch)}`,
+    );
+  }
+
   async compareCommits(owner: string, repo: string, base: string, head: string): Promise<{ status: string }> {
     const body = await this.get(
       `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}?per_page=1`,

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -14,6 +15,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assignment, FakeCoredocApi, TOKEN, WORKSPACE } from '../fake-coredoc-api.test-support.js';
+import { bareRemote, pushAsPerson } from '../implement.test-support.js';
 import { RunnerApiClient } from '../runner-api.js';
 import { Runner } from '../runner.js';
 import { ClaudeExecutor, type QueryFn } from './claude-executor.js';
@@ -57,6 +59,8 @@ interface SessionScript {
   initSkills?: string[];
   /** Skills the agent invokes before proposing, through the PreToolUse hook as Claude Code does. */
   skills?: string[];
+  /** `read_repo` calls before proposing; each answer lands in the record's `reads`. */
+  readRepo?: Array<{ key: string; branch?: string }>;
   pluginErrors?: Array<{ plugin: string; type: string; message: string }>;
   propose?: ProposeScopeRequest[];
   ask?: AskScript[];
@@ -83,6 +87,11 @@ function fakeQuery(
     npmrc?: string;
     workNpmrc?: boolean;
     toolErrors: string[];
+    reads: Array<{ isError: boolean; text: string }>;
+    epicFile?: string;
+    cloneDepth?: string;
+    readPaths: string[];
+    readPathsAlive: boolean[];
     asks: AskRecord[];
   }>,
 ): QueryFn {
@@ -92,6 +101,11 @@ function fakeQuery(
         prompt,
         options,
         toolErrors: [] as string[],
+        reads: [] as Array<{ isError: boolean; text: string }>,
+        epicFile: undefined as string | undefined,
+        readPaths: [] as string[],
+        readPathsAlive: [] as boolean[],
+        cloneDepth: undefined as string | undefined,
         prd: undefined as string | undefined,
         npmrc: undefined as string | undefined,
         workNpmrc: existsSync(join(options.cwd!, '.npmrc')),
@@ -149,6 +163,33 @@ function fakeQuery(
       }
 
       for (const skill of script.skills ?? []) await invokeSkill(options, skill, sessionId);
+
+      if (script.readRepo?.length) {
+        const server = options.mcpServers!.agent_run as { instance: { connect(transport: unknown): Promise<void> } };
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await server.instance.connect(serverTransport);
+        const client = new Client({ name: 'fake-claude-code-reads', version: '0' });
+        await client.connect(clientTransport);
+        for (const call of script.readRepo) {
+          const answer = await client.callTool({ name: 'read_repo', arguments: call });
+          const content = answer.content as Array<{ text: string }>;
+          const text = content.map((part) => part.text).join('\n');
+          record.reads.push({ isError: Boolean(answer.isError), text });
+          // The clone is gone once the turn ends: look at it while the session runs.
+          const path = answer.isError ? undefined : /cloned at (\S+?)[.,]? /.exec(text)?.[1];
+          if (path) {
+            record.readPaths.push(path);
+            const epic = join(path, 'src', 'epic.ts');
+            if (existsSync(epic)) record.epicFile = await readFile(epic, 'utf8');
+            record.cloneDepth = execFileSync('git', ['rev-list', '--count', 'HEAD'], {
+              cwd: path,
+              encoding: 'utf8',
+            }).trim();
+          }
+        }
+        record.readPathsAlive = record.readPaths.map((path) => existsSync(join(path, 'README.md')));
+        await client.close();
+      }
 
       if (script.propose?.length) {
         const server = options.mcpServers!.agent_run as { instance: { connect(transport: unknown): Promise<void> } };
@@ -397,6 +438,41 @@ describe('Claude executor in the runner loop', () => {
       expect(seen[0]!.options.systemPrompt).toMatchObject({ append: expect.stringContaining('day-agent-run:scope') });
     });
 
+    it('a resumed session is not asked for the entry skill again', async () => {
+      const first = assignment();
+      await runTurn(
+        first,
+        { ...dayInit, skills: ['day-agent-run:scope'], propose: [proposal] },
+        { manifest: dayManifest },
+      ).done;
+      const second = assignment({
+        turn: { ...first.turn, id: crypto.randomUUID(), ordinal: 2, inputText: 'Also cover billing exports.' },
+        run: first.run,
+        hasStateArchive: true,
+      });
+      const { done, seen } = runTurn(second, { ...dayInit, propose: [proposal] }, { manifest: dayManifest });
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.options.resume).toBe(first.run.sessionId);
+      expect(seen[0]!.toolErrors).toEqual([]);
+      expect(api.proposals).toHaveLength(2);
+    });
+
+    it('a session resumed after stopping short of the entry skill is still asked for it', async () => {
+      const first = assignment();
+      await runTurn(first, { ...dayInit, propose: [proposal] }, { manifest: dayManifest }).done;
+      expect(api.proposals).toEqual([]);
+      const second = assignment({
+        turn: { ...first.turn, id: crypto.randomUUID(), ordinal: 2, inputText: 'Continue.' },
+        run: first.run,
+        hasStateArchive: true,
+      });
+      const { done, seen } = runTurn(second, { ...dayInit, propose: [proposal] }, { manifest: dayManifest });
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.options.resume).toBe(first.run.sessionId);
+      expect(seen[0]!.toolErrors.join()).toContain('Invoke the skill day-agent-run:scope');
+      expect(api.proposals).toEqual([]);
+    });
+
     it('refuses propose_scope until the entry skill was invoked', async () => {
       const { done, seen } = runTurn(
         assignment(),
@@ -416,6 +492,105 @@ describe('Claude executor in the runner loop', () => {
     expect(seen[0]!.prompt).toMatch(
       /Notes from the person who started this run[^\n]*\n+Build on feat\/PROJ-1-exports\./,
     );
+  });
+
+  describe('base branches in the scope phase', () => {
+    let root: string;
+    let orders: string;
+    let billing: string;
+
+    beforeEach(async () => {
+      root = await mkdtemp(join(tmpdir(), 'runner-branch-scan-'));
+      orders = await bareRemote(root, 'orders-api', { 'src/orders.ts': 'export {};\n' });
+      await pushAsPerson(orders, 'feat/PROJ-1-exports', 'src/epic.ts', 'export const epic = 1;\n');
+      await pushAsPerson(orders, 'fix/unrelated', 'src/fix.ts', 'export {};\n');
+      await pushAsPerson(orders, 'feat/PROJ-12-other-epic', 'src/other.ts', 'export {};\n');
+      await pushAsPerson(orders, 'feat/SUBPROJ-1-x', 'src/sub.ts', 'export {};\n');
+      billing = await bareRemote(root, 'billing-api', { 'src/billing.ts': 'export {};\n' });
+      await pushAsPerson(billing, 'feature/other', 'src/other.ts', 'export {};\n');
+    });
+
+    afterEach(async () => {
+      await rm(root, { recursive: true, force: true });
+    });
+
+    const scanTurn = (maxReads = 5) =>
+      assignment({
+        branchScan: {
+          epicKey: 'PROJ-1',
+          maxReads,
+          repositories: [
+            { key: 'orders-api', cloneUrl: `file://${orders}` },
+            { key: 'billing-api', cloneUrl: `file://${billing}` },
+            { key: 'broken-api', cloneUrl: `file://${join(root, 'missing.git')}` },
+          ],
+        },
+      });
+
+    it('lists the branches containing the epic key with each repository’s default branch, and names an unchecked one', async () => {
+      const { done, seen } = runTurn(scanTurn(), { propose: [proposal] });
+      await expect(done).resolves.toBe('completed');
+      const prompt = seen[0]!.prompt;
+      expect(prompt).toContain('Base-branch candidates');
+      expect(prompt).toMatch(/orders-api: feat\/PROJ-1-exports \(default branch: main\)/);
+      expect(prompt).not.toMatch(/billing-api:/);
+      expect(prompt).not.toContain('fix/unrelated');
+      expect(prompt).not.toContain('feat/PROJ-12-other-epic');
+      expect(prompt).not.toContain('feat/SUBPROJ-1-x');
+      expect(prompt).toMatch(/could not be checked: broken-api/);
+    });
+
+    it('read_repo keeps a separate clone for keys that share a directory-safe name', async () => {
+      const turn = assignment({
+        branchScan: {
+          epicKey: null,
+          maxReads: 5,
+          repositories: [
+            { key: 'team/api', cloneUrl: `file://${orders}` },
+            { key: 'team_api', cloneUrl: `file://${billing}` },
+          ],
+        },
+      });
+      const { done, seen } = runTurn(turn, {
+        readRepo: [{ key: 'team/api' }, { key: 'team_api' }],
+        propose: [proposal],
+      });
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.reads.map((read) => read.isError)).toEqual([false, false]);
+      expect(new Set(seen[0]!.readPaths).size).toBe(2);
+      expect(seen[0]!.readPathsAlive).toEqual([true, true]);
+    });
+
+    it('read_repo clones the named branch shallowly; unknown repositories, missing or unsafe branches and clones over the cap are refused', async () => {
+      const { done, seen } = runTurn(scanTurn(1), {
+        readRepo: [
+          { key: 'orders-api', branch: 'feat/PROJ-1-exports' },
+          { key: 'nope-api' },
+          { key: 'orders-api', branch: 'missing' },
+          { key: 'orders-api', branch: '--upload-pack=touch /tmp/x' },
+          { key: 'orders-api', branch: 'a..b' },
+          { key: 'billing-api' },
+        ],
+        propose: [proposal],
+      });
+      await expect(done).resolves.toBe('completed');
+      const [cloned, unknown, missing, option, invalid, overCap] = seen[0]!.reads;
+      expect(cloned!.isError).toBe(false);
+      const path = /cloned at (\S+?)[.,]? /.exec(cloned!.text)?.[1];
+      expect(path).toBeTruthy();
+      expect(seen[0]!.epicFile).toBe('export const epic = 1;\n');
+      expect(seen[0]!.cloneDepth).toBe('1');
+      expect([unknown, missing, option, invalid, overCap].map((read) => read!.isError)).toEqual([
+        true,
+        true,
+        true,
+        true,
+        true,
+      ]);
+      expect(unknown!.text).toContain('nope-api');
+      expect(missing!.text).toContain('missing');
+      expect(overCap!.text).toMatch(/at most 1/);
+    });
   });
 
   it('a later turn restores the archive and resumes the same session with its input text', async () => {

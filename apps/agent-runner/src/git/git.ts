@@ -17,6 +17,8 @@ export interface GitRunOptions {
   input?: string;
   env?: Record<string, string>;
   allowFailure?: boolean;
+  /** Below the ten-minute default, for quick remote reads. */
+  timeoutMs?: number;
 }
 
 export class GitError extends Error {
@@ -74,7 +76,7 @@ export class Git {
         cwd: options.cwd,
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: TIMEOUT_MS,
+        timeout: options.timeoutMs ?? TIMEOUT_MS,
       });
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];
@@ -105,7 +107,8 @@ export class Git {
 export function gitEnvironment(input: {
   hostEnv: NodeJS.ProcessEnv;
   home: string;
-  author: { name: string; email: string };
+  /** Absent for read-only git (the scope phase never commits). */
+  author?: { name: string; email: string };
 }): Record<string, string> {
   const env: Record<string, string> = {
     PATH: input.hostEnv.PATH ?? '/usr/local/bin:/usr/bin:/bin',
@@ -115,10 +118,14 @@ export function gitEnvironment(input: {
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_TERMINAL_PROMPT: '0',
-    GIT_AUTHOR_NAME: input.author.name,
-    GIT_AUTHOR_EMAIL: input.author.email,
-    GIT_COMMITTER_NAME: input.author.name,
-    GIT_COMMITTER_EMAIL: input.author.email,
+    ...(input.author
+      ? {
+          GIT_AUTHOR_NAME: input.author.name,
+          GIT_AUTHOR_EMAIL: input.author.email,
+          GIT_COMMITTER_NAME: input.author.name,
+          GIT_COMMITTER_EMAIL: input.author.email,
+        }
+      : {}),
   };
   for (const name of [
     'HTTP_PROXY',

@@ -69,6 +69,8 @@ interface SpecRepository {
   mergeOrder: number;
   eligible: boolean;
   ineligibleReason: string | null;
+  /** Absent for the default branch. */
+  baseBranch?: string;
 }
 
 export interface AgentRunSpec {

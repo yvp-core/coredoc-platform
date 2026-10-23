@@ -261,6 +261,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: request_repo (PostgreSQL 
         cloneUrl: 'https://github.com/example-org/search-api.git',
         github: { apiBaseUrl: 'https://api.github.com', owner: 'example-org', name: 'search-api' },
         branchCreated: false,
+        baseBranch: null,
         withheldPaths: [],
       };
       expect(added.body).toEqual({ state: 'added', repository: expected, stop: false });

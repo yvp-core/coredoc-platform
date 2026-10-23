@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { HookCallback, Options, SDKAssistantMessageError, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -14,6 +15,8 @@ import {
 } from '@coredoc/core/agent-runner';
 import { Git, gitEnvironment } from '../git/git.js';
 import { SecretScanner } from '../git/secret-scan.js';
+import { listBaseCandidates } from '../git/branch-scan.js';
+import { repositoryReader } from '../git/read-repo.js';
 import { type Clone, TurnGit } from '../git/turn-git.js';
 import { type BotGithubOptions, botGithub, checkBotPermissions, requireBot } from '../github/bot-github.js';
 import { corePluginPath, sdkPlugins } from '../manifest.js';
@@ -282,8 +285,14 @@ export class ClaudeExecutor implements TurnExecutor {
     const prdPath = join(paths.work, 'PRD.md');
     await writeFile(prdPath, turn.prd?.markdown ?? '(The server sent no PRD.)\n', 'utf8');
 
+    // Read-only: the scope phase never commits or pushes, so the git identity carries no author.
+    const git = new Git(
+      gitEnvironment({ hostEnv: this.options.hostEnv, home: paths.home }),
+      this.options.bot?.token ?? null,
+    );
     const resume = sessionExists(paths, turn.run.sessionId);
-    const firstPrompt = scopePrompt(turn, prdPath, join(paths.work, 'spec.md'));
+    const candidates = turn.branchScan && !resume ? await listBaseCandidates(git, turn.branchScan, paths.work) : null;
+    const firstPrompt = scopePrompt(turn, prdPath, join(paths.work, 'spec.md'), candidates);
     const prompt = resume
       ? (turn.turn.inputText ?? 'Continue where you stopped.')
       : turn.turn.inputText
@@ -291,6 +300,7 @@ export class ClaudeExecutor implements TurnExecutor {
         : firstPrompt;
 
     const control: RunControlState = { proposedVersion: null, submitted: false };
+    if (turn.branchScan) control.readRepository = repositoryReader(git, turn.branchScan, paths.work);
     const questions = new QuestionBridge(turn, io);
     if (io.checkpoint.aborted) throw new TurnAbandoned();
     const session = await this.runSession(turn, io, paths, prompt, resume, control, questions);
@@ -465,6 +475,9 @@ export class ClaudeExecutor implements TurnExecutor {
     const { manifest } = this.options;
     const phase = turn.turn.kind === TurnKind.Implement ? manifest.phases.implement : manifest.phases.scope;
     const model = phase.model ?? turn.run.model;
+    // The run state records the entry skill once invoked; a resumed session that did is not asked again.
+    const invokedMarker = join(paths.state, 'entry-skill-invoked');
+    const entrySkill = resume && readMarker(invokedMarker) === phase.entrySkill ? undefined : phase.entrySkill;
     const preToolUse: HookCallback = async (input) => {
       if (input.hook_event_name !== 'PreToolUse') return {};
       // A turn that is ending refuses every further tool, questions included.
@@ -484,8 +497,9 @@ export class ClaudeExecutor implements TurnExecutor {
       const verdict = evaluateToolUse(input.tool_name, toolInput);
       if (verdict.decision === 'allow') {
         const skill = typeof toolInput.skill === 'string' ? toolInput.skill.replace(/^\//, '') : null;
-        if (input.tool_name === 'Skill' && phase.entrySkill && skill === phase.entrySkill) {
+        if (input.tool_name === 'Skill' && entrySkill && skill === entrySkill) {
           control.entrySkillInvoked = true;
+          await writeFile(invokedMarker, entrySkill);
         }
         return {};
       }
@@ -498,7 +512,7 @@ export class ClaudeExecutor implements TurnExecutor {
       };
     };
     const mcpServers: Options['mcpServers'] = {
-      [RUN_CONTROL_SERVER]: runControlServer(io, control, turn.turn.kind, phase.entrySkill),
+      [RUN_CONTROL_SERVER]: runControlServer(io, control, turn.turn.kind, entrySkill),
     };
     if (turn.mcp) {
       const server = {
@@ -532,7 +546,7 @@ export class ClaudeExecutor implements TurnExecutor {
       plugins: sdkPlugins(manifest),
       mcpServers,
       strictMcpConfig: true,
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: runPreamble(turn, phase.entrySkill) },
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: runPreamble(turn, entrySkill) },
       permissionMode: 'default',
       // AskUserQuestion is offered only when a permission callback is set; the policy lives in the hook.
       canUseTool: questions.canUseTool,
@@ -650,4 +664,13 @@ function scanBlockedPrompt(findings: string[]): string {
     '',
     'Remove the secrets from these files (use configuration or placeholders, or delete files that must not be committed), then end your turn. You need not call submit_result again unless your result changed. A second block fails the run.',
   ].join('\n');
+}
+
+function readMarker(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
 }

@@ -90,7 +90,11 @@ export class CloudAgentRunIssueReader {
     return { issueId: String(issue.id), issueKey: String(issue.key), jiraConnectorId: connector.id };
   }
 
-  async readPrd(workspaceId: string, jiraIssueId: string): Promise<{ issueKey: string; markdown: string }> {
+  /** `epicKey`: the issue itself when it is an epic, else its parent epic, else null. */
+  async readPrd(
+    workspaceId: string,
+    jiraIssueId: string,
+  ): Promise<{ issueKey: string; markdown: string; epicKey: string | null }> {
     const connector = await this.connector(workspaceId);
     const issue = await this.readIssue(connector, jiraIssueId, ISSUE_FIELDS);
     const fields = record(issue.fields);
@@ -118,6 +122,8 @@ export class CloudAgentRunIssueReader {
     return {
       issueKey,
       markdown: buildPrdDocument({ siteUrl: connector.siteUrl, issue: toPrdIssue(issue), epicChildren, parentEpic }),
+      // The parent's key and type come with the issue, even when the epic itself is outside the projects.
+      epicKey: isEpic(fields.issuetype) ? issueKey : isEpic(record(parent.fields).issuetype) ? text(parent.key) : null,
     };
   }
 

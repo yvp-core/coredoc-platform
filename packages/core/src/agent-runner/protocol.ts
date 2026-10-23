@@ -94,6 +94,8 @@ export const AssignedRepositorySchema = z.object({
   github: z.object({ apiBaseUrl: z.string().min(1), owner: z.string().min(1), name: z.string().min(1) }),
   /** True once this run reserved the run branch here: a run branch found on the remote is then its own. */
   branchCreated: z.boolean(),
+  /** The branch the run branch starts from and its pull request targets; null means the default branch. */
+  baseBranch: z.string().nullable().default(null),
   withheldPaths: z.array(z.string()),
 });
 export type AssignedRepository = z.infer<typeof AssignedRepositorySchema>;
@@ -191,6 +193,19 @@ export const TurnAssignmentSchema = z.object({
     })
     .nullable(),
   repositories: z.array(AssignedRepositorySchema),
+  /**
+   * Scope turns only: the workspace's eligible repositories the runner lists base-branch candidates
+   * from (branches containing the parent epic's key) and `read_repo` may clone.
+   */
+  branchScan: z
+    .object({
+      epicKey: z.string().nullable(),
+      repositories: z.array(z.object({ key: z.string(), cloneUrl: z.string().min(1) })),
+      /** `read_repo` clones at most this many distinct repositories per turn: the run's repository cap. */
+      maxReads: z.number().int().positive(),
+    })
+    .nullable()
+    .default(null),
   /** Delivery turns only; pull requests in merge order. */
   delivery: z
     .object({
@@ -380,7 +395,15 @@ export const ProposeScopeRequestSchema = z.object({
   summary: z.string().trim().min(1).max(4_000),
   specMarkdown: z.string().min(1).max(MAX_SPEC_MARKDOWN_CHARS),
   repositories: z
-    .array(z.object({ key: z.string().trim().min(1).max(255), reason: shortText, changes: shortText }))
+    .array(
+      z.object({
+        key: z.string().trim().min(1).max(255),
+        reason: shortText,
+        changes: shortText,
+        /** Omitted for the default branch; the server checks it exists. */
+        baseBranch: z.string().trim().min(1).max(255).optional(),
+      }),
+    )
     .max(50),
   /** Repository keys in the order their pull requests should merge; defaults to the listed order. */
   mergeOrder: z.array(z.string().trim().min(1).max(255)).max(50).default([]),
@@ -485,6 +508,13 @@ export const SubmitResultResponseSchema = z.discriminatedUnion('accepted', [
   z.object({ accepted: z.literal(false), errors: z.array(z.string()).min(1), stop: z.boolean() }),
 ]);
 export type SubmitResultResponse = z.infer<typeof SubmitResultResponseSchema>;
+
+/** Scope phase, runner-local: a shallow read-only clone of a workspace repository at a branch. */
+export const ReadRepoRequestSchema = z.object({
+  key: z.string().trim().min(1).max(255),
+  /** The default branch when omitted. */
+  branch: z.string().trim().min(1).max(255).optional(),
+});
 
 /** Validated like proposal repositories and against the repository cap. */
 export const RequestRepoRequestSchema = z.object({

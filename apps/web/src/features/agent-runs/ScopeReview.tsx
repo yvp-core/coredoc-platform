@@ -64,6 +64,7 @@ export function SpecDocument({ spec }: { spec: AgentRunSpec }) {
                 <th className="py-1 pr-3 font-medium">Repository</th>
                 <th className="py-1 pr-3 font-medium">Why</th>
                 <th className="py-1 pr-3 font-medium">What changes</th>
+                <th className="py-1 pr-3 font-medium">Base branch</th>
                 <th className="py-1 font-medium">Eligibility</th>
               </tr>
             </thead>
@@ -77,6 +78,13 @@ export function SpecDocument({ spec }: { spec: AgentRunSpec }) {
                   </td>
                   <td className="py-1.5 pr-3">
                     <IntentMarkdown inline noRemote text={repository.changes} />
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    {repository.baseBranch ? (
+                      <span className="break-all font-mono text-[12px]">{repository.baseBranch}</span>
+                    ) : (
+                      <span className="text-ink-4">default branch</span>
+                    )}
                   </td>
                   <td className="py-1.5">
                     {repository.eligible ? (

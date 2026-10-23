@@ -98,6 +98,27 @@ describe('implement turns in the runner loop', () => {
     return { done: runner.runOnce(shutdown), seen };
   }
 
+  it('starts the run branch from the repository’s base branch and scans the push against it', async () => {
+    const { bare, repo } = await orders({ baseBranch: 'feat/PROJ-1-exports' });
+    const baseHead = await pushAsPerson(bare, 'feat/PROJ-1-exports', 'src/epic.ts', 'export const epic = 1;\n');
+    const { done } = runTurn(implementAssignment([repo]), [
+      {
+        act: async (cwd) => writeFile(join(cwd, 'orders-api', 'src', 'export.ts'), 'export {};\n'),
+        submit: RESULT,
+      },
+    ]);
+    await expect(done).resolves.toBe('completed');
+
+    expect(git(bare, 'rev-parse', `${BRANCH}~1`)).toBe(baseHead);
+    expect(remoteFiles(bare, BRANCH)).toEqual(['README.md', 'src/epic.ts', 'src/export.ts', 'src/orders.ts']);
+    const pushScan = (await readFile(plugin.log, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { args: string[] })
+      .find((scan) => scan.args.includes('push'));
+    expect(pushScan!.args[pushScan!.args.indexOf('--base') + 1]).toBe('feat/PROJ-1-exports');
+  });
+
   it('writes the PRD beside the accepted spec and names both in the first prompt', async () => {
     const { repo } = await orders();
     const base = implementAssignment([repo], { prd: { markdown: '# PROJ-1\n\n| 1 | Exports are CSV |\n' } });
@@ -184,6 +205,7 @@ describe('implement turns in the runner loop', () => {
     expect(sessionView).toMatchObject({ spec: turn.acceptedSpec!.markdown, branch: BRANCH, origin: `file://${bare}` });
     expect(sessionView!.config).not.toContain(BOT_TOKEN);
     expect(seen[0]!.prompt).toContain('orders-api');
+    expect(seen[0]!.prompt).not.toContain('Notes from the person who started this run');
     expect(seen[0]!.toolResults.join()).toMatch(/turn is over/i);
     expect(seen[0]!.denials.join()).toMatch(/turn is over/i);
 

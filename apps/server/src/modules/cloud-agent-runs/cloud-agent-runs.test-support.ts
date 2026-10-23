@@ -203,6 +203,10 @@ export class FakeGithubPulls {
   readonly pulls = new Map<string, FakePull>();
   /** How a run branch compares with the default branch, by `owner/name`; `ahead` unless set. */
   readonly compare = new Map<string, string>();
+  /** Branches besides `main`, as `owner/name:branch`. */
+  readonly branches = new Set<string>();
+  /** Every compare's base, as `owner/name:base`. */
+  readonly compared: string[] = [];
   /** The next N reads answer 502. */
   transientFailures = 0;
   reads = 0;
@@ -217,8 +221,17 @@ export class FakeGithubPulls {
         full_name: `${owner}/${name}`,
         default_branch: 'main',
       }),
+      getBranch: async (owner: string, name: string, branch: string) => {
+        if (branch !== 'main' && !this.branches.has(`${owner}/${name}:${branch}`)) {
+          throw new GithubApiError(404, `/repos/${owner}/${name}/branches/${branch}`);
+        }
+        return { name: branch };
+      },
       compareCommits: async (owner: string, name: string, base: string) => {
-        if (base !== 'main') throw new GithubApiError(404, `/repos/${owner}/${name}/compare`);
+        this.compared.push(`${owner}/${name}:${base}`);
+        if (base !== 'main' && !this.branches.has(`${owner}/${name}:${base}`)) {
+          throw new GithubApiError(404, `/repos/${owner}/${name}/compare`);
+        }
         return { status: this.compare.get(`${owner}/${name}`) ?? 'ahead' };
       },
       getPullMetadata: async (owner: string, name: string, number: number) => {
