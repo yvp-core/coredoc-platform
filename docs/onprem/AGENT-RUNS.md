@@ -369,8 +369,9 @@ branch must build on that branch, not the default one.
   base per repository. Request changes to correct it.
 - After acceptance, the run branch starts from that base and its draft pull
   request targets it.
-- A base merged and deleted later is handled by GitHub's retargeting; otherwise
-  delivery fails with the reason.
+- If the base is merged and deleted before delivery, GitHub retargets an open
+  pull request to the default branch, and delivery then fails with the reason:
+  the run's pull request must target the base it recorded.
 - Upgrade the runner with the server. A runner older than base-branch support
   ignores a recorded base, and its pull request then fails delivery.
 

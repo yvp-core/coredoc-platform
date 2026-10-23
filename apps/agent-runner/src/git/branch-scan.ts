@@ -17,8 +17,8 @@ export interface BaseCandidates {
 export async function listBaseCandidates(git: Git, scan: BranchScan, cwd: string): Promise<BaseCandidates | null> {
   const { epicKey } = scan;
   if (!epicKey) return null;
-  // PROJ-1 must not match PROJ-12: no digit may follow the key.
-  const needle = new RegExp(`${epicKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![0-9])`, 'i');
+  // PROJ-1 must not match PROJ-12 or SUBPROJ-1: the key stands alone.
+  const needle = new RegExp(`(?<![A-Za-z0-9])${epicKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![0-9])`, 'i');
   const result: BaseCandidates = { epicKey, listings: [], unchecked: [] };
   const queue = [...scan.repositories];
   const listed = new Map<string, { defaultBranch: string | null; matching: string[] } | null>();

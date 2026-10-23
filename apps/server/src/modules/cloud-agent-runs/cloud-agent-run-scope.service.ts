@@ -74,24 +74,6 @@ export interface EligibleRepositories {
   resolved: Map<string, ResolvedRepository>;
 }
 
-/** `git check-ref-format --branch` rules, and never an option: the runner hands it to git. */
-export function isValidBranchName(name: string): boolean {
-  return (
-    name !== '@' &&
-    name !== 'HEAD' &&
-    !name.startsWith('-') &&
-    !name.startsWith('/') &&
-    !name.endsWith('/') &&
-    !name.endsWith('.') &&
-    !name.includes('..') &&
-    !name.includes('//') &&
-    !name.includes('@{') &&
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: git refuses control characters in ref names
-    !/[\x00-\x20\x7f~^:?*[\\]/.test(name) &&
-    !name.split('/').some((part) => part.startsWith('.') || part.endsWith('.lock'))
-  );
-}
-
 @Injectable()
 export class CloudAgentRunScopeService {
   private readonly githubFactory: GithubClientFactory;
@@ -122,7 +104,8 @@ export class CloudAgentRunScopeService {
     const checks = proposal.repositories.map(async ({ key, baseBranch }): Promise<string | null> => {
       const repository = resolved.get(key);
       if (!baseBranch || !repository) return null;
-      if (!isValidBranchName(baseBranch)) return `${key}: "${baseBranch}" is not a valid branch name.`;
+      // GitHub's 404 refuses any other bad name, and the runner checks every name with git before using it.
+      if (baseBranch.startsWith('-')) return `${key}: "${baseBranch}" is not a valid branch name.`;
       const client = connectorClient(this.githubFactory, repository.connector);
       try {
         await withRetries(

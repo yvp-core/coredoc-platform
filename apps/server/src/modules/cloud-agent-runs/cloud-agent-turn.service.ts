@@ -399,7 +399,13 @@ export class CloudAgentTurnService {
   /** A valid proposal becomes this turn's draft, published only when the turn completes. */
   async proposeScope(lease: TurnLease, proposal: ProposeScope): Promise<ProposeScopeResponse> {
     const { eligibility, resolved } = await this.scope.eligibleRepositories(lease.runner.workspaceId);
-    const baseErrors = await this.scope.baseBranchErrors(proposal, resolved);
+    // GitHub is asked only for a scope turn that names a base; toolCall refuses every other case anyway.
+    const scoping =
+      proposal.repositories.some((repository) => repository.baseBranch) &&
+      (await this.prisma.cloudAgentRunTurn.count({
+        where: { id: lease.turnId, workspaceId: lease.runner.workspaceId, kind: RunPhase.Scope },
+      })) > 0;
+    const baseErrors = scoping ? await this.scope.baseBranchErrors(proposal, resolved) : [];
     return this.toolCall<ProposeScopeResponse>(
       lease,
       {

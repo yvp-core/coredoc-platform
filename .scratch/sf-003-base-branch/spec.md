@@ -152,7 +152,7 @@ How a check could pass while behaviour is broken:
 | --- | --- | --- |
 | `ls-remote` fails | That repository is unchecked | The prompt says so |
 | The base is deleted after acceptance, before the run branch exists | Clone/checkout fails | `github_error` with the branch named |
-| The base is deleted after PRs exist | GitHub retargets merged-and-deleted bases; otherwise the server check fails | `delivery_failed` with the reason |
+| The base is deleted after PRs exist | GitHub may retarget the PR to the default branch; the server check requires the recorded base | `delivery_failed` with the reason |
 | `read_repo` is over the cap | Tool error | The agent continues |
 
 **Rollout/rollback:**

@@ -399,6 +399,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       ),
     };
     const first = await delivering({}, withBase);
+    expect(first.turn.body.branchScan).toBeNull();
     expect(
       first.turn.body.repositories.map((r: { key: string; baseBranch: string | null }) => [r.key, r.baseBranch]),
     ).toEqual([
@@ -432,6 +433,20 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       200,
     );
     expect(await detail(second.runId)).toMatchObject({ status: 'failed', failureCode: 'delivery_failed' });
+
+    const third = await delivering({}, withBase);
+    const k = issueSeed * 10;
+    github.add('example-org/billing-api', {
+      number: k + 1,
+      headRepo: 'example-org/billing-api',
+      headRef: third.branch,
+    });
+    github.compare.set('example-org/orders-api', 'identical');
+    await complete(third.turn, {
+      deliveries: [opened('billing-api', k + 1), { key: 'orders-api', pullRequest: null }],
+    }).expect(200);
+    expect(await detail(third.runId)).toMatchObject({ status: 'delivering' });
+    expect(github.compared).toContain('example-org/orders-api:feat/PROJ-1-exports');
   });
 
   it('a crash after the done comment is recovered without a second comment or transition', async () => {

@@ -296,6 +296,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     });
     expect(turn.body.prd.markdown).toContain(`# ${issue.key}: Seeded`);
     expect(turn.body.run.notes).toBe('Orders only.');
+    expect(turn.body.branchScan).toBeNull();
 
     // The per-turn MCP token reads and proposes intent as the run owner, and is not in the token list.
     const tokenRow = await prisma.serviceToken.findFirstOrThrow({ where: { owningTurnId: turn.id } });

@@ -483,6 +483,7 @@ describe('Claude executor in the runner loop', () => {
       await pushAsPerson(orders, 'feat/PROJ-1-exports', 'src/epic.ts', 'export const epic = 1;\n');
       await pushAsPerson(orders, 'fix/unrelated', 'src/fix.ts', 'export {};\n');
       await pushAsPerson(orders, 'feat/PROJ-12-other-epic', 'src/other.ts', 'export {};\n');
+      await pushAsPerson(orders, 'feat/SUBPROJ-1-x', 'src/sub.ts', 'export {};\n');
       billing = await bareRemote(root, 'billing-api', { 'src/billing.ts': 'export {};\n' });
       await pushAsPerson(billing, 'feature/other', 'src/other.ts', 'export {};\n');
     });
@@ -513,6 +514,7 @@ describe('Claude executor in the runner loop', () => {
       expect(prompt).not.toMatch(/billing-api:/);
       expect(prompt).not.toContain('fix/unrelated');
       expect(prompt).not.toContain('feat/PROJ-12-other-epic');
+      expect(prompt).not.toContain('feat/SUBPROJ-1-x');
       expect(prompt).toMatch(/could not be checked: broken-api/);
     });
 

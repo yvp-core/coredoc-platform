@@ -342,7 +342,8 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
     for (const [baseBranch, error] of [
       ['feat/missing', /orders-api.*feat\/missing/],
       ['--upload-pack=x', /orders-api.*not a valid branch name/],
-      ['a..b', /not a valid branch name/],
+      ['a..b', /orders-api.*does not exist/],
+      [run.branch, /orders-api.*this run's own branch/],
     ] as const) {
       const refused = await turnCall(turn, 'propose-scope', withBase(baseBranch)).expect(200);
       expect(refused.body.accepted).toBe(false);

@@ -205,6 +205,8 @@ export class FakeGithubPulls {
   readonly compare = new Map<string, string>();
   /** Branches besides `main`, as `owner/name:branch`. */
   readonly branches = new Set<string>();
+  /** Every compare's base, as `owner/name:base`. */
+  readonly compared: string[] = [];
   /** The next N reads answer 502. */
   transientFailures = 0;
   reads = 0;
@@ -226,6 +228,7 @@ export class FakeGithubPulls {
         return { name: branch };
       },
       compareCommits: async (owner: string, name: string, base: string) => {
+        this.compared.push(`${owner}/${name}:${base}`);
         if (base !== 'main' && !this.branches.has(`${owner}/${name}:${base}`)) {
           throw new GithubApiError(404, `/repos/${owner}/${name}/compare`);
         }
