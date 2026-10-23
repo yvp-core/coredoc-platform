@@ -1,9 +1,11 @@
 /** Until the plugin ships its hosted mode, the plugin-contract fallbacks live here as instructions. */
 import { type TurnAssignment, TurnKind } from '@coredoc/core/agent-runner';
+import type { BaseCandidates } from '../git/branch-scan.js';
 
 export const PROPOSE_SCOPE_TOOL = 'mcp__agent_run__propose_scope';
 export const SUBMIT_RESULT_TOOL = 'mcp__agent_run__submit_result';
 export const REQUEST_REPO_TOOL = 'mcp__agent_run__request_repo';
+export const READ_REPO_TOOL = 'mcp__agent_run__read_repo';
 
 export function runPreamble(turn: TurnAssignment, entrySkill?: string): string {
   const { run } = turn;
@@ -33,9 +35,14 @@ export function runPreamble(turn: TurnAssignment, entrySkill?: string): string {
             : `- ${REQUEST_REPO_TOOL}: ask for a repository the accepted scope left out, by its durable repository key, with the reason. A person decides whether to add it, so the request ends your turn; the decision arrives when your session resumes.`,
         ]
       : []),
-    turn.turn.kind === TurnKind.Implement
-      ? `- ${SUBMIT_RESULT_TOOL}: finish the implementation — a summary, what changed in each repository (by repository key), assumptions, the repositories you could not build or test here with the reason, and notes. It answers with errors when a rule is broken; fix them and call it again. A recorded result ends your turn; the runner then commits and pushes your changes.`
-      : `- ${PROPOSE_SCOPE_TOOL}: propose the scope — the specification markdown, a title and summary, every affected repository by its durable repository key with the reason and what changes there, the merge order, risks, intent references, assumptions, seed repositories you leave out with a reason, and candidates for the PRD (each open product question with what it blocks). It answers with errors when a rule is broken; fix them and call it again. A recorded proposal is published to reviewers when your turn ends.`,
+    ...(turn.turn.kind === TurnKind.Implement
+      ? [
+          `- ${SUBMIT_RESULT_TOOL}: finish the implementation — a summary, what changed in each repository (by repository key), assumptions, the repositories you could not build or test here with the reason, and notes. It answers with errors when a rule is broken; fix them and call it again. A recorded result ends your turn; the runner then commits and pushes your changes.`,
+        ]
+      : [
+          `- ${READ_REPO_TOOL}: read a workspace repository at a branch (its default branch when omitted), as a shallow read-only clone in this turn; it answers with the path. Nothing from this phase is pushed.`,
+          `- ${PROPOSE_SCOPE_TOOL}: propose the scope — the specification markdown, a title and summary, every affected repository by its durable repository key with the reason and what changes there, the merge order, risks, intent references, assumptions, seed repositories you leave out with a reason, and candidates for the PRD (each open product question with what it blocks). It answers with errors when a rule is broken; fix them and call it again. A recorded proposal is published to reviewers when your turn ends.`,
+        ]),
   ].join('\n');
 }
 
@@ -91,7 +98,30 @@ export function implementPrompt(
   ].join('\n');
 }
 
-export function scopePrompt(turn: TurnAssignment, prdPath: string, specPath: string): string {
+function candidatesBlock(candidates: BaseCandidates | null): string[] {
+  if (!candidates) return [];
+  return [
+    '',
+    `Base-branch candidates: branches containing ${candidates.epicKey}, the parent epic. Read one with ${READ_REPO_TOOL} before relying on it.`,
+    ...candidates.listings.map(
+      ({ key, matching, defaultBranch }) =>
+        `- ${key}: ${matching.join(', ')} (default branch: ${defaultBranch ?? 'unknown'})`,
+    ),
+    candidates.listings.length
+      ? 'Every other repository has only its default branch for this epic.'
+      : 'No repository has a branch for this epic: use the default branches.',
+    ...(candidates.unchecked.length
+      ? [`These repositories could not be checked: ${candidates.unchecked.join(', ')}.`]
+      : []),
+  ];
+}
+
+export function scopePrompt(
+  turn: TurnAssignment,
+  prdPath: string,
+  specPath: string,
+  candidates: BaseCandidates | null = null,
+): string {
   const { run } = turn;
   const seeds = run.seeds.length ? run.seeds.join(', ') : 'none';
   return [
@@ -100,10 +130,11 @@ export function scopePrompt(turn: TurnAssignment, prdPath: string, specPath: str
     '',
     `1. Read accepted intent sourced at the issue for repository hints: call the Coredoc MCP tool get_intent_context with the source ref jira:${run.issueKey}, and jira:<KEY> for each child issue the PRD lists.`,
     `2. Run the coredoc-workflows spec route in PRD-input mode (--intent spec, work item ${run.issueKey}) with the PRD file as its input. Verify the PRD's claims against the Coredoc MCP and mark the ones you cannot verify as [unverified]. Do not interview anyone: list product gaps as candidates for the PRD. Write the specification to ${specPath}.`,
-    `3. Call ${PROPOSE_SCOPE_TOOL} with that specification and the scope. Every seed repository is either included or listed in droppedSeeds with a reason.`,
+    `3. Call ${PROPOSE_SCOPE_TOOL} with that specification and the scope. Every seed repository is either included or listed in droppedSeeds with a reason. Give a repository's baseBranch when the work must build on a branch other than its default (an unmerged dependency), and say why in its reason; the run's notes come first, then the candidates below.`,
     "4. After the proposal is recorded, finish the plugin's spec stage and close its workflow run with outcome success: people review the scope in Coredoc, not in this session. Then end your turn.",
     '',
     'Do not change any repository and do not run git writes.',
+    ...candidatesBlock(candidates),
     ...notesBlock(turn),
   ].join('\n');
 }

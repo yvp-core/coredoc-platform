@@ -70,6 +70,7 @@ function spec(version: number, status: string, overrides: Record<string, unknown
         mergeOrder: 0,
         eligible: true,
         ineligibleReason: null,
+        baseBranch: 'feat/PROJ-1-exports',
       },
       {
         key: 'billing-api',
@@ -644,7 +645,8 @@ describe('agent runs routes', () => {
         .map((row) => row.textContent);
       expect(rows[1]).toContain('orders-api');
       expect(rows[1]).toContain('Owns the order records');
-      expect(rows[2]).toMatch(/billing-api.*Not eligible/);
+      expect(rows[1]).toContain('feat/PROJ-1-exports');
+      expect(rows[2]).toMatch(/billing-api.*default branch.*Not eligible/);
       expect(within(document).getByText(/legacy-tool/)).toBeInTheDocument();
       expect(within(document).getByText('Should exports include refunds?')).toBeInTheDocument();
     });

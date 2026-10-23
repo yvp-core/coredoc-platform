@@ -26,7 +26,14 @@ import { CLOUD_AGENT_RUN_ARCHIVE_STORE } from './cloud-agent-run-archive.store.j
 import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CLOUD_AGENT_RUNS_CLOCK, cloudAgentRunsCoreProviders } from './cloud-agent-runs.module.js';
-import { FakeJira, InMemoryArchiveStore, paragraphDoc, setAgentRunsEnabled } from './cloud-agent-runs.test-support.js';
+import {
+  FakeGithubPulls,
+  FakeJira,
+  InMemoryArchiveStore,
+  paragraphDoc,
+  setAgentRunsEnabled,
+} from './cloud-agent-runs.test-support.js';
+import { GITHUB_CLIENT_FACTORY } from '../delivery/github-importer.service.js';
 
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
@@ -58,6 +65,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
   let otherRunnerToken: string;
   let issueSeed = 0;
   const jira = new FakeJira();
+  const githubApi = new FakeGithubPulls();
   const archives = new InMemoryArchiveStore();
   const now = new Date();
 
@@ -133,6 +141,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
         ...cloudAgentRunsCoreProviders,
         { provide: CLOUD_AGENT_RUNS_CLOCK, useValue: () => now },
         { provide: JIRA_CLIENT_FACTORY, useValue: () => jira.client() },
+        { provide: GITHUB_CLIENT_FACTORY, useValue: () => githubApi.client() },
         { provide: CLOUD_AGENT_RUN_ARCHIVE_STORE, useValue: archives },
         { provide: STORAGE_CONFIG, useValue: { ...storage, r2: { ...storage.r2, endpoint: 'https://r2.example' } } },
         {
@@ -266,6 +275,14 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
     expect(turn.body.run).toMatchObject({ seeds: ['billing-api'], priorSessionSpendUsd: 0 });
     expect(turn.body.hasStateArchive).toBe(false);
     expect(turn.body.mcp.path).toBe(`/api/v1/workspaces/${workspaceId}/mcp`);
+    expect(turn.body.branchScan).toEqual({
+      epicKey: null,
+      maxReads: expect.any(Number),
+      repositories: [
+        { key: 'billing-api', cloneUrl: 'https://github.com/example-org/billing-api.git' },
+        { key: 'orders-api', cloneUrl: 'https://github.com/example-org/orders-api.git' },
+      ],
+    });
 
     const tokenRow = await prisma.serviceToken.findFirst({ where: { owningTurnId: turn.id } });
     expect(tokenRow).toMatchObject({
@@ -302,6 +319,49 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
     expect(turn.body.prd.markdown).toContain('### PROJ-900: Request an export');
     expect(turn.body.prd.markdown).toContain('Child story text.');
     expect(turn.body.prd.markdown).not.toContain('Foreign text.');
+    expect(turn.body.branchScan.epicKey).toBe(epic.key);
+  });
+
+  it('a story under an epic is scanned for branches named after the epic', async () => {
+    const epic = newIssue('Shared decisions for exports.', { issueType: 'Epic' });
+    const story = newIssue('Export the invoices.', { parent: epic.key });
+    await api().post(runsBase()).set('Authorization', human(MEMBER)).send({ issueKey: story.key }).expect(201);
+    const turn = await claimTurn();
+    expect(turn.body.branchScan.epicKey).toBe(epic.key);
+  });
+
+  it('a proposal’s base branches must be valid and exist; an accepted one reaches the implement turn', async () => {
+    githubApi.branches.add('example-org/orders-api:feat/PROJ-1-exports');
+    const run = await startRun();
+    const turn = await claimTurn();
+    const withBase = (baseBranch: string) =>
+      proposal({
+        repositories: [{ key: 'orders-api', reason: 'Builds on the unmerged engine', changes: 'Export', baseBranch }],
+      });
+
+    for (const [baseBranch, error] of [
+      ['feat/missing', /orders-api.*feat\/missing/],
+      ['--upload-pack=x', /orders-api.*not a valid branch name/],
+      ['a..b', /not a valid branch name/],
+    ] as const) {
+      const refused = await turnCall(turn, 'propose-scope', withBase(baseBranch)).expect(200);
+      expect(refused.body.accepted).toBe(false);
+      expect(refused.body.errors.join('\n')).toMatch(error);
+    }
+    const accepted = await turnCall(turn, 'propose-scope', withBase('feat/PROJ-1-exports')).expect(200);
+    expect(accepted.body.accepted).toBe(true);
+    await complete(turn).expect(200);
+
+    const spec = (await api().get(`${runsBase()}/${run.id}`).set('Authorization', human(MEMBER)).expect(200)).body
+      .latestSpec;
+    expect(spec.repositories).toEqual([
+      expect.objectContaining({ key: 'orders-api', baseBranch: 'feat/PROJ-1-exports' }),
+    ]);
+    await api().post(`${runsBase()}/${run.id}/specs/1/accept`).set('Authorization', human(MEMBER)).expect(200);
+    const implement = await claimTurn();
+    expect(implement.body.repositories).toEqual([
+      expect.objectContaining({ key: 'orders-api', baseBranch: 'feat/PROJ-1-exports' }),
+    ]);
   });
 
   it('a manual start for a missing, forbidden or out-of-project issue is refused', async () => {

@@ -258,6 +258,7 @@ export class CloudAgentRunRepositoryRequestService {
         mergeOrder: repository.mergeOrder,
         ...resolved,
         branchCreated: repository.branchCreated,
+        baseBranch: null,
         withheldPaths: repository.withheldPaths ?? [],
       },
       stop: false,

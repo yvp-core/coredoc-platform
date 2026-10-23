@@ -18,7 +18,8 @@ import { stageChanges } from './staging.js';
 export interface Clone {
   repository: AssignedRepository;
   dir: string;
-  defaultBranch: string;
+  /** The branch the run branch starts from and the push is scanned against: the base, else the default. */
+  baseBranch: string;
   /** The run branch's head on the remote at turn start; this run's own (reserved) branch. */
   remoteRunHead: string | null;
   /** The clone's git config as the runner wrote it, restored before any git after the session. */
@@ -106,7 +107,8 @@ export class TurnGit {
         });
       });
       const originHead = await git.output(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], dir);
-      const defaultBranch = originHead.replace(/^origin\//, '');
+      const baseBranch = repository.baseBranch ?? originHead.replace(/^origin\//, '');
+      await assertBranchName(git, baseBranch, repository.key);
       const remoteRunHead =
         (
           await git.run(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}^{commit}`], {
@@ -120,17 +122,29 @@ export class TurnGit {
           `The branch ${branch} already exists in ${repository.key}, and this run did not create it.`,
         );
       }
+      if (!remoteRunHead) {
+        const base = await git.run(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${baseBranch}^{commit}`], {
+          cwd: dir,
+          allowFailure: true,
+        });
+        if (!base.stdout.trim()) {
+          throw new TurnFailure(
+            RunFailureCode.GithubError,
+            `The base branch ${baseBranch} does not exist in ${repository.key}.`,
+          );
+        }
+      }
       await git.run(
         remoteRunHead
           ? ['checkout', '--quiet', '-B', branch, `refs/remotes/origin/${branch}`]
-          : ['checkout', '--quiet', '-b', branch],
+          : ['checkout', '--quiet', '-b', branch, `refs/remotes/origin/${baseBranch}`],
         { cwd: dir },
       );
       const fresh = await git.output(['config', '--local', '--get-regexp', '^(core|extensions)\\.'], dir);
       clones.push({
         repository,
         dir,
-        defaultBranch,
+        baseBranch,
         remoteRunHead,
         configTemplate: configTemplate(fresh, repository.cloneUrl),
       });
@@ -180,7 +194,7 @@ export class TurnGit {
       entry.committed = true;
       const outbound = await scanner.push(
         dir,
-        clone.defaultBranch,
+        clone.baseBranch,
         this.options.branch,
         git.env(git.authEnv(repository.cloneUrl)),
       );
@@ -324,4 +338,14 @@ export class TurnGit {
 
 function remoteReason(output: string): string {
   return /\[remote rejected\][^\n]*/.exec(output)?.[0].slice(0, 300) ?? 'remote rejected';
+}
+
+/** Agent-chosen branch names reach git only after this: never as an option, always a valid ref name. */
+export async function assertBranchName(git: Git, name: string, repositoryKey: string): Promise<void> {
+  const valid =
+    !name.startsWith('-') &&
+    (await git.run(['check-ref-format', '--branch', name], { cwd: '/', allowFailure: true })).code === 0;
+  if (!valid) {
+    throw new TurnFailure(RunFailureCode.GithubError, `"${name}" is not a valid branch name for ${repositoryKey}.`);
+  }
 }

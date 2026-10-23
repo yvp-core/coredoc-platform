@@ -3,6 +3,7 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import {
   type AssignedRepository,
   ProposeScopeRequestSchema,
+  ReadRepoRequestSchema,
   RequestRepoRequestSchema,
   SubmitResultRequestSchema,
   TurnKind,
@@ -16,6 +17,8 @@ export interface RunControlState {
   submitted: boolean;
   repositoryRequested?: boolean;
   entrySkillInvoked?: boolean;
+  /** Scope turns with a branch scan; throws with the reason the agent should see. */
+  readRepository?: (key: string, branch?: string) => Promise<string>;
   /** Implement turns only; throws when the repository cannot be used, which fails the turn. */
   cloneRepository?: (repository: AssignedRepository) => Promise<string>;
   /** Further tool calls are refused with the reason; a session that does not end itself within `graceMs` is stopped. */
@@ -113,10 +116,31 @@ export function runControlServer(
       };
     },
   );
+  const readRepo = tool(
+    'read_repo',
+    'Read a workspace repository at a branch (its default branch when omitted) as a shallow read-only clone in this turn; it answers with the path.',
+    ReadRepoRequestSchema.shape,
+    async (args) => {
+      try {
+        const path = await state.readRepository!(args.key, args.branch);
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Repository ${args.key} (${args.branch ?? 'default branch'}) is cloned at ${path} read-only: nothing from the scope phase is pushed.`,
+            },
+          ],
+        };
+      } catch (error) {
+        return { isError: true, content: [{ type: 'text' as const, text: (error as Error).message }] };
+      }
+    },
+  );
+  const scopeTools = state.readRepository ? [readRepo, proposeScope] : [proposeScope];
   return createSdkMcpServer({
     name: RUN_CONTROL_SERVER,
     version: '1.0.0',
     alwaysLoad: true,
-    tools: kind === TurnKind.Implement ? [requestRepo, submitResult] : [proposeScope],
+    tools: kind === TurnKind.Implement ? [requestRepo, submitResult] : scopeTools,
   });
 }

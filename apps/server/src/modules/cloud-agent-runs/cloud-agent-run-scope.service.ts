@@ -2,7 +2,12 @@ import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import type { ProposeScope } from '@coredoc/core/agent-runner';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { CloudAgentRun, CloudAgentRunSpecVersion, Prisma } from '../../generated/prisma/client.js';
+import { GithubApiError } from '../../libs/github/github-client.js';
+import type { resolveGithubRepository } from '../../libs/github/github-repository.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
+import { GITHUB_CLIENT_FACTORY, type GithubClientFactory } from '../delivery/github-importer.service.js';
+import { connectorClient, defaultGithubFactory, transientGithub } from './github-connector-client.js';
+import { withRetries } from './retry.js';
 import {
   cloudAgentRunError,
   CloudAgentRunErrorCode,
@@ -28,6 +33,8 @@ export interface SpecRepository {
   mergeOrder: number;
   eligible: boolean;
   ineligibleReason: string | null;
+  /** Absent for the default branch. */
+  baseBranch?: string;
 }
 
 export interface SpecContent {
@@ -54,31 +61,93 @@ export interface RunRepository {
   touched: boolean;
   lastPushedHead: string | null;
   notBuiltOrTested: string | null;
+  /** The branch the run branch starts from and its pull request targets; absent for the default branch. */
+  baseBranch?: string | null;
   withheldPaths?: string[];
   binaryPaths?: string[];
 }
 
+type ResolvedRepository = Extract<ReturnType<typeof resolveGithubRepository>, { status: 'resolved' }>;
+
+export interface EligibleRepositories {
+  eligibility: Map<string, string | null>;
+  resolved: Map<string, ResolvedRepository>;
+}
+
+/** `git check-ref-format --branch` rules, and never an option: the runner hands it to git. */
+export function isValidBranchName(name: string): boolean {
+  return (
+    name !== '@' &&
+    name !== 'HEAD' &&
+    !name.startsWith('-') &&
+    !name.startsWith('/') &&
+    !name.endsWith('/') &&
+    !name.endsWith('.') &&
+    !name.includes('..') &&
+    !name.includes('//') &&
+    !name.includes('@{') &&
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: git refuses control characters in ref names
+    !/[\x00-\x20\x7f~^:?*[\\]/.test(name) &&
+    !name.split('/').some((part) => part.startsWith('.') || part.endsWith('.lock'))
+  );
+}
+
 @Injectable()
 export class CloudAgentRunScopeService {
+  private readonly githubFactory: GithubClientFactory;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly repositories: GithubRepositoryResolver,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
-  ) {}
+    @Optional() @Inject(GITHUB_CLIENT_FACTORY) githubFactory?: GithubClientFactory,
+  ) {
+    this.githubFactory = githubFactory ?? defaultGithubFactory;
+  }
+
+  /** One read: which repositories may be used, and how each eligible one resolves on GitHub. */
+  async eligibleRepositories(workspaceId: string): Promise<EligibleRepositories> {
+    const eligibility = new Map<string, string | null>();
+    const resolved = new Map<string, ResolvedRepository>();
+    for (const { repo, resolution } of await this.repositories.eligibility(workspaceId)) {
+      if (!repo.intentRepoKey) continue;
+      eligibility.set(repo.intentRepoKey, resolution.status === 'resolved' ? null : resolution.reason);
+      if (resolution.status === 'resolved') resolved.set(repo.intentRepoKey, resolution);
+    }
+    return { eligibility, resolved };
+  }
+
+  /** Each named base must be a valid branch name that exists in its repository; unknown repositories are `validate`'s. */
+  async baseBranchErrors(proposal: ProposeScope, resolved: Map<string, ResolvedRepository>): Promise<string[]> {
+    const checks = proposal.repositories.map(async ({ key, baseBranch }): Promise<string | null> => {
+      const repository = resolved.get(key);
+      if (!baseBranch || !repository) return null;
+      if (!isValidBranchName(baseBranch)) return `${key}: "${baseBranch}" is not a valid branch name.`;
+      const client = connectorClient(this.githubFactory, repository.connector);
+      try {
+        await withRetries(
+          () => client.getBranch(repository.owner, repository.name, baseBranch),
+          transientGithub,
+          // Inside the agent's propose_scope call: short waits, like the Jira reads inside a claim.
+          (attempt, retryAfterMs) => Math.min(retryAfterMs ?? 1_000 * attempt, 5_000),
+        );
+        return null;
+      } catch (error) {
+        return error instanceof GithubApiError && error.status === 404
+          ? `${key}: the base branch "${baseBranch}" does not exist.`
+          : `${key}: GitHub could not confirm the base branch "${baseBranch}"; propose again.`;
+      }
+    });
+    return (await Promise.all(checks)).filter((error) => error !== null);
+  }
 
   async eligibility(workspaceId: string): Promise<Map<string, string | null>> {
-    const rows = await this.repositories.eligibility(workspaceId);
-    const byKey = new Map<string, string | null>();
-    for (const { repo, resolution } of rows) {
-      if (!repo.intentRepoKey) continue;
-      byKey.set(repo.intentRepoKey, resolution.status === 'resolved' ? null : resolution.reason);
-    }
-    return byKey;
+    return (await this.eligibleRepositories(workspaceId)).eligibility;
   }
 
   validate(
     proposal: ProposeScope,
-    context: { eligibility: Map<string, string | null>; seeds: string[]; maxRepositories: number },
+    context: { eligibility: Map<string, string | null>; seeds: string[]; maxRepositories: number; branch: string },
   ): string[] {
     const errors: string[] = [];
     const keys = proposal.repositories.map((repository) => repository.key);
@@ -110,6 +179,11 @@ export class CloudAgentRunScopeService {
       (proposal.mergeOrder.length !== new Set(keys).size || !proposal.mergeOrder.every((key) => keys.includes(key)))
     ) {
       errors.push('mergeOrder must list every proposed repository exactly once.');
+    }
+    for (const repository of proposal.repositories) {
+      if (repository.baseBranch === context.branch) {
+        errors.push(`${repository.key}: the base branch cannot be this run's own branch ${context.branch}.`);
+      }
     }
     if (Buffer.byteLength(proposal.specMarkdown, 'utf8') > MAX_SPEC_MARKDOWN_BYTES) {
       errors.push('The spec markdown is larger than 256 KiB; shorten it.');
@@ -314,6 +388,7 @@ export class CloudAgentRunScopeService {
       touched: false,
       lastPushedHead: null,
       notBuiltOrTested: null,
+      baseBranch: repository.baseBranch ?? null,
     }));
     const updated = await setRunStatus(
       tx,

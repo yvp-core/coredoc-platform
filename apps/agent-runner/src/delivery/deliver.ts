@@ -50,7 +50,7 @@ async function deliverOne(
     if (existing.open && !signal.aborted) await github.updatePullBody(repository, existing.number, planned.body);
     return { key: planned.key, pullRequest: { number: existing.number } };
   }
-  const base = await github.defaultBranch(repository, RunFailureCode.DeliveryFailed);
+  const base = repository.baseBranch ?? (await github.defaultBranch(repository, RunFailureCode.DeliveryFailed));
   for (let attempt = 1; attempt <= GITHUB_ATTEMPTS; attempt += 1) {
     // The heartbeat's answer is checked before each write.
     if (signal.aborted) return null;

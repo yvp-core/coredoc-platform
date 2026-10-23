@@ -282,6 +282,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
         cloneUrl: 'https://github.com/example-org/billing-api.git',
         github: { apiBaseUrl: 'https://api.github.com', owner: 'example-org', name: 'billing-api' },
         branchCreated: false,
+        baseBranch: null,
         withheldPaths: [],
       },
       expect.objectContaining({ key: 'orders-api', mergeOrder: 1, branchCreated: false }),

@@ -265,7 +265,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
   const opened = (key: string, number: number): DeliveryReport => ({ key, pullRequest: { number } });
 
   /** Both repositories pushed and `submit_result` accepted; the delivery turn is claimed. */
-  async function delivering(result: Record<string, unknown> = {}) {
+  async function delivering(result: Record<string, unknown> = {}, scope: ProposeScopeRequest = proposal) {
     issueSeed += 1;
     const issue = jira.add({
       key: `PROJ-${issueSeed}`,
@@ -279,9 +279,9 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       .send({ issueKey: issue.key, repositoryKeys: ['orders-api'] })
       .expect(201);
     const runId = started.body.id as string;
-    const scope = await claimTurn();
-    await turnCall(scope, 'propose-scope', proposal).expect(200);
-    await complete(scope).expect(200);
+    const scopeTurn = await claimTurn();
+    await turnCall(scopeTurn, 'propose-scope', scope).expect(200);
+    await complete(scopeTurn).expect(200);
     await api().post(`${runsBase()}/${runId}/specs/1/accept`).set('Authorization', human(MEMBER)).expect(200);
     const implement = await claimTurn();
     await turnCall(implement, 'submit-result', {
@@ -388,6 +388,50 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
     expect(text).toContain('The agent delivered a partial result; some acceptance criteria are not met.');
     expect(text).toContain(`https://github.com/example-org/orders-api/pull/${reports[1]!.pullRequest!.number}`);
     expect(text).not.toContain('recalculated');
+  });
+
+  it('a repository with a base branch is delivered into it: a pull request into the default branch is refused', async () => {
+    github.branches.add('example-org/orders-api:feat/PROJ-1-exports');
+    const withBase: ProposeScopeRequest = {
+      ...proposal,
+      repositories: proposal.repositories.map((repository) =>
+        repository.key === 'orders-api' ? { ...repository, baseBranch: 'feat/PROJ-1-exports' } : repository,
+      ),
+    };
+    const first = await delivering({}, withBase);
+    expect(
+      first.turn.body.repositories.map((r: { key: string; baseBranch: string | null }) => [r.key, r.baseBranch]),
+    ).toEqual([
+      ['billing-api', null],
+      ['orders-api', 'feat/PROJ-1-exports'],
+    ]);
+    const n = issueSeed * 10;
+    github.add('example-org/billing-api', {
+      number: n + 1,
+      headRepo: 'example-org/billing-api',
+      headRef: first.branch,
+    });
+    github.add('example-org/orders-api', {
+      number: n + 2,
+      headRepo: 'example-org/orders-api',
+      headRef: first.branch,
+      baseRef: 'feat/PROJ-1-exports',
+    });
+    await complete(first.turn, { deliveries: [opened('billing-api', n + 1), opened('orders-api', n + 2)] }).expect(200);
+    expect(await detail(first.runId)).toMatchObject({ status: 'delivering' });
+
+    const second = await delivering({}, withBase);
+    const m = issueSeed * 10;
+    github.add('example-org/billing-api', {
+      number: m + 1,
+      headRepo: 'example-org/billing-api',
+      headRef: second.branch,
+    });
+    github.add('example-org/orders-api', { number: m + 2, headRepo: 'example-org/orders-api', headRef: second.branch });
+    await complete(second.turn, { deliveries: [opened('billing-api', m + 1), opened('orders-api', m + 2)] }).expect(
+      200,
+    );
+    expect(await detail(second.runId)).toMatchObject({ status: 'failed', failureCode: 'delivery_failed' });
   });
 
   it('a crash after the done comment is recovered without a second comment or transition', async () => {

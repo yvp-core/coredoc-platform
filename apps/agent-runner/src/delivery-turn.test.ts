@@ -120,6 +120,21 @@ describe('delivery turns in the runner loop', () => {
     expect(github.requests.every((request) => request.apiVersion === '2022-11-28')).toBe(true);
   });
 
+  it('opens the pull request into the repository’s base branch when it has one', async () => {
+    const turn = deliveryTurn(1);
+    const withBase = {
+      ...turn,
+      repositories: turn.repositories.map((repository) =>
+        repository.key === 'orders-api' ? { ...repository, baseBranch: 'feat/PROJ-1-exports' } : repository,
+      ),
+    };
+    await expect(runTurn(withBase)).resolves.toBe('completed');
+    expect(github.pulls.map((pull) => [pull.repository, pull.base])).toEqual([
+      ['example-org/billing-api', 'main'],
+      ['example-org/orders-api', 'feat/PROJ-1-exports'],
+    ]);
+  });
+
   it.each([
     ['a 422', { status: 422, message: 'A pull request already exists', afterStoring: true }],
     ['a 502', { status: 502, afterStoring: true }],

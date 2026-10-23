@@ -82,6 +82,7 @@ export class CloudAgentRunImplementService {
           mergeOrder: repository.mergeOrder,
           ...resolved,
           branchCreated: repository.branchCreated,
+          baseBranch: repository.baseBranch ?? null,
           withheldPaths: repository.withheldPaths ?? [],
         });
       }
@@ -99,6 +100,7 @@ export class CloudAgentRunImplementService {
         mergeOrder: index,
         ...resolved,
         branchCreated: false,
+        baseBranch: null,
         withheldPaths: [],
       });
     }

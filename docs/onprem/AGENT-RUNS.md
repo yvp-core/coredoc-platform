@@ -357,6 +357,23 @@ to leave alone. Notes reach the agent in both phases, outrank Jira text, and
 never override the run's rules. A re-run keeps the previous run's notes; a run
 started by the Jira label has none.
 
+**Base branches.** A story whose dependencies are merged only into an epic
+branch must build on that branch, not the default one.
+- Before scoping a story under an epic, the runner lists, in each eligible
+  repository, the branches whose name contains the epic's key. It uses one
+  `git ls-remote` per repository with the bot token.
+- The scope agent can read any of them with `read_repo` (a shallow read-only
+  clone), and proposes a `baseBranch` per repository with the reason. The
+  person's notes come first.
+- The server checks that the branch exists, and the scope review shows the
+  base per repository. Request changes to correct it.
+- After acceptance, the run branch starts from that base and its draft pull
+  request targets it.
+- A base merged and deleted later is handled by GitHub's retargeting; otherwise
+  delivery fails with the reason.
+- Upgrade the runner with the server. A runner older than base-branch support
+  ignores a recorded base, and its pull request then fails delivery.
+
 Runs queue without a runner and say they are waiting, so a runner restart
 never refuses a start. The runner logs its runner, SDK, Claude Code and plugin
 versions at start-up.

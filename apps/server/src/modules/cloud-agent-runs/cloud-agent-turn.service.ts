@@ -186,9 +186,10 @@ export class CloudAgentTurnService {
         return { ...assignment, ...(await this.delivery.assignment(run)) };
       await checkRunOwnerAndConnectors(this.prisma, run);
       // The PRD is read fresh every turn: the implement turn checks its acceptance criteria against it.
-      const [repositories, prd] = await Promise.all([
+      const [repositories, prd, eligible] = await Promise.all([
         this.implement.repositoriesFor(run, assignment.turn.kind),
         this.jira.readPrd(run.workspaceId, run.jiraIssueId),
+        assignment.turn.kind === RunPhase.Scope ? this.scope.eligibleRepositories(run.workspaceId) : null,
       ]);
       if (assignment.turn.kind === RunPhase.Implement) {
         return {
@@ -210,6 +211,13 @@ export class CloudAgentTurnService {
         run: { ...assignment.run, issueKey: prd.issueKey },
         prd: { markdown: prd.markdown },
         repositories,
+        branchScan: {
+          epicKey: prd.epicKey,
+          repositories: [...eligible!.resolved]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([key, { cloneUrl }]) => ({ key, cloneUrl })),
+          maxReads: run.maxRepositories,
+        },
       };
     } catch (error) {
       if (!(error instanceof JiraReadFailure) && !(error instanceof RunCheckFailure)) throw error;
@@ -309,6 +317,7 @@ export class CloudAgentTurnService {
         // Repositories and the accepted spec are resolved after the claim commits (withRunChecks).
         acceptedSpec: null,
         repositories: [],
+        branchScan: null,
         delivery: null,
         mcp: mcpToken ? { token: mcpToken, path: `/api/v1/workspaces/${run.workspaceId}/mcp` } : null,
         hasStateArchive: run.stateArchiveKey !== null,
@@ -389,7 +398,8 @@ export class CloudAgentTurnService {
 
   /** A valid proposal becomes this turn's draft, published only when the turn completes. */
   async proposeScope(lease: TurnLease, proposal: ProposeScope): Promise<ProposeScopeResponse> {
-    const eligibility = await this.scope.eligibility(lease.runner.workspaceId);
+    const { eligibility, resolved } = await this.scope.eligibleRepositories(lease.runner.workspaceId);
+    const baseErrors = await this.scope.baseBranchErrors(proposal, resolved);
     return this.toolCall<ProposeScopeResponse>(
       lease,
       {
@@ -403,11 +413,15 @@ export class CloudAgentTurnService {
         const run = await tx.cloudAgentRun.findFirstOrThrow({
           where: { id: turn.run_id, workspaceId: lease.runner.workspaceId },
         });
-        const errors = this.scope.validate(proposal, {
-          eligibility,
-          seeds: run.seeds,
-          maxRepositories: run.maxRepositories,
-        });
+        const errors = [
+          ...this.scope.validate(proposal, {
+            eligibility,
+            seeds: run.seeds,
+            maxRepositories: run.maxRepositories,
+            branch: run.branch,
+          }),
+          ...baseErrors,
+        ];
         if (errors.length) return { accepted: false, errors, stop: false };
         const version = await this.scope.saveDraft(tx, run, turn.id, proposal, this.now());
         return { accepted: true, version, stop: false };

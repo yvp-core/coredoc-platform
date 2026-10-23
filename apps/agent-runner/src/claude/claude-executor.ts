@@ -14,6 +14,8 @@ import {
 } from '@coredoc/core/agent-runner';
 import { Git, gitEnvironment } from '../git/git.js';
 import { SecretScanner } from '../git/secret-scan.js';
+import { listBaseCandidates } from '../git/branch-scan.js';
+import { repositoryReader } from '../git/read-repo.js';
 import { type Clone, TurnGit } from '../git/turn-git.js';
 import { type BotGithubOptions, botGithub, checkBotPermissions, requireBot } from '../github/bot-github.js';
 import { corePluginPath, sdkPlugins } from '../manifest.js';
@@ -282,8 +284,14 @@ export class ClaudeExecutor implements TurnExecutor {
     const prdPath = join(paths.work, 'PRD.md');
     await writeFile(prdPath, turn.prd?.markdown ?? '(The server sent no PRD.)\n', 'utf8');
 
+    // Read-only: the scope phase never commits or pushes, so the git identity carries no author.
+    const git = new Git(
+      gitEnvironment({ hostEnv: this.options.hostEnv, home: paths.home }),
+      this.options.bot?.token ?? null,
+    );
     const resume = sessionExists(paths, turn.run.sessionId);
-    const firstPrompt = scopePrompt(turn, prdPath, join(paths.work, 'spec.md'));
+    const candidates = turn.branchScan && !resume ? await listBaseCandidates(git, turn.branchScan, paths.work) : null;
+    const firstPrompt = scopePrompt(turn, prdPath, join(paths.work, 'spec.md'), candidates);
     const prompt = resume
       ? (turn.turn.inputText ?? 'Continue where you stopped.')
       : turn.turn.inputText
@@ -291,6 +299,7 @@ export class ClaudeExecutor implements TurnExecutor {
         : firstPrompt;
 
     const control: RunControlState = { proposedVersion: null, submitted: false };
+    if (turn.branchScan) control.readRepository = repositoryReader(git, turn.branchScan, paths.work);
     const questions = new QuestionBridge(turn, io);
     if (io.checkpoint.aborted) throw new TurnAbandoned();
     const session = await this.runSession(turn, io, paths, prompt, resume, control, questions);
