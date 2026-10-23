@@ -138,6 +138,21 @@ describe('runner loop', () => {
     expect(api.queue).toHaveLength(1);
   });
 
+  it('a one-turn runner that finds no turn within its idle limit returns', async () => {
+    const done = new Runner({
+      api: new RunnerApiClient({ baseUrl: api.baseUrl, workspaceId: WORKSPACE, token: TOKEN }),
+      executor: blockingExecutor(),
+      versions: VERSIONS,
+      idlePollMs: 5,
+      once: true,
+      onceIdleExitMs: 30,
+    }).start(new AbortController().signal);
+
+    await done;
+    expect(api.claims.length).toBeGreaterThan(0);
+    expect(api.completions).toEqual([]);
+  });
+
   it('a turn that does not wind down within the shutdown grace is stopped and not completed', async () => {
     api.queue.push(assignment());
     const executor = blockingExecutor();

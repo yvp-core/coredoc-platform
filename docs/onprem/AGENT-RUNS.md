@@ -448,7 +448,7 @@ them set. It still checks that Claude Code starts and logs the result.
 | `COREDOC_PACKAGE_REGISTRIES` | no | | JSON object keyed by package scope (`@scope`) or `default`: `{"@scope": {"url": "https://npm.pkg.github.com", "credential": "github"}, "default": {"url": "https://npm-mirror.example.com/"}}`. `credential` is `github`, `env:<VARIABLE>` or omitted; a credential is only sent to an `https` registry. An invalid value is reported as a start-up problem (§6). |
 | `COREDOC_RUNNER_SCRATCH` | no | `/scratch` (image) | The scratch volume. |
 | `COREDOC_RUNNER_POLL_SECONDS` | no | `5` | Seconds an idle runner waits between claims. |
-| `COREDOC_RUNNER_ONCE` | no | | `1` makes the runner exit after one turn, for one Job per turn ([§10](#10-sizing)). Until it claims a turn it waits like any runner. |
+| `COREDOC_RUNNER_ONCE` | no | | `1` makes the runner exit after one turn, for one Job per turn ([§10](#10-sizing)). With no turn to claim for 5 minutes it exits too, so a runner started for a turn another runner took does not hold a node. |
 | `COREDOC_WORKFLOWS_PLUGIN_PATH` | no | `/opt/coredoc-workflows` (image) | The pinned plugin in the image; the default manifest's only plugin. |
 | `COREDOC_RUNNER_MANIFEST` | no | `/etc/coredoc/agent-runner.json` | The runner manifest (§3.1). A missing file means the defaults. |
 | `ANTHROPIC_API_KEY` | yes | | The dedicated model key (§2.1). |
@@ -503,8 +503,8 @@ image cached on the node, more when the node or the image pull is cold.
   with the runner token as a bearer token. It answers `{"queued": <n>}`, the
   turns waiting for a runner of that workspace.
 - The runner claims its own turn: the scaler only decides how many runners
-  start. A runner that finds nothing waits for the next turn, so a scaler
-  minimum of 1 keeps a warm runner ready.
+  start. A runner that finds nothing for 5 minutes exits; a scaler minimum of 1
+  replaces it, so one warm runner stays ready.
 
 With [KEDA](https://keda.sh), outside the chart:
 
