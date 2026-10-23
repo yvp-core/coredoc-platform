@@ -136,9 +136,11 @@ check_runner() {
     -w "$RUNNER_ROOT/apps/agent-runner" "$RUNNER_IMAGE" \
     node --input-type=module -e "
       import { query } from '@anthropic-ai/claude-agent-sdk';
+      import { resolveManifest } from '@coredoc/core/agent-runner';
       import { checkClaudeStartup } from './dist/claude/startup-check.js';
       const report = await checkClaudeStartup({
-        query, pluginPath: '$PLUGIN_ROOT', scratchRoot: '/scratch', versions: { runner: 'image-check' },
+        query, manifest: resolveManifest(undefined, '$PLUGIN_ROOT'), manifestDigest: null,
+        scratchRoot: '/scratch', versions: { runner: 'image-check' },
       });
       console.log(JSON.stringify(report));
       process.exit(report.problem ? 1 : 0);
