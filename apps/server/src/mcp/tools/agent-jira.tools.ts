@@ -12,11 +12,11 @@ import {
 import { authorizeIntentPermission } from '../intent-auth.js';
 import { McpAuthKind } from '../mcp-auth-context.js';
 
-const GetIssueSchema = z.object({ key: z.string().trim().min(1).max(64).describe('Issue key, e.g. PROJ-12') });
 const ISSUE_KEY = z
   .string()
   .trim()
   .regex(/^[A-Za-z][A-Za-z0-9_]*-[1-9][0-9]*$/, 'an issue key such as PROJ-12');
+const GetIssueSchema = z.object({ key: ISSUE_KEY.describe('Issue key, e.g. PROJ-12') });
 const SearchSchema = z
   .object({
     parent: ISSUE_KEY.optional().describe('Issues whose parent is this issue, e.g. an epic’s stories'),

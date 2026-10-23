@@ -474,6 +474,8 @@ export class ClaudeExecutor implements TurnExecutor {
     const { manifest } = this.options;
     const phase = turn.turn.kind === TurnKind.Implement ? manifest.phases.implement : manifest.phases.scope;
     const model = phase.model ?? turn.run.model;
+    // A resumed session invoked the entry skill when it started; it is not asked again.
+    const entrySkill = resume ? undefined : phase.entrySkill;
     const preToolUse: HookCallback = async (input) => {
       if (input.hook_event_name !== 'PreToolUse') return {};
       // A turn that is ending refuses every further tool, questions included.
@@ -493,7 +495,7 @@ export class ClaudeExecutor implements TurnExecutor {
       const verdict = evaluateToolUse(input.tool_name, toolInput);
       if (verdict.decision === 'allow') {
         const skill = typeof toolInput.skill === 'string' ? toolInput.skill.replace(/^\//, '') : null;
-        if (input.tool_name === 'Skill' && phase.entrySkill && skill === phase.entrySkill) {
+        if (input.tool_name === 'Skill' && entrySkill && skill === entrySkill) {
           control.entrySkillInvoked = true;
         }
         return {};
@@ -507,7 +509,7 @@ export class ClaudeExecutor implements TurnExecutor {
       };
     };
     const mcpServers: Options['mcpServers'] = {
-      [RUN_CONTROL_SERVER]: runControlServer(io, control, turn.turn.kind, phase.entrySkill),
+      [RUN_CONTROL_SERVER]: runControlServer(io, control, turn.turn.kind, entrySkill),
     };
     if (turn.mcp) {
       const server = {
@@ -541,7 +543,7 @@ export class ClaudeExecutor implements TurnExecutor {
       plugins: sdkPlugins(manifest),
       mcpServers,
       strictMcpConfig: true,
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: runPreamble(turn, phase.entrySkill) },
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: runPreamble(turn, entrySkill) },
       permissionMode: 'default',
       // AskUserQuestion is offered only when a permission callback is set; the policy lives in the hook.
       canUseTool: questions.canUseTool,

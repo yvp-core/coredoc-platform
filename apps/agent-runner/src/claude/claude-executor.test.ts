@@ -432,6 +432,25 @@ describe('Claude executor in the runner loop', () => {
       expect(seen[0]!.options.systemPrompt).toMatchObject({ append: expect.stringContaining('day-agent-run:scope') });
     });
 
+    it('a resumed session is not asked for the entry skill again', async () => {
+      const first = assignment();
+      await runTurn(
+        first,
+        { ...dayInit, skills: ['day-agent-run:scope'], propose: [proposal] },
+        { manifest: dayManifest },
+      ).done;
+      const second = assignment({
+        turn: { ...first.turn, id: crypto.randomUUID(), ordinal: 2, inputText: 'Also cover billing exports.' },
+        run: first.run,
+        hasStateArchive: true,
+      });
+      const { done, seen } = runTurn(second, { ...dayInit, propose: [proposal] }, { manifest: dayManifest });
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.options.resume).toBe(first.run.sessionId);
+      expect(seen[0]!.toolErrors).toEqual([]);
+      expect(api.proposals).toHaveLength(2);
+    });
+
     it('refuses propose_scope until the entry skill was invoked', async () => {
       const { done, seen } = runTurn(
         assignment(),
