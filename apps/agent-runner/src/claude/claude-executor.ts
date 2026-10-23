@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { HookCallback, Options, SDKAssistantMessageError, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -474,8 +475,9 @@ export class ClaudeExecutor implements TurnExecutor {
     const { manifest } = this.options;
     const phase = turn.turn.kind === TurnKind.Implement ? manifest.phases.implement : manifest.phases.scope;
     const model = phase.model ?? turn.run.model;
-    // A resumed session invoked the entry skill when it started; it is not asked again.
-    const entrySkill = resume ? undefined : phase.entrySkill;
+    // The run state records the entry skill once invoked; a resumed session that did is not asked again.
+    const invokedMarker = join(paths.state, 'entry-skill-invoked');
+    const entrySkill = resume && readMarker(invokedMarker) === phase.entrySkill ? undefined : phase.entrySkill;
     const preToolUse: HookCallback = async (input) => {
       if (input.hook_event_name !== 'PreToolUse') return {};
       // A turn that is ending refuses every further tool, questions included.
@@ -497,6 +499,7 @@ export class ClaudeExecutor implements TurnExecutor {
         const skill = typeof toolInput.skill === 'string' ? toolInput.skill.replace(/^\//, '') : null;
         if (input.tool_name === 'Skill' && entrySkill && skill === entrySkill) {
           control.entrySkillInvoked = true;
+          await writeFile(invokedMarker, entrySkill);
         }
         return {};
       }
@@ -661,4 +664,13 @@ function scanBlockedPrompt(findings: string[]): string {
     '',
     'Remove the secrets from these files (use configuration or placeholders, or delete files that must not be committed), then end your turn. You need not call submit_result again unless your result changed. A second block fails the run.',
   ].join('\n');
+}
+
+function readMarker(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
 }

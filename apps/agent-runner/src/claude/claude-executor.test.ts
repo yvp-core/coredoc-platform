@@ -90,6 +90,8 @@ function fakeQuery(
     reads: Array<{ isError: boolean; text: string }>;
     epicFile?: string;
     cloneDepth?: string;
+    readPaths: string[];
+    readPathsAlive: boolean[];
     asks: AskRecord[];
   }>,
 ): QueryFn {
@@ -101,6 +103,8 @@ function fakeQuery(
         toolErrors: [] as string[],
         reads: [] as Array<{ isError: boolean; text: string }>,
         epicFile: undefined as string | undefined,
+        readPaths: [] as string[],
+        readPathsAlive: [] as boolean[],
         cloneDepth: undefined as string | undefined,
         prd: undefined as string | undefined,
         npmrc: undefined as string | undefined,
@@ -174,6 +178,7 @@ function fakeQuery(
           // The clone is gone once the turn ends: look at it while the session runs.
           const path = answer.isError ? undefined : /cloned at (\S+?)[.,]? /.exec(text)?.[1];
           if (path) {
+            record.readPaths.push(path);
             const epic = join(path, 'src', 'epic.ts');
             if (existsSync(epic)) record.epicFile = await readFile(epic, 'utf8');
             record.cloneDepth = execFileSync('git', ['rev-list', '--count', 'HEAD'], {
@@ -182,6 +187,7 @@ function fakeQuery(
             }).trim();
           }
         }
+        record.readPathsAlive = record.readPaths.map((path) => existsSync(join(path, 'README.md')));
         await client.close();
       }
 
@@ -451,6 +457,22 @@ describe('Claude executor in the runner loop', () => {
       expect(api.proposals).toHaveLength(2);
     });
 
+    it('a session resumed after stopping short of the entry skill is still asked for it', async () => {
+      const first = assignment();
+      await runTurn(first, { ...dayInit, propose: [proposal] }, { manifest: dayManifest }).done;
+      expect(api.proposals).toEqual([]);
+      const second = assignment({
+        turn: { ...first.turn, id: crypto.randomUUID(), ordinal: 2, inputText: 'Continue.' },
+        run: first.run,
+        hasStateArchive: true,
+      });
+      const { done, seen } = runTurn(second, { ...dayInit, propose: [proposal] }, { manifest: dayManifest });
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.options.resume).toBe(first.run.sessionId);
+      expect(seen[0]!.toolErrors.join()).toContain('Invoke the skill day-agent-run:scope');
+      expect(api.proposals).toEqual([]);
+    });
+
     it('refuses propose_scope until the entry skill was invoked', async () => {
       const { done, seen } = runTurn(
         assignment(),
@@ -516,6 +538,27 @@ describe('Claude executor in the runner loop', () => {
       expect(prompt).not.toContain('feat/PROJ-12-other-epic');
       expect(prompt).not.toContain('feat/SUBPROJ-1-x');
       expect(prompt).toMatch(/could not be checked: broken-api/);
+    });
+
+    it('read_repo keeps a separate clone for keys that share a directory-safe name', async () => {
+      const turn = assignment({
+        branchScan: {
+          epicKey: null,
+          maxReads: 5,
+          repositories: [
+            { key: 'team/api', cloneUrl: `file://${orders}` },
+            { key: 'team_api', cloneUrl: `file://${billing}` },
+          ],
+        },
+      });
+      const { done, seen } = runTurn(turn, {
+        readRepo: [{ key: 'team/api' }, { key: 'team_api' }],
+        propose: [proposal],
+      });
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.reads.map((read) => read.isError)).toEqual([false, false]);
+      expect(new Set(seen[0]!.readPaths).size).toBe(2);
+      expect(seen[0]!.readPathsAlive).toEqual([true, true]);
     });
 
     it('read_repo clones the named branch shallowly; unknown repositories, missing or unsafe branches and clones over the cap are refused', async () => {

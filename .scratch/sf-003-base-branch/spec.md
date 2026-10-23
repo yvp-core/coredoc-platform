@@ -68,7 +68,7 @@ knows any branch but the default. Decisions taken by the workspace owner on
 
 ### `read_repo` (scope run-control tool)
 
-- `read_repo({ key, branch? })` makes a shallow, single-branch clone (`--depth 1 --branch <branch>`, default branch when omitted) into `work/read/<key>` and answers with the path.
+- `read_repo({ key, branch? })` makes a shallow, single-branch clone (`--depth 1 --branch <branch>`, default branch when omitted) into `work/read/<key>-<short hash of key>` and answers with the path.
 - **Refusals:**
   - a key outside `branchScan.repositories`;
   - more than the run's `maxRepositories` distinct clones in one turn;

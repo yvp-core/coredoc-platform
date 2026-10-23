@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { TurnAssignment } from '@coredoc/core/agent-runner';
@@ -27,7 +28,12 @@ export function repositoryReader(git: Git, scan: BranchScan, workDir: string) {
     inFlight.add(key);
     try {
       if (branch) await assertBranchName(git, branch, key);
-      const dir = join(workDir, 'read', cloneDirName(key));
+      // The hash keeps keys apart that map to the same directory name, such as `team/api` and `team_api`.
+      const dir = join(
+        workDir,
+        'read',
+        `${cloneDirName(key)}-${createHash('sha256').update(key).digest('hex').slice(0, 8)}`,
+      );
       await rm(dir, { recursive: true, force: true });
       const cloned = await git.run(
         [

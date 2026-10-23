@@ -126,7 +126,7 @@ It reuses the existing `PluginMissing` and `PluginSkillsMissing` codes, plus `Ma
 
 - The existing PreToolUse hook (`claude-executor.ts:465`) sets `control.entrySkillInvoked = true` when `tool_name === 'Skill'` and `tool_input.skill` equals the phase's `entrySkill`.
 - `propose_scope` and `submit_result` return the existing `rejected(...)` tool error ("Invoke `<entrySkill>` first") while it is false. That is a tool error, not a turn failure.
-- A resumed session keeps the flag only through the session, so a resumed turn must invoke the skill again. The phase then gets the instructions again after a person's answer or a checkpoint.
+- On invocation the runner records the skill name in the run state (`entry-skill-invoked`), which is archived between turns. A resumed session whose record names the phase's skill is not asked again; one that stopped before invoking it still is.
 
 ### `agent-jira` toolset (server)
 
