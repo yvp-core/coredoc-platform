@@ -83,8 +83,13 @@ export interface RunnerOptions {
   secrets?: string[];
   /** How long a turn may take to reach its checkpoint after a shutdown; the platform's stop timeout must exceed it. */
   shutdownGraceMs?: number;
-  /** One turn, then `start` returns: a scaler starts a fresh runner per queued turn. Until then it waits like any runner. */
+  /**
+   * One turn, then `start` returns: a scaler starts a fresh runner per queued turn. Without a turn
+   * within `onceIdleExitMs` it returns too, so a runner started for a turn another runner took does
+   * not hold its node.
+   */
   once?: boolean;
+  onceIdleExitMs?: number;
   log?: (message: string) => void;
 }
 
@@ -92,6 +97,7 @@ const HEARTBEAT_INTERVAL_MS = 20_000;
 const IDLE_POLL_MS = 5_000;
 const ERROR_BACKOFF_MS = 30_000;
 const STARTUP_RETRY_MS = 60_000;
+const ONCE_IDLE_EXIT_MS = 5 * 60_000;
 /** Inside Fargate's 120-second maximum stop timeout and the chart's 180-second termination grace. */
 const SHUTDOWN_GRACE_MS = 100_000;
 
@@ -174,7 +180,12 @@ export class Runner {
     while (!signal.aborted && !(await this.checkStartup())) {
       await sleep(this.options.startupRetryMs ?? STARTUP_RETRY_MS, signal);
     }
+    const idleExitAt = Date.now() + (this.options.onceIdleExitMs ?? ONCE_IDLE_EXIT_MS);
     while (!signal.aborted) {
+      if (this.options.once && Date.now() >= idleExitAt) {
+        this.log('no turn to run; exiting');
+        return;
+      }
       let end: TurnEnd;
       try {
         end = await this.runOnce(signal);
