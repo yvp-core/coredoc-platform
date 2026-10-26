@@ -115,6 +115,18 @@ Source: one week of agent session feedback from the day.io workspace (2026-10-19
 
 - **D-1 — `task` path predicate.** Resolved 2026-10-26 by the owner: apply the rule to the `task` path too, as the shared-lexeme rule in Contracts. The `query` and `task` paths both drop any-word matching.
 
+## Implementation notes
+
+These contract changes were accepted at code review on 2026-10-26:
+
+- **List mode.** `get_intent_context` `mode: 'list'` drops the any-word fallback too, so the whole tool never matches any word. `intent_read search` is the only any-word path.
+- **Propose refusal shape.** The refusal lists each title in the existing `details` array, not in a new `issues` field. Each entry has `path: ['items', i, 'title']` and a message naming the shortened id. There is no separate `shortenedId` field, because `boundIntentPublicError` passes only `code`, `message`, `path` and `details`.
+- **Where the aggregation runs.** The propose loop collects `id_would_truncate` refusals. Before that loop opens, `validateContextConditions` can refuse with its own code, and a later item with a different refusal code also stops the batch first. Same-batch source matches stay correct.
+- **Note line.** The "No item cites …" line is the JSON field `unmatchedSourceRefsNote` next to `unmatchedSourceRefs`. Both are declared on the core response types.
+- **Search hint count.** The hint counts what a re-run with `includeCandidates: true` would show: every-word candidates, or any-word candidates only when this answer fell back and no candidate holds every word.
+- **Tree header.** The header uses singular nouns for a count of 1 ("1 accepted item", "1 candidate"). Node markers keep the `(a accepted · c candidates)` form.
+- **Validation.** The module integration test covers AC-6, not `intent-propose.plan.test.ts`. AC-7 is checked by reading the descriptions; no test restates them.
+
 ## Unresolved decisions
 
 NO UNRESOLVED DECISIONS.

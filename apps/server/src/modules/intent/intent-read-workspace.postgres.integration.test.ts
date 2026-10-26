@@ -363,7 +363,7 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
     });
     try {
       const text = await reads.tree(workspaceId);
-      expect(text).toContain('# Intent tree: 2 domains, 4 features, 6 accepted items, 1 candidates\n');
+      expect(text).toContain('# Intent tree: 2 domains, 4 features, 6 accepted items, 1 candidate\n');
       expect(text).toContain(
         '- auth: Sign-in and sessions (1 accepted · 0 candidates)\n' +
           '  - sessions: Sessions and logout (5 accepted · 0 candidates)\n' +
@@ -838,11 +838,39 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
     expect(shown).toContain('1 items match every word of "unverified"');
     expect(shown).toContain('- br-punch-needs-device');
     expect(shown).not.toContain('candidates also match');
-    // The count follows the answer's mode: no item has both words, so any word counts here too.
+    // No item, accepted or candidate, has both words, so the re-run with candidates falls back to any word too.
     expect(await reads.search(workspaceId, { query: 'unverified kiosk' })).toContain(
       `items match any word of "unverified kiosk" (matched: 'any': no item matches every word)\n${hint}`,
     );
     expect(await reads.search(workspaceId, { query: 'kiosk' })).not.toContain('candidates also match');
+  });
+
+  it('counts the candidates a re-run with includeCandidates shows, even when that re-run needs every word', async () => {
+    // No accepted item holds both words, so the answer falls back to any word; this candidate holds both,
+    // so the re-run with candidates answers every word and shows it alone, not the mobile-only candidate.
+    await prisma.intentItem.create({
+      data: {
+        workspaceId,
+        id: 'br-mobile-kiosk-check-in',
+        kind: 'business_rule',
+        featureId: 'punches',
+        domainId: 'time-tracking',
+        title: 'Mobile kiosk check-in',
+        statement: 'A mobile kiosk checks people in.',
+        authority: 'candidate',
+        createdBy: OWNER.id,
+        updatedBy: OWNER.id,
+      },
+    });
+    try {
+      const fallback = await reads.search(workspaceId, { query: 'mobile kiosk' });
+      expect(fallback).toContain(`(matched: 'any': no item matches every word)\n1 candidates also match;`);
+      const shown = await reads.search(workspaceId, { query: 'mobile kiosk', includeCandidates: true });
+      expect(shown).toContain('1 items match every word of "mobile kiosk"');
+      expect(shown).toContain('- br-mobile-kiosk-check-in');
+    } finally {
+      await prisma.intentItem.delete({ where: { workspaceId_id: { workspaceId, id: 'br-mobile-kiosk-check-in' } } });
+    }
   });
 
   it('nests features: sub-features in the node read, same-domain parents only, no cycles, no orphaning', async () => {

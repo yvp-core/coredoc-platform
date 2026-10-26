@@ -500,6 +500,35 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
       }
     });
 
+    it('keeps an exact id as an exact id beside a task, without widening the task match (SF-006 AC-2)', async () => {
+      const rows = [
+        { id: 'br-exact-incidental', title: 'Hours report export', statement: 'Managers download the weekly report.' },
+        { id: 'br-other-incidental', title: 'Hours of support', statement: 'Support answers on weekdays.' },
+        { id: 'br-exact-shared', title: 'Timesheet rounding', statement: 'Hours convert to days at eight per day.' },
+      ];
+      await prisma.intentItem.createMany({
+        data: rows.map((row) => ({
+          ...row,
+          workspaceId,
+          domainId: 'security',
+          kind: 'business_rule' as const,
+          authority: 'accepted' as const,
+          createdBy: OWNER.id,
+          updatedBy: OWNER.id,
+        })),
+      });
+      try {
+        const body = await read({ task: 'Show worked hours as days', intentIds: 'br-exact-incidental', limit: '20' });
+        const match = (id: string) => body.matches.find((item: { id: string }) => item.id === id);
+        expect(match('br-exact-incidental')?.matchReason).toBe(IntentContextMatchReason.ExactId);
+        expect(match('br-exact-incidental')?.matchReasons ?? []).not.toContain(IntentContextMatchReason.Text);
+        expect(idsOf(body)).not.toContain('br-other-incidental');
+        expect(match('br-exact-shared')?.matchReasons).toEqual([IntentContextMatchReason.Text]);
+      } finally {
+        await prisma.intentItem.deleteMany({ where: { workspaceId, id: { in: rows.map((row) => row.id) } } });
+      }
+    });
+
     it('finds an unanchored rule from a code identifier in the task', async () => {
       const id = 'br-settlement-amount';
       await prisma.intentItem.create({

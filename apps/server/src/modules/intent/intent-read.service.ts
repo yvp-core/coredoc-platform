@@ -180,13 +180,13 @@ export class IntentReadService {
   /* --------------------------------------------------------------- tree --- */
 
   async tree(workspaceId: string): Promise<string> {
-    const counted = (authority: IntentItemAuthority) =>
+    const countBy = (authority: IntentItemAuthority) =>
       this.prisma.intentItem.groupBy({
         by: ['domainId', 'featureId'],
         where: { workspaceId, authority },
         _count: { _all: true },
       });
-    const [domains, features, accepted, candidates] = await Promise.all([
+    const [domains, features, acceptedRows, candidateRows] = await Promise.all([
       this.prisma.intentDomain.findMany({
         where: { workspaceId, archived: false },
         orderBy: { id: 'asc' },
@@ -197,8 +197,8 @@ export class IntentReadService {
         orderBy: { id: 'asc' },
         select: { id: true, domainId: true, parentFeatureId: true, title: true },
       }),
-      counted(IntentItemAuthority.accepted),
-      counted(IntentItemAuthority.candidate),
+      countBy(IntentItemAuthority.accepted),
+      countBy(IntentItemAuthority.candidate),
     ]);
 
     // Only listed nodes and the product root count, so an archived node's items stay out of the totals.
@@ -207,7 +207,7 @@ export class IntentReadService {
       ...domains.map((domain) => nodeKey(IntentNodeKind.domain, domain.id)),
       ...features.map((feature) => nodeKey(IntentNodeKind.feature, feature.id)),
     ]);
-    const tally = (rows: Awaited<ReturnType<typeof counted>>) => {
+    const tally = (rows: Awaited<ReturnType<typeof countBy>>) => {
       const byNode = new Map<string, number>();
       let total = 0;
       for (const row of rows) {
@@ -222,13 +222,15 @@ export class IntentReadService {
       }
       return { byNode, total };
     };
-    const acceptedCount = tally(accepted);
-    const candidateCount = tally(candidates);
-    const counts = (key: string) => {
-      const a = acceptedCount.byNode.get(key) ?? 0;
-      const c = candidateCount.byNode.get(key) ?? 0;
-      return a === 0 && c === 0 ? 'empty' : `${a} accepted · ${c} candidates`;
+    const accepted = tally(acceptedRows);
+    const candidates = tally(candidateRows);
+    /** A node's own counts, or undefined when it holds neither accepted items nor candidates. */
+    const ownCounts = (key: string) => {
+      const a = accepted.byNode.get(key) ?? 0;
+      const c = candidates.byNode.get(key) ?? 0;
+      return a === 0 && c === 0 ? undefined : `${a} accepted · ${c} candidates`;
     };
+    const countLabel = (kind: IntentNodeKind, id: string) => ` (${ownCounts(nodeKey(kind, id)) ?? 'empty'})`;
     const byDomain = new Map<string, typeof features>();
     const byParent = new Map<string, typeof features>();
     const ids = new Set(features.map((feature) => feature.id));
@@ -240,23 +242,20 @@ export class IntentReadService {
     }
 
     const lines = [
-      `# Intent tree: ${domains.length} domains, ${features.length} features, ${acceptedCount.total} accepted items, ${candidateCount.total} candidates`,
+      `# Intent tree: ${domains.length} domains, ${features.length} features, ${plural(accepted.total, 'accepted item')}, ${plural(candidates.total, 'candidate')}`,
       'Open a node with intent_read {action: "node", domain or feature}; search item text with action "search".',
       '',
     ];
-    if (counts(ROOT_KEY) !== 'empty') {
-      lines.push(`- (product root): ${counts(ROOT_KEY)}; open it with action "node" and no id`);
-    }
+    const root = ownCounts(ROOT_KEY);
+    if (root) lines.push(`- (product root): ${root}; open it with action "node" and no id`);
     const pushFeatures = (list: typeof features, indent: string) => {
       for (const feature of list) {
-        lines.push(
-          `${indent}- ${feature.id}: ${feature.title} (${counts(nodeKey(IntentNodeKind.feature, feature.id))})`,
-        );
+        lines.push(`${indent}- ${feature.id}: ${feature.title}${countLabel(IntentNodeKind.feature, feature.id)}`);
         pushFeatures(byParent.get(feature.id) ?? [], `${indent}  `);
       }
     };
     for (const domain of domains) {
-      lines.push(`- ${domain.id}: ${domain.title} (${counts(nodeKey(IntentNodeKind.domain, domain.id))})`);
+      lines.push(`- ${domain.id}: ${domain.title}${countLabel(IntentNodeKind.domain, domain.id)}`);
       pushFeatures(byDomain.get(domain.id) ?? [], '  ');
     }
     return lines.join('\n');
@@ -423,11 +422,17 @@ export class IntentReadService {
     }
     if (lines.length > 1) lines.push('Open a node with action "node" to read it in context.');
     if (request.includeCandidates !== true) {
-      // Counted in the answer's own mode, so the hint never promises an item the answer would not match.
-      const [hidden] = await this.prisma.$queryRaw<{ total: bigint }[]>`
-        SELECT count(*) AS total FROM intent_items i
-        WHERE ${Prisma.join([...filters, Prisma.sql`i.authority::text = 'candidate'`, lexicalPredicate(tokens, matched)], ' AND ')}`;
-      const candidates = Number(hidden?.total ?? 0);
+      // The candidates a re-run with includeCandidates: true shows. That run needs every word unless no item
+      // holds them all, and an accepted one does exactly when this answer did not fall back.
+      const countCandidates = async (match: IntentLexicalMatch) => {
+        const [row] = await this.prisma.$queryRaw<{ total: bigint }[]>`
+          SELECT count(*) AS total FROM intent_items i
+          WHERE ${Prisma.join([...filters, Prisma.sql`i.authority::text = 'candidate'`, lexicalPredicate(tokens, match)], ' AND ')}`;
+        return Number(row?.total ?? 0);
+      };
+      let candidates = await countCandidates(IntentLexicalMatch.All);
+      if (candidates === 0 && matched === IntentLexicalMatch.Any)
+        candidates = await countCandidates(IntentLexicalMatch.Any);
       if (candidates > 0)
         lines.splice(1, 0, `${candidates} candidates also match; pass includeCandidates: true to see them.`);
     }
