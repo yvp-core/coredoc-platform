@@ -866,8 +866,9 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
         limit: 200,
       });
       const searchIds = [...search.matchAll(/^- ([a-z0-9-]+) \[/gm)].map((match) => match[1]).sort();
-      expect(searchIds).toEqual(contextIds);
-      expect(search.includes("matched: 'any'")).toBe(context.matched === 'any');
+      // Only search falls back to any word; the context read then answers nothing (SF-006).
+      expect(contextIds).toEqual(search.includes("matched: 'any'") ? [] : searchIds);
+      expect(context).not.toHaveProperty('matched');
     });
 
     it('falls back to any word in search only, and says so; the context read never does (SF-006 AC-1)', async () => {

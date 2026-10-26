@@ -191,8 +191,6 @@ export interface SelectedMatch {
   authorityRank: number;
   reason: IntentContextMatchReason;
   derivedReasons?: IntentDerivationMatchReason[];
-  /** Query tokens this item hit; only the disjunctive fallback ranks by it. */
-  hits?: number;
   taskScore?: number;
   matchReasons?: IntentContextMatchReason[];
 }
