@@ -816,6 +816,15 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
       const body = await read({ query: 'warehouse stock shortfall', limit: '20', includeCandidates: 'true' });
       expect(idsOf(body)).toEqual([]);
       expect(body.matched).toBeUndefined();
+      const list = await read({
+        mode: IntentContextMode.List,
+        query: 'warehouse stock shortfall',
+        limit: '20',
+        includeCandidates: 'true',
+      });
+      expect(list.entries).toEqual([]);
+      expect(list.matched).toBeUndefined();
+      expect(list.totalMatched).toBe(0);
     });
 
     it('leaves a single-word query untouched: there is nothing to fall back to', async () => {
