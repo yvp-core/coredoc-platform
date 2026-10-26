@@ -206,11 +206,6 @@ export function compareMatches(left: SelectedMatch, right: SelectedMatch): numbe
   return left.authorityRank - right.authorityRank || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
 }
 
-/** The fallback's order: token-hit count first, then the ordinary total order. */
-export function compareFallbackMatches(left: SelectedMatch, right: SelectedMatch): number {
-  return (right.hits ?? 0) - (left.hits ?? 0) || compareMatches(left, right);
-}
-
 /**
  * Merge hits for one item, keeping the strongest reason and every derivation
  * reason that explained it.
