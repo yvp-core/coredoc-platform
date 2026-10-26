@@ -338,7 +338,15 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
     // A candidate on an archived feature is out of the tree and out of its totals.
     const author = { createdBy: OWNER.id, updatedBy: OWNER.id };
     await prisma.intentFeature.create({
-      data: { workspaceId, id: 'retired-kiosks', domainId: 'time-tracking', title: 'Retired', statement: '', archived: true, ...author },
+      data: {
+        workspaceId,
+        id: 'retired-kiosks',
+        domainId: 'time-tracking',
+        title: 'Retired',
+        statement: '',
+        archived: true,
+        ...author,
+      },
     });
     await prisma.intentItem.create({
       data: {

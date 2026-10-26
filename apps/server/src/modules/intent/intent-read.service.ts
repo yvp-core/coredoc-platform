@@ -249,7 +249,9 @@ export class IntentReadService {
     }
     const pushFeatures = (list: typeof features, indent: string) => {
       for (const feature of list) {
-        lines.push(`${indent}- ${feature.id}: ${feature.title} (${counts(nodeKey(IntentNodeKind.feature, feature.id))})`);
+        lines.push(
+          `${indent}- ${feature.id}: ${feature.title} (${counts(nodeKey(IntentNodeKind.feature, feature.id))})`,
+        );
         pushFeatures(byParent.get(feature.id) ?? [], `${indent}  `);
       }
     };
@@ -426,7 +428,8 @@ export class IntentReadService {
         SELECT count(*) AS total FROM intent_items i
         WHERE ${Prisma.join([...filters, Prisma.sql`i.authority::text = 'candidate'`, lexicalPredicate(tokens, matched)], ' AND ')}`;
       const candidates = Number(hidden?.total ?? 0);
-      if (candidates > 0) lines.splice(1, 0, `${candidates} candidates also match; pass includeCandidates: true to see them.`);
+      if (candidates > 0)
+        lines.splice(1, 0, `${candidates} candidates also match; pass includeCandidates: true to see them.`);
     }
     return lines.join('\n');
   }

@@ -221,7 +221,8 @@ function sourceRefPredicate(refs: readonly string[]): Prisma.Sql {
 /** The refs no item cites and the sentence that says so; both absent when every ref matched. */
 function unmatchedSourceRefsFields(refs: string[], returned: readonly { matchReason: string }[]) {
   if (refs.length === 0) return {};
-  const textOnly = returned.length > 0 && returned.every((match) => match.matchReason === IntentContextMatchReason.Text);
+  const textOnly =
+    returned.length > 0 && returned.every((match) => match.matchReason === IntentContextMatchReason.Text);
   return {
     unmatchedSourceRefs: refs,
     unmatchedSourceRefsNote: `No item cites ${refs.join(', ')}${textOnly ? '; the items below matched the task text only' : ''}.`,
@@ -1361,7 +1362,9 @@ export class IntentContextService {
     // A window that ran out before filling the page resumes after its last EXAMINED row.
     const last = kept.length > take ? page[page.length - 1] : examined[examined.length - 1];
     const nextCursor =
-      more && last ? encodeIntentCursor(IntentCursorScope.Context, [String(last.authorityRank), last.id], binding) : null;
+      more && last
+        ? encodeIntentCursor(IntentCursorScope.Context, [String(last.authorityRank), last.id], binding)
+        : null;
     const matches = [...exactPage, ...page.map((row) => ({ ...row, reason }))];
     let truncated = more || exact.length > exactPage.length;
 

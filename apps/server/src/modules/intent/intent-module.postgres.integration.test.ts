@@ -500,7 +500,11 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
       });
       const tail = 'orders beyond the available stock of the addressed warehouse are refused immediately';
       const response = await proposeItems(
-        proposeBody([item(`Bulk ${tail}`, 'BR-1'), item('Stock limits orders', 'BR-2'), item(`Retail ${tail}`, 'BR-3')]),
+        proposeBody([
+          item(`Bulk ${tail}`, 'BR-1'),
+          item('Stock limits orders', 'BR-2'),
+          item(`Retail ${tail}`, 'BR-3'),
+        ]),
         400,
       );
 
@@ -512,7 +516,9 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
       });
       expect(response.body.details).toHaveLength(2);
       expect(response.body.details[0].path).toEqual(['items', '0', 'title']);
-      expect(response.body.details[0].message).toContain("'br-bulk-orders-beyond-the-available-stock-of-the-addressed'");
+      expect(response.body.details[0].message).toContain(
+        "'br-bulk-orders-beyond-the-available-stock-of-the-addressed'",
+      );
       expect(response.body.details[1].path).toEqual(['items', '2', 'title']);
       expect(response.body.details[1].message).toContain(
         "'br-retail-orders-beyond-the-available-stock-of-the-addressed'",

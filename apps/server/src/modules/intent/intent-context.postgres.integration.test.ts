@@ -469,7 +469,11 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
     it('needs two task lexemes shared with title and statement, one shared title word is not enough (SF-006 AC-2)', async () => {
       const rows = [
         { id: 'br-shared-incidental', title: 'Hours report export', statement: 'Managers download the weekly report.' },
-        { id: 'br-shared-statement', title: 'Timesheet rounding', statement: 'Hours convert to days at eight per day.' },
+        {
+          id: 'br-shared-statement',
+          title: 'Timesheet rounding',
+          statement: 'Hours convert to days at eight per day.',
+        },
         { id: 'br-shared-title', title: 'Hours to days', statement: 'Partial values round up.' },
       ];
       await prisma.intentItem.createMany({
