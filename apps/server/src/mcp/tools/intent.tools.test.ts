@@ -17,7 +17,12 @@ import { TokenPermission } from '../../auth/token-permissions.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { WorkspaceMemberRole } from '../../modules/members/dto/workspace-role.enum.js';
 import type { MetricsService } from '../../modules/metrics/metrics.service.js';
-import { IntentErrorCode, type IntentPublicException, parseContract } from '../../modules/intent/contract/index.js';
+import {
+  IntentErrorCode,
+  type IntentPublicException,
+  ProposedIntentItemSchema,
+  parseContract,
+} from '../../modules/intent/contract/index.js';
 import {
   IntentContextMode,
   IntentContextQuerySchema,
@@ -1188,6 +1193,26 @@ describe('intent_read', () => {
     const m = mocks();
     const answer = read(await build(m).intentRead({ action: IntentReadAction.Tree }, {} as Context, userReq()));
     expect(answer.status).toBe(IntentToolStatus.NotConfigured);
+  });
+});
+
+describe('intent tool descriptions (SF-006 AC-7)', () => {
+  const description = (method: 'intentRead' | 'intentPropose') =>
+    (Reflect.getMetadata('mcp:tool', IntentTools.prototype[method]) as { description: string }).description;
+
+  it('say what the tree marker counts, that search takes includeCandidates, and the id limit', () => {
+    expect(description('intentRead')).toContain(
+      `"(a accepted · c candidates)" counts a node's own items; "(empty)" means neither`,
+    );
+    expect(description('intentRead')).toContain(
+      'search {query, domain?, feature?, kind?, includeCandidates?, refs?, limit?, after?}',
+    );
+    expect(description('intentPropose')).toContain(
+      'ids are at most 64 characters including the kind prefix (br-, dec-, …); a derived id is refused, never truncated',
+    );
+    expect(ProposedIntentItemSchema.shape.title.description).toBe(
+      'A few words that state the rule; its slug plus the kind prefix must fit 64 characters.',
+    );
   });
 });
 
