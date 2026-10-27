@@ -145,6 +145,9 @@ export function templateTailRoute(rawArg: string | undefined): string | undefine
  *   falls back to `default` when the arg is absent.
  * - `uri-template`: token = the first `<container>.<token>` interpolation member in
  *   `urlArg` (the URL template-literal value).
+ * - `receiver-call-arg`: token = the string literal at arg `arg` of the first
+ *   `.<callee>(…)` call in `receiver` — the receiver text, or the initializer of the
+ *   local const it names (the caller takes that hop).
  *
  * Returns the mapped target service, or undefined when no token is found or the
  * token has no `serviceMap` entry — the call then stays honestly unresolved.
@@ -153,18 +156,51 @@ export function resolveServiceSelector(
   selector: ServiceSelector,
   args: readonly string[],
   urlArg: string | undefined,
+  receiver?: string,
 ): string | undefined {
   let token: string | undefined;
   if (selector.via === 'arg-member') {
     const raw = args[selector.arg];
     token = raw === undefined ? selector.default : (memberToken(raw, selector.container) ?? selector.default);
+  } else if (selector.via === 'receiver-call-arg') {
+    const raw = receiver === undefined ? undefined : receiverCallArgs(receiver, selector.callee)?.[selector.arg];
+    token = raw === undefined ? undefined : /^(['"`])([^'"`$]*)\1$/.exec(raw)?.[2];
   } else {
     token = urlArg === undefined ? undefined : memberToken(urlArg, selector.container);
   }
   if (token === undefined) return undefined;
   // Unmapped tokens (Rails-bound / out-of-substrate sentinels) → undefined: the
   // call stays honestly unresolved rather than fabricating a target.
-  return selector.serviceMap[token];
+  return Object.hasOwn(selector.serviceMap, token) ? selector.serviceMap[token] : undefined;
+}
+
+/**
+ * Top-level argument texts of the first `.<callee>(…)` call in a raw expression, or
+ * undefined when there is none. Commas inside nested brackets and string literals do
+ * not split.
+ */
+function receiverCallArgs(rawExpr: string, callee: string): string[] | undefined {
+  const open = new RegExp(`\\.${escapeRegExp(callee)}\\s*\\(`).exec(rawExpr);
+  if (!open) return undefined;
+  const args: string[] = [];
+  let depth = 0;
+  let quote: string | undefined;
+  let start = open.index + open[0].length;
+  for (let i = start; i < rawExpr.length; i++) {
+    const ch = rawExpr[i];
+    if (quote) {
+      if (ch === '\\') i++;
+      else if (ch === quote) quote = undefined;
+    } else if (ch === "'" || ch === '"' || ch === '`') quote = ch;
+    else if ('([{'.includes(ch)) depth++;
+    else if (depth > 0 && ')]}'.includes(ch)) depth--;
+    else if (depth === 0 && (ch === ',' || ch === ')')) {
+      args.push(rawExpr.slice(start, i).trim());
+      if (ch === ')') return args;
+      start = i + 1;
+    }
+  }
+  return undefined;
 }
 
 /** First `<container>.<token>` member token in a raw expression, or undefined. */

@@ -193,6 +193,12 @@ Neo4j both `.run(query,…)`).
 `receiverPattern`/flag regexes are **regex source strings** (the engine compiles them), e.g.
 `'/repository$/i'` or `'(^|\\.)models\\.'`.
 
+An http matcher's optional `serviceSelector` sets `targetService` from a token in the call, mapped
+through `serviceMap` (an unmapped token leaves it unset): `{ via:'arg-member', arg, container }` reads
+`CONFIG.<token>` at arg N, `{ via:'uri-template', container }` reads `${<container>.<token>}` in the
+URL, and `{ via:'receiver-call-arg', callee:'for', arg:1 }` reads the string literal of a receiver call,
+`this.clients.for(env, 'widgets').get(…)` or `const c = this.clients.for(env, 'widgets'); c.get(…)`.
+
 ### di / callGraph / synthesize
 
 - `di: { style:'constructor-type', stripGenerics?:true }` — resolves `this.svc.method()` via the
