@@ -31,6 +31,7 @@ import { lookupSdkByPackage } from '@coredoc/core/base-parser/sdk-registry';
 import type { StructuralCall, StructuralFile } from '../facts/structural/ts-structural.js';
 import type { Node as TsNode } from 'web-tree-sitter';
 import type {
+  ArgRef,
   ExternalClientMatcher,
   ImportResolution,
   RegistryRule,
@@ -69,6 +70,9 @@ import {
   inlineConstInterpolations,
   objectArgOmitsKey,
   resolveHttpMethodArg,
+  type QueueTopicResolution,
+  queueTopicIdentifier,
+  resolveCallerTopicArgument,
   resolveHttpUrl,
   resolveQueueTopicReference,
   resolveServiceSelector,
@@ -275,6 +279,8 @@ export class TreeSitterScipSubstrate implements Substrate {
   private readonly localBindingsByFile = new Map<string, Map<string, StructuralLocalBinding[]>>();
   // file → `<kind>|<class>|<name>` → that method's/function's parameters.
   private readonly paramsByEnclosing = new Map<string, Map<string, StructuralParam[]>>();
+  // callee id → its resolved in-repo call edges; built on the first parameter-topic queue send.
+  private callersByCallee: Map<string, CallEdgeFact[]> | undefined;
   // file → local name → the name+module it is imported from (hoisted, as hierarchy-ref-identity
   // already does per file — `interfaceIdForName` rebuilt it on every single call).
   private readonly importedNamesByFile = new Map<string, Map<string, ImportedName>>();
@@ -373,6 +379,7 @@ export class TreeSitterScipSubstrate implements Substrate {
     this.vueSource.clear();
     this.localBindingsByFile.clear();
     this.paramsByEnclosing.clear();
+    this.callersByCallee = undefined;
     this.importedNamesByFile.clear();
     this.cstParsed = false;
   }
@@ -2757,7 +2764,8 @@ export class TreeSitterScipSubstrate implements Substrate {
     // recognize the same site (mirrors the ts-morph base parser's id de-dup).
     const seen = new Set<string>();
     const push = (fact: ExternalCallFact): void => {
-      const key = `${fact.callerId}|${fact.method}|${fact.location.startLine}`;
+      // The destination keeps a parameter topic's per-caller fan-out (several topics, one site).
+      const key = `${fact.callerId}|${fact.method}|${fact.location.startLine}|${fact.messaging?.destination ?? ''}`;
       if (seen.has(key)) return;
       seen.add(key);
       out.push(fact);
@@ -2828,8 +2836,7 @@ export class TreeSitterScipSubstrate implements Substrate {
             continue;
           }
         }
-        const fact = this.matchExternal(call, f.path, callerId, matchers);
-        if (fact) push(fact);
+        for (const fact of this.matchExternal(call, f.path, callerId, matchers)) push(fact);
       }
       // Registry: `new <Ctor>()` constructor egress (`new OpenAI()`), import-anchored —
       // or anchored through the composed-ctor lineage (`new RetryOctokit()`).
@@ -3151,7 +3158,7 @@ export class TreeSitterScipSubstrate implements Substrate {
     file: string,
     callerId: string,
     matchers: ExternalClientMatcher[],
-  ): ExternalCallFact | undefined {
+  ): ExternalCallFact[] {
     const receiver = call.receiver!;
     const methodName = call.methodName!;
     const propName = receiver.startsWith('this.') ? receiver.slice('this.'.length) : receiver;
@@ -3190,7 +3197,7 @@ export class TreeSitterScipSubstrate implements Substrate {
         } else if (m.protocol === 'messaging') {
           fact.protocol = 'messaging';
         }
-        return fact;
+        return [fact];
       }
       if (m.kind === 'sdk') {
         const byDi = diClass !== undefined && (m.diTypeSuffix ?? []).some((s) => diClass.endsWith(s));
@@ -3212,7 +3219,7 @@ export class TreeSitterScipSubstrate implements Substrate {
               descriptor: segment ? `${segment}#${methodName}().` : `${methodName}().`,
             };
           }
-          return fact;
+          return [fact];
         }
         continue;
       }
@@ -3262,20 +3269,22 @@ export class TreeSitterScipSubstrate implements Substrate {
         const dispatchMethod = m.methodNameArg
           ? bareStringMethodName(call.arguments?.[m.methodNameArg.arg])
           : undefined;
-        return {
-          callerId,
-          serviceName: m.serviceName,
-          sdkName: m.sdkName,
-          method: httpMethod,
-          location: loc,
-          http: pathTemplate ? { method: httpMethod, pathTemplate } : undefined,
-          targetService,
-          ...(dispatchMethod ? { dispatchMethod } : {}),
-          // The dispatched SDK method is a symbol in the declared package: join it by name.
-          ...(dispatchMethod && m.sdkName
-            ? { moniker: { packageName: m.sdkName, descriptor: `${dispatchMethod}().` } }
-            : {}),
-        };
+        return [
+          {
+            callerId,
+            serviceName: m.serviceName,
+            sdkName: m.sdkName,
+            method: httpMethod,
+            location: loc,
+            http: pathTemplate ? { method: httpMethod, pathTemplate } : undefined,
+            targetService,
+            ...(dispatchMethod ? { dispatchMethod } : {}),
+            // The dispatched SDK method is a symbol in the declared package: join it by name.
+            ...(dispatchMethod && m.sdkName
+              ? { moniker: { packageName: m.sdkName, descriptor: `${dispatchMethod}().` } }
+              : {}),
+          },
+        ];
       }
       if (m.kind === 'queue') {
         if (!m.methods.includes(methodName)) continue;
@@ -3289,20 +3298,62 @@ export class TreeSitterScipSubstrate implements Substrate {
           (name) => this.localBindingInitializer(file, name, call.startLine),
         );
         // Drop empty/unresolvable topics rather than emit `topic: ''`.
-        if (topic === undefined) continue;
-        return {
+        const topics = topic ? [topic] : this.callerArgumentTopics(call, file, callerId, raw, m.topic);
+        if (topics.length === 0) continue;
+        return topics.map((t) => ({
           callerId,
           serviceName: m.system,
           method: methodName,
           location: loc,
           messaging: {
             system: m.system,
-            destination: topic.topic,
-            ...(topic.topicValue ? { destinationValue: topic.topicValue } : {}),
+            destination: t.topic,
+            ...(t.topicValue ? { destinationValue: t.topicValue } : {}),
           },
-        };
+        }));
       }
     }
-    return undefined;
+    return [];
+  }
+
+  /**
+   * Topics of a queue send whose topic is a PARAMETER of the enclosing method, read from each
+   * direct in-repo caller's argument at that position: one hop, distinct topics only. A caller
+   * whose argument does not resolve contributes nothing.
+   */
+  private callerArgumentTopics(
+    call: StructuralCall,
+    file: string,
+    callerId: string,
+    rawArg: string | undefined,
+    ref: ArgRef,
+  ): QueueTopicResolution[] {
+    const written = queueTopicIdentifier(rawArg, ref);
+    const f = this.structuralFile(file);
+    if (!written || !f || !call.enclosingName) return [];
+    const param = this.receiverParam(call, file, written.name, call.startLine);
+    if (!param || param.isRest) return [];
+    const params = this.paramIndex(f).get(enclosingKey(call.enclosingKind, call.enclosingClass, call.enclosingName));
+    const index = params?.indexOf(param) ?? -1;
+    if (index < 0) return [];
+    if (!this.callersByCallee) {
+      this.callersByCallee = new Map();
+      for (const edge of this.internalCalls()) {
+        if (!edge.calleeId) continue;
+        const bucket = this.callersByCallee.get(edge.calleeId);
+        if (bucket) bucket.push(edge);
+        else this.callersByCallee.set(edge.calleeId, [edge]);
+      }
+    }
+    const byTopic = new Map<string, QueueTopicResolution>();
+    for (const edge of this.callersByCallee.get(callerId) ?? []) {
+      const arg = edge.arguments?.[index];
+      if (arg === undefined) continue;
+      const topic = resolveCallerTopicArgument(arg, ref, written.wrapper, (r) =>
+        this.baseline.resolver.resolve(r, edge.location.filePath),
+      );
+      if (topic && !byTopic.has(topic.topic)) byTopic.set(topic.topic, topic);
+    }
+    return [...byTopic.values()];
   }
 }

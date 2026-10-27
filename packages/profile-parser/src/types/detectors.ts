@@ -27,7 +27,17 @@ export type ArgRef =
   /** A bare identifier argument → its text. */
   | { arg: number; as: 'identifier' }
   /** Read a property out of an object-literal argument: `@Tool({ name: 'x' })` with key 'name' → "x". */
-  | { arg: number; as: 'object-property'; key: string }
+  | {
+      arg: number;
+      as: 'object-property';
+      key: string;
+      /**
+       * Queue topics only: a property value written as one of these wrapper calls around an
+       * enum member (`{ topic: topicFor(Topics.X) }`) reads like `wrapped-enum-member`. Also
+       * unwraps a caller's argument when the value is a parameter of the enclosing method.
+       */
+      unwrapCalls?: string[];
+    }
   /**
    * Unwrap a wrapper call and resolve the inner enum member reference.
    * Handles: topicFor(Topics.X), topicForCdc(Topics.X)

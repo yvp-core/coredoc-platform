@@ -193,6 +193,12 @@ Neo4j both `.run(query,…)`).
 `receiverPattern`/flag regexes are **regex source strings** (the engine compiles them), e.g.
 `'/repository$/i'` or `'(^|\\.)models\\.'`.
 
+A queue topic that is a **parameter** of the enclosing method (`publish(topic) { producer.send({ topic }) }`)
+resolves from each direct in-repo caller's argument, one hop: a literal, a const/enum member
+(`Topics.X`), or a declared unwrap call. Object-literal sends opt into unwrapping with
+`topic:{arg:0,as:'object-property',key:'topic',unwrapCalls:['getTopicInNamespace']}`, which also reads an
+inline `{ topic: getTopicInNamespace(Topics.X) }`. Each distinct caller topic is its own edge.
+
 ### di / callGraph / synthesize
 
 - `di: { style:'constructor-type', stripGenerics?:true }` — resolves `this.svc.method()` via the
