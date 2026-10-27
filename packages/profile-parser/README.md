@@ -265,6 +265,8 @@ interface ExtractionProfile {
   synthesize?: { objectLiteralExportMethods?: boolean; inPaths?: string[] };
   di?: { style: 'constructor-type'|'none'; stripGenerics?: boolean };
   callGraph?: { resolveThis?; resolveDI?; resolveBare?; abstainReceiverPatterns?: string[] };
+  registries?: { receivers: string[]; classSuffix: string; inPaths: string[] }[];
+                                      // untyped JS: `this.services.x.m()` → `XService.m`
   entrypoints?: EntrypointRule[];     // http | queue
   handlerTables?: HandlerTable[];     // cross-file require/alias handler registries
   entities?: EntityRule[];

@@ -6,6 +6,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Logger } from '@nestjs/common';
 import type { Request } from 'express';
 import type { ScopeContext } from '@coredoc/mcp';
+import { currentReadSignal } from '@coredoc/db';
 import { BaseCoredocTool, type ToolContext } from './base-tool.js';
 import type { WorkspaceRepo } from '../../database/control-plane.service.js';
 
@@ -312,5 +313,37 @@ describe('BaseCoredocTool.executeWithMetrics writer behavior (C3)', () => {
 
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('write outage'));
     warnSpy.mockRestore();
+  });
+
+  it('answers tool_deadline at 45 s, aborts the stalled graph read and records a failure', async () => {
+    vi.useFakeTimers();
+    try {
+      const recordMcpQuery = vi.fn().mockResolvedValue(undefined);
+      const tool = makeExecTool({ recordMcpQuery });
+      let readerSawAbort = false;
+      const stalledRead = () =>
+        new Promise<never>((_resolve, reject) => {
+          const signal = currentReadSignal();
+          signal?.addEventListener('abort', () => {
+            readerSawAbort = true;
+            reject(signal.reason);
+          });
+        });
+
+      const pending = tool.call({}, requestWithWorkspace(), stalledRead);
+      await vi.advanceTimersByTimeAsync(45_000);
+      const result = (await pending) as { content: { text: string }[]; isError?: boolean };
+
+      expect(readerSawAbort).toBe(true);
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0]!.text)).toEqual({
+        status: 'error',
+        code: 'tool_deadline',
+        message: 'search_symbols did not finish in 45 s; narrow the scope (repo, depth, path) and retry.',
+      });
+      expect(recordMcpQuery).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

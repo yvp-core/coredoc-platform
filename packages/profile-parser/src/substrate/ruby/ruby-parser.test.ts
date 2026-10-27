@@ -49,3 +49,47 @@ describe('ruby provider parse — association readers and the dbOp record', () =
     expect(repo.stats.dbOpResolution).toEqual({ dbOpSites: 3, boundDbOps: 1, outOfScopeDbOps: 1 });
   });
 });
+
+/**
+ * A Rails route's `handlerId` is the controller action's method node, which is what the graph
+ * writer turns into the route's HANDLES edge. An action the repo does not define keeps the
+ * synthetic `"<METHOD> <path>"` id, which names no function.
+ */
+describe('ruby provider parse — Rails route handlers', () => {
+  const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__/routes-app');
+  const CONTROLLERS = 'app/controllers/admin_api';
+  const profile: RubyProfile = { parserId: 'routes-app-v1', substrate: { language: 'ruby', include: ['**/*.rb'] } };
+  const idGen = new StableIdGenerator(FIXTURE, 'routes-app');
+
+  let repo: ParsedRepo;
+  const handlerOf = (method: string, path: string) =>
+    repo.entrypoints.find((e) => e.details.type === 'http' && e.details.method === method && e.details.path === path)
+      ?.handlerId;
+
+  beforeAll(async () => {
+    repo = await rubyProvider.parse(profile, { repoRoot: FIXTURE, repoName: 'routes-app', repoKey: 'routes-app' });
+  }, 60_000);
+
+  it('binds a route to the action its controller defines', () => {
+    const create = idGen.methodId(`${CONTROLLERS}/widgets_controller.rb`, 'AdminApi::WidgetsController', 'create');
+
+    expect(handlerOf('POST', '/api/admin/widgets')).toBe(create);
+    expect(repo.functions.some((f) => f.id === create)).toBe(true);
+  });
+
+  it('binds a route to an action the controller inherits', () => {
+    const index = idGen.methodId(
+      `${CONTROLLERS}/application_controller.rb`,
+      'AdminApi::ApplicationController',
+      'index',
+    );
+
+    expect(handlerOf('GET', '/api/admin/widgets')).toBe(index);
+  });
+
+  it('keeps the synthetic handler for an action the repo does not define', () => {
+    expect(handlerOf('DELETE', '/api/admin/widgets/:id')).toBe(
+      idGen.functionId('config/routes.rb', 'DELETE /api/admin/widgets/:id'),
+    );
+  });
+});

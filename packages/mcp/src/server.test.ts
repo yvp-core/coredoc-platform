@@ -12,6 +12,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 // `newInvocationId`), so assertions use the same event vocabulary and repo-id
 // derivation the server does.
 import { EventName, repoId } from '@coredoc/core/telemetry';
+import { currentReadSignal, type IGraphReadRepository } from '@coredoc/db';
 import { createServer, isUnboundDiscoveryCall, startServer, summarizePriorSessions } from './server.js';
 
 type ToolCallHandler = (request: unknown) => Promise<{
@@ -1546,5 +1547,48 @@ describe('tool argument evidence boundaries', () => {
     });
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain('target');
+  });
+});
+
+describe('tool deadline', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('answers tool_deadline at 45 s and aborts the stalled graph read', async () => {
+    vi.useFakeTimers();
+    let readerSawAbort = false;
+    const stalledReader = {
+      findFunction: () =>
+        new Promise((_resolve, reject) => {
+          const signal = currentReadSignal();
+          signal?.addEventListener('abort', () => {
+            readerSawAbort = true;
+            reject(signal.reason);
+          });
+        }),
+    } as unknown as IGraphReadRepository;
+    const { handleFindCallers } = await import('./tools/impact/find-callers.js');
+    vi.mocked(handleFindCallers).mockImplementationOnce(async (_args, _scope, _f, _d, _c, repository) => {
+      await repository.findFunction('slow', ['test-hash']);
+      throw new Error('a stalled read must not resolve');
+    });
+
+    const pending = toolCallHandler(createServer(stalledReader))({
+      method: 'tools/call',
+      params: { name: 'find_callers', arguments: { functionName: 'slow', scope: '/test/path' } },
+    });
+    await vi.advanceTimersByTimeAsync(44_999);
+    expect(readerSawAbort).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const result = await pending;
+
+    expect(readerSawAbort).toBe(true);
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      status: 'error',
+      code: 'tool_deadline',
+      message: 'find_callers did not finish in 45 s; narrow the scope (repo, depth, path) and retry.',
+    });
   });
 });

@@ -1,7 +1,7 @@
 import type { RunnerStartupProblem, RunnerVersions } from '@coredoc/core/agent-runner';
+import { redactSecrets } from '@coredoc/core/utils';
 import type { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
-import { redactSecrets } from './redact-secrets.js';
 import { RUNNER_STARTUP_PROBLEM_TEXT, type RunnerSeenAction } from './run-states.js';
 import type { RunnerPrincipal } from './turn-lease.js';
 

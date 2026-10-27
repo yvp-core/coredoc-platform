@@ -149,16 +149,16 @@ end
 describe('extractRailsRoutes — path: option overrides the namespace name (Rails URL prefix)', () => {
   it('uses the path: value, not the positional name, for the URL segment', async () => {
     const src = `
-namespace 'api', module: 'management_api', as: 'management_api', path: 'api/management' do
+namespace 'api', module: 'admin_api', as: 'admin_api', path: 'api/admin' do
   resources :user_profiles, only: [:index, :show]
   get 'company'
 end
 `;
     const routes = await extractRailsRoutes(src);
     const sig = routes.map((r) => `${r.method} ${r.path}`).sort();
-    expect(sig).toContain('GET /api/management/user_profiles');
-    expect(sig).toContain('GET /api/management/user_profiles/:id');
-    expect(sig).toContain('GET /api/management/company');
+    expect(sig).toContain('GET /api/admin/user_profiles');
+    expect(sig).toContain('GET /api/admin/user_profiles/:id');
+    expect(sig).toContain('GET /api/admin/company');
     // The positional name 'api' must NOT be used when path: is present.
     expect(sig).not.toContain('GET /api/user_profiles');
   });
@@ -266,24 +266,145 @@ end
 describe('extractRailsRoutes — concern/concerns expansion', () => {
   it('emits concern routes under each including namespace, not bare', async () => {
     const src = `
-concern :management_api do
+concern :admin_api do
   resources :user_profiles, only: [:index, :show]
   get 'company'
 end
-namespace 'api', module: 'management_api', path: 'api/management' do
-  concerns :management_api
+namespace 'api', module: 'admin_api', path: 'api/admin' do
+  concerns :admin_api
 end
-namespace 'v1', module: 'management_api', path: 'v1/management/rails' do
-  concerns :management_api
+namespace 'v1', module: 'admin_api', path: 'v1/management/rails' do
+  concerns :admin_api
 end
 `;
     const sig = (await extractRailsRoutes(src)).map((r) => `${r.method} ${r.path}`).sort();
-    expect(sig).toContain('GET /api/management/user_profiles');
-    expect(sig).toContain('GET /api/management/user_profiles/:id');
-    expect(sig).toContain('GET /api/management/company');
+    expect(sig).toContain('GET /api/admin/user_profiles');
+    expect(sig).toContain('GET /api/admin/user_profiles/:id');
+    expect(sig).toContain('GET /api/admin/company');
     expect(sig).toContain('GET /v1/management/rails/user_profiles');
     // Concern templates are NOT emitted bare (without the including namespace).
     expect(sig).not.toContain('GET /user_profiles');
     expect(sig).not.toContain('GET /company');
+  });
+});
+
+describe('extractRailsRoutes — controller#action (Rails convention)', () => {
+  const handlers = async (src: string) =>
+    (await extractRailsRoutes(src)).map((r) => `${r.method} ${r.path} -> ${r.controller}#${r.action}`).sort();
+
+  it('binds `resources` to the plural controller under the namespace module, narrowed by only:', async () => {
+    const src = `
+namespace 'api', module: 'admin_api', path: 'api/admin' do
+  resources :widgets, only: [:index, :create]
+end
+`;
+    expect(await handlers(src)).toEqual([
+      'GET /api/admin/widgets -> AdminApi::WidgetsController#index',
+      'POST /api/admin/widgets -> AdminApi::WidgetsController#create',
+    ]);
+  });
+
+  it('binds singular `resource` to the pluralized controller, already-plural names unchanged', async () => {
+    const src = `
+resource :company, only: [:show]
+resource :sessions, only: [:create]
+`;
+    expect(await handlers(src)).toEqual([
+      'GET /company -> CompaniesController#show',
+      'POST /sessions -> SessionsController#create',
+    ]);
+  });
+
+  it('takes the module from `scope module:` but not from a path-only scope', async () => {
+    const src = `
+scope module: :admin_api do
+  scope '/admin' do
+    resources :teams, except: [:new, :edit, :index, :update, :destroy]
+  end
+end
+`;
+    expect(await handlers(src)).toEqual([
+      'GET /admin/teams/:id -> AdminApi::TeamsController#show',
+      'POST /admin/teams -> AdminApi::TeamsController#create',
+    ]);
+  });
+
+  it('reads `to:` and `controller:`/`action:`, nesting a `to:` controller path into modules', async () => {
+    const src = `
+namespace :admin do
+  get 'utc_time', to: 'common#utc_time'
+  get 'docs', to: 'api/docs#index'
+  get 'ping', controller: 'health', action: 'show'
+end
+`;
+    expect(await handlers(src)).toEqual([
+      'GET /admin/docs -> Admin::Api::DocsController#index',
+      'GET /admin/ping -> Admin::HealthController#show',
+      'GET /admin/utc_time -> Admin::CommonController#utc_time',
+    ]);
+  });
+
+  it('keeps an absolute `/controller` out of the namespace module', async () => {
+    const src = `
+namespace :admin do
+  get 'me', controller: '/users', action: 'show'
+  get 'docs', to: '/api/docs#index'
+  resources :sessions, only: [:create], controller: '/sessions'
+end
+`;
+    expect(await handlers(src)).toEqual([
+      'GET /admin/docs -> Api::DocsController#index',
+      'GET /admin/me -> UsersController#show',
+      'POST /admin/sessions -> SessionsController#create',
+    ]);
+  });
+
+  it('defaults a member/collection verb to the owning resource controller and its own word as the action', async () => {
+    const src = `
+resources :user_profiles, only: [] do
+  collection do
+    post :sync
+  end
+  member do
+    get 'delete_employee(/:employee_id)', action: 'delete_employee'
+    patch 'activate', to: 'users#activate_device'
+  end
+end
+`;
+    expect(await handlers(src)).toEqual([
+      'GET /user_profiles/:id/delete_employee(/:employee_id) -> UserProfilesController#delete_employee',
+      'PATCH /user_profiles/:id/activate -> UsersController#activate_device',
+      'POST /user_profiles/sync -> UserProfilesController#sync',
+    ]);
+  });
+
+  it('draws no RESTful route for `only: []`, even when a nested resource has its own only:', async () => {
+    const src = `
+resources :companies, only: [] do
+  resources :widgets, only: [:index]
+end
+`;
+    expect(await handlers(src)).toEqual(['GET /companies/:company_id/widgets -> WidgetsController#index']);
+  });
+
+  it('applies the including namespace module to concern routes', async () => {
+    const src = `
+concern :admin_api do
+  resources :widgets, only: [:create]
+  get 'company', to: 'common#company'
+end
+namespace 'api', module: 'admin_api', path: 'api/admin' do
+  concerns :admin_api
+end
+`;
+    expect(await handlers(src)).toEqual([
+      'GET /api/admin/company -> AdminApi::CommonController#company',
+      'POST /api/admin/widgets -> AdminApi::WidgetsController#create',
+    ]);
+  });
+
+  it('leaves the handler undecided for a verb with no controller', async () => {
+    const [route] = await extractRailsRoutes("get 'health'\n");
+    expect(route).toEqual({ method: 'GET', path: '/health' });
   });
 });

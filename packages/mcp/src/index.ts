@@ -20,6 +20,7 @@ export type {
 } from './types.js';
 export { resolveDetailLevel, getDefaultDetailLevel } from './detail-level.js';
 export { formatMcpContent } from './response-formatter.js';
+export { withToolDeadline, ToolDeadlineError } from './tool-deadline.js';
 
 // Canonical tool descriptions + parameter schemas, shared with the cloud MCP
 // server so the two surfaces describe and validate each tool identically.

@@ -846,6 +846,22 @@ describe('Response Formatter', () => {
       expect(result.data).toContain('## queue: `user-events`');
     });
 
+    it('says which of several substring matches it chose and lists the others', () => {
+      mockEntrypointExplanation.closestOf = {
+        total: 3,
+        others: [
+          { id: 'ep2', method: 'POST', path: '/api/v1/users/bulk' },
+          { id: 'ep3', method: 'POST', path: '/api/v1/users/:id/invite' },
+        ],
+      };
+
+      const result = formatEntrypointExplanation(mockEntrypointExplanation, mockMetadata);
+
+      expect(result.data).toContain('closest of 3 matches');
+      expect(result.data).toContain('- POST `/api/v1/users/bulk`');
+      expect(result.data).toContain('- POST `/api/v1/users/:id/invite`');
+    });
+
     it('should return raw data in raw mode', () => {
       mockMetadata.format = 'raw';
       const result = formatEntrypointExplanation(mockEntrypointExplanation, mockMetadata);
@@ -1392,8 +1408,8 @@ describe('Response Formatter', () => {
         { name: 'fn', filePath: 'src/a.ts', startLine: 1, type: 'function', id: 'i1', summary: 'x'.repeat(200) },
       ];
       const result = formatCodeElementList(els, 'R', mockMetadata);
-      expect(result.data).toContain(`${'x'.repeat(120)}…`);
-      expect(result.data).not.toContain('x'.repeat(121));
+      expect(result.data).toContain(`${'x'.repeat(119)}…`);
+      expect(result.data).not.toContain('x'.repeat(120));
     });
 
     it('shows a short summary verbatim (no …) when purpose is absent', () => {

@@ -40,3 +40,6 @@ export * from './repo-ref.js';
 
 // Canonical coredoc.config.json loader (shared by CLI, SDK, sync and MCP)
 export { loadConfig } from './load-config.js';
+
+// Secret masking for text that leaves the machine (agent-run payloads, graph values)
+export * from './redact-secrets.js';

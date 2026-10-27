@@ -44,6 +44,7 @@ export async function runProfile(
     di: profile.di?.style === 'constructor-type',
     stripGenerics: profile.di?.stripGenerics,
     accessorHooks: profile.callGraph?.accessorHooks,
+    registries: profile.registries,
   });
   const engine = new SubstrateProfileEngine(profile, substrate);
   // The engine is done reading the CST once `run` returns, and `repo` holds only plain data, so

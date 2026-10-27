@@ -123,6 +123,8 @@ export interface CallEdgeFact {
   isMethodCall: boolean;
   location: SubstrateLoc;
   arguments?: string[];
+  /** Unbound because a registry rule's class name is declared in two or more in-repo files. */
+  registryAmbiguous?: boolean;
 }
 
 // ── Frontend: JSX component / render-edge query ──────────────────────────────
@@ -266,7 +268,7 @@ export interface Substrate {
   externalCalls(matchers: ExternalClientMatcher[]): ExternalCallFact[];
   /** Function-id existence probe (mirrors the golden's resolved-handler gate). */
   hasFunctionId(id: string): boolean;
-  /** Resolve a method id on a class by name (DI target resolution). */
+  /** Resolve a method id on a class by name, inherited from an in-repo base included (DI target resolution). */
   resolveMethodOnClass(className: string, methodName: string): string | undefined;
   /** Resolve a top-level function id by (file, name). */
   functionId(filePath: string, name: string): string | undefined;

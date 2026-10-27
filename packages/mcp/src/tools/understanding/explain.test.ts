@@ -424,6 +424,34 @@ describe('handleExplain', () => {
     expect(data.metadata?.fields).toContain('token: string [readonly]');
   });
 
+  it('shows class property defaults, cut at 80 characters', async () => {
+    const cls = createMockCodeElement({ name: 'Impl', type: 'class', filePath: 'a/Impl.kt' });
+    const longDefault = `listOf(${'"x", '.repeat(30)})`;
+    const mockRepo = createMockRepository({
+      findCode: vi.fn().mockResolvedValue([cls]),
+      getTypeUsages: vi.fn().mockResolvedValue([]),
+      getClassExtensions: vi.fn().mockResolvedValue([]),
+      findClass: vi.fn().mockResolvedValue({
+        id: cls.id,
+        name: 'Impl',
+        properties: [
+          // A Kotlin companion `const val`, folded into the enclosing class as a static property.
+          { name: 'TABLE', typeText: 'String', isReadonly: true, isStatic: true, defaultValue: '"things"' },
+          { name: 'names', defaultValue: longDefault },
+          { name: 'id', typeText: 'Int' },
+        ],
+      }),
+    });
+
+    const result = await handleExplain({ target: 'Impl' }, scope, 'raw', defaultLevel, defaultConfig, mockRepo);
+
+    expect((result.data as ExplainResult).metadata?.fields).toEqual([
+      'TABLE: String [readonly, static] = "things"',
+      `names = ${longDefault.slice(0, 79)}…`,
+      'id: Int',
+    ]);
+  });
+
   it('dispatches an entity to describe_db_schema and appends a Deeper footer', async () => {
     const entityElement = createMockCodeElement({
       id: 'abc123:entity:src/user.ts:User',
@@ -566,6 +594,42 @@ describe('handleExplain', () => {
     const data = result.data as ExplainResult;
     expect(data.metadata?.fieldsLabel).toBe('Definition');
     expect(data.metadata?.fields).toContain("'active' | 'inactive'");
+  });
+
+  it('shows a module-level constant value from its stored initializer', async () => {
+    const constant = createMockCodeElement({
+      id: 'abc123:variable:src/config.ts:API_URL',
+      name: 'API_URL',
+      type: 'variable',
+      filePath: 'src/config.ts',
+      startLine: 3,
+    });
+    const mockRepo = createMockRepository({
+      findCode: vi.fn().mockResolvedValue([constant]),
+      getNodeWithProperties: vi.fn().mockResolvedValue({
+        node: { id: constant.id },
+        properties: { declarationKind: 'const', initializerText: "'https://api.example.com/v2'" },
+      }),
+    });
+
+    const result = await handleExplain({ target: 'API_URL' }, scope, 'raw', defaultLevel, defaultConfig, mockRepo);
+
+    const data = result.data as ExplainResult;
+    expect(mockRepo.getNodeWithProperties).toHaveBeenCalledWith(constant.id, scope.repoHashes);
+    expect(data.metadata?.fieldsLabel).toBe('Value');
+    expect(data.metadata?.fields).toEqual(["= 'https://api.example.com/v2'"]);
+  });
+
+  it('shows no value for a variable stored without an initializer', async () => {
+    const variable = createMockCodeElement({ name: 'cache', type: 'variable', filePath: 'src/c.ts' });
+    const mockRepo = createMockRepository({
+      findCode: vi.fn().mockResolvedValue([variable]),
+      getNodeWithProperties: vi.fn().mockResolvedValue({ node: { id: variable.id }, properties: {} }),
+    });
+
+    const result = await handleExplain({ target: 'cache' }, scope, 'raw', defaultLevel, defaultConfig, mockRepo);
+
+    expect((result.data as ExplainResult).metadata?.fields).toBeUndefined();
   });
 
   // ---------------------------------------------------------------------------

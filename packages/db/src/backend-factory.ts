@@ -25,6 +25,7 @@ import { SqliteDriver, POOLED_CACHE_SIZE_KB } from './sqlite/driver.js';
 import { SqliteRepository } from './sqlite/repository.js';
 import { SqliteOperationsRepository } from './sqlite/operations-repository.js';
 import { McpMetricsRepository } from './sqlite/mcp-metrics-repository.js';
+import { TOOL_DEADLINE_MS } from './read-signal.js';
 
 // =============================================================================
 // Module State
@@ -664,6 +665,9 @@ async function openConnection(
         const { LadybugDriver } = await import('./ladybug/driver.js');
         graphDriver = new LadybugDriver(graphPath, {
           readOnly: mode === 'read',
+          // Ladybug has no interrupt: a query that outlives the tool deadline
+          // ends at this timeout instead of holding the serialized connection.
+          ...(mode === 'read' ? { budgets: { queryTimeoutMs: TOOL_DEADLINE_MS } } : {}),
           ftsMode: mode === 'read' ? 'load' : 'bootstrap',
           initializeSchema: mode === 'create',
         });

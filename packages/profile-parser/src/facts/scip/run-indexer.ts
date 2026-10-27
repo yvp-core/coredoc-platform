@@ -239,7 +239,8 @@ function ownedTypescriptSourceFiles(projectDir: string, allProjects: string[]): 
  *   packages are indexed instead of being silently empty.
  * - The workspace root is always synthetic and contains only residue outside every other
  *   enumerated root. Its umbrella config is never allowed to pull the whole monorepo into one V8
- *   heap.
+ *   heap. It extends the root `tsconfig.json`, or else the root `jsconfig.json`: scip-typescript
+ *   never reads a jsconfig, and plain-JS repos declare `baseUrl` there for `require("app/…")`.
  *
  * Missing/out-of-repo project paths are left unplanned for `indexOneProject` to reject or report;
  * production enumeration only supplies existing in-repo directories, while this keeps the
@@ -247,7 +248,7 @@ function ownedTypescriptSourceFiles(projectDir: string, allProjects: string[]): 
  */
 export function planTypescriptProjects(repoRoot: string, projects: string[]): TypescriptProjectPlan[] {
   const root = resolve(repoRoot);
-  const rootConfig = join(root, 'tsconfig.json');
+  const rootConfig = ['tsconfig.json', 'jsconfig.json'].map((name) => join(root, name)).find(existsSync);
   const resolvedProjects = projects.map((project) => resolve(project));
   return resolvedProjects.map((projectDir) => {
     const contained = isInside(root, projectDir);
@@ -257,7 +258,7 @@ export function planTypescriptProjects(repoRoot: string, projects: string[]): Ty
     return {
       projectDir,
       sourceFiles: ownedTypescriptSourceFiles(projectDir, resolvedProjects),
-      ...(projectDir === root && existsSync(rootConfig) ? { extendsConfig: rootConfig } : {}),
+      ...(projectDir === root && rootConfig ? { extendsConfig: rootConfig } : {}),
     };
   });
 }
@@ -963,7 +964,8 @@ export async function runScipTypescript(repoRoot: string, opts: ScipRunOpts = {}
   }
 
   const hasTsconfig = existsSync(join(repoRoot, 'tsconfig.json'));
-  const sourceFiles = hasTsconfig ? undefined : planTypescriptProjects(repoRoot, [repoRoot])[0].sourceFiles;
+  const plan = hasTsconfig ? undefined : planTypescriptProjects(repoRoot, [repoRoot])[0];
+  const sourceFiles = plan?.sourceFiles;
   if (sourceFiles?.length === 0) {
     return { ok: false, degradeReason: 'scip-typescript found no TS/JS source files to index' };
   }
@@ -972,7 +974,7 @@ export async function runScipTypescript(repoRoot: string, opts: ScipRunOpts = {}
   let configPath: string | undefined;
   if (sourceFiles) {
     try {
-      configPath = writeSyntheticConfig(scipPath, sourceFiles);
+      configPath = writeSyntheticConfig(scipPath, sourceFiles, plan?.extendsConfig);
       projectArg = configPath;
     } catch (err) {
       return {

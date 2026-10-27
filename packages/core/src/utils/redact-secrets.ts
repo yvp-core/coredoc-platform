@@ -95,6 +95,7 @@ export function redactSecrets(text: string): string {
   return redacted;
 }
 
+/** A key or declared name that holds a secret, matched by suffix: `DB_PASSWORD`, `apiKey`. */
 const SECRET_KEY = new RegExp(`${SECRET_NAME}$`, 'i');
 
 /** Decoded `{"password": "…"}` is two strings the `name: value` pattern no longer sees together. */

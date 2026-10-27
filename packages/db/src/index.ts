@@ -112,6 +112,7 @@ export { NodeType, EdgeType } from './types.js';
 export { CypherResultShape } from './types.js';
 export { GRAPH_READ_CAPABILITY_IDENTITY, GraphApplyMode } from './types.js';
 export { ByteMultiPatternMatcher } from './multi-pattern.js';
+export { withReadSignal, currentReadSignal, TOOL_DEADLINE_MS } from './read-signal.js';
 export {
   assertQueryDoesNotProjectSource,
   assertReadOnlyCypherAllowlisted,

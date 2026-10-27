@@ -1,4 +1,4 @@
-import { toolAnnotations } from '@coredoc/mcp';
+import { ToolDeadlineError, toolAnnotations, withToolDeadline } from '@coredoc/mcp';
 import { McpAuthKind } from '../mcp-auth-context.js';
 import { IntentHandoffService } from '../../modules/intent/intent-handoff.service.js';
 import {
@@ -792,20 +792,24 @@ export class IntentTools {
     parameters: GetIntentContextSchema,
   })
   async getIntentContext(args: unknown, _context: Context, request: Request) {
-    return this.respond('get_intent_context', request, async () => {
-      const auth = this.permissionGate(request, TokenPermission.IntentRead);
-      if ('status' in auth) return auth.answer;
+    // Applicability is derived from the workspace graph, so this read runs
+    // under the same deadline as the graph tools.
+    return this.respond('get_intent_context', request, () =>
+      withToolDeadline('get_intent_context', async () => {
+        const auth = this.permissionGate(request, TokenPermission.IntentRead);
+        if ('status' in auth) return auth.answer;
 
-      const input = parseContract(GetIntentContextSchema, args);
-      const data = await this.context.read(auth.workspaceId, normalizeIntentContextRequest(toContextQuery(input)));
+        const input = parseContract(GetIntentContextSchema, args);
+        const data = await this.context.read(auth.workspaceId, normalizeIntentContextRequest(toContextQuery(input)));
 
-      // An empty answer and an unconfigured workspace must never look alike.
-      // The check runs only when the answer IS empty, so a workspace with
-      // intent pays nothing for it.
-      const resultCount = contextResultCount(data);
-      if (resultCount === 0 && !(await this.hasIntentContent(auth.workspaceId))) return notConfigured();
-      return { data, success: true, resultCount };
-    });
+        // An empty answer and an unconfigured workspace must never look alike.
+        // The check runs only when the answer IS empty, so a workspace with
+        // intent pays nothing for it.
+        const resultCount = contextResultCount(data);
+        if (resultCount === 0 && !(await this.hasIntentContent(auth.workspaceId))) return notConfigured();
+        return { data, success: true, resultCount };
+      }),
+    );
   }
 
   @ToolGuards([IntentEnabledToolGuard])
@@ -1121,11 +1125,16 @@ export class IntentTools {
     try {
       answer = await body();
     } catch (error) {
-      const rendered = renderIntentPublicError(error);
-      if (rendered.error.code === IntentErrorCode.InternalError) {
-        this.logger.error(`${toolName} failed: ${(error as Error)?.message ?? error}`, (error as Error)?.stack);
+      if (error instanceof ToolDeadlineError) {
+        // The same {status, code, message} the graph tools answer with.
+        answer = { data: { status: 'error', code: error.code, message: error.message }, success: false };
+      } else {
+        const rendered = renderIntentPublicError(error);
+        if (rendered.error.code === IntentErrorCode.InternalError) {
+          this.logger.error(`${toolName} failed: ${(error as Error)?.message ?? error}`, (error as Error)?.stack);
+        }
+        answer = errorState(rendered.error);
       }
-      answer = errorState(rendered.error);
     }
 
     const trusted = request as Request & { workspaceId?: string; user?: { id?: string } };

@@ -13,6 +13,7 @@ import { Test } from '@nestjs/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Request } from 'express';
 import { IntentKind, IntentSourceKind } from '@coredoc/core';
+import { currentReadSignal } from '@coredoc/db';
 import { TokenPermission } from '../../auth/token-permissions.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { WorkspaceMemberRole } from '../../modules/members/dto/workspace-role.enum.js';
@@ -218,6 +219,37 @@ describe('intent tools — gate matrix', () => {
   it('serves get_intent_context to a plain member session — membership is the read gate', async () => {
     const answer = read(await tools.getIntentContext({}, {} as never, userReq(WorkspaceMemberRole.Member)));
     expect(answer.status).toBeUndefined();
+  });
+
+  it('answers tool_deadline at 45 s when the graph-backed context read stalls, aborting the read', async () => {
+    vi.useFakeTimers();
+    try {
+      let readerSawAbort = false;
+      m.context.read.mockImplementation(
+        () =>
+          new Promise<never>((_resolve, reject) => {
+            const signal = currentReadSignal();
+            signal?.addEventListener('abort', () => {
+              readerSawAbort = true;
+              reject(signal.reason);
+            });
+          }),
+      );
+
+      const pending = tools.getIntentContext({}, {} as never, userReq(WorkspaceMemberRole.Member));
+      await vi.advanceTimersByTimeAsync(45_000);
+      const answer = read(await pending);
+
+      expect(readerSawAbort).toBe(true);
+      expect(answer).toEqual({
+        status: 'error',
+        code: 'tool_deadline',
+        message: 'get_intent_context did not finish in 45 s; narrow the scope (repo, depth, path) and retry.',
+      });
+      expect(m.metrics.recordMcpQuery).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('refuses get_intent_context for a token without intent:read, naming the permission', async () => {

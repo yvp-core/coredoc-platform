@@ -6,7 +6,7 @@
  */
 
 import { posix } from 'node:path';
-import { allowSourcesInGraph } from '@coredoc/core/utils';
+import { allowSourcesInGraph, redactSecrets } from '@coredoc/core/utils';
 import { EdgeType, NodeType, TypeUseKind } from './types.js';
 import type { GraphNode, GraphEdge, PackageLinkerImportInfo, UnresolvedCallRecord } from './types.js';
 
@@ -231,6 +231,27 @@ function transformFunction(fn: FunctionNode, repoId: string): GraphNode {
   };
 }
 
+/**
+ * Broader than the redactor's suffix-anchored key test: a declared name is the only
+ * hint a plain literal is a secret, so dropping a harmless value (`AUTHOR`) is the
+ * cheaper mistake. `keys?$` rather than `key` anywhere keeps `MONKEY_COUNT`, `keyboardLayout`.
+ */
+const SECRET_NAME = /secret|token|passw|pwd|credential|auth|keys?$/;
+
+function isSecretName(name: string): boolean {
+  return SECRET_NAME.test(name.replace(/[-_]/g, '').toLowerCase());
+}
+
+/**
+ * A value, not a body: kept regardless of ALLOW_SOURCES_IN_GRAPH, bounded so it cannot carry one.
+ * The graph leaves the machine, so a secret-named value is dropped and any other is masked before the cut.
+ */
+function redactedValue(name: string, value: string | undefined): string | undefined {
+  if (value === undefined || isSecretName(name)) return undefined;
+  const redacted = redactSecrets(value);
+  return redacted.length > 200 ? `${redacted.slice(0, 200)}…` : redacted;
+}
+
 function transformClass(cls: ClassNode, repoId: string): GraphNode {
   return {
     id: cls.id,
@@ -257,7 +278,7 @@ function transformClass(cls: ClassNode, repoId: string): GraphNode {
         isReadonly: p.isReadonly,
         isOptional: p.isOptional,
         typeText: p.type?.text,
-        defaultValue: p.defaultValue,
+        defaultValue: redactedValue(p.name, p.defaultValue),
         startLine: p.location.startLine,
       })),
       constructorParams: cls.constructor?.parameters?.map((p) => ({
@@ -559,6 +580,7 @@ function transformVariable(variable: VariableNode, repoId: string): GraphNode {
       fileId: variable.fileId,
       isExported: variable.isExported,
       declarationKind: variable.declarationKind,
+      initializerText: redactedValue(variable.name, variable.initialValue),
       documentation: variable.documentation,
     },
     repoId,

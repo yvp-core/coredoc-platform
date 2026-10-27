@@ -11,6 +11,7 @@ import { createClient, type Client, type InStatement, type InArgs, type Transact
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { currentReadSignal } from '../read-signal.js';
 import type { IDatabaseDriver, ITransaction, DatabaseBackend, TransactionStatement } from '../types.js';
 
 // =============================================================================
@@ -96,7 +97,9 @@ async function runStatement<T>(
 class SqliteTransaction implements ITransaction {
   constructor(private client: Client) {}
 
-  run<T = unknown>(query: string, params?: Record<string, unknown>): Promise<T[]> {
+  async run<T = unknown>(query: string, params?: Record<string, unknown>): Promise<T[]> {
+    // libSQL has no interrupt, so an abort stops the next read, not a running one.
+    currentReadSignal()?.throwIfAborted();
     return runStatement<T>(this.client, query, params);
   }
 }

@@ -40,6 +40,8 @@ export interface StructuralMethod {
   params: StructuralParam[];
   /** Return-type annotation text (without the leading `: `); undefined when unannotated. */
   returnType?: string;
+  /** A getter whose every `return` is `return this.<field>`: that field. */
+  getterField?: string;
   /** Leading JSDoc (`/** … *\/`) description, stripped of comment markup; undefined when absent. */
   documentation?: string;
   startLine: number;
@@ -327,6 +329,18 @@ function heritageBaseName(n: TsNode): string | undefined {
     return inner ? text(inner) : undefined;
   }
   return n.type.includes('identifier') ? text(n) || undefined : undefined;
+}
+
+/** `{ if (!this._x) throw …; return this._x; }` → `_x`: the one field every `return` in the body returns. */
+function returnedThisField(body: TsNode | null): string | undefined {
+  const fields = new Set<string | undefined>();
+  const walk = (n: TsNode): void => {
+    if (n.type === 'return_statement') fields.add(/^return\s+this\.([A-Za-z_$#][\w$]*)\s*;?$/.exec(n.text)?.[1]);
+    else for (const c of n.namedChildren) walk(c);
+  };
+  if (body) walk(body);
+  const [field] = fields;
+  return fields.size === 1 ? field : undefined;
 }
 
 /** Options for {@link parseTsStructural}. */
@@ -833,6 +847,9 @@ export async function parseTsStructural(
                   : 'public',
               params,
               returnType: returnTypeOf(m),
+              getterField: m.children.some((c) => c.type === 'get')
+                ? returnedThisField(m.childForFieldName('body'))
+                : undefined,
               documentation: jsdocOf(m),
               startLine: lineOf(m),
               endLine: endLineOf(m),
@@ -852,7 +869,11 @@ export async function parseTsStructural(
               return name ? [name] : [];
             })
           : [];
-        const extClause = heritage?.namedChildren.find((c) => c.type === 'extends_clause');
+        // The JavaScript grammar has no `extends_clause`: the base expression sits directly under
+        // `class_heritage`, so the heritage node itself plays the clause.
+        const extClause =
+          heritage?.namedChildren.find((c) => c.type === 'extends_clause') ??
+          (heritage && !implClause ? heritage : undefined);
         if (extClause) {
           const baseNode = extClause.namedChildren.find(
             (c) => c.type === 'identifier' || c.type === 'member_expression' || c.type === 'type_identifier',

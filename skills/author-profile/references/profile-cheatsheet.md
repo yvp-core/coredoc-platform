@@ -124,6 +124,17 @@ Use when a handler is referenced through a registry object instead of co-located
 
 This one primitive replaced ~480 lines of bespoke handler code.
 
+### registries[] — name-keyed instance registries (untyped JS)
+
+Use when a framework stores class instances on an object by class name, so calls never bind:
+`this.services.notification.dispatchEvent()` → `NotificationService.dispatchEvent`.
+```ts
+registries: [{ receivers: ['this.services', 'ctx.services'], classSuffix: 'Service', inPaths: ['app/services/'] }]
+```
+The callee is `<method>` on `upperFirst(name) + classSuffix` (in-repo base classes included). The site
+stays unbound when that class name is declared in zero or several scoped files, outside `inPaths`, or
+lacks the method.
+
 ### entities[]
 
 Decorator ORM (MikroORM/TypeORM):

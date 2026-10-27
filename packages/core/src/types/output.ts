@@ -424,7 +424,7 @@ export interface VariableNode extends BaseNode {
   /** const, let, var */
   declarationKind: 'const' | 'let' | 'var';
   type?: TypeInfo;
-  /** Initial value expression (if simple) */
+  /** Initializer source text; the transformer persists it, cut at 200 chars, as `initializerText`. */
   initialValue?: string;
 }
 
@@ -963,6 +963,11 @@ export type CallProvenance =
    *  a missing edge, but a same-named unrelated function in the target file would be a
    *  wrong one. */
   | 'accessor-hook'
+  /** Untyped JS: `this.services.<name>.m()` resolved through a profile `registries` rule to `m`
+   *  on the class `upperFirst(name) + classSuffix` (or its in-repo bases). Same evidence class as
+   *  `di` — a naming convention the framework enforces, not a compiler fact. Abstains when the
+   *  class name is declared in zero or several files, or outside the rule's paths. */
+  | 'registry'
   /** Kotlin heuristic: bare `f()` resolved to a top-level function `f` declared in the SAME
    *  file, or — failing that — the uniquely named top-level `f` of the same Kotlin package. */
   | 'kt-local'
@@ -1548,6 +1553,11 @@ export interface CallResolutionStats {
   callSites: number;
   resolvedCalls: number;
   outOfScopeCalls: number;
+  /**
+   * Unbound sites a profile registry rule skipped because two or more in-repo classes carry the
+   * registered class name. Absent when the profile declares no `registries`.
+   */
+  registryAmbiguousCalls?: number;
 }
 
 /**
