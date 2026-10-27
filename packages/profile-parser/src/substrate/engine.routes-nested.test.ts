@@ -78,6 +78,30 @@ describe('routes.joinNestedPaths — nested react-router routes', () => {
     ]);
   });
 
+  it('detects an index route whatever its attribute order, past an arrow-function attribute', async () => {
+    const source = `import { Route, Routes } from 'react-router-dom';
+import { Shell, Home, Dashboard } from './pages';
+
+export const AppRoutes = () => (
+  <Routes>
+    <Route path="/acme" element={<Shell />}>
+      <Route element={<Home />} index />
+    </Route>
+    <Route path="/widgets" element={<Shell />}>
+      <Route index loader={() => fetch('/api/widgets')} element={<Dashboard />} />
+    </Route>
+  </Routes>
+);
+`;
+    const routes = await routesFor('routes.tsx', source, { componentProp: true, joinNestedPaths: true });
+    expect(routes).toEqual([
+      ['/acme', 'Home'],
+      ['/acme', 'Shell'],
+      ['/widgets', 'Dashboard'],
+      ['/widgets', 'Shell'],
+    ]);
+  });
+
   it('joins `children:` config routes onto their parent and gives index routes the parent path', async () => {
     const routes = await routesFor('routes.tsx', CONFIG_ROUTES, { configArray: true, joinNestedPaths: true });
     expect(routes).toEqual([

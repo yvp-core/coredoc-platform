@@ -1114,11 +1114,9 @@ export class TreeSitterScipSubstrate implements Substrate {
         // intervening function-valued props. `seen` dedups the overlap.
         if (root) this.collectConfigObjectRoutes(root, add, rule.joinNestedPaths);
       }
-      if (rule.joinNestedPaths && (rule.componentProp || rule.renderProp)) {
+      if (rule.joinNestedPaths && (rule.componentProp || rule.renderProp) && root) {
         // Index routes have no `path`; `add` gives the empty path the parent route's.
-        const index = /<Route\s(?:[^<>]*\s)?index(?:=\{true\})?[\s/][^<>]*(?:element=\{<|component=\{)([A-Z]\w*)/g;
-        for (let m = index.exec(text); m !== null; m = index.exec(text))
-          add('', m[1], m.index + m[0].lastIndexOf(m[1]));
+        this.collectJsxIndexRoutes(root, add);
       }
       if (rule.componentProp || rule.renderProp) {
         const statFwd = /<Route[^<>]*path="([^"]+)"[^<>]*component=\{(\w+)\}/g;
@@ -1171,6 +1169,36 @@ export class TreeSitterScipSubstrate implements Substrate {
       }
     }
     return out;
+  }
+
+  /**
+   * JSX index routes: `<Route index element={<X />} />` or `component={X}`, attributes in any
+   * order (`index` alone or `index={true}`), read off the CST so a function-valued attribute
+   * such as `loader={() => …}` cannot end the tag early.
+   */
+  private collectJsxIndexRoutes(root: TsNode, add: (path: string, componentName: string, idx: number) => void): void {
+    const tags = [
+      ...this.descendantsOfType(root, 'jsx_self_closing_element'),
+      ...this.descendantsOfType(root, 'jsx_opening_element'),
+    ];
+    for (const tag of tags) {
+      if (text(tag.childForFieldName('name')) !== 'Route') continue;
+      let index = false;
+      let component: TsNode | undefined;
+      for (const attr of tag.namedChildren) {
+        if (attr.type !== 'jsx_attribute') continue;
+        const [name, value] = attr.namedChildren;
+        const inner = value?.type === 'jsx_expression' ? value.namedChildren[0] : undefined;
+        if (text(name) === 'index') index = !value || text(inner) === 'true';
+        else if (text(name) === 'component' && inner?.type === 'identifier') component = inner;
+        else if (text(name) === 'element' && inner) {
+          const open = inner.type === 'jsx_element' ? inner.namedChildren[0] : inner;
+          const tagName = open?.childForFieldName('name');
+          if (tagName?.type === 'identifier') component = tagName;
+        }
+      }
+      if (index && component && /^[A-Z]/.test(text(component))) add('', text(component), component.startIndex);
+    }
   }
 
   /**
