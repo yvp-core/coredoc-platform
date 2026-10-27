@@ -7,7 +7,7 @@ status: draft
 
 Last reviewed: 2026-10-26
 
-Source: one week of agent session feedback from the day.io workspace (2026-10-19 to 2026-10-26, 19 records, 8 users), reviewed with the owner on 2026-10-26. Decisions taken by the owner:
+Source: one week of agent session feedback from one customer workspace (2026-10-19 to 2026-10-26, 19 records, 8 users), reviewed with the owner on 2026-10-26. Decisions taken by the owner:
 
 - `get_intent_context` matches free text with every word, never with any word; `intent_read search` keeps its labelled any-word fallback;
 - the answer names the `sourceRefs` that matched nothing;
@@ -23,7 +23,7 @@ Source: one week of agent session feedback from the day.io workspace (2026-10-19
   - `task` → `selectTaskText` (:729), a full-text OR query (`to_tsquery(w1 | w2 | …)`) gated by `relevant`. `relevant` passes when the title matches **any** task word, or when the statement shares at least two task lexemes.
   - Both reach unrelated items when the workspace holds few accepted items. In two sessions, a task about hours-to-days conversion with an unmatched Jira key returned audit-log and MCP-server items.
 - **sourceRefs.** `selectBySource` (:616) matches `intent_item_sources.ref`. A `jira:` ref compares case-insensitively against `kind='issue'` sources only (`sourceRefMatchSets`, `intent-context.select.ts:270`). `hasSelector` (:246) counts `sourceRefs`, so an unmatched ref with no other selector returns `matches: []`. The answer has `unknownIntentIds`, but nothing that names unmatched refs.
-- **Tree.** `IntentReadService.tree` (`intent-read.service.ts:182`) counts items with `authority: accepted` only (:196) and prints ` (empty)` when a node's own count is 0 (:220). Sub-feature items are not rolled up. A domain is `(empty)` only when it and all its features are. The tool description (`apps/server/src/mcp/tools/intent.tools.ts:468`) says "(empty) marks a node with no items". In the day.io workspace every payroll node reads `(empty)` while it holds about 65 candidates.
+- **Tree.** `IntentReadService.tree` (`intent-read.service.ts:182`) counts items with `authority: accepted` only (:196) and prints ` (empty)` when a node's own count is 0 (:220). Sub-feature items are not rolled up. A domain is `(empty)` only when it and all its features are. The tool description (`apps/server/src/mcp/tools/intent.tools.ts:468`) says "(empty) marks a node with no items". In that workspace every node of one domain reads `(empty)` while it holds about 65 candidates.
 - **Search.** `IntentReadService.search` (:317) filters by `authorities(request.includeCandidates)` (:342). The all/any decision is made once and labelled `matched: 'any'`. The tool description's search signature omits `includeCandidates`, but the schema accepts it (:414, :436).
 - **Propose ids.** `deriveIntentId` (`packages/core/src/intent/derive-id.ts`) builds `<kind-prefix>-<slug>`. When the slug does not fit `INTENT_ID_MAX_LENGTH = 64` (`packages/core/src/intent/types.ts:56`, prefix included), it throws `IdWouldTruncate`.
   - `deriveIntentItemId` (`intent-id.ts:40`) maps that to `{code:'id_would_truncate', message, path:['items',i,'title']}`. It is called from `planProposal` (`intent-propose.plan.ts:165`) item by item inside one transaction, so the first bad title refuses the batch and later bad titles stay unknown.
@@ -80,7 +80,7 @@ Source: one week of agent session feedback from the day.io workspace (2026-10-19
 | --- | --- | --- |
 | AC-1 | A `query` whose words never co-occur returns no text matches (not any-word matches); `intent_read search` with the same words still returns `matched: 'any'`. | `intent-context.postgres.integration.test.ts`; `intent-read-workspace.postgres.integration.test.ts` |
 | AC-2 | A `task` sharing only one incidental word with an item's title no longer returns it; an item sharing two task lexemes with title ∪ statement still does. | `intent-context.postgres.integration.test.ts` |
-| AC-3 | `sourceRefs: ['jira:PROD-1','jira:PROD-2']` where only PROD-1 is cited returns `unmatchedSourceRefs: ['jira:PROD-2']` and the text line; a fully matched call omits both. | Same suite |
+| AC-3 | `sourceRefs: ['jira:ABC-1','jira:ABC-2']` where only ABC-1 is cited returns `unmatchedSourceRefs: ['jira:ABC-2']` and the text line; a fully matched call omits both. | Same suite |
 | AC-4 | A feature holding only candidates prints `(0 accepted · N candidates)`; a feature with neither prints `(empty)`; the header carries both totals. | `intent-read-workspace.postgres.integration.test.ts` (tree case at :337) |
 | AC-5 | Search without `includeCandidates` over a topic with only candidate matches prints the hint with the right count; with `includeCandidates: true` there is no hint. | Same suite |
 | AC-6 | A batch with two over-long titles is refused once, lists both indices with `shortenedId`, and writes nothing. | `intent-propose.plan.test.ts` plus the propose integration suite |
@@ -107,9 +107,9 @@ Source: one week of agent session feedback from the day.io workspace (2026-10-19
 - **The extra count query on search.** One indexed count per search call.
 
 **Rollout/rollback:**
-- A server release, then a `V` bump in day-ai-plugin's `pull-coredoc.yml`.
+- A server release, then a version bump in the downstream plugin.
 - No schema change. Rollback is the previous `V`.
-- The day-ai-plugin `intent-capture` skill states the 64-character limit in the same release (a separate plugin PR).
+- The downstream `intent-capture` skill states the 64-character limit in the same release (a separate plugin PR).
 
 ## Resolved decisions
 
