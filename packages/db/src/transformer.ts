@@ -243,12 +243,18 @@ function isSecretName(name: string): boolean {
 }
 
 /**
+ * A quoted run of 20+ token characters mixing letters and digits: a hash, key or salt that no
+ * name or token-shape rule recognises. Each lookahead stops at the closing quote, so a scan is linear.
+ */
+const OPAQUE_LITERAL = /(['"`])(?=[^'"`\s]*\d)(?=[^'"`\s]*[A-Za-z])[A-Za-z0-9+/=_-]{20,}\1/g;
+
+/**
  * A value, not a body: kept regardless of ALLOW_SOURCES_IN_GRAPH, bounded so it cannot carry one.
  * The graph leaves the machine, so a secret-named value is dropped and any other is masked before the cut.
  */
 function redactedValue(name: string, value: string | undefined): string | undefined {
   if (value === undefined || isSecretName(name)) return undefined;
-  const redacted = redactSecrets(value);
+  const redacted = redactSecrets(value).replace(OPAQUE_LITERAL, '$1[REDACTED]$1');
   return redacted.length > 200 ? `${redacted.slice(0, 200)}…` : redacted;
 }
 

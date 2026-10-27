@@ -735,6 +735,24 @@ describe('containment edges for previously-orphan node kinds', () => {
     expect(result.nodes.find((n) => n.name === name)!.properties.initializerText).toBeUndefined();
   });
 
+  it('masks an opaque literal under a neutral name and keeps readable ones', () => {
+    const result = transformParsedRepo(
+      createMinimalParsedRepo({
+        variables: [
+          variable('SALT', "'a8f5f167f44f4964e6c998dee827110c'"),
+          variable('DEFAULTS', "{ region: 'eu-west-1', seed: \"Zx81ab0QpLm2Rt7Yw4Kc\" }"),
+          variable('REGION', "'eu-west-1'"),
+          variable('BANNER', "'Welcome to the scheduling dashboard v2'"),
+        ],
+      }),
+    );
+    const value = (name: string) => result.nodes.find((n) => n.name === name)!.properties.initializerText;
+    expect(value('SALT')).toBe("'[REDACTED]'");
+    expect(value('DEFAULTS')).toBe("{ region: 'eu-west-1', seed: \"[REDACTED]\" }");
+    expect(value('REGION')).toBe("'eu-west-1'");
+    expect(value('BANNER')).toBe("'Welcome to the scheduling dashboard v2'");
+  });
+
   it.each(['MONKEY_COUNT', 'keyboardLayout'])('keeps the value of %s, which only looks secret-named', (name) => {
     const result = transformParsedRepo(createMinimalParsedRepo({ variables: [variable(name, "'plain'")] }));
     expect(result.nodes.find((n) => n.name === name)!.properties.initializerText).toBe("'plain'");
