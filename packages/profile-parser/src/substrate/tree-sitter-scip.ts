@@ -223,6 +223,8 @@ export class TreeSitterScipSubstrate implements Substrate {
   private readonly baseByClass = new Map<string, string>();
   // className -> files declaring it, for the uniqueness check.
   private readonly classFilesByName = new Map<string, string[]>();
+  // `${dir}\0${package}` -> isPackageImport verdict; the lookup walks node_modules up from dir.
+  private readonly packageImportByDir = new Map<string, boolean>();
   // function id index: filePath -> Set(name).
   private readonly fnNamesByFile = new Map<string, Set<string>>();
 
@@ -455,11 +457,21 @@ export class TreeSitterScipSubstrate implements Substrate {
       .slice(0, specifier.startsWith('@') ? 2 : 1)
       .join('/');
     const root = resolve(this.opts.repoRoot);
-    for (let dir = dirname(join(root, fromFile)); ; dir = dirname(dir)) {
+    const from = dirname(join(root, fromFile));
+    const key = `${from}\0${pkg}`;
+    const cached = this.packageImportByDir.get(key);
+    if (cached !== undefined) return cached;
+    let verdict = false;
+    for (let dir = from; ; dir = dirname(dir)) {
       const entry = join(dir, 'node_modules', pkg);
-      if (existsSync(entry)) return realpathSync(entry).split(sep).includes('node_modules');
-      if (dir === root || dir === dirname(dir)) return false;
+      if (existsSync(entry)) {
+        verdict = realpathSync(entry).split(sep).includes('node_modules');
+        break;
+      }
+      if (dir === root || dir === dirname(dir)) break;
     }
+    this.packageImportByDir.set(key, verdict);
+    return verdict;
   }
 
   /** A class name declared in exactly one scoped file: only then do the name-keyed indexes describe one class. */
