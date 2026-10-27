@@ -103,6 +103,38 @@ describe('engine — stats.callResolution', () => {
     expect(repo.stats.callResolution).toEqual({ callSites: 4, resolvedCalls: 3, outOfScopeCalls: 0 });
   });
 
+  it('binds two same-named calls on one line to their own targets', async () => {
+    dir = writeFixture({
+      'app.ts': `class Widgets {
+  save(n: number): number {
+    return n;
+  }
+}
+class Gadgets {
+  save(n: number): number {
+    return n;
+  }
+}
+
+export function store(w: Widgets, g: Gadgets): void {
+  w.save(1); g.save(2);
+  const label = 'ünï'; w.save(label.length);
+}
+`,
+    });
+    const { repo } = await runProfile(PROFILE, dir, 'call-resolution-same-name');
+    const edges = repo.calls
+      .filter((c) => c.calleeId)
+      .map(
+        (c) =>
+          `${c.location.startLine} ${c.calleeExpression}->${c.calleeId?.includes('Gadgets') ? 'Gadgets' : 'Widgets'}`,
+      )
+      .sort();
+    expect(edges).toEqual(['13 g.save->Gadgets', '13 w.save->Widgets', '14 w.save->Widgets']);
+    // Each was upgraded in place (non-ASCII text before a call included), leaving no unresolved twin.
+    expect(repo.calls.filter((c) => !c.calleeId && c.calleeExpression.endsWith('save'))).toEqual([]);
+  });
+
   it('binds a callback reference on a line whose calls are all built-ins', async () => {
     dir = writeFixture({
       'app.ts': `function isWidget(x: unknown): x is object {

@@ -187,7 +187,16 @@ export function scipToEdges(
         if (calleeName !== undefined && normalizeName(calleeName) !== normalizeName(methodNameFromMoniker(occ.symbol)))
           continue;
         // Collapse: upgrade the structural sibling in place if one exists; else add a fresh edge.
-        if (!g.resolveInternalCall(callerId, doc.relativePath, line, calleeId, methodNameFromMoniker(occ.symbol))) {
+        if (
+          !g.resolveInternalCall(
+            callerId,
+            doc.relativePath,
+            line,
+            calleeId,
+            methodNameFromMoniker(occ.symbol),
+            r.startChar,
+          )
+        ) {
           const edge: CallEdge = {
             // Keyed on the raw symbol, unchanged by the calleeExpression fix below, so this
             // edge's identity stays stable across parses (artifact caching joins on it). One
@@ -212,7 +221,7 @@ export function scipToEdges(
         // Noise (empty package = TS stdlib like Array.map/Promise.then; @types/*; tslib/reflect-metadata):
         // not a real edge. Drop the structural sibling so it isn't counted or re-resolved by the overlay, and skip.
         if (isNoiseExternalPackage(mon.packageName)) {
-          g.removeUnresolvedCallAt(callerId, doc.relativePath, line, methodNameFromMoniker(occ.symbol));
+          g.removeUnresolvedCallAt(callerId, doc.relativePath, line, methodNameFromMoniker(occ.symbol), r.startChar);
           continue;
         }
         // The moniker names one of this repo's OWN workspace packages, yet `symbolToNodeId` found
@@ -226,7 +235,7 @@ export function scipToEdges(
         if (ownPackages.has(mon.packageName)) continue;
         // Real external (service/IO) call — drop the structural unresolved sibling and emit the external edge.
         const method = methodNameFromMoniker(occ.symbol);
-        g.removeUnresolvedCallAt(callerId, doc.relativePath, line, method);
+        g.removeUnresolvedCallAt(callerId, doc.relativePath, line, method, r.startChar);
         const extId = idGen.externalCallId(callerId, mon.packageName, method, loc);
         const edge: ExternalCallEdge = {
           id: extId,

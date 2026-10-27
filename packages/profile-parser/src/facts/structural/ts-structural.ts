@@ -201,6 +201,8 @@ export interface StructuralCall {
   isAwaited: boolean;
   startLine: number;
   endLine: number;
+  /** 0-based column of the callee's name token (`save` in `a.save()`), where SCIP's occurrence starts. */
+  nameColumn?: number;
   enclosingName?: string;
   enclosingClass?: string;
   enclosingKind: 'method' | 'function' | 'module';
@@ -1221,11 +1223,14 @@ export async function parseTsStructural(
         const { fn, awaited: awaitUnwrapped } = callCallee(n);
         let receiver: string | undefined;
         let methodName: string | undefined;
+        let nameNode: TsNode | null | undefined;
         if (fn && fn.type === 'member_expression') {
           receiver = text(fn.childForFieldName('object'));
-          methodName = text(fn.childForFieldName('property'));
+          nameNode = fn.childForFieldName('property');
+          methodName = text(nameNode);
         } else if (fn) {
           methodName = text(fn);
+          nameNode = fn.type === 'identifier' ? fn : undefined;
         }
         const argsNode = n.childForFieldName('arguments');
         const args = argsNode ? argsNode.namedChildren.map((a) => text(a)) : [];
@@ -1238,6 +1243,7 @@ export async function parseTsStructural(
           isAwaited: awaitUnwrapped || n.parent?.type === 'await_expression',
           startLine: lineOf(n),
           endLine: endLineOf(n),
+          ...(nameNode ? { nameColumn: nameNode.startPosition.column } : {}),
           enclosingKind: enc.kind,
           enclosingName: enc.name,
           enclosingClass: enc.cls,

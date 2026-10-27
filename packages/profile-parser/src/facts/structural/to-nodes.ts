@@ -261,7 +261,7 @@ export function structuralToNodes(
       arguments: call.arguments.length ? call.arguments : undefined,
       location: { filePath: file.path, startLine: call.startLine, endLine: call.endLine },
     };
-    g.addCall(edge);
+    g.addCall(edge, call.nameColumn);
   }
 
   // Value-position enum-member references (`Status.Locked`). The enum stays UNRESOLVED here —
