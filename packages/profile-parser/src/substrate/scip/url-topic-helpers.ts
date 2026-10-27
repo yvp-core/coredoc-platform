@@ -384,7 +384,13 @@ function resolveQueueTopicAsWritten(
   if (topic.as === 'object-property') {
     // Read `<key>: 'value'` out of the raw object-literal argument text.
     const m = new RegExp(`\\b${escapeRegExp(topic.key)}\\s*:\\s*(['"\`])([^'"\`]*)\\1`).exec(raw);
-    return m?.[2] ? { topic: m[2] } : undefined;
+    if (m?.[2]) return { topic: m[2] };
+    // Opt-in: a value written as a declared unwrap call (`{ topic: wrap(Topics.X) }`).
+    const unwrapCalls = topic.unwrapCalls ?? [];
+    const value = unwrapCalls.length ? objectPropertyExpression(raw, topic.key) : undefined;
+    return value
+      ? resolveQueueTopicAsWritten(value, { arg: 0, as: 'wrapped-enum-member', unwrapCalls }, resolveConst)
+      : undefined;
   }
   if (topic.as === 'wrapped-enum-member') {
     // Match `topicFor(Topics.EntityUpdatedV1)` from raw arg text.
@@ -420,6 +426,55 @@ function resolveQueueTopicAsWritten(
   }
   // string-literal ArgRef but the arg is not a literal → not a recoverable topic.
   return undefined;
+}
+
+/**
+ * The expression an object-literal argument gives `key`: shorthand `{ key }` names its own
+ * binding; otherwise an identifier/member chain, optionally called once (`wrap(Topics.X)`).
+ */
+function objectPropertyExpression(raw: string, key: string): string | undefined {
+  const k = escapeRegExp(key);
+  if (new RegExp(`[{,]\\s*${k}\\s*[,}]`).test(raw)) return key;
+  return new RegExp(`\\b${k}\\s*:\\s*([A-Za-z_$][\\w$.]*(?:\\([^()]*\\))?)`).exec(raw)?.[1];
+}
+
+/**
+ * The name a queue topic is written as when it may be a parameter of the enclosing method: a
+ * bare identifier (for `object-property`, the property's value), or the bare identifier inside
+ * a declared unwrap call, returned with that wrapper so a caller's argument is re-wrapped.
+ */
+export function queueTopicIdentifier(
+  rawArg: string | undefined,
+  topic: ArgRef,
+): { name: string; wrapper?: string } | undefined {
+  const raw = rawArg?.trim();
+  if (!raw) return undefined;
+  const expr = topic.as === 'object-property' ? objectPropertyExpression(raw, topic.key) : raw;
+  if (!expr) return undefined;
+  if (BARE_IDENTIFIER.test(expr)) return { name: expr };
+  for (const fn of 'unwrapCalls' in topic ? (topic.unwrapCalls ?? []) : []) {
+    const inner = new RegExp(`^${escapeRegExp(fn)}\\(\\s*([A-Za-z_$][\\w$]*)\\s*\\)$`).exec(expr);
+    if (inner) return { name: inner[1], wrapper: fn };
+  }
+  return undefined;
+}
+
+/**
+ * A caller's argument for a parameter topic, read with the existing topic readers: a declared
+ * unwrap call (`wrapped-enum-member`) first, then a literal or folded const (`const-string`).
+ */
+export function resolveCallerTopicArgument(
+  argText: string,
+  topic: ArgRef,
+  wrapper: string | undefined,
+  resolveConst: (ref: string) => string | undefined,
+): QueueTopicResolution | undefined {
+  const expr = wrapper ? `${wrapper}(${argText.trim()})` : argText;
+  const unwrapCalls = 'unwrapCalls' in topic ? (topic.unwrapCalls ?? []) : [];
+  const wrapped = unwrapCalls.length
+    ? resolveQueueTopicAsWritten(expr, { arg: 0, as: 'wrapped-enum-member', unwrapCalls }, resolveConst)
+    : undefined;
+  return wrapped ?? resolveQueueTopicAsWritten(expr, { arg: 0, as: 'const-string' }, resolveConst);
 }
 
 /** Backward-compatible scalar view used by existing helper callers/tests. */
