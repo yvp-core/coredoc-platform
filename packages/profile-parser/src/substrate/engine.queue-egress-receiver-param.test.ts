@@ -1,5 +1,5 @@
 /**
- * Queue egress (SF-008 C-7): a matcher's `receiver`/`receiverPattern` gates which `.send`
+ * Queue egress: a matcher's `receiver`/`receiverPattern` gates which `.send`
  * it claims, and a topic that is a PARAMETER of the enclosing method resolves from each
  * direct in-repo caller's argument at that position — one hop, one edge per distinct topic.
  */

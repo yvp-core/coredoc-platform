@@ -1,5 +1,5 @@
 /**
- * dbOperations — `entityFrom: { as: 'declared-type' }` (SF-008 C-3).
+ * dbOperations — `entityFrom: { as: 'declared-type' }`.
  *
  * `em.persist(grant)` passes an entity INSTANCE, not the class, so the `identifier` read
  * drops it. `declared-type` reads the entity the code states for that local: its parameter
