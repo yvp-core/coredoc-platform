@@ -315,17 +315,28 @@ function routesForCall(call: TsNode, basePrefix: string[], baseModules: string[]
   return [];
 }
 
-/** Restricted action set from the call's own `only:`/`except:` (a symbol or a symbol array). */
+const ACTION_ARRAYS = new Set(['array', 'string_array', 'symbol_array']);
+
+/** `:index`, `'index'` or a `%w`/`%i` word; undefined for anything else (a constant, a call). */
+function actionName(node: TsNode): string | undefined {
+  if (node.type === 'simple_symbol' || node.type === 'string') return tokenText(node) || undefined;
+  if (node.type === 'bare_string' || node.type === 'bare_symbol') return node.text;
+  return undefined;
+}
+
+/** Restricted action set from the call's own `only:`/`except:` (an action name or an array of them). */
 function actionFilter(node: TsNode): { only?: Set<string>; except?: Set<string> } {
   const filter: { only?: Set<string>; except?: Set<string> } = {};
   for (const key of ['only', 'except'] as const) {
     const value = ownOption(node, key);
     if (!value) continue;
-    const syms = new Set<string>();
-    if (value.type === 'simple_symbol') syms.add(tokenText(value));
-    for (const sym of value.descendantsOfType('simple_symbol') as TsNode[]) syms.add(tokenText(sym));
-    // `only: []` is a real, empty action set: Rails draws no RESTful route for it.
-    if (syms.size > 0 || value.type === 'array') filter[key] = syms;
+    const items: TsNode[] = ACTION_ARRAYS.has(value.type)
+      ? value.namedChildren.filter((c: TsNode) => c.type !== 'comment')
+      : [value];
+    const names = items.map(actionName);
+    // `only: []` is a real, empty action set: Rails draws no RESTful route for it. A value this
+    // cannot read as action names leaves the full default set rather than a guessed subset.
+    if (names.every((name): name is string => name !== undefined)) filter[key] = new Set(names);
   }
   return filter;
 }

@@ -387,6 +387,30 @@ end
     expect(await handlers(src)).toEqual(['GET /companies/:company_id/widgets -> WidgetsController#index']);
   });
 
+  it('reads string and %w/%i arrays in only:/except: as action names', async () => {
+    const src = `
+resources :widgets, only: ['index']
+resources :gadgets, except: ["show", "new", "edit", "create", "update", "destroy"]
+resources :gizmos, only: %w[index show]
+resources :doodads, only: %i[create]
+`;
+    expect(await handlers(src)).toEqual([
+      'GET /gadgets -> GadgetsController#index',
+      'GET /gizmos -> GizmosController#index',
+      'GET /gizmos/:id -> GizmosController#show',
+      'GET /widgets -> WidgetsController#index',
+      'POST /doodads -> DoodadsController#create',
+    ]);
+  });
+
+  it('falls back to the full action set when only: holds values it cannot read', async () => {
+    const src = 'resources :widgets, only: ACTIONS\nresources :gadgets, only: [action_for(:list)]\n';
+    const routes = await handlers(src);
+    expect(routes).toHaveLength(16);
+    expect(routes).toContain('GET /widgets/:id/edit -> WidgetsController#edit');
+    expect(routes).toContain('DELETE /gadgets/:id -> GadgetsController#destroy');
+  });
+
   it('applies the including namespace module to concern routes', async () => {
     const src = `
 concern :admin_api do
