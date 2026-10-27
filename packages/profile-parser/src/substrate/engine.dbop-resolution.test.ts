@@ -177,7 +177,7 @@ describe('engine — stats.dbOpResolution', () => {
         rawQueries: [{ methods: ['query'] }, { methods: ['query'] }],
       },
     } as ExtractionProfile;
-    const raw = call('this.db.query', 'this.db', 'query', 12, [{ text: "'SELECT * FROM customer'" }]);
+    const raw = call('this.db.query', 'this.db', 'query', 12, [{ text: "'SELECT * FROM audit_log'" }]);
 
     const repo = run([raw], twoMatchers);
 

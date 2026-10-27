@@ -177,8 +177,9 @@ rawQueries:[
   { dialect:'cypher', methods:['run'],           queryArg:0, receivers:['(^|\\.)tx$'], inPaths:['packages/db/src/neo4j'] } ]
 ```
 `dialect:'sql'` → SQL verb→CRUD + table; `dialect:'cypher'` → Cypher clause→op + node label (handles
-multi-line template literals). The entity name *is* the table (SQL) / label (Cypher); **no entity node is
-synthesized**. `inPaths` scopes a matcher to a directory — needed when two stores share a method (SQLite and
+multi-line template literals and `'…' + '…'` literal concatenations). A table whose name matches an emitted
+entity's `tableName` (case-insensitive) takes that entity's name and binds to it; otherwise the entity name
+*is* the table (SQL) / label (Cypher), and **no entity node is synthesized**. `inPaths` scopes a matcher to a directory — needed when two stores share a method (SQLite and
 Neo4j both `.run(query,…)`).
 
 ### externalCalls[] — outbound clients
