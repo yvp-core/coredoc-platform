@@ -108,6 +108,7 @@ import type {
   SubstrateProperty,
 } from './interface.js';
 import { markUnresolved } from '../unresolved-sentinel.js';
+import { isAbstractEntityBase } from './abstract-entity.js';
 
 /**
  * Version-hash seed for an entity node. Folds the column/relation content into
@@ -121,12 +122,9 @@ export function entityVersionSeed(prefix: string, fields: unknown, relations: un
   return `${prefix}:${JSON.stringify({ fields, relations })}`;
 }
 
-/**
- * An abstract entity base owns no table: MikroORM's `@Entity({ abstract: true })`, or the
- * entity decorator on an `abstract class` (TypeORM). Its columns live on the concrete subclasses.
- */
-function isAbstractEntity(c: SubstrateClass, entityDec: string): boolean {
-  return c.isAbstract === true || /\babstract\s*:\s*true\b/.test(entityDec);
+/** An abstract entity base owns no table (see `isAbstractEntityBase`). */
+function isAbstractEntity(c: SubstrateClass): boolean {
+  return isAbstractEntityBase(c.decorators.join('\n'), c.isAbstract === true);
 }
 
 /**
@@ -719,7 +717,7 @@ export class SubstrateProfileEngine {
       if (rule.detect.via === 'class-decorator') {
         for (const c of this.substrate.classes()) {
           const dec = this.findDecorator(c, rule.detect.name);
-          if (dec && !isAbstractEntity(c, dec)) this.registerEntity(c.loc.filePath, c.name);
+          if (dec && !isAbstractEntity(c)) this.registerEntity(c.loc.filePath, c.name);
         }
       } else if (rule.detect.via === 'call-shape') {
         for (const site of this.substrate.callShapes(rule.detect.callee)) {
@@ -780,7 +778,7 @@ export class SubstrateProfileEngine {
 
     for (const c of classes) {
       const entityDec = this.findDecorator(c, rule.detect.name);
-      if (!entityDec || isAbstractEntity(c, entityDec)) continue;
+      if (!entityDec || isAbstractEntity(c)) continue;
       const tableName = this.resolveTableName(c.name, rule, entityDec);
       const fields: EntityField[] = [];
       const relations: EntityRelation[] = [];

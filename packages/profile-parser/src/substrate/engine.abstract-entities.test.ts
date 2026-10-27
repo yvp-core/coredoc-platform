@@ -98,6 +98,41 @@ export class Grant extends Audited {
     expect(fieldNames(repo, 'Grant')).toEqual(['id', 'title', 'updatedAt']);
   });
 
+  it('keeps an abstract single-table-inheritance root, which owns the table', async () => {
+    const typeorm = await parse(profile('typeorm', ['Column', 'PrimaryGeneratedColumn'], 'PrimaryGeneratedColumn'), {
+      'entities.ts': `import { ChildEntity, Column, Entity, PrimaryGeneratedColumn, TableInheritance } from 'typeorm';
+
+@Entity()
+@TableInheritance({ column: { type: 'varchar', name: 'kind' } })
+export abstract class Widget {
+  @PrimaryGeneratedColumn() id!: number;
+}
+
+@ChildEntity()
+export class Gadget extends Widget {
+  @Column() size!: number;
+}
+`,
+    });
+    expect(typeorm.entities.map((e) => e.name)).toEqual(['Widget']);
+
+    const mikro = await parse(profile('mikro-orm', ['Property', 'PrimaryKey'], 'PrimaryKey'), {
+      'entities.ts': `import { Entity, PrimaryKey, Property } from '@mikro-orm/core';
+
+@Entity({ abstract: true, discriminatorColumn: 'kind', discriminatorMap: { gadget: 'Gadget' } })
+export abstract class Widget {
+  @PrimaryKey() id!: string;
+}
+
+@Entity()
+export class Gadget extends Widget {
+  @Property() size!: number;
+}
+`,
+    });
+    expect(mikro.entities.map((e) => e.name).sort()).toEqual(['Gadget', 'Widget']);
+  });
+
   it('still emits a concrete entity whose body merely mentions "abstract"', async () => {
     const repo = await parse(profile('typeorm', ['Column', 'PrimaryGeneratedColumn'], 'PrimaryGeneratedColumn'), {
       'article.entity.ts': `import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
