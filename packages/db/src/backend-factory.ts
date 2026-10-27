@@ -25,7 +25,6 @@ import { SqliteDriver, POOLED_CACHE_SIZE_KB } from './sqlite/driver.js';
 import { SqliteRepository } from './sqlite/repository.js';
 import { SqliteOperationsRepository } from './sqlite/operations-repository.js';
 import { McpMetricsRepository } from './sqlite/mcp-metrics-repository.js';
-import { TOOL_DEADLINE_MS } from './read-signal.js';
 
 // =============================================================================
 // Module State
@@ -634,6 +633,7 @@ async function openConnection(
   graphPath: string,
   sqliteUrl: string,
   mode: ProjectDatabaseOpenMode,
+  queryTimeoutMs?: number,
 ): Promise<DbConnection> {
   if (closingAllProjectDatabases) {
     throw new Error('Project databases are closing; retry after shutdown completes.');
@@ -665,9 +665,9 @@ async function openConnection(
         const { LadybugDriver } = await import('./ladybug/driver.js');
         graphDriver = new LadybugDriver(graphPath, {
           readOnly: mode === 'read',
-          // Ladybug has no interrupt: a query that outlives the tool deadline
+          // Ladybug has no interrupt: a query that outlives the caller's deadline
           // ends at this timeout instead of holding the serialized connection.
-          ...(mode === 'read' ? { budgets: { queryTimeoutMs: TOOL_DEADLINE_MS } } : {}),
+          ...(mode === 'read' && queryTimeoutMs ? { budgets: { queryTimeoutMs } } : {}),
           ftsMode: mode === 'read' ? 'load' : 'bootstrap',
           initializeSchema: mode === 'create',
         });
@@ -742,6 +742,11 @@ export type ProjectDatabaseOpenMode = 'create' | 'read';
 export interface ProjectDatabaseOpenOptions {
   mode?: ProjectDatabaseOpenMode;
   backend?: ProjectFileBackend;
+  /**
+   * Ladybug read connections only: per-query timeout. MCP passes its tool deadline; other readers
+   * (desktop explorer, CLI) leave it unset. The first opener in a process sets it for the pooled connection.
+   */
+  queryTimeoutMs?: number;
 }
 
 /**
@@ -766,7 +771,14 @@ export async function openProjectDatabase(
         `Run \`coredoc push --config "${configDir}/coredoc.config.json" --project ${projectId}\`.`,
     );
   }
-  return openConnection(projectId, backend, graphPath, projectDbUrl(configDir, projectId), mode);
+  return openConnection(
+    projectId,
+    backend,
+    graphPath,
+    projectDbUrl(configDir, projectId),
+    mode,
+    options.queryTimeoutMs,
+  );
 }
 
 /**

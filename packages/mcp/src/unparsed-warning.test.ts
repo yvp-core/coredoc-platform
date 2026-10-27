@@ -79,7 +79,7 @@ describe('warnUnparsedRepos', () => {
 
     await warnUnparsedRepos();
 
-    expect(openProjectDatabase).toHaveBeenCalledWith('/ws', 'proj-a', { mode: 'read' });
+    expect(openProjectDatabase).toHaveBeenCalledWith('/ws', 'proj-a', { mode: 'read', queryTimeoutMs: 45_000 });
     expect(openProjectDatabase.mock.calls.flat()).not.toContain('file:/tmp/must-be-ignored.db');
     expect(warnings.join('\n')).not.toContain('billing');
   });

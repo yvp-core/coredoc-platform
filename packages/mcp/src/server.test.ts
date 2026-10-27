@@ -12,7 +12,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 // `newInvocationId`), so assertions use the same event vocabulary and repo-id
 // derivation the server does.
 import { EventName, repoId } from '@coredoc/core/telemetry';
-import { currentReadSignal, type IGraphReadRepository } from '@coredoc/db';
+import { currentReadSignal, TOOL_DEADLINE_MS, type IGraphReadRepository } from '@coredoc/db';
 import { createServer, isUnboundDiscoveryCall, startServer, summarizePriorSessions } from './server.js';
 
 type ToolCallHandler = (request: unknown) => Promise<{
@@ -261,6 +261,7 @@ describe('MCP Server', () => {
       expect(mockOpenProjectDatabase).toHaveBeenCalledWith('/ws', 'proj-1', {
         mode: 'read',
         backend: 'ladybug',
+        queryTimeoutMs: TOOL_DEADLINE_MS,
       });
     });
   });
@@ -676,8 +677,14 @@ describe('MCP Server', () => {
       await call();
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      expect(mockOpenProjectDatabase).toHaveBeenCalledWith('/workspaces/a', 'proj-a', { mode: 'read' });
-      expect(mockOpenProjectDatabase).toHaveBeenCalledWith('/workspaces/b', 'proj-b', { mode: 'read' });
+      expect(mockOpenProjectDatabase).toHaveBeenCalledWith('/workspaces/a', 'proj-a', {
+        mode: 'read',
+        queryTimeoutMs: TOOL_DEADLINE_MS,
+      });
+      expect(mockOpenProjectDatabase).toHaveBeenCalledWith('/workspaces/b', 'proj-b', {
+        mode: 'read',
+        queryTimeoutMs: TOOL_DEADLINE_MS,
+      });
     });
 
     it('ignores COREDOC_SQLITE_URL when opening the scoped project database', async () => {
@@ -1091,7 +1098,10 @@ describe('MCP Server', () => {
       }
 
       // The old gate rejected here — resolving without a throw IS the regression proof.
-      expect(mockOpenProjectDatabase).toHaveBeenCalledWith('/ws', 'proj-1', { mode: 'read' });
+      expect(mockOpenProjectDatabase).toHaveBeenCalledWith('/ws', 'proj-1', {
+        mode: 'read',
+        queryTimeoutMs: TOOL_DEADLINE_MS,
+      });
       expect(stderrText).toMatch(/No graph data for project "proj-1"/);
     });
 
@@ -1133,6 +1143,7 @@ describe('MCP Server', () => {
       expect(mockOpenProjectDatabase).toHaveBeenCalledWith('/ws', 'proj-1', {
         mode: 'read',
         backend: 'ladybug',
+        queryTimeoutMs: TOOL_DEADLINE_MS,
       });
     });
 
@@ -1190,7 +1201,10 @@ describe('MCP Server', () => {
         // release CI). `any(String)` so a baked-in key still satisfies the shape.
         channels: { posthogKey: expect.any(String), posthogHost: expect.any(String) },
       });
-      expect(mockOpenProjectDatabase).toHaveBeenCalledWith('/ws', 'proj-1', { mode: 'read' });
+      expect(mockOpenProjectDatabase).toHaveBeenCalledWith('/ws', 'proj-1', {
+        mode: 'read',
+        queryTimeoutMs: TOOL_DEADLINE_MS,
+      });
     });
   });
 

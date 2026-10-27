@@ -17,6 +17,7 @@ import {
   getConfiguredBackend,
   getRepository,
   openProjectDatabase,
+  TOOL_DEADLINE_MS,
 } from '@coredoc/db';
 import type { IGraphReadRepository, McpMetricsRepository, ProjectDatabase } from '@coredoc/db';
 import { semanticSearchEnabled, getTelemetryConfig } from '@coredoc/core/utils';
@@ -341,8 +342,9 @@ function emitFirstAnswer(scope: ScopeContext): void {
     });
 }
 
-function projectReadOptions(): { mode: 'read'; backend?: 'ladybug' } {
-  return getConfiguredBackend() === 'ladybug' ? { mode: 'read', backend: 'ladybug' } : { mode: 'read' };
+function projectReadOptions(): { mode: 'read'; backend?: 'ladybug'; queryTimeoutMs: number } {
+  const options = { mode: 'read' as const, queryTimeoutMs: TOOL_DEADLINE_MS };
+  return getConfiguredBackend() === 'ladybug' ? { ...options, backend: 'ladybug' } : options;
 }
 
 async function projectDatabaseForScope(scope: ScopeContext | undefined): Promise<ProjectDatabase> {
