@@ -98,6 +98,15 @@ describe('entityFrom declared-type', () => {
     expect(ops(repo)).toEqual(['create:Grant', 'create:Job', 'delete:Job']);
   });
 
+  it('reads an argument written on its own line', async () => {
+    const repo = await run(`  save(grant: Grant) {
+    em.persist(
+      grant,
+    );
+  }`);
+    expect(ops(repo)).toEqual(['create:Grant']);
+  });
+
   it('drops only the reassigned `let`, not a same-named binding in another function', async () => {
     const repo = await run(`  first(other: Grant) {
     let x = new Grant();

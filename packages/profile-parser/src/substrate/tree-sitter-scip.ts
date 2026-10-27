@@ -1579,12 +1579,15 @@ export class TreeSitterScipSubstrate implements Substrate {
     const root = this.cstRoots.get(file);
     if (!root) return [];
     const row = line - 1;
-    // The call argument `name` on `line`: descend only into nodes spanning that row.
+    // The argument `name` of a call starting on `line` (the argument may sit on a later row):
+    // descend only into nodes spanning that row.
     let use: TsNode | undefined;
     const find = (n: TsNode): void => {
       if (use || n.startPosition.row > row || n.endPosition.row < row) return;
-      if (n.type === 'identifier' && n.parent?.type === 'arguments' && text(n) === name) use = n;
-      else for (const c of n.namedChildren) find(c);
+      if (n.type === 'arguments' && n.parent?.startPosition.row === row) {
+        use = n.namedChildren.find((a) => a.type === 'identifier' && text(a) === name);
+      }
+      if (!use) for (const c of n.namedChildren) find(c);
     };
     find(root);
     // Innermost declaration wins, walking out scope by scope (shadowing).
