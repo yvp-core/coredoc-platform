@@ -2036,7 +2036,16 @@ export class SubstrateProfileEngine {
       if (!isEm && !isRepo && !repoEntity) continue;
 
       if (isEm) {
-        const entityArg = rule.entityFrom ? this.readArgIdentifier(site.args[rule.entityFrom.arg]) : undefined;
+        let entityArg = rule.entityFrom ? this.readArgIdentifier(site.args[rule.entityFrom.arg]) : undefined;
+        // `declared-type`: an instance (`em.persist(grant)`) takes the ONE entity its declaration states.
+        if (entityArg && !this.entityNames.has(entityArg) && rule.entityFrom?.as === 'declared-type') {
+          const stated = new Set(
+            this.substrate
+              .declaredTypeNames(site.file, entityArg, site.loc.startLine)
+              .filter((n) => this.entityNames.has(n)),
+          );
+          entityArg = stated.size === 1 ? [...stated][0] : undefined;
+        }
         if (entityArg && this.entityNames.has(entityArg)) {
           this.pushDbOp(callerId, op, site, `${receiver}.${site.method}`, entityArg);
         }

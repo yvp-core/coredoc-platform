@@ -245,6 +245,14 @@ export interface Substrate {
   /** Resolve an identifier to its in-file string-literal const declaration. */
   resolveConst(ident: string, file: string): string | undefined;
   /**
+   * Class names the code states for `name`, passed as a call argument on `line` of `file`.
+   * The innermost declaration in scope decides: a parameter gives its annotation's type names
+   * (`Grant`, `Grant[]` → Grant, `Array<Grant>` → Array + Grant); a const/let gives the classes
+   * its initializer constructs or loads (`new X()`, `<em>.create(X, …)`, `<em>.find*(X, …)`, …).
+   * Syntax only, no type checker. Empty when nothing declares the name or nothing is stated.
+   */
+  declaredTypeNames(file: string, name: string, line: number): string[];
+  /**
    * Resolve a `Obj.MEMBER` const-object member reference (e.g. `IpcChannels.CHAT_SEND`)
    * to its string-literal value, scanning const-object literals across scoped files.
    * The cross-file, object-member analogue of `resolveConst` — for channel/route maps
