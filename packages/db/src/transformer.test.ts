@@ -753,6 +753,24 @@ describe('containment edges for previously-orphan node kinds', () => {
     expect(value('BANNER')).toBe("'Welcome to the scheduling dashboard v2'");
   });
 
+  it('masks the whole quoted value of a secret-named nested key and keeps its neighbours', () => {
+    const result = transformParsedRepo(
+      createMinimalParsedRepo({
+        variables: [
+          variable('CONFIG', "{ pwd: 'hunter2', region: 'eu-west-1' }"),
+          variable('LOGIN', "{ password: 'correct horse battery staple' }"),
+          variable('JSON_CONFIG', '{ "apiKey": "abc", "host": "db" }'),
+          variable('SETTINGS', "Settings(auth_token = 'a b c', retries = 3)"),
+        ],
+      }),
+    );
+    const value = (name: string) => result.nodes.find((n) => n.name === name)!.properties.initializerText;
+    expect(value('CONFIG')).toBe("{ pwd: '[REDACTED]', region: 'eu-west-1' }");
+    expect(value('LOGIN')).toBe("{ password: '[REDACTED]' }");
+    expect(value('JSON_CONFIG')).toBe('{ "apiKey": "[REDACTED]", "host": "db" }');
+    expect(value('SETTINGS')).toBe("Settings(auth_token = '[REDACTED]', retries = 3)");
+  });
+
   it.each(['MONKEY_COUNT', 'keyboardLayout'])('keeps the value of %s, which only looks secret-named', (name) => {
     const result = transformParsedRepo(createMinimalParsedRepo({ variables: [variable(name, "'plain'")] }));
     expect(result.nodes.find((n) => n.name === name)!.properties.initializerText).toBe("'plain'");

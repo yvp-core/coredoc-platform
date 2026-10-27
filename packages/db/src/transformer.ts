@@ -249,12 +249,25 @@ function isSecretName(name: string): boolean {
 const OPAQUE_LITERAL = /(['"`])(?=[^'"`\s]*\d)(?=[^'"`\s]*[A-Za-z])[A-Za-z0-9+/=_-]{20,}\1/g;
 
 /**
+ * `k: '…'`, `"k": "…"` or `k = '…'` inside a value. The lookbehind starts a key only at the head of a
+ * name, and each quoted run excludes its own quote, so a scan is linear.
+ */
+const KEYED_QUOTED_VALUE = /(?<![\w$])(['"]?)([A-Za-z_$][\w$-]*)\1(\s*[:=]\s*)('[^'\n]*'|"[^"\n]*"|`[^`]*`)/g;
+
+/** Masks the whole quoted value of every nested secret-named key, keeping the quotes around it. */
+function maskSecretKeyedValues(value: string): string {
+  return value.replace(KEYED_QUOTED_VALUE, (match, keyQuote, key: string, separator, quoted: string) =>
+    isSecretName(key) ? `${keyQuote}${key}${keyQuote}${separator}${quoted[0]}[REDACTED]${quoted[0]}` : match,
+  );
+}
+
+/**
  * A value, not a body: kept regardless of ALLOW_SOURCES_IN_GRAPH, bounded so it cannot carry one.
  * The graph leaves the machine, so a secret-named value is dropped and any other is masked before the cut.
  */
 function redactedValue(name: string, value: string | undefined): string | undefined {
   if (value === undefined || isSecretName(name)) return undefined;
-  const redacted = redactSecrets(value).replace(OPAQUE_LITERAL, '$1[REDACTED]$1');
+  const redacted = redactSecrets(maskSecretKeyedValues(value)).replace(OPAQUE_LITERAL, '$1[REDACTED]$1');
   return redacted.length > 200 ? `${redacted.slice(0, 200)}…` : redacted;
 }
 
