@@ -738,7 +738,10 @@ export class TreeSitterScipSubstrate implements Substrate {
   }
 
   private toCallSite(call: TsNode, file: string, chain: CallSite[]): CallSite {
-    const fn = call.childForFieldName('function');
+    let fn = call.childForFieldName('function');
+    // tree-sitter-typescript parses `await x.y<T>(…)` as `(await x.y)<T>(…)`: the await
+    // lands inside the callee only when type arguments are present.
+    if (fn?.type === 'await_expression') fn = fn.namedChildren[0] ?? fn;
     let receiver: string | undefined;
     let method: string | undefined;
     let calleeText = '';
