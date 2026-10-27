@@ -2211,7 +2211,9 @@ export class SubstrateProfileEngine {
         // a function in FROM) still describes a real operation; Cypher stays all-or-nothing.
         const parsed = q ? (matcher.dialect === 'cypher' ? parseCypherOp(q) : parseSqlStatement(q)) : undefined;
         if (parsed?.entity) {
-          const entity = entityByTable.get(parsed.entity.toLowerCase()) ?? parsed.entity;
+          // Only a SQL table names an entity's table; a Cypher label stays as written.
+          const entity =
+            (matcher.dialect === 'sql' ? entityByTable.get(parsed.entity.toLowerCase()) : undefined) ?? parsed.entity;
           this.pushDbOp(callerId, parsed.op, site, `${parsed.entity}:${site.loc.startLine}`, entity);
           continue;
         }

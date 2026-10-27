@@ -173,6 +173,27 @@ describe('dbOperations — raw SQL joins the entity owning the table', () => {
     expect(ops(`'select * from audit_log'`)).toEqual([['read', 'audit_log', false]]);
   });
 
+  it('leaves a Cypher label as written even when it equals an entity table', () => {
+    const cypherProfile = {
+      ...sqlProfile,
+      dbOperations: { rawQueries: [{ dialect: 'cypher', methods: ['execute'], receivers: ['client$'] }] },
+    } as ExtractionProfile;
+    const repo = run(
+      [
+        {
+          ...cypherCall,
+          calleeText: 'client.execute',
+          receiver: 'client',
+          method: 'execute',
+          args: [{ text: "'MATCH (n:jobs) RETURN n'" }],
+        },
+      ],
+      cypherProfile,
+      [store, job],
+    );
+    expect(repo.dbOperations.map((o) => [o.entityName, o.entityId !== undefined])).toEqual([['jobs', false]]);
+  });
+
   it('reads a query split across concatenated literals', () => {
     expect(ops(`'delete from ' +\n  "jobs " + \`where id = $1\``)).toEqual([['delete', 'Job', true]]);
   });
