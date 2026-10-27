@@ -215,7 +215,8 @@ export class TreeSitterScipSubstrate implements Substrate {
   // The three indexes below are keyed by bare class name, so a name declared in two files mixes
   // both classes: every lookup through them checks `isUniqueClass` first.
   // DI member types: className -> (property, ctor param or `return this.<field>` getter -> ClassName), for `this.a.b.m()`.
-  private readonly memberTypesByClass = new Map<string, Map<string, string>>();
+  // `null`: the member is declared, but its type is not an in-repo class.
+  private readonly memberTypesByClass = new Map<string, Map<string, string | null>>();
   // method id index: className -> (methodName -> methodId).
   private readonly methodsByClass = new Map<string, Map<string, string>>();
   // `extends` index: className -> in-repo base class name (package-imported bases are left out).
@@ -394,8 +395,14 @@ export class TreeSitterScipSubstrate implements Substrate {
         this.classFilesByName.set(c.name, [...(this.classFilesByName.get(c.name) ?? []), f.path]);
 
         if (di) {
-          const members = this.memberTypesByClass.get(c.name) ?? new Map<string, string>();
-          for (const p of [...c.properties, ...c.ctorParams]) if (p.type) members.set(p.name, this.diTypeName(p.type));
+          const members = this.memberTypesByClass.get(c.name) ?? new Map<string, string | null>();
+          for (const p of [...c.properties, ...c.ctorParams]) {
+            if (!p.type) continue;
+            const type = this.diTypeName(p.type);
+            const typeModule = importByName.get(type.split(/[.<\s]/)[0]);
+            // A package-imported type is external: its name may also name an unrelated in-repo class.
+            members.set(p.name, typeModule && this.isPackageImport(typeModule, f.path) ? null : type);
+          }
           // An unannotated `get x() { return this._x; }` has the type of its backing field.
           for (const m of c.methods) {
             const fieldType = !m.returnType && m.getterField && members.get(m.getterField);
@@ -2469,8 +2476,8 @@ export class TreeSitterScipSubstrate implements Substrate {
     let cls: string | undefined = className;
     for (let level = 0; cls !== undefined && level <= 5; level++) {
       if (!this.isUniqueClass(cls)) return undefined;
-      const type = this.memberTypesByClass.get(cls)?.get(member);
-      if (type) return type;
+      const members = this.memberTypesByClass.get(cls);
+      if (members?.has(member)) return members.get(member) ?? undefined;
       cls = this.baseByClass.get(cls);
     }
     return undefined;

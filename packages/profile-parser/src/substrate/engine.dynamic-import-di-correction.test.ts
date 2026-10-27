@@ -265,3 +265,46 @@ describe('call graph — DI member chains through a base-class getter', () => {
     expect(calleeOf('mixed')).toBeUndefined();
   });
 });
+
+describe('call graph — DI member chains that leave the repository', () => {
+  it('leaves a member typed with a package-imported class unbound, despite a same-named in-repo class', async () => {
+    const localClient = `export class Client {
+  send(body: string): string {
+    return body;
+  }
+}
+`;
+    const gateway = `import { Client } from 'widgets-sdk';
+
+export class Gateway {
+  constructor(readonly client: Client) {}
+}
+`;
+    const sender = `import type { Gateway } from '@app/gateway';
+
+export class Sender {
+  constructor(private readonly gateway: Gateway) {}
+
+  post(body: string): string {
+    return this.gateway.client.send(body);
+  }
+}
+`;
+    dir = writeFixture({ 'client.ts': localClient, 'gateway.ts': gateway, 'sender.ts': sender });
+    const sdk = join(dir, 'node_modules', 'widgets-sdk');
+    mkdirSync(sdk, { recursive: true });
+    writeFileSync(
+      join(sdk, 'package.json'),
+      JSON.stringify({ name: 'widgets-sdk', version: '1.0.0', types: 'index.d.ts' }),
+    );
+    writeFileSync(join(sdk, 'index.d.ts'), 'export declare class Client {\n  send(body: string): string;\n}\n');
+    const { repo } = await runProfile(PROFILE, dir, 'di-member-package');
+    const nameById = new Map(repo.functions.map((f) => [f.id, f.name]));
+    const localSend = repo.functions.find((f) => f.name === 'send')?.id;
+    const callee = repo.calls.find((c) => nameById.get(c.callerId) === 'post' && c.calleeExpression.endsWith('send'));
+
+    expect(localSend).toBeDefined();
+    expect(callee).toBeDefined();
+    expect(callee!.calleeId).not.toBe(localSend);
+  });
+});
