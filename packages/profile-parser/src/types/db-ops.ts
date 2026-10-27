@@ -36,7 +36,7 @@ export type DbOpRule = {
    * Raw SQL / Cypher query sources (no ORM): for call shapes like
    * `client.execute('SELECT … FROM nodes')` or `tx.run('MATCH (n:Function)…')`,
    * parse the query string into an operation + table/label. The entity name is the
-   * table (SQL) or node label (Cypher).
+   * entity whose `tableName` matches the table, else the table (SQL) or node label (Cypher).
    */
   rawQueries?: RawQueryMatcher[];
 };

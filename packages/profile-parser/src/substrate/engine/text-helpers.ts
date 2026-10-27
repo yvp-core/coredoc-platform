@@ -15,8 +15,24 @@ export function queryText(arg: ArgNode | undefined): string | undefined {
   const sqlEntry = arg.objectEntries?.find((e) => e.key === 'sql');
   const raw = (sqlEntry ? sqlEntry.valueText : arg.text)?.trim();
   if (!raw) return undefined;
+  const folded = foldLiteralConcat(raw);
+  if (folded !== undefined) return folded;
   const m = /^(['"`])([\s\S]*)\1$/.exec(raw); // strip surrounding quotes/backticks (template literals)
   return m ? m[2] : raw;
+}
+
+const LITERAL_PART_RE = /\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"|`((?:[^`\\]|\\.)*)`)\s*(\+|$)/y;
+
+/** `'a' + "b" + `c`` → `abc`; undefined unless every operand is a string/template literal. */
+function foldLiteralConcat(raw: string): string | undefined {
+  let out = '';
+  LITERAL_PART_RE.lastIndex = 0;
+  for (;;) {
+    const m = LITERAL_PART_RE.exec(raw);
+    if (!m) return undefined;
+    out += m[1] ?? m[2] ?? m[3];
+    if (!m[4]) return out;
+  }
 }
 
 /**

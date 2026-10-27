@@ -40,6 +40,7 @@ case).
 | `const-string` | an identifier resolved to its string-literal const | `define(ENTITY_NAME,…)` → `"BreakType"` |
 | `arrow-target` | the identifier returned by an arrow | `() => Companies` → `Companies` |
 | `identifier` | a bare identifier's text | `em.create(User,…)` → `User` |
+| `declared-type` | `entityFrom` only: an entity instance → the one entity its param annotation or const/let initializer states (`new X()`, `em.create(X,…)`, `em.findOne(X,…) ?? …`); else as `identifier` | `persist(grant)` with `grant: Grant` → `Grant` |
 | `object-property` `{ key }` | a property read out of an object-literal arg | `@Tool({ name:'search_symbols' })` key `name` → `search_symbols`; `@Cron(EXPR, { name:'…' })` arg 1 key `name` |
 
 `object-property` works for both decorator args and call-shape args — point `arg` at the object literal and
@@ -165,7 +166,7 @@ entity node.
   repoReceiverPattern:'/repository$|repo$/i',    // repo.<op>() — entity inferred from repo type
   modelReceiverPattern:'(^|\\.)models\\.[A-Z]…', // models.User.<op>() — entity named inline
   transactionReceiverPattern:'…',                // entity-agnostic tx ops
-  entityFrom:{ arg:0, as:'identifier' } }
+  entityFrom:{ arg:0, as:'identifier' } }        // 'declared-type' also binds em.persist(grant) / remove(x) / assign(x,…)
 ```
 Map *every* op the ORM exposes that you see in source — missing ops drop db-op coverage.
 
@@ -177,8 +178,9 @@ rawQueries:[
   { dialect:'cypher', methods:['run'],           queryArg:0, receivers:['(^|\\.)tx$'], inPaths:['packages/db/src/neo4j'] } ]
 ```
 `dialect:'sql'` → SQL verb→CRUD + table; `dialect:'cypher'` → Cypher clause→op + node label (handles
-multi-line template literals). The entity name *is* the table (SQL) / label (Cypher); **no entity node is
-synthesized**. `inPaths` scopes a matcher to a directory — needed when two stores share a method (SQLite and
+multi-line template literals and `'…' + '…'` literal concatenations). A table whose name matches an emitted
+entity's `tableName` (case-insensitive) takes that entity's name and binds to it; otherwise the entity name
+*is* the table (SQL) / label (Cypher), and **no entity node is synthesized**. `inPaths` scopes a matcher to a directory — needed when two stores share a method (SQLite and
 Neo4j both `.run(query,…)`).
 
 ### externalCalls[] — outbound clients
@@ -192,6 +194,18 @@ Neo4j both `.run(query,…)`).
 ```
 `receiverPattern`/flag regexes are **regex source strings** (the engine compiles them), e.g.
 `'/repository$/i'` or `'(^|\\.)models\\.'`.
+
+An http matcher's optional `serviceSelector` sets `targetService` from a token in the call, mapped
+through `serviceMap` (an unmapped token leaves it unset): `{ via:'arg-member', arg, container }` reads
+`CONFIG.<token>` at arg N, `{ via:'uri-template', container }` reads `${<container>.<token>}` in the
+URL, and `{ via:'receiver-call-arg', callee:'for', arg:1 }` reads the string literal of a receiver call,
+`this.clients.for(env, 'widgets').get(…)` or `const c = this.clients.for(env, 'widgets'); c.get(…)`.
+
+A queue topic that is a **parameter** of the enclosing method (`publish(topic) { producer.send({ topic }) }`)
+resolves from each direct in-repo caller's argument, one hop: a literal, a const/enum member
+(`Topics.X`), or a declared unwrap call. Object-literal sends opt into unwrapping with
+`topic:{arg:0,as:'object-property',key:'topic',unwrapCalls:['getTopicInNamespace']}`, which also reads an
+inline `{ topic: getTopicInNamespace(Topics.X) }`. Each distinct caller topic is its own edge.
 
 ### di / callGraph / synthesize
 
@@ -219,6 +233,10 @@ routes: {
 `framework` is exactly `'next-pages' | 'next-app'`; `routeDir` is a real string path. Mixed or
 unsupported routing is represented by omitting that rule (or just the unsupported app's entry) and
 explaining the gap in the profile comment — never by `{ framework: 'unknown', routeDir: 'unknown' }`.
+
+`joinNestedPaths: true` (with `componentProp`/`renderProp`/`configArray`) joins a react-router route
+nested under a parent `<Route path>` or a config `children:` array onto the parent path
+(`jobs` under `/acme/:id` → `/acme/:id/jobs`) and emits index routes with the parent's path.
 
 State-store rules name an exact factory callee bound to an exported const:
 

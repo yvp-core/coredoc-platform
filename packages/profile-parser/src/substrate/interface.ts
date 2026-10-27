@@ -55,6 +55,8 @@ export interface SubstrateClass {
    * when the class has no `extends` clause. Drives repo-base-class entity resolution.
    */
   extendsClass?: { name: string; typeArgs: string[] };
+  /** Declared `abstract class`: an entity base declared this way owns no table. */
+  isAbstract?: boolean;
   loc: SubstrateLoc;
 }
 
@@ -210,6 +212,8 @@ export interface ExternalCallFact {
     destination: string;
     /** Runtime destination when the token is statically resolvable. */
     destinationValue?: string;
+    /** The destination was read from a caller's argument, so one site can carry several. */
+    fromCaller?: true;
   };
   /**
    * Registry-driven SDK egress (`loadStripe(…)`, `Sentry.init(…)`, `new OpenAI()`)
@@ -244,6 +248,14 @@ export interface Substrate {
   callShapes(calleePattern?: string): CallSite[];
   /** Resolve an identifier to its in-file string-literal const declaration. */
   resolveConst(ident: string, file: string): string | undefined;
+  /**
+   * Class names the code states for `name`, passed as a call argument on `line` of `file`.
+   * The innermost declaration in scope decides: a parameter gives its annotation's type names
+   * (`Grant`, `Grant[]` → Grant, `Array<Grant>` → Array + Grant); a const/let gives the classes
+   * its initializer constructs or loads (`new X()`, `<em>.create(X, …)`, `<em>.find*(X, …)`, …).
+   * Syntax only, no type checker. Empty when nothing declares the name or nothing is stated.
+   */
+  declaredTypeNames(file: string, name: string, line: number): string[];
   /**
    * Resolve a `Obj.MEMBER` const-object member reference (e.g. `IpcChannels.CHAT_SEND`)
    * to its string-literal value, scanning const-object literals across scoped files.

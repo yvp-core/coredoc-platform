@@ -31,6 +31,7 @@ import { lookupSdkByPackage } from '@coredoc/core/base-parser/sdk-registry';
 import type { StructuralCall, StructuralFile } from '../facts/structural/ts-structural.js';
 import type { Node as TsNode } from 'web-tree-sitter';
 import type {
+  ArgRef,
   ExternalClientMatcher,
   ImportResolution,
   RegistryRule,
@@ -41,7 +42,7 @@ import type {
 import { globMatches } from './glob.js';
 import { regexFromSource, requirePathToRel } from './regex-util.js';
 import { text, unquote } from './scip/ts-text.js';
-import { calleeName, calleeTail, lineAt, routeFileInScope } from './scip/call-shapes.js';
+import { calleeName, calleeTail, lineAt, nestedRoutePath, routeFileInScope } from './scip/call-shapes.js';
 import { type RecordTableHost, recordTableRouteSites } from './scip/record-table-routes.js';
 import {
   buildBareImports,
@@ -61,7 +62,7 @@ import {
   type SymbolIdentityResolver,
   createSymbolIdentityResolver,
 } from '../facts/structural/symbol-ref-identity.js';
-import type { StructuralLocalBinding, StructuralParam } from '../facts/structural/ts-structural.js';
+import { callCallee, type StructuralLocalBinding, type StructuralParam } from '../facts/structural/ts-structural.js';
 import {
   bareStringMethodName,
   bareStringVerb,
@@ -69,6 +70,9 @@ import {
   inlineConstInterpolations,
   objectArgOmitsKey,
   resolveHttpMethodArg,
+  type QueueTopicResolution,
+  queueTopicIdentifier,
+  resolveCallerTopicArgument,
   resolveHttpUrl,
   resolveQueueTopicReference,
   resolveServiceSelector,
@@ -275,6 +279,9 @@ export class TreeSitterScipSubstrate implements Substrate {
   private readonly localBindingsByFile = new Map<string, Map<string, StructuralLocalBinding[]>>();
   // file → `<kind>|<class>|<name>` → that method's/function's parameters.
   private readonly paramsByEnclosing = new Map<string, Map<string, StructuralParam[]>>();
+  // callee id → its resolved in-repo call edges; built on the first parameter-topic queue send.
+  private callersByCallee: Map<string, CallEdgeFact[]> | undefined;
+  private internalCallsMemo: CallEdgeFact[] | undefined;
   // file → local name → the name+module it is imported from (hoisted, as hierarchy-ref-identity
   // already does per file — `interfaceIdForName` rebuilt it on every single call).
   private readonly importedNamesByFile = new Map<string, Map<string, ImportedName>>();
@@ -373,6 +380,8 @@ export class TreeSitterScipSubstrate implements Substrate {
     this.vueSource.clear();
     this.localBindingsByFile.clear();
     this.paramsByEnclosing.clear();
+    this.callersByCallee = undefined;
+    this.internalCallsMemo = undefined;
     this.importedNamesByFile.clear();
     this.cstParsed = false;
   }
@@ -508,6 +517,7 @@ export class TreeSitterScipSubstrate implements Substrate {
             loc: { filePath: f.path, startLine: p.startLine, endLine: p.endLine },
           })),
           extendsClass: c.extendsClass,
+          isAbstract: c.isAbstract,
           loc: { filePath: f.path, startLine: c.startLine, endLine: c.endLine },
         });
       }
@@ -578,9 +588,39 @@ export class TreeSitterScipSubstrate implements Substrate {
    * and remain droppable hosts. Param identifiers (`${companyUuid}`) and
    * runtime-valued consts don't resolve to a string const, so they are left as
    * `${ident}` and normalized/dropped downstream exactly as before.
+   *
+   * A bare identifier argument (`this.post(SCHEMAS_PATH)`) is first replaced by the
+   * initializer of a same-file module `const` holding a string or template literal, so
+   * a template of consts (`` `${API}/items` ``) is then inlined like any other.
    */
-  inlineStringConstInterpolations(raw: string | undefined, file: string): string | undefined {
-    return inlineConstInterpolations(raw, (ident) => this.resolveConst(ident, file));
+  inlineStringConstInterpolations(raw: string | undefined, file: string, line: number): string | undefined {
+    const bare = raw?.trim();
+    const init =
+      bare && /^[A-Za-z_$][\w$]*$/.test(bare) && !this.shadowedAt(file, bare, line)
+        ? this.structuralFile(file)
+            ?.variables.find((v) => v.name === bare && v.declarationKind === 'const')
+            ?.initialValue?.trim()
+        : undefined;
+    // A const's own initializer is read in module scope; the call-site text in the call's scope.
+    if (init && /^(['"`])[\s\S]*\1$/.test(init)) {
+      return inlineConstInterpolations(init, (ident) => this.resolveConst(ident, file));
+    }
+    return inlineConstInterpolations(raw, (ident) => this.resolveConstAt(ident, file, line));
+  }
+
+  /** `resolveConst`, unless a parameter or local enclosing 1-based `line` shadows the name. */
+  private resolveConstAt(name: string, file: string, line: number): string | undefined {
+    return this.shadowedAt(file, name, line) ? undefined : this.resolveConst(name, file);
+  }
+
+  /** Is `name` bound by a parameter or a non-module declaration of a scope enclosing 1-based `line`? */
+  private shadowedAt(file: string, name: string, line: number): boolean {
+    const row = line - 1;
+    for (let n = this.cstRoots.get(file); n; ) {
+      if (n.type !== 'program' && scopeBinds(n, name)) return true;
+      n = n.namedChildren.find((c) => c.startPosition.row <= row && row <= c.endPosition.row);
+    }
+    return false;
   }
 
   /**
@@ -738,7 +778,7 @@ export class TreeSitterScipSubstrate implements Substrate {
   }
 
   private toCallSite(call: TsNode, file: string, chain: CallSite[]): CallSite {
-    const fn = call.childForFieldName('function');
+    const { fn } = callCallee(call);
     let receiver: string | undefined;
     let method: string | undefined;
     let calleeText = '';
@@ -1071,7 +1111,9 @@ export class TreeSitterScipSubstrate implements Substrate {
     for (const [file, text] of this.cstSource) {
       if (!routeFileInScope(file, rule)) continue;
       const seen = new Set<string>();
-      const add = (path: string, componentName: string, idx: number): void => {
+      const root = this.cstRoots.get(file);
+      const add = (rawPath: string, componentName: string, idx: number): void => {
+        const path = rule.joinNestedPaths && root ? nestedRoutePath(root, idx, rawPath) : rawPath;
         const key = `${path}::${componentName}`;
         if (seen.has(key)) return;
         seen.add(key);
@@ -1088,8 +1130,11 @@ export class TreeSitterScipSubstrate implements Substrate {
         // config-object route factories (TanStack `createRoute({ path: '/x',
         // beforeLoad: …, component: X })`); the CST read is quote-agnostic and survives
         // intervening function-valued props. `seen` dedups the overlap.
-        const root = this.cstRoots.get(file);
-        if (root) this.collectConfigObjectRoutes(root, add);
+        if (root) this.collectConfigObjectRoutes(root, add, rule.joinNestedPaths);
+      }
+      if (rule.joinNestedPaths && (rule.componentProp || rule.renderProp) && root) {
+        // Index routes have no `path`; `add` gives the empty path the parent route's.
+        this.collectJsxIndexRoutes(root, add);
       }
       if (rule.componentProp || rule.renderProp) {
         const statFwd = /<Route[^<>]*path="([^"]+)"[^<>]*component=\{(\w+)\}/g;
@@ -1144,10 +1189,44 @@ export class TreeSitterScipSubstrate implements Substrate {
     return out;
   }
 
-  /** Object-literal route configs: `{ path: <string>, component: <Identifier> }` at one level. */
+  /**
+   * JSX index routes: `<Route index element={<X />} />` or `component={X}`, attributes in any
+   * order (`index` alone or `index={true}`), read off the CST so a function-valued attribute
+   * such as `loader={() => …}` cannot end the tag early.
+   */
+  private collectJsxIndexRoutes(root: TsNode, add: (path: string, componentName: string, idx: number) => void): void {
+    const tags = [
+      ...this.descendantsOfType(root, 'jsx_self_closing_element'),
+      ...this.descendantsOfType(root, 'jsx_opening_element'),
+    ];
+    for (const tag of tags) {
+      if (text(tag.childForFieldName('name')) !== 'Route') continue;
+      let index = false;
+      let component: TsNode | undefined;
+      for (const attr of tag.namedChildren) {
+        if (attr.type !== 'jsx_attribute') continue;
+        const [name, value] = attr.namedChildren;
+        const inner = value?.type === 'jsx_expression' ? value.namedChildren[0] : undefined;
+        if (text(name) === 'index') index = !value || text(inner) === 'true';
+        else if (text(name) === 'component' && inner?.type === 'identifier') component = inner;
+        else if (text(name) === 'element' && inner) {
+          const open = inner.type === 'jsx_element' ? inner.namedChildren[0] : inner;
+          const tagName = open?.childForFieldName('name');
+          if (tagName?.type === 'identifier') component = tagName;
+        }
+      }
+      if (index && component && /^[A-Z]/.test(text(component))) add('', text(component), component.startIndex);
+    }
+  }
+
+  /**
+   * Object-literal route configs: `{ path: <string>, component: <Identifier> }` at one
+   * level. With `withIndex`, `{ index: true, component: X }` is a route with an empty path.
+   */
   private collectConfigObjectRoutes(
     root: TsNode,
     add: (path: string, componentName: string, idx: number) => void,
+    withIndex?: boolean,
   ): void {
     const visit = (n: TsNode): void => {
       if (n.type === 'object') {
@@ -1159,6 +1238,7 @@ export class TreeSitterScipSubstrate implements Substrate {
           const value = pair.childForFieldName('value');
           if (!value) continue;
           if (key === 'path' && value.type === 'string') routePath = unquote(text(value));
+          else if (withIndex && key === 'index' && value.type === 'true') routePath ??= '';
           else if (key === 'component' && value.type === 'identifier') component = value;
         }
         if (routePath !== undefined && component) add(routePath, text(component), component.startIndex);
@@ -1539,6 +1619,72 @@ export class TreeSitterScipSubstrate implements Substrate {
     const innermost = candidates.reduce((best, b) => (spanOf(b) < spanOf(best) ? b : best));
     if (candidates.filter((b) => spanOf(b) === spanOf(innermost)).length > 1) return undefined;
     return innermost.initialValue;
+  }
+
+  declaredTypeNames(file: string, name: string, line: number): string[] {
+    const root = this.cstRoots.get(file);
+    if (!root) return [];
+    const row = line - 1;
+    // The argument `name` of a call starting on `line` (the argument may sit on a later row):
+    // descend only into nodes spanning that row.
+    let use: TsNode | undefined;
+    const find = (n: TsNode): void => {
+      if (use || n.startPosition.row > row || n.endPosition.row < row) return;
+      if (n.type === 'arguments' && n.parent?.startPosition.row === row) {
+        use = n.namedChildren.find((a) => a.type === 'identifier' && text(a) === name);
+      }
+      if (!use) for (const c of n.namedChildren) find(c);
+    };
+    find(root);
+    // Innermost declaration wins, walking out scope by scope (shadowing).
+    for (let n = use?.parent; n; n = n.parent) {
+      for (const decl of n.namedChildren) {
+        if (decl.type !== 'lexical_declaration') continue;
+        for (const d of decl.namedChildren) {
+          if (d.type !== 'variable_declarator' || text(d.childForFieldName('name')) !== name) continue;
+          const initializer = d.childForFieldName('value');
+          // A `let` reassigned within its own scope names an entity only when every value it is
+          // given (initializer included) names the same single one.
+          const writes = text(decl.child(0)) === 'let' ? writesTo(n, name) : [];
+          if (writes === undefined) return [];
+          if (writes.length === 0) return this.valueTypeNames(initializer);
+          const named = [...(initializer ? [initializer] : []), ...writes].map((v) => this.valueTypeNames(v));
+          const [first] = named[0];
+          return named.every((ns) => ns.length === 1 && ns[0] === first) ? [first] : [];
+        }
+      }
+      const params = n.childForFieldName('parameters') ?? n.childForFieldName('parameter');
+      for (const p of params?.type === 'formal_parameters' ? params.namedChildren : params ? [params] : []) {
+        // TS wraps a parameter (`required_parameter` with `pattern`/`type`); JS has the bare identifier.
+        const pattern = p.childForFieldName('pattern') ?? p;
+        if (pattern.type !== 'identifier' || text(pattern) !== name) continue;
+        const type = p.childForFieldName('type');
+        return type ? this.descendantsOfType(type, 'type_identifier').map(text) : [];
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Classes a value states: what it constructs or loads (`constructedClassNames`), or, for
+   * `this.m(…)` (awaited or not), the return-type annotation of method `m` in the enclosing
+   * class. No inference: an unannotated or inherited method states nothing.
+   */
+  private valueTypeNames(value: TsNode | null): string[] {
+    const constructed = constructedClassNames(value);
+    if (constructed.length) return constructed;
+    let call = value;
+    while (call?.type === 'await_expression' || call?.type === 'parenthesized_expression') call = call.namedChildren[0];
+    const fn = call?.type === 'call_expression' ? call.childForFieldName('function') : null;
+    if (fn?.type !== 'member_expression' || fn.childForFieldName('object')?.type !== 'this') return [];
+    const method = text(fn.childForFieldName('property'));
+    let body = fn.parent;
+    while (body && body.type !== 'class_body') body = body.parent;
+    const def = body?.namedChildren.find(
+      (m) => m.type === 'method_definition' && text(m.childForFieldName('name')) === method,
+    );
+    const type = def?.childForFieldName('return_type');
+    return type ? this.descendantsOfType(type, 'type_identifier').map(text) : [];
   }
 
   /**
@@ -1968,6 +2114,12 @@ export class TreeSitterScipSubstrate implements Substrate {
   // ── internal calls (SCIP, scoped, DI-corrected) ────────────────────────────
 
   internalCalls(): CallEdgeFact[] {
+    // Computed once: a parameter-topic queue send reads it mid-run, and the engine again at assembly.
+    this.internalCallsMemo ??= this.computeInternalCalls();
+    return this.internalCallsMemo;
+  }
+
+  private computeInternalCalls(): CallEdgeFact[] {
     const scopedFnIds = this.scopedFunctionIds();
     // Index structural call sites (receiver/method/enclosing) by (callerId, file, line)
     // so we can DI-correct SCIP edges that landed on a constructor.
@@ -2757,7 +2909,8 @@ export class TreeSitterScipSubstrate implements Substrate {
     // recognize the same site (mirrors the ts-morph base parser's id de-dup).
     const seen = new Set<string>();
     const push = (fact: ExternalCallFact): void => {
-      const key = `${fact.callerId}|${fact.method}|${fact.location.startLine}`;
+      // The destination keeps a parameter topic's per-caller fan-out (several topics, one site).
+      const key = `${fact.callerId}|${fact.method}|${fact.location.startLine}|${fact.messaging?.destination ?? ''}`;
       if (seen.has(key)) return;
       seen.add(key);
       out.push(fact);
@@ -2828,8 +2981,7 @@ export class TreeSitterScipSubstrate implements Substrate {
             continue;
           }
         }
-        const fact = this.matchExternal(call, f.path, callerId, matchers);
-        if (fact) push(fact);
+        for (const fact of this.matchExternal(call, f.path, callerId, matchers)) push(fact);
       }
       // Registry: `new <Ctor>()` constructor egress (`new OpenAI()`), import-anchored —
       // or anchored through the composed-ctor lineage (`new RetryOctokit()`).
@@ -3104,14 +3256,14 @@ export class TreeSitterScipSubstrate implements Substrate {
       // Inline `${CONST}` string consts BEFORE route extraction so a leading
       // const route-prefix (`${BASE}/…`) isn't mistaken for a config host and
       // dropped by templateTailRoute (see inlineStringConstInterpolations).
-      const rawUrlArg = m.url ? this.inlineStringConstInterpolations(urlArgText, file) : undefined;
+      const rawUrlArg = m.url ? this.inlineStringConstInterpolations(urlArgText, file, call.startLine) : undefined;
       const rawUrl = m.url ? resolveHttpUrl(rawUrlArg, m.url) : undefined;
       // Resolve `${CONST}` prefix interpolations surviving as `{IDENT}` placeholders to
       // their string-const value (e.g. `const BASE = 'foo'` → `/${BASE}/items/${x}` →
       // `/foo/items/{x}`), so a const-prefixed egress URL matches a concrete entrypoint.
       // Path PARAMS (`{id}`) don't resolve to a const → left as-is.
       const resolvedUrl = rawUrl?.replace(/\{([A-Za-z_$][\w$]*)\}/g, (full, ident) => {
-        const v = this.resolveConst(ident, file);
+        const v = this.resolveConstAt(ident, file, call.startLine);
         return typeof v === 'string' && v.length > 0 ? v : full;
       });
       // An absolute URL whose host came from an IN-REPO const still routes on its path;
@@ -3151,7 +3303,7 @@ export class TreeSitterScipSubstrate implements Substrate {
     file: string,
     callerId: string,
     matchers: ExternalClientMatcher[],
-  ): ExternalCallFact | undefined {
+  ): ExternalCallFact[] {
     const receiver = call.receiver!;
     const methodName = call.methodName!;
     const propName = receiver.startsWith('this.') ? receiver.slice('this.'.length) : receiver;
@@ -3162,6 +3314,17 @@ export class TreeSitterScipSubstrate implements Substrate {
     const rootProp = propName.split('.')[0];
     const diClass = this.diMap.get(file)?.get(rootProp);
     const diImportMod = this.diImportModule.get(file)?.get(rootProp);
+    // One hop through a bare local const (`const c = this.clients.for(env, 'x'); c.get(…)`): the
+    // receiver match and the receiver-call-arg selector also read the chain it was bound to.
+    let bound: string | undefined | null = null;
+    const boundReceiver = (): string | undefined => {
+      if (bound === null) {
+        bound = /^[A-Za-z_$][\w$]*$/.test(receiver)
+          ? this.localBindingInitializer(file, receiver, call.startLine)
+          : undefined;
+      }
+      return bound;
+    };
 
     for (const m of matchers) {
       if (m.kind === 'imported-sdk') {
@@ -3190,7 +3353,7 @@ export class TreeSitterScipSubstrate implements Substrate {
         } else if (m.protocol === 'messaging') {
           fact.protocol = 'messaging';
         }
-        return fact;
+        return [fact];
       }
       if (m.kind === 'sdk') {
         const byDi = diClass !== undefined && (m.diTypeSuffix ?? []).some((s) => diClass.endsWith(s));
@@ -3212,21 +3375,28 @@ export class TreeSitterScipSubstrate implements Substrate {
               descriptor: segment ? `${segment}#${methodName}().` : `${methodName}().`,
             };
           }
-          return fact;
+          return [fact];
         }
         continue;
       }
       // bareCallee http (fetch) + new-instance sdk are ts-morph-only frontend
       // matchers; the substrate doesn't classify them.
       if (m.kind === 'http' && 'bareCallee' in m) continue;
-      if (!externalReceiverMatches(receiver, propName, m)) continue;
+      if (!externalReceiverMatches(receiver, propName, m)) {
+        const chain = boundReceiver();
+        if (chain === undefined || !externalReceiverMatches(chain, chain, m)) continue;
+      }
       if (m.kind === 'http') {
         if (!('verbs' in m) || !m.verbs.includes(methodName)) continue;
         // Inline `${CONST}` string consts BEFORE route extraction so a leading
         // const route-prefix (`${BASE}/…`) isn't mistaken for a config host and
         // dropped by templateTailRoute (see inlineStringConstInterpolations).
         const rawUrlArg = m.url
-          ? this.inlineStringConstInterpolations(this.inlineRouteConstMembers(call.arguments?.[m.url.arg], file), file)
+          ? this.inlineStringConstInterpolations(
+              this.inlineRouteConstMembers(call.arguments?.[m.url.arg], file),
+              file,
+              call.startLine,
+            )
           : undefined;
         const rawPathTemplate = m.url ? resolveHttpUrl(rawUrlArg, m.url) : undefined;
         // Resolve `${CONST}` prefix interpolations that survive as `{IDENT}` placeholders
@@ -3234,7 +3404,7 @@ export class TreeSitterScipSubstrate implements Substrate {
         // → `/foo/items/{x}`), so a const-prefixed egress URL matches a concrete
         // entrypoint. Path PARAMS (`{id}`) don't resolve to a const → left as-is.
         const pathTemplate = rawPathTemplate?.replace(/\{([A-Za-z_$][\w$]*)\}/g, (full, ident) => {
-          const v = this.resolveConst(ident, file);
+          const v = this.resolveConstAt(ident, file, call.startLine);
           return typeof v === 'string' && v.length > 0 ? v : full;
         });
         // The HTTP verb: read from an arg (request-wrapper `{ method: 'POST' }`) when
@@ -3252,8 +3422,10 @@ export class TreeSitterScipSubstrate implements Substrate {
         // The uri-template selector reads from the SAME arg the URL lives in.
         const selectorUrlArg =
           m.serviceSelector?.via === 'uri-template' ? call.arguments?.[m.url?.arg ?? 0] : undefined;
+        const selectorReceiver =
+          m.serviceSelector?.via === 'receiver-call-arg' ? (boundReceiver() ?? receiver) : receiver;
         const targetService = m.serviceSelector
-          ? resolveServiceSelector(m.serviceSelector, call.arguments ?? [], selectorUrlArg)
+          ? resolveServiceSelector(m.serviceSelector, call.arguments ?? [], selectorUrlArg, selectorReceiver)
           : undefined;
         // Dynamic-dispatch wrappers (`this.performApiRequest('listResources', …)`)
         // carry the SDK method NAME in a positional string-literal arg; capture it onto
@@ -3262,20 +3434,22 @@ export class TreeSitterScipSubstrate implements Substrate {
         const dispatchMethod = m.methodNameArg
           ? bareStringMethodName(call.arguments?.[m.methodNameArg.arg])
           : undefined;
-        return {
-          callerId,
-          serviceName: m.serviceName,
-          sdkName: m.sdkName,
-          method: httpMethod,
-          location: loc,
-          http: pathTemplate ? { method: httpMethod, pathTemplate } : undefined,
-          targetService,
-          ...(dispatchMethod ? { dispatchMethod } : {}),
-          // The dispatched SDK method is a symbol in the declared package: join it by name.
-          ...(dispatchMethod && m.sdkName
-            ? { moniker: { packageName: m.sdkName, descriptor: `${dispatchMethod}().` } }
-            : {}),
-        };
+        return [
+          {
+            callerId,
+            serviceName: m.serviceName,
+            sdkName: m.sdkName,
+            method: httpMethod,
+            location: loc,
+            http: pathTemplate ? { method: httpMethod, pathTemplate } : undefined,
+            targetService,
+            ...(dispatchMethod ? { dispatchMethod } : {}),
+            // The dispatched SDK method is a symbol in the declared package: join it by name.
+            ...(dispatchMethod && m.sdkName
+              ? { moniker: { packageName: m.sdkName, descriptor: `${dispatchMethod}().` } }
+              : {}),
+          },
+        ];
       }
       if (m.kind === 'queue') {
         if (!m.methods.includes(methodName)) continue;
@@ -3289,20 +3463,149 @@ export class TreeSitterScipSubstrate implements Substrate {
           (name) => this.localBindingInitializer(file, name, call.startLine),
         );
         // Drop empty/unresolvable topics rather than emit `topic: ''`.
-        if (topic === undefined) continue;
-        return {
+        const topics = topic ? [topic] : this.callerArgumentTopics(call, file, callerId, raw, m.topic);
+        if (topics.length === 0) continue;
+        return topics.map((t) => ({
           callerId,
           serviceName: m.system,
           method: methodName,
           location: loc,
           messaging: {
             system: m.system,
-            destination: topic.topic,
-            ...(topic.topicValue ? { destinationValue: topic.topicValue } : {}),
+            destination: t.topic,
+            ...(t.topicValue ? { destinationValue: t.topicValue } : {}),
+            ...(topic ? {} : { fromCaller: true as const }),
           },
-        };
+        }));
       }
     }
-    return undefined;
+    return [];
   }
+
+  /**
+   * Topics of a queue send whose topic is a PARAMETER of the enclosing method, read from each
+   * direct in-repo caller's argument at that position: one hop, distinct topics only. A caller
+   * whose argument does not resolve contributes nothing.
+   */
+  private callerArgumentTopics(
+    call: StructuralCall,
+    file: string,
+    callerId: string,
+    rawArg: string | undefined,
+    ref: ArgRef,
+  ): QueueTopicResolution[] {
+    const written = queueTopicIdentifier(rawArg, ref);
+    const f = this.structuralFile(file);
+    if (!written || !f || !call.enclosingName) return [];
+    const param = this.receiverParam(call, file, written.name, call.startLine);
+    if (!param || param.isRest) return [];
+    const params = this.paramIndex(f).get(enclosingKey(call.enclosingKind, call.enclosingClass, call.enclosingName));
+    const index = params?.indexOf(param) ?? -1;
+    if (index < 0) return [];
+    if (!this.callersByCallee) {
+      this.callersByCallee = new Map();
+      for (const edge of this.internalCalls()) {
+        if (!edge.calleeId) continue;
+        const bucket = this.callersByCallee.get(edge.calleeId);
+        if (bucket) bucket.push(edge);
+        else this.callersByCallee.set(edge.calleeId, [edge]);
+      }
+    }
+    const byTopic = new Map<string, QueueTopicResolution>();
+    for (const edge of this.callersByCallee.get(callerId) ?? []) {
+      const passed = edge.arguments?.[index];
+      if (passed === undefined) continue;
+      // A caller that binds the topic to a local first (`const t = wrap(X); this.send(t)`).
+      const arg = /^[A-Za-z_$][\w$]*$/.test(passed)
+        ? (this.localBindingInitializer(edge.location.filePath, passed, edge.location.startLine) ?? passed)
+        : passed;
+      const topic = resolveCallerTopicArgument(arg, ref, written.wrapper, (r) =>
+        this.baseline.resolver.resolve(r, edge.location.filePath),
+      );
+      if (topic && !byTopic.has(topic.topic)) byTopic.set(topic.topic, topic);
+    }
+    return [...byTopic.values()];
+  }
+}
+
+/**
+ * Does node `n` bind `name` for its subtree: a parameter of it (function-like), or a
+ * declaration among its own statements (a block, a `for` initializer)?
+ */
+function scopeBinds(n: TsNode, name: string): boolean {
+  const params = n.childForFieldName('parameters') ?? n.childForFieldName('parameter');
+  for (const p of params?.type === 'formal_parameters' ? params.namedChildren : params ? [params] : []) {
+    const pattern = p.childForFieldName('pattern') ?? p;
+    if (pattern.type === 'identifier' && text(pattern) === name) return true;
+  }
+  return n.namedChildren.some(
+    (d) =>
+      (d.type === 'lexical_declaration' || d.type === 'variable_declaration') &&
+      d.namedChildren.some((v) => v.type === 'variable_declarator' && text(v.childForFieldName('name')) === name),
+  );
+}
+
+/**
+ * The values plainly assigned to the identifier `name` under `scope` (`name = v`), skipping
+ * nested scopes that bind their own `name`. Undefined when it is also updated in place
+ * (`name += v`, `name++`), which states no value.
+ */
+function writesTo(scope: TsNode, name: string): TsNode[] | undefined {
+  const values: TsNode[] = [];
+  let updated = false;
+  const walk = (n: TsNode): void => {
+    if (n.id !== scope.id && scopeBinds(n, name)) return;
+    const target =
+      n.type === 'assignment_expression' || n.type === 'augmented_assignment_expression'
+        ? n.childForFieldName('left')
+        : n.type === 'update_expression'
+          ? n.childForFieldName('argument')
+          : null;
+    if (target?.type === 'identifier' && text(target) === name) {
+      const value = n.type === 'assignment_expression' ? n.childForFieldName('right') : null;
+      if (value) values.push(value);
+      else updated = true;
+    }
+    for (const c of n.namedChildren) walk(c);
+  };
+  walk(scope);
+  return updated ? undefined : values;
+}
+
+/**
+ * Classes a local's initializer constructs or loads (`declaredTypeNames`): `new X(…)`,
+ * `Object.assign(new X(), …)`, `<em>.create(X, …)`, `<em>.find*(X, …)`, behind `await`/parens
+ * and on either side of `??`. Any other shape states no class.
+ */
+function constructedClassNames(n: TsNode | null | undefined): string[] {
+  if (!n) return [];
+  switch (n.type) {
+    case 'await_expression':
+    case 'parenthesized_expression':
+    case 'non_null_expression':
+    case 'as_expression':
+      return constructedClassNames(n.namedChildren[0]);
+    case 'binary_expression':
+      if (text(n.childForFieldName('operator')) !== '??') return [];
+      return [
+        ...constructedClassNames(n.childForFieldName('left')),
+        ...constructedClassNames(n.childForFieldName('right')),
+      ];
+    case 'new_expression': {
+      const ctor = n.childForFieldName('constructor');
+      return ctor?.type === 'identifier' ? [text(ctor)] : [];
+    }
+    case 'call_expression': {
+      const fn = n.childForFieldName('function');
+      const first = n.childForFieldName('arguments')?.namedChildren[0];
+      if (text(fn) === 'Object.assign') return constructedClassNames(first);
+      const method = fn?.type === 'member_expression' ? text(fn.childForFieldName('property')) : '';
+      if (!(method === 'create' || method.startsWith('find')) || first?.type !== 'identifier') return [];
+      // `this.findOne(companyId, …)` is the class's own method, not `em.find(Entity, …)`: unless
+      // its first argument names a class, leave it to the method's return annotation.
+      if (fn?.childForFieldName('object')?.type === 'this' && !/^[A-Z]/.test(text(first))) return [];
+      return [text(first)];
+    }
+  }
+  return [];
 }

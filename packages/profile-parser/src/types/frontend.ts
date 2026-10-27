@@ -220,6 +220,14 @@ export interface RouteRule {
   /** Read config-array `{ path: '…', component: X }` entries. */
   configArray?: boolean;
   /**
+   * Join a route nested under a parent route (JSX `<Route>` children, or a config
+   * object's `children:` array) onto the parent's path: `jobs` under `/acme/:id` →
+   * `/acme/:id/jobs`. Index routes (`<Route index element={<X/>}/>`, `{ index: true,
+   * component: X }`) are emitted with the parent's path. Absolute and `[base]` child
+   * paths are kept as written; a parent's trailing `/*` is dropped before joining.
+   */
+  joinNestedPaths?: boolean;
+  /**
    * Read react-admin `<Resource name="x" list/show/edit/create={Component}/>` declarations.
    * Each present CRUD prop yields one route — `/x` (list), `/x/create` (create), `/x/:id`
    * (edit), `/x/:id/show` (show) — whose component is the prop's identifier. react-admin

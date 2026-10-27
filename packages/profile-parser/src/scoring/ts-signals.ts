@@ -12,6 +12,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { enumerateRepoFiles } from '../facts/discovery/discover.js';
+import { isAbstractEntityBase } from '../substrate/abstract-entity.js';
 import { globMatches } from '../substrate/glob.js';
 import type { SignalHit } from './cluster-report.js';
 import { operatedEntityCount, type ScoreContext, type SourceSignals, type StructuralResult } from './score-core.js';
@@ -157,6 +158,49 @@ function countSourceDecorators(
 }
 
 /**
+ * `@<name>(` entity decorators the engine emits an entity for: abstract bases are skipped exactly
+ * as the engine skips them (`isAbstractEntityBase`), so a repo with one is not scored PARTIAL.
+ */
+function countEntityDecorators(roots: string[], name: string, repoRoot: string, scope: ExactSourceScope): number {
+  const sources = new Map<string, string>();
+  let count = 0;
+  for (const hit of grepSourceLines(roots, decoratorsBre([name]), repoRoot, scope)) {
+    const m = /^(.+?):(\d+):/.exec(hit);
+    if (!m) continue;
+    let source = sources.get(m[1]);
+    if (source === undefined) {
+      source = readFileSync(m[1], 'utf8');
+      sources.set(m[1], source);
+    }
+    const { decorators, isAbstract } = decoratedClassAt(source, Number(m[2]));
+    if (!isAbstractEntityBase(decorators, isAbstract)) count++;
+  }
+  return count;
+}
+
+/**
+ * The decorators stacked around 1-based `line` (back to the previous `;`/`{`/`}` outside
+ * parentheses, forward to the `class` keyword) and whether that class is `abstract`.
+ */
+function decoratedClassAt(source: string, line: number): { decorators: string; isAbstract: boolean } {
+  let at = 0;
+  for (let l = 1; l < line; l++) at = source.indexOf('\n', at) + 1;
+  let start = at;
+  for (let depth = 0, i = at - 1; i >= 0; i--) {
+    const ch = source[i];
+    if (ch === ')') depth++;
+    else if (ch === '(') depth--;
+    else if (depth === 0 && (ch === ';' || ch === '{' || ch === '}')) break;
+    start = i;
+  }
+  const cls = /\b(?:(abstract)\s+)?class\s/.exec(source.slice(at));
+  return {
+    decorators: source.slice(start, cls ? at + cls.index : source.length),
+    isAbstract: cls?.[1] !== undefined,
+  };
+}
+
+/**
  * Grep BRE that counts call sites of a `call-shape` callee. A leading `*.` wildcard
  * receiver (`*.define`) becomes a method-call match (`\.define(`); a qualified callee
  * (`sequelize.define`) matches verbatim; a bare name (`initHandler`) matches as a call.
@@ -198,7 +242,7 @@ export function entitySourceCount(
     const detect = (rule as ConventionEntityRule).detect;
     if (detect?.via === 'class-decorator') {
       recognized = true;
-      total += countSourceDecorators(roots, [detect.name], repoRoot, scope);
+      total += countEntityDecorators(roots, detect.name, repoRoot, scope);
     } else if (detect?.via === 'call-shape') {
       recognized = true;
       total += countSourcePattern(roots, calleeGrepPattern(detect.callee), repoRoot, scope);

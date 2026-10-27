@@ -238,6 +238,21 @@ describe('discoverSoloTsconfigProjects / enumerateIndexProjects', () => {
     expect(enumerateIndexProjects(dir)).toEqual([dir, member, plugin].sort());
   });
 
+  it('enumerates package.json `workspaces` members when there is no pnpm-workspace.yaml', () => {
+    writeFileSync(join(dir, 'package.json'), '{"name":"root","workspaces":{"packages":["apps/*","!apps/legacy"]}}');
+    const web = make('apps/web', { tsconfig: true, manifest: true });
+    make('apps/legacy', { manifest: true });
+    expect(enumerateIndexProjects(dir)).toEqual([dir, web].sort());
+  });
+
+  it('lets pnpm-workspace.yaml win over package.json `workspaces`', () => {
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), "packages:\n  - 'packages/*'\n");
+    writeFileSync(join(dir, 'package.json'), '{"name":"root","workspaces":["apps/*"]}');
+    const member = make('packages/ui', { manifest: true });
+    make('apps/web', { manifest: true });
+    expect(enumerateIndexProjects(dir)).toEqual([dir, member].sort());
+  });
+
   it('discovers nothing when workspace enumeration itself found nothing (combined fallback owns it)', () => {
     // Without a member list there is no covered-roots list either, so a scan would register
     // subtrees of members as independent projects. Fall back to --pnpm-workspaces instead.
@@ -269,6 +284,8 @@ describe('planTypescriptProjects', () => {
     mkdirSync(buildIcons, { recursive: true });
     writeFileSync(join(dir, 'tsconfig.json'), '{"include":["**/*"]}');
     writeFileSync(join(configured, 'tsconfig.json'), '{}');
+    // pnpm planner: an npm workspace member would extend the root tsconfig instead.
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), "packages:\n  - 'packages/*'\n");
 
     const rootTs = source('release.ts');
     const rootMjs = source('scripts/publish.mjs');
@@ -440,6 +457,7 @@ describe('runScipTypescriptPerProject', () => {
     mkdirSync(configured, { recursive: true });
     const umbrellaConfig = '{"include":["**/*"]}';
     writeFileSync(join(dir, 'tsconfig.json'), umbrellaConfig);
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), "packages:\n  - 'packages/*'\n");
     writeFileSync(join(dir, 'release.ts'), 'configured();');
     writeFileSync(join(buildIcons, 'index.mjs'), 'export function icons() {}');
     writeFileSync(join(configured, 'index.ts'), 'export function configured() {}');

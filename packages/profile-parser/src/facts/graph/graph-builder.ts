@@ -45,7 +45,9 @@ export class CodeGraph {
 
   private readonly nodeIds = new Set<string>();
   /** Index of UNRESOLVED structural call edges by call-site key, for in-place resolution. */
-  private readonly unresolvedCallSites = new Map<string, string>(); // `${callerId}|${file}|${line}` -> edge id
+  private readonly unresolvedCallSites = new Map<string, string[]>(); // `${callerId}|${file}|${line}` -> edge ids
+  /** Unresolved call edge id → 0-based column of its callee name token, when the structural pass knew it. */
+  private readonly nameColumns = new Map<string, number>();
 
   addPackage(n: Package): void {
     this.packages.set(n.id, { ...this.packages.get(n.id), ...n });
@@ -92,11 +94,16 @@ export class CodeGraph {
     this.nodeIds.add(n.id);
   }
 
-  addCall(e: CallEdge): void {
+  /** `nameColumn`: 0-based column of the callee's name token, which SCIP matches by position. */
+  addCall(e: CallEdge, nameColumn?: number): void {
     if (this.calls.has(e.id)) return;
     this.calls.set(e.id, e);
-    if (!e.calleeId)
-      this.unresolvedCallSites.set(this.siteKey(e.callerId, e.location.filePath, e.location.startLine), e.id);
+    if (e.calleeId) return;
+    if (nameColumn !== undefined) this.nameColumns.set(e.id, nameColumn);
+    const key = this.siteKey(e.callerId, e.location.filePath, e.location.startLine);
+    const ids = this.unresolvedCallSites.get(key);
+    if (ids) ids.push(e.id);
+    else this.unresolvedCallSites.set(key, [e.id]);
   }
   addImport(e: ImportEdge): void {
     if (!this.imports.has(e.id)) this.imports.set(e.id, e);
@@ -131,26 +138,59 @@ export class CodeGraph {
    * none (caller may then add a fresh resolved edge). Keyed on (callerId, file, call-expression start
    * line). Known limitation: a multi-line member-call chain whose method token sits on a different
    * line than the call-expression start will not collapse (rare; appears as two edges — best-effort).
+   * Calls on one line (`this.publish(topicFor(X))`, `a.save(x); b.save(y)`) share the key, so a
+   * named occurrence takes the sibling whose expression ends in that name AND whose name token
+   * starts at `column` (the occurrence's start). Name alone decides only when exactly one sibling
+   * has the name and a column is missing on either side. Without a match nothing is upgraded
+   * (false), so the caller adds a fresh edge. Without `calleeName` the last-registered sibling is taken.
    */
-  resolveInternalCall(callerId: string, filePath: string, line: number, calleeId: string): boolean {
-    const key = this.siteKey(callerId, filePath, line);
-    const edgeId = this.unresolvedCallSites.get(key);
-    if (!edgeId) return false;
-    const edge = this.calls.get(edgeId);
+  resolveInternalCall(
+    callerId: string,
+    filePath: string,
+    line: number,
+    calleeId: string,
+    calleeName?: string,
+    column?: number,
+  ): boolean {
+    const edgeId = this.takeUnresolvedCallAt(callerId, filePath, line, calleeName, column);
+    const edge = edgeId ? this.calls.get(edgeId) : undefined;
     if (!edge) return false;
     edge.calleeId = calleeId;
-    this.unresolvedCallSites.delete(key);
     return true;
   }
 
   /** Remove the unresolved structural call edge at a site (it is being reclassified as an external call). */
-  removeUnresolvedCallAt(callerId: string, filePath: string, line: number): void {
+  removeUnresolvedCallAt(callerId: string, filePath: string, line: number, calleeName?: string, column?: number): void {
+    const edgeId = this.takeUnresolvedCallAt(callerId, filePath, line, calleeName, column);
+    if (edgeId) this.calls.delete(edgeId);
+  }
+
+  private takeUnresolvedCallAt(
+    callerId: string,
+    filePath: string,
+    line: number,
+    calleeName?: string,
+    column?: number,
+  ): string | undefined {
     const key = this.siteKey(callerId, filePath, line);
-    const edgeId = this.unresolvedCallSites.get(key);
-    if (edgeId) {
-      this.calls.delete(edgeId);
-      this.unresolvedCallSites.delete(key);
+    const ids = this.unresolvedCallSites.get(key);
+    if (!ids) return undefined;
+    const name = calleeName?.startsWith('#') ? calleeName.slice(1) : calleeName;
+    let at = ids.length - 1;
+    if (name) {
+      // A callback reference (`xs.filter(isObj)`) or another call on the line must never claim
+      // an unrelated sibling, and two same-named calls are told apart by position.
+      const named = ids.flatMap((id, i) =>
+        /([A-Za-z_$][\w$]*)\s*$/.exec(this.calls.get(id)?.calleeExpression ?? '')?.[1] === name ? [i] : [],
+      );
+      const atColumn = named.find((i) => column !== undefined && this.nameColumns.get(ids[i]) === column);
+      const positionUnknown = column === undefined || !this.nameColumns.has(ids[named[0]]);
+      at = atColumn ?? (named.length === 1 && positionUnknown ? named[0] : -1);
     }
+    if (at < 0) return undefined;
+    const [edgeId] = ids.splice(at, 1);
+    if (ids.length === 0) this.unresolvedCallSites.delete(key);
+    return edgeId;
   }
 
   /** True if id was registered as a node (used to verify edge endpoints). */

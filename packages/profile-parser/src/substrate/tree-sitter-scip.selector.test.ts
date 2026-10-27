@@ -91,6 +91,34 @@ describe('resolveServiceSelector (uri-template — client-admin-api performReque
   });
 });
 
+describe('resolveServiceSelector (receiver-call-arg — token held by a call in the receiver)', () => {
+  const selector: ServiceSelector = {
+    via: 'receiver-call-arg',
+    callee: 'for',
+    arg: 1,
+    serviceMap: { widgets: 'widgets-api', grants: 'grants-api' },
+  };
+
+  it('reads the string-literal arg of the named call in the receiver chain', () => {
+    expect(resolveServiceSelector(selector, ["'/x'"], undefined, "this.clients.for(env, 'widgets')")).toBe(
+      'widgets-api',
+    );
+  });
+
+  it('splits the call args at top level only (nested calls, objects, commas in strings)', () => {
+    const receiver = `this.clients.for(pick(a, b), "grants", { retries: 1 }).withTimeout(5)`;
+    expect(resolveServiceSelector(selector, [], undefined, receiver)).toBe('grants-api');
+    expect(resolveServiceSelector(selector, [], undefined, "this.clients.for('a,b', 'widgets')")).toBe('widgets-api');
+  });
+
+  it('leaves targetService UNSET for an unmapped token, a non-literal arg, or no such call', () => {
+    expect(resolveServiceSelector(selector, [], undefined, "this.clients.for(env, 'jobs')")).toBeUndefined();
+    expect(resolveServiceSelector(selector, [], undefined, 'this.clients.for(env, name)')).toBeUndefined();
+    expect(resolveServiceSelector(selector, [], undefined, "this.clients.format(env, 'widgets')")).toBeUndefined();
+    expect(resolveServiceSelector(selector, [], undefined, undefined)).toBeUndefined();
+  });
+});
+
 describe('templateTailRoute (static tail after the leading ${...} base)', () => {
   it('returns the static tail after the leading interpolation, normalizing inner params', () => {
     const uri = '`${this.entrypoints.requests.url}/v2/management/requests/companies/${uuid}/types`';

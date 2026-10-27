@@ -75,11 +75,11 @@ const profile: ExtractionProfile = {
   },
 } as ExtractionProfile;
 
-function run(calls: CallSite[]) {
+function run(calls: CallSite[], prof: ExtractionProfile = profile, classes: SubstrateClass[] = [store]) {
   const idGen = new StableIdGenerator('/repo', 'k');
   const substrate = {
     files: () => [{ relativePath: SVC }],
-    classes: () => [store],
+    classes: () => classes,
     functions: () => [],
     callShapes: () => calls,
     resolveConst: () => undefined,
@@ -97,7 +97,7 @@ function run(calls: CallSite[]) {
     stateStoreSites: () => [],
     idGen,
   } as unknown as Substrate;
-  const engine = new SubstrateProfileEngine(profile, substrate);
+  const engine = new SubstrateProfileEngine(prof, substrate);
   const baseline = {
     graph: new CodeGraph(),
     idGen,
@@ -123,5 +123,78 @@ describe('dbOperations — rawQueries without opMap', () => {
     const ops = repo.dbOperations;
     expect(ops).toHaveLength(1);
     expect(ops[0].entityName).toBe('Function');
+  });
+});
+
+describe('dbOperations — raw SQL joins the entity owning the table', () => {
+  const job: SubstrateClass = {
+    name: 'Job',
+    decorators: ["Entity({ tableName: 'jobs' })"],
+    methods: [],
+    properties: [],
+    ctorParams: [],
+    loc: { filePath: 'src/job.entity.ts', startLine: 1, endLine: 5 },
+  };
+  const sqlProfile = {
+    ...profile,
+    entities: [
+      {
+        orm: 'mikro-orm',
+        detect: { via: 'class-decorator', name: 'Entity' },
+        tableName: { option: 'tableName' },
+        fields: {},
+        relations: {},
+      },
+    ],
+    dbOperations: { rawQueries: [{ dialect: 'sql', methods: ['execute'], receivers: ['client$'] }] },
+  } as ExtractionProfile;
+  const ops = (text: string) =>
+    run(
+      [
+        {
+          calleeText: 'client.execute',
+          receiver: 'client',
+          method: 'execute',
+          args: [{ text }],
+          enclosingCallChain: [],
+          file: SVC,
+          loc: { filePath: SVC, startLine: 12, endLine: 12 },
+        },
+      ],
+      sqlProfile,
+      [store, job],
+    ).dbOperations.map((o) => [o.operation, o.entityName, o.entityId !== undefined]);
+
+  it('names the entity whose tableName is the quoted SQL table, bound to its node', () => {
+    expect(ops(`'update "JOBS" set state = 1'`)).toEqual([['update', 'Job', true]]);
+  });
+
+  it('keeps the table name when no entity owns the table', () => {
+    expect(ops(`'select * from audit_log'`)).toEqual([['read', 'audit_log', false]]);
+  });
+
+  it('leaves a Cypher label as written even when it equals an entity table', () => {
+    const cypherProfile = {
+      ...sqlProfile,
+      dbOperations: { rawQueries: [{ dialect: 'cypher', methods: ['execute'], receivers: ['client$'] }] },
+    } as ExtractionProfile;
+    const repo = run(
+      [
+        {
+          ...cypherCall,
+          calleeText: 'client.execute',
+          receiver: 'client',
+          method: 'execute',
+          args: [{ text: "'MATCH (n:jobs) RETURN n'" }],
+        },
+      ],
+      cypherProfile,
+      [store, job],
+    );
+    expect(repo.dbOperations.map((o) => [o.entityName, o.entityId !== undefined])).toEqual([['jobs', false]]);
+  });
+
+  it('reads a query split across concatenated literals', () => {
+    expect(ops(`'delete from ' +\n  "jobs " + \`where id = $1\``)).toEqual([['delete', 'Job', true]]);
   });
 });

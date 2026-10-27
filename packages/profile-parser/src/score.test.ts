@@ -70,6 +70,19 @@ describe('entitySourceCount', () => {
     expect(entitySourceCount([classDecoratorRule('Entity')], ['src/**'], root, 999)).toBe(3);
   });
 
+  it('skips abstract entity bases the engine does not emit, but counts an STI root', () => {
+    const root = fixture({
+      'src/entities/base.ts': '@Entity({ abstract: true })\nexport abstract class Base {}\n',
+      'src/entities/widget.ts': '@Entity()\nexport class Widget extends Base {}\n',
+      'src/entities/shared.ts': '@Entity()\nexport abstract class Shared {}\n',
+      'src/entities/gadget.ts':
+        "@Entity()\n@TableInheritance({ column: { type: 'varchar', name: 'kind' } })\nexport abstract class Gadget {}\n",
+      'src/entities/part.ts':
+        "@Entity({\n  abstract: true,\n  discriminatorColumn: 'kind',\n})\nexport abstract class Part {}\n",
+    });
+    expect(entitySourceCount([classDecoratorRule('Entity')], ['src/**'], root, 999)).toBe(3);
+  });
+
   it('counts call-shape factory ORM define() sites (`*.define`)', () => {
     const root = fixture({
       'src/models.ts':

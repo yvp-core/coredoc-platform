@@ -16,6 +16,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { parse as parseYaml } from 'yaml';
 import { SCIP_INDEXERS } from '../config.js';
+import { readPackageJsonWorkspaceGlobs } from '../workspace.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -143,8 +144,22 @@ export function enumeratePnpmWorkspaceProjects(repoRoot: string): string[] {
   } catch {
     return []; // missing or malformed workspace file
   }
-  if (!Array.isArray(patterns)) return [];
+  return Array.isArray(patterns) ? workspaceMemberProjects(repoRoot, patterns) : [];
+}
 
+/**
+ * The npm/yarn counterpart of `enumeratePnpmWorkspaceProjects`: members of a root package.json
+ * `workspaces` (array or `{ packages }` form). Without it such a repo has no root tsconfig to
+ * fall back on and indexes as ONE synthetic project, so member tsconfigs and their `paths`
+ * (`@/*` in `apps/web/tsconfig.json`) are never read. Never throws; no declaration yields `[]`.
+ */
+export function enumerateNpmWorkspaceProjects(repoRoot: string): string[] {
+  const patterns = readPackageJsonWorkspaceGlobs(repoRoot);
+  return patterns?.length ? workspaceMemberProjects(repoRoot, patterns) : [];
+}
+
+/** Absolute member dirs (root included) matched by workspace globs; a leading `!` excludes. */
+function workspaceMemberProjects(repoRoot: string, patterns: unknown[]): string[] {
   const included = new Set<string>();
   const excluded = new Set<string>();
   for (const entry of patterns) {
@@ -188,6 +203,8 @@ export interface TypescriptProjectPlan {
   sourceFiles?: string[];
   /** Repo-owned config whose compiler semantics a bounded root-residue project should inherit. */
   extendsConfig?: string;
+  /** Member files its own tsconfig leaves out, indexed beside (not instead of) that tsconfig. */
+  uncovered?: true;
 }
 
 /** Is `target` the root itself or a descendant, without prefix-confusing sibling paths? */
@@ -241,6 +258,7 @@ function ownedTypescriptSourceFiles(projectDir: string, allProjects: string[]): 
  *   enumerated root. Its umbrella config is never allowed to pull the whole monorepo into one V8
  *   heap. It extends the root `tsconfig.json`, or else the root `jsconfig.json`: scip-typescript
  *   never reads a jsconfig, and plain-JS repos declare `baseUrl` there for `require("app/…")`.
+ *   In an npm/yarn workspace a no-tsconfig member extends that root config too.
  *
  * Missing/out-of-repo project paths are left unplanned for `indexOneProject` to reject or report;
  * production enumeration only supplies existing in-repo directories, while this keeps the
@@ -250,17 +268,58 @@ export function planTypescriptProjects(repoRoot: string, projects: string[]): Ty
   const root = resolve(repoRoot);
   const rootConfig = ['tsconfig.json', 'jsconfig.json'].map((name) => join(root, name)).find(existsSync);
   const resolvedProjects = projects.map((project) => resolve(project));
-  return resolvedProjects.map((projectDir) => {
+  // An npm/yarn workspace indexed as ONE program over every file (under the root tsconfig when it
+  // has one) before its members were enumerated. So a member tsconfig's `exclude` (often covered by
+  // a sibling `tsconfig.*.json`) must not now drop those files, and a member without a tsconfig
+  // keeps the root's `paths`/`jsx`. pnpm members never had either (see `scipCoverageGaps`).
+  const npmWorkspace = !isPnpmWorkspaceRoot(root);
+  return resolvedProjects.flatMap((projectDir): TypescriptProjectPlan[] => {
     const contained = isInside(root, projectDir);
-    const needsSynthetic =
-      contained && existsSync(projectDir) && (projectDir === root || !existsSync(join(projectDir, 'tsconfig.json')));
-    if (!needsSynthetic) return { projectDir };
-    return {
-      projectDir,
-      sourceFiles: ownedTypescriptSourceFiles(projectDir, resolvedProjects),
-      ...(projectDir === root && rootConfig ? { extendsConfig: rootConfig } : {}),
-    };
+    const tsconfig = join(projectDir, 'tsconfig.json');
+    const needsSynthetic = contained && existsSync(projectDir) && (projectDir === root || !existsSync(tsconfig));
+    if (!needsSynthetic) {
+      const uncovered = npmWorkspace && contained ? uncoveredSourceFiles(projectDir, tsconfig, resolvedProjects) : [];
+      return uncovered.length
+        ? [{ projectDir }, { projectDir, sourceFiles: uncovered, extendsConfig: tsconfig, uncovered: true }]
+        : [{ projectDir }];
+    }
+    return [
+      {
+        projectDir,
+        sourceFiles: ownedTypescriptSourceFiles(projectDir, resolvedProjects),
+        ...((projectDir === root || npmWorkspace) && rootConfig ? { extendsConfig: rootConfig } : {}),
+      },
+    ];
   });
+}
+
+/**
+ * Files owned by `projectDir` that its `tsconfig` program (plus the projects it references, which
+ * scip-typescript follows) does not index. `[]` when the config cannot be read, so a broken config
+ * keeps its honest failure instead of a synthetic stand-in.
+ */
+function uncoveredSourceFiles(projectDir: string, tsconfig: string, allProjects: string[]): string[] {
+  const ts = createRequire(import.meta.url)('typescript') as typeof import('typescript');
+  const covered = new Set<string>();
+  const visited = new Set<string>(); // a reference cycle must terminate
+  const visit = (configPath: string): boolean => {
+    visited.add(configPath);
+    const { config, error } = ts.readConfigFile(configPath, ts.sys.readFile);
+    if (error) return false;
+    const parsed = ts.parseJsonConfigFileContent(config, ts.sys, dirname(configPath), undefined, configPath);
+    for (const file of parsed.fileNames) covered.add(resolve(file));
+    for (const ref of parsed.projectReferences ?? []) {
+      const refPath = ts.resolveProjectReferencePath(ref);
+      if (!visited.has(refPath)) visit(refPath);
+    }
+    return true;
+  };
+  try {
+    if (!visit(tsconfig)) return [];
+  } catch {
+    return [];
+  }
+  return ownedTypescriptSourceFiles(projectDir, allProjects).filter((file) => !covered.has(file));
 }
 
 /**
@@ -337,7 +396,10 @@ export function discoverSoloTsconfigProjects(repoRoot: string, coveredProjects: 
  * register subtrees of members as if they were independent projects.
  */
 export function enumerateIndexProjects(repoRoot: string): string[] {
-  const workspace = enumeratePnpmWorkspaceProjects(repoRoot);
+  // A pnpm-workspace.yaml wins over package.json `workspaces`, even when it yields nothing.
+  const workspace = isPnpmWorkspaceRoot(repoRoot)
+    ? enumeratePnpmWorkspaceProjects(repoRoot)
+    : enumerateNpmWorkspaceProjects(repoRoot);
   if (workspace.length === 0) return [];
   return [...workspace, ...discoverSoloTsconfigProjects(repoRoot, workspace)].sort();
 }
@@ -632,10 +694,11 @@ const PROJECT_INDEX_DIR = 'scip-projects';
  * path (stable across runs, collision-free for sibling dirs with the same basename) with the
  * basename kept as a human-readable prefix.
  */
-export function projectIndexPath(scipDir: string, repoRoot: string, projectDir: string): string {
+export function projectIndexPath(scipDir: string, repoRoot: string, projectDir: string, variant = ''): string {
   const rel = relative(repoRoot, projectDir) || '.';
   const slug = (rel === '.' ? 'root' : rel.split(/[\\/]/).pop() || 'project').replace(/[^\w.-]/g, '_');
-  return join(scipDir, PROJECT_INDEX_DIR, `${slug}-${createHash('sha1').update(rel).digest('hex').slice(0, 12)}.scip`);
+  const hash = createHash('sha1').update(rel).digest('hex').slice(0, 12);
+  return join(scipDir, PROJECT_INDEX_DIR, `${slug}${variant ? `-${variant}` : ''}-${hash}.scip`);
 }
 
 /** Index ONE enumerated project into its own file; never throws. */
@@ -653,7 +716,7 @@ async function indexOneProject(
   if (project.startsWith('..') || isAbsolute(project)) {
     return { project, ok: false, reason: `project path ${projectDir} is not inside the repo root ${repoRoot}` };
   }
-  const scipPath = projectIndexPath(scipDir, repoRoot, projectDir);
+  const scipPath = projectIndexPath(scipDir, repoRoot, projectDir, plan.uncovered ? 'uncovered' : '');
   mkdirSync(dirname(scipPath), { recursive: true });
   // Never let a previous run's file masquerade as this run's output.
   try {
@@ -934,7 +997,7 @@ function runScipTypescriptCombined(repoRoot: string, scipPath: string, projects:
  * under `opts.outDir` and removed afterward; the analyzed repo is never modified.
  *
  * Three shapes, in precedence order:
- *   1. pnpm workspace with enumerable members → PER-PROJECT: `scipPaths`, one index per member
+ *   1. pnpm or npm/yarn workspace with enumerable members → PER-PROJECT: `scipPaths`, one index per member
  *      (`runScipTypescriptPerProject`). `COREDOC_SCIP_COMBINED=1` forces (2) instead.
  *   2. pnpm workspace with no enumerable members (or the rollback flag) → one combined index.
  *   3. single-project repo → one index, unchanged.
@@ -952,12 +1015,12 @@ export async function runScipTypescript(repoRoot: string, opts: ScipRunOpts = {}
   // synthesis (projects bring their own). Default is per-project (one child per project, bounded
   // pool) because one process cannot hold a large workspace; the combined invocation stays
   // reachable via COREDOC_SCIP_COMBINED=1 and is the only option when enumeration finds nothing.
-  if (isPnpmWorkspaceRoot(repoRoot)) {
-    // Enumerate ourselves; `--pnpm-workspaces` is only the fallback (see
-    // enumeratePnpmWorkspaceProjects — it spawns `pnpm ls`, which dies in the desktop sandbox
-    // where HOME is empty and the network is denied). Ours also reaches the tsconfig-rooted trees
-    // outside the workspace globs, which `pnpm ls` by definition does not know about.
-    const projects = enumerateIndexProjects(repoRoot);
+  // Enumerate ourselves; `--pnpm-workspaces` is only the pnpm fallback (see
+  // enumeratePnpmWorkspaceProjects — it spawns `pnpm ls`, which dies in the desktop sandbox
+  // where HOME is empty and the network is denied). Ours also reaches npm/yarn `workspaces`
+  // members and the tsconfig-rooted trees outside the workspace globs.
+  const projects = enumerateIndexProjects(repoRoot);
+  if (isPnpmWorkspaceRoot(repoRoot) || projects.length > 0) {
     return usePerProjectIndexing(projects)
       ? runScipTypescriptPerProject(repoRoot, scipDir, projects)
       : runScipTypescriptCombined(repoRoot, scipPath, projects);

@@ -7,7 +7,8 @@ import type { ArgRef } from './detectors.js';
 /**
  * Config-driven service selector for HTTP egress wrappers that route to one of N
  * backends by a *token* read out of the call — the token then translates to a
- * concrete target repo via `serviceMap`. Two read shapes cover the real wrappers:
+ * concrete target repo via `serviceMap`. Three read shapes cover the real wrappers
+ * (`receiver-call-arg` is documented on its variant):
  *
  *  - `arg-member`: a member of a positional argument, `CONFIG.<token>` at arg N
  *    (e.g. sample-admin's `sendRequest(data, method, url, CONFIG.client_admin_api)`
@@ -40,6 +41,20 @@ export type ServiceSelector =
       via: 'uri-template';
       /** Container identifier interpolated in the URL template, e.g. `entrypoints`. */
       container: string;
+      /** selector token → target repo/service name (a `services[]` name or alias). */
+      serviceMap: Record<string, string>;
+    }
+  | {
+      /**
+       * The token is a string-literal argument of a call in the RECEIVER chain,
+       * `this.clients.for(env, 'widgets').get('/x')`, or of the initializer of the local
+       * `const` the receiver names (`const c = this.clients.for(env, 'widgets'); c.get('/x')`).
+       */
+      via: 'receiver-call-arg';
+      /** Method name of the receiver call, e.g. `for` for `<...>.for(…)`. */
+      callee: string;
+      /** Positional argument of that call holding the string-literal token. */
+      arg: number;
       /** selector token → target repo/service name (a `services[]` name or alias). */
       serviceMap: Record<string, string>;
     };

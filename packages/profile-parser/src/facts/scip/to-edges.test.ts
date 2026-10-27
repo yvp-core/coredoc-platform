@@ -305,14 +305,18 @@ describe('scipToEdges — own-workspace-package symbols are never egress', () =>
   it('still drops the sibling and emits the external edge for a genuine dependency package', () => {
     const g = graphWithStructuralSibling();
     scipToEdges(
-      scipWith('scip-typescript npm @nestjs/axios 2.0.0 http.service.d.ts/HttpService#get().'),
+      // Same method name as the structural sibling: only that sibling is the external call.
+      scipWith('scip-typescript npm @acme/scheduler-sdk 2.0.0 client.d.ts/SchedulerClient#recalculate().'),
       g,
       new StableIdGenerator('/repo', 'k'),
       hooks,
       { workspacePackageNames: ['@acme/workflows'] },
     );
     expect(g.calls.size).toBe(0);
-    expect([...g.externalCalls.values()][0]).toMatchObject({ serviceName: '@nestjs/axios', method: 'get' });
+    expect([...g.externalCalls.values()][0]).toMatchObject({
+      serviceName: '@acme/scheduler-sdk',
+      method: 'recalculate',
+    });
   });
 });
 

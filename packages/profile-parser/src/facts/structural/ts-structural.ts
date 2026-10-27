@@ -201,6 +201,8 @@ export interface StructuralCall {
   isAwaited: boolean;
   startLine: number;
   endLine: number;
+  /** 0-based column of the callee's name token (`save` in `a.save()`), where SCIP's occurrence starts. */
+  nameColumn?: number;
   enclosingName?: string;
   enclosingClass?: string;
   enclosingKind: 'method' | 'function' | 'module';
@@ -315,6 +317,18 @@ export interface StructuralFile {
 
 function text(n: TsNode | null | undefined): string {
   return n?.text ?? '';
+}
+
+/**
+ * A call_expression's callee. Grammar quirk: `await x.m<A, B>(…)` (await + type arguments)
+ * mis-parses with the whole `await x.m` as the `function` field, so unwrap the await (and
+ * report it) or the receiver is lost and the call reads as a bare callee named "await x.m".
+ * Plain `await x.m()` parses normally and is unaffected.
+ */
+export function callCallee(call: TsNode): { fn: TsNode | null; awaited: boolean } {
+  const fn = call.childForFieldName('function');
+  const inner = fn?.type === 'await_expression' ? fn.namedChildren[0] : undefined;
+  return inner ? { fn: inner, awaited: true } : { fn, awaited: false };
 }
 
 /**
@@ -888,7 +902,7 @@ export async function parseTsStructural(
         file.classes.push({
           name,
           isExported: n.parent?.type === 'export_statement',
-          isAbstract: n.text.includes('abstract'),
+          isAbstract: n.type === 'abstract_class_declaration',
           startLine: lineOf(n),
           endLine: endLineOf(n),
           decorators: decoratorsOf(n),
@@ -1206,29 +1220,17 @@ export async function parseTsStructural(
         break;
       }
       case 'call_expression': {
-        let fn = n.childForFieldName('function');
-        // Grammar quirk: `await x.m<A, B>(…)` (await + type arguments) mis-parses so the
-        // call_expression's `function` field is the whole `await_expression` (`await x.m`)
-        // rather than the normal `await_expression > call_expression` nesting. Unwrap the
-        // await so receiver/method extraction sees the real member_expression callee; without
-        // this the receiver is lost and the call (incl. axios/SDK egress with type args) is
-        // mis-classified as a bare callee named "await x.m". Plain `await x.m()` (no type args)
-        // parses normally and is unaffected.
-        let awaitUnwrapped = false;
-        if (fn && fn.type === 'await_expression') {
-          const inner = fn.namedChildren[0];
-          if (inner) {
-            fn = inner;
-            awaitUnwrapped = true;
-          }
-        }
+        const { fn, awaited: awaitUnwrapped } = callCallee(n);
         let receiver: string | undefined;
         let methodName: string | undefined;
+        let nameNode: TsNode | null | undefined;
         if (fn && fn.type === 'member_expression') {
           receiver = text(fn.childForFieldName('object'));
-          methodName = text(fn.childForFieldName('property'));
+          nameNode = fn.childForFieldName('property');
+          methodName = text(nameNode);
         } else if (fn) {
           methodName = text(fn);
+          nameNode = fn.type === 'identifier' ? fn : undefined;
         }
         const argsNode = n.childForFieldName('arguments');
         const args = argsNode ? argsNode.namedChildren.map((a) => text(a)) : [];
@@ -1241,6 +1243,7 @@ export async function parseTsStructural(
           isAwaited: awaitUnwrapped || n.parent?.type === 'await_expression',
           startLine: lineOf(n),
           endLine: endLineOf(n),
+          ...(nameNode ? { nameColumn: nameNode.startPosition.column } : {}),
           enclosingKind: enc.kind,
           enclosingName: enc.name,
           enclosingClass: enc.cls,

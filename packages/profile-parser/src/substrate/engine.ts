@@ -105,8 +105,10 @@ import type {
   SubstrateClass,
   SubstrateFunction,
   SubstrateLoc,
+  SubstrateProperty,
 } from './interface.js';
 import { markUnresolved } from '../unresolved-sentinel.js';
+import { isAbstractEntityBase } from './abstract-entity.js';
 
 /**
  * Version-hash seed for an entity node. Folds the column/relation content into
@@ -118,6 +120,27 @@ import { markUnresolved } from '../unresolved-sentinel.js';
  */
 export function entityVersionSeed(prefix: string, fields: unknown, relations: unknown): string {
   return `${prefix}:${JSON.stringify({ fields, relations })}`;
+}
+
+/** An abstract entity base owns no table (see `isAbstractEntityBase`). */
+function isAbstractEntity(c: SubstrateClass): boolean {
+  return isAbstractEntityBase(c.decorators.join('\n'), c.isAbstract === true);
+}
+
+/**
+ * The class's properties plus those it inherits through in-repo `extends` bases, root first. A
+ * redeclared property overrides the base one. The chain stops at a base declared outside the
+ * scoped files or under an ambiguous name (`null`).
+ */
+function inheritedProperties(c: SubstrateClass, classByName: Map<string, SubstrateClass | null>): SubstrateProperty[] {
+  const chain: SubstrateClass[] = [];
+  for (let k: SubstrateClass | null | undefined = c; k && !chain.includes(k); ) {
+    chain.push(k);
+    k = k.extendsClass && classByName.get(k.extendsClass.name);
+  }
+  const byName = new Map<string, SubstrateProperty>();
+  for (const k of chain.reverse()) for (const p of k.properties) byName.set(p.name, p);
+  return [...byName.values()];
 }
 
 /** GraphQL root type for a root operation (`query` → `Query`, `mutation` → `Mutation`, …). */
@@ -693,7 +716,8 @@ export class SubstrateProfileEngine {
       if ('schemaPath' in rule) continue;
       if (rule.detect.via === 'class-decorator') {
         for (const c of this.substrate.classes()) {
-          if (this.hasDecorator(c, rule.detect.name)) this.registerEntity(c.loc.filePath, c.name);
+          const dec = this.findDecorator(c, rule.detect.name);
+          if (dec && !isAbstractEntity(c)) this.registerEntity(c.loc.filePath, c.name);
         }
       } else if (rule.detect.via === 'call-shape') {
         for (const site of this.substrate.callShapes(rule.detect.callee)) {
@@ -747,15 +771,19 @@ export class SubstrateProfileEngine {
     const idGen = this.substrate.idGen;
     const fieldDecs = new Set(rule.fields.decorators ?? []);
     const relDecs = rule.relations.decorators ?? {};
+    const classes = this.substrate.classes();
+    // A name declared twice maps to null: its base chain is ambiguous, so nothing is inherited.
+    const classByName = new Map<string, SubstrateClass | null>();
+    for (const c of classes) classByName.set(c.name, classByName.has(c.name) ? null : c);
 
-    for (const c of this.substrate.classes()) {
+    for (const c of classes) {
       const entityDec = this.findDecorator(c, rule.detect.name);
-      if (!entityDec) continue;
+      if (!entityDec || isAbstractEntity(c)) continue;
       const tableName = this.resolveTableName(c.name, rule, entityDec);
       const fields: EntityField[] = [];
       const relations: EntityRelation[] = [];
 
-      for (const p of c.properties) {
+      for (const p of inheritedProperties(c, classByName)) {
         const relDec = p.decorators.find((d) => relDecs[decoName(d)] !== undefined);
         if (relDec) {
           relations.push(this.buildDecoratorRelation(p.name, relDec, relDecs, rule));
@@ -2036,7 +2064,16 @@ export class SubstrateProfileEngine {
       if (!isEm && !isRepo && !repoEntity) continue;
 
       if (isEm) {
-        const entityArg = rule.entityFrom ? this.readArgIdentifier(site.args[rule.entityFrom.arg]) : undefined;
+        let entityArg = rule.entityFrom ? this.readArgIdentifier(site.args[rule.entityFrom.arg]) : undefined;
+        // `declared-type`: an instance (`em.persist(grant)`) takes the ONE entity its declaration states.
+        if (entityArg && !this.entityNames.has(entityArg) && rule.entityFrom?.as === 'declared-type') {
+          const stated = new Set(
+            this.substrate
+              .declaredTypeNames(site.file, entityArg, site.loc.startLine)
+              .filter((n) => this.entityNames.has(n)),
+          );
+          entityArg = stated.size === 1 ? [...stated][0] : undefined;
+        }
         if (entityArg && this.entityNames.has(entityArg)) {
           this.pushDbOp(callerId, op, site, `${receiver}.${site.method}`, entityArg);
         }
@@ -2149,6 +2186,13 @@ export class SubstrateProfileEngine {
   }
 
   private extractRawQueryDbOps(rule: DbOpRule): void {
+    // A table an emitted entity owns names that entity, so the op binds to its node. A table
+    // two entities share (single-table inheritance) is ambiguous and keeps its own name.
+    const entityByTable = new Map<string, string | undefined>();
+    for (const e of this.entities) {
+      const table = e.tableName?.replace(/["`]/g, '').toLowerCase();
+      if (table) entityByTable.set(table, entityByTable.has(table) ? undefined : e.name);
+    }
     for (const matcher of rule.rawQueries ?? []) {
       for (const site of this.substrate.callShapes()) {
         if (!site.method || !matcher.methods.includes(site.method)) continue;
@@ -2167,7 +2211,10 @@ export class SubstrateProfileEngine {
         // a function in FROM) still describes a real operation; Cypher stays all-or-nothing.
         const parsed = q ? (matcher.dialect === 'cypher' ? parseCypherOp(q) : parseSqlStatement(q)) : undefined;
         if (parsed?.entity) {
-          this.pushDbOp(callerId, parsed.op, site, `${parsed.entity}:${site.loc.startLine}`, parsed.entity);
+          // Only a SQL table names an entity's table; a Cypher label stays as written.
+          const entity =
+            (matcher.dialect === 'sql' ? entityByTable.get(parsed.entity.toLowerCase()) : undefined) ?? parsed.entity;
+          this.pushDbOp(callerId, parsed.op, site, `${parsed.entity}:${site.loc.startLine}`, entity);
           continue;
         }
         // No readable target: the call site IS a db-op surface (that is what the matcher
@@ -2202,13 +2249,19 @@ export class SubstrateProfileEngine {
 
   private extractExternalCalls(): void {
     const matchers = this.profile.externalCalls ?? [];
-    for (const fact of this.substrate.externalCalls(matchers)) {
+    const facts = this.substrate.externalCalls(matchers);
+    for (const fact of facts) {
       const idGen = this.substrate.idGen;
+      // A queue send whose topic is a method parameter emits one fact per caller topic at the
+      // same site. Those always add the destination to the id, so adding a caller never renames
+      // an existing edge; every other id is unchanged.
+      const fanOut = fact.messaging?.fromCaller ? [fact.messaging.destination] : [];
       const id = idGen.generateNodeId(
         'external-call' as Parameters<typeof idGen.generateNodeId>[0],
         fact.callerId,
         fact.method,
         String(fact.location.startLine),
+        ...fanOut,
       );
       const edge: ExternalCallEdge = {
         id,
@@ -2293,9 +2346,6 @@ export class SubstrateProfileEngine {
     return undefined;
   }
 
-  private hasDecorator(c: SubstrateClass, name: string): boolean {
-    return c.decorators.some((d) => decoName(d) === name);
-  }
   private findDecorator(c: SubstrateClass, name: string): string | undefined {
     return c.decorators.find((d) => decoName(d) === name);
   }
