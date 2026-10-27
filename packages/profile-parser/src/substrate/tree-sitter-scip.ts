@@ -396,6 +396,8 @@ export class TreeSitterScipSubstrate implements Substrate {
 
         if (di) {
           const members = this.memberTypesByClass.get(c.name) ?? new Map<string, string | null>();
+          // An untyped field (`repo = new OtherRepo()`) still shadows a base's typed member.
+          for (const p of c.properties) if (!p.type) members.set(p.name, null);
           for (const p of [...c.properties, ...c.ctorParams]) {
             if (!p.type) continue;
             const type = this.diTypeName(p.type);

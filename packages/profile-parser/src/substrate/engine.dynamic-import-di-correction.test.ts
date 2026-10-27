@@ -307,4 +307,58 @@ export class Sender {
     expect(callee).toBeDefined();
     expect(callee!.calleeId).not.toBe(localSend);
   });
+
+  it("stops at a child's untyped member instead of taking the base class's declared type", async () => {
+    const otherRepo = `export class OtherRepo {
+  findOne(id: string): string {
+    return id;
+  }
+}
+`;
+    const base = `import type { UserRepo } from '@app/repo';
+
+export class BaseService {
+  repo!: UserRepo;
+}
+`;
+    const child = `import { BaseService } from './base';
+import { OtherRepo } from './other-repo';
+
+export class ChildService extends BaseService {
+  repo = new OtherRepo();
+}
+`;
+    const caller = `import type { ChildService } from '@app/child';
+
+export class Caller {
+  constructor(private readonly child: ChildService) {}
+
+  load(id: string): string {
+    return this.child.repo.findOne(id);
+  }
+}
+`;
+    dir = writeFixture({
+      'repo.ts': REPO,
+      'other-repo.ts': otherRepo,
+      'base.ts': base,
+      'child.ts': child,
+      'caller.ts': caller,
+    });
+    const { repo } = await runProfile(PROFILE, dir, 'di-member-untyped-child');
+    const nameById = new Map(repo.functions.map((f) => [f.id, f.name]));
+    const userRepoFindOne = repo.functions.find(
+      (f) =>
+        f.name === 'findOne' &&
+        f.location.filePath.endsWith('repo.ts') &&
+        !f.location.filePath.endsWith('other-repo.ts'),
+    )?.id;
+    const callee = repo.calls.find(
+      (c) => nameById.get(c.callerId) === 'load' && c.calleeExpression.endsWith('findOne'),
+    );
+
+    expect(userRepoFindOne).toBeDefined();
+    expect(callee).toBeDefined();
+    expect(callee!.calleeId).not.toBe(userRepoFindOne);
+  });
 });
