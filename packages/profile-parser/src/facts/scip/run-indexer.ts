@@ -258,6 +258,7 @@ function ownedTypescriptSourceFiles(projectDir: string, allProjects: string[]): 
  *   enumerated root. Its umbrella config is never allowed to pull the whole monorepo into one V8
  *   heap. It extends the root `tsconfig.json`, or else the root `jsconfig.json`: scip-typescript
  *   never reads a jsconfig, and plain-JS repos declare `baseUrl` there for `require("app/…")`.
+ *   In an npm/yarn workspace a no-tsconfig member extends that root config too.
  *
  * Missing/out-of-repo project paths are left unplanned for `indexOneProject` to reject or report;
  * production enumeration only supplies existing in-repo directories, while this keeps the
@@ -267,16 +268,17 @@ export function planTypescriptProjects(repoRoot: string, projects: string[]): Ty
   const root = resolve(repoRoot);
   const rootConfig = ['tsconfig.json', 'jsconfig.json'].map((name) => join(root, name)).find(existsSync);
   const resolvedProjects = projects.map((project) => resolve(project));
-  // An npm/yarn workspace indexed as ONE synthetic project over every file before its members were
-  // enumerated, so a member tsconfig's `exclude` (often covered by a sibling `tsconfig.*.json`) must
-  // not now drop those files. pnpm members never had that coverage (see `scipCoverageGaps`).
-  const indexUncovered = !isPnpmWorkspaceRoot(root);
+  // An npm/yarn workspace indexed as ONE program over every file (under the root tsconfig when it
+  // has one) before its members were enumerated. So a member tsconfig's `exclude` (often covered by
+  // a sibling `tsconfig.*.json`) must not now drop those files, and a member without a tsconfig
+  // keeps the root's `paths`/`jsx`. pnpm members never had either (see `scipCoverageGaps`).
+  const npmWorkspace = !isPnpmWorkspaceRoot(root);
   return resolvedProjects.flatMap((projectDir): TypescriptProjectPlan[] => {
     const contained = isInside(root, projectDir);
     const tsconfig = join(projectDir, 'tsconfig.json');
     const needsSynthetic = contained && existsSync(projectDir) && (projectDir === root || !existsSync(tsconfig));
     if (!needsSynthetic) {
-      const uncovered = indexUncovered && contained ? uncoveredSourceFiles(projectDir, tsconfig, resolvedProjects) : [];
+      const uncovered = npmWorkspace && contained ? uncoveredSourceFiles(projectDir, tsconfig, resolvedProjects) : [];
       return uncovered.length
         ? [{ projectDir }, { projectDir, sourceFiles: uncovered, extendsConfig: tsconfig, uncovered: true }]
         : [{ projectDir }];
@@ -285,7 +287,7 @@ export function planTypescriptProjects(repoRoot: string, projects: string[]): Ty
       {
         projectDir,
         sourceFiles: ownedTypescriptSourceFiles(projectDir, resolvedProjects),
-        ...(projectDir === root && rootConfig ? { extendsConfig: rootConfig } : {}),
+        ...((projectDir === root || npmWorkspace) && rootConfig ? { extendsConfig: rootConfig } : {}),
       },
     ];
   });

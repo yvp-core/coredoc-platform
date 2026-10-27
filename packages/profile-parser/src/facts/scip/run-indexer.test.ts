@@ -284,6 +284,8 @@ describe('planTypescriptProjects', () => {
     mkdirSync(buildIcons, { recursive: true });
     writeFileSync(join(dir, 'tsconfig.json'), '{"include":["**/*"]}');
     writeFileSync(join(configured, 'tsconfig.json'), '{}');
+    // pnpm planner: an npm workspace member would extend the root tsconfig instead.
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), "packages:\n  - 'packages/*'\n");
 
     const rootTs = source('release.ts');
     const rootMjs = source('scripts/publish.mjs');
@@ -455,6 +457,7 @@ describe('runScipTypescriptPerProject', () => {
     mkdirSync(configured, { recursive: true });
     const umbrellaConfig = '{"include":["**/*"]}';
     writeFileSync(join(dir, 'tsconfig.json'), umbrellaConfig);
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), "packages:\n  - 'packages/*'\n");
     writeFileSync(join(dir, 'release.ts'), 'configured();');
     writeFileSync(join(buildIcons, 'index.mjs'), 'export function icons() {}');
     writeFileSync(join(configured, 'index.ts'), 'export function configured() {}');

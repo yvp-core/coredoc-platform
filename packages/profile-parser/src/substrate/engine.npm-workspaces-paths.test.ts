@@ -81,4 +81,29 @@ describe('call graph — npm/yarn workspace member with its own tsconfig paths',
       .map((c) => `${nameById.get(c.callerId)}->${nameById.get(c.calleeId as string)}`);
     expect(edges).toEqual(expect.arrayContaining(['f->g', 'page->loadWidgets']));
   });
+
+  it('gives a member without its own tsconfig the root tsconfig `paths`', async () => {
+    dir = writeFixture(['apps/*']);
+    writeFileSync(
+      join(dir, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@widgets/*': ['apps/tool/lib/*'] } } }),
+    );
+    mkdirSync(join(dir, 'apps/tool/lib'), { recursive: true });
+    writeFileSync(join(dir, 'apps/tool/package.json'), JSON.stringify({ name: 'acme-tool', version: '1.0.0' }));
+    writeFileSync(join(dir, 'apps/tool/lib/count.ts'), 'export function countWidgets(): number {\n  return 1;\n}\n');
+    writeFileSync(
+      join(dir, 'apps/tool/main.ts'),
+      "import { countWidgets } from '@widgets/count';\nexport function main(): number {\n  return countWidgets();\n}\n",
+    );
+    const { repo } = await runProfile(
+      { parserId: 'test-npm-ws-paths', substrate: { language: 'ts', include: ['apps/**/*.ts'] } },
+      dir,
+      'npm-ws-paths',
+    );
+    const nameById = new Map(repo.functions.map((f) => [f.id, f.name]));
+    const edges = repo.calls
+      .filter((c) => c.calleeId)
+      .map((c) => `${nameById.get(c.callerId)}->${nameById.get(c.calleeId as string)}`);
+    expect(edges).toContain('main->countWidgets');
+  });
 });
