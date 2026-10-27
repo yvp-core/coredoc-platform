@@ -281,6 +281,7 @@ export class TreeSitterScipSubstrate implements Substrate {
   private readonly paramsByEnclosing = new Map<string, Map<string, StructuralParam[]>>();
   // callee id → its resolved in-repo call edges; built on the first parameter-topic queue send.
   private callersByCallee: Map<string, CallEdgeFact[]> | undefined;
+  private internalCallsMemo: CallEdgeFact[] | undefined;
   // file → local name → the name+module it is imported from (hoisted, as hierarchy-ref-identity
   // already does per file — `interfaceIdForName` rebuilt it on every single call).
   private readonly importedNamesByFile = new Map<string, Map<string, ImportedName>>();
@@ -380,6 +381,7 @@ export class TreeSitterScipSubstrate implements Substrate {
     this.localBindingsByFile.clear();
     this.paramsByEnclosing.clear();
     this.callersByCallee = undefined;
+    this.internalCallsMemo = undefined;
     this.importedNamesByFile.clear();
     this.cstParsed = false;
   }
@@ -2038,6 +2040,12 @@ export class TreeSitterScipSubstrate implements Substrate {
   // ── internal calls (SCIP, scoped, DI-corrected) ────────────────────────────
 
   internalCalls(): CallEdgeFact[] {
+    // Computed once: a parameter-topic queue send reads it mid-run, and the engine again at assembly.
+    this.internalCallsMemo ??= this.computeInternalCalls();
+    return this.internalCallsMemo;
+  }
+
+  private computeInternalCalls(): CallEdgeFact[] {
     const scopedFnIds = this.scopedFunctionIds();
     // Index structural call sites (receiver/method/enclosing) by (callerId, file, line)
     // so we can DI-correct SCIP edges that landed on a constructor.
