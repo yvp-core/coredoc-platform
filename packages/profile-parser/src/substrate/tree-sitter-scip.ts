@@ -616,23 +616,8 @@ export class TreeSitterScipSubstrate implements Substrate {
   /** Is `name` bound by a parameter or a non-module declaration of a scope enclosing 1-based `line`? */
   private shadowedAt(file: string, name: string, line: number): boolean {
     const row = line - 1;
-    const binds = (n: TsNode): boolean => {
-      const params = n.childForFieldName('parameters') ?? n.childForFieldName('parameter');
-      for (const p of params?.type === 'formal_parameters' ? params.namedChildren : params ? [params] : []) {
-        const pattern = p.childForFieldName('pattern') ?? p;
-        if (pattern.type === 'identifier' && text(pattern) === name) return true;
-      }
-      return (
-        n.type !== 'program' &&
-        n.namedChildren.some(
-          (d) =>
-            (d.type === 'lexical_declaration' || d.type === 'variable_declaration') &&
-            d.namedChildren.some((v) => v.type === 'variable_declarator' && text(v.childForFieldName('name')) === name),
-        )
-      );
-    };
     for (let n = this.cstRoots.get(file); n; ) {
-      if (binds(n)) return true;
+      if (n.type !== 'program' && scopeBinds(n, name)) return true;
       n = n.namedChildren.find((c) => c.startPosition.row <= row && row <= c.endPosition.row);
     }
     return false;
@@ -3544,13 +3529,32 @@ export class TreeSitterScipSubstrate implements Substrate {
 }
 
 /**
- * The values plainly assigned to the identifier `name` anywhere under `scope` (`name = v`).
- * Undefined when it is also updated in place (`name += v`, `name++`), which states no value.
+ * Does node `n` bind `name` for its subtree: a parameter of it (function-like), or a
+ * declaration among its own statements (a block, a `for` initializer)?
+ */
+function scopeBinds(n: TsNode, name: string): boolean {
+  const params = n.childForFieldName('parameters') ?? n.childForFieldName('parameter');
+  for (const p of params?.type === 'formal_parameters' ? params.namedChildren : params ? [params] : []) {
+    const pattern = p.childForFieldName('pattern') ?? p;
+    if (pattern.type === 'identifier' && text(pattern) === name) return true;
+  }
+  return n.namedChildren.some(
+    (d) =>
+      (d.type === 'lexical_declaration' || d.type === 'variable_declaration') &&
+      d.namedChildren.some((v) => v.type === 'variable_declarator' && text(v.childForFieldName('name')) === name),
+  );
+}
+
+/**
+ * The values plainly assigned to the identifier `name` under `scope` (`name = v`), skipping
+ * nested scopes that bind their own `name`. Undefined when it is also updated in place
+ * (`name += v`, `name++`), which states no value.
  */
 function writesTo(scope: TsNode, name: string): TsNode[] | undefined {
   const values: TsNode[] = [];
   let updated = false;
   const walk = (n: TsNode): void => {
+    if (n.id !== scope.id && scopeBinds(n, name)) return;
     const target =
       n.type === 'assignment_expression' || n.type === 'augmented_assignment_expression'
         ? n.childForFieldName('left')

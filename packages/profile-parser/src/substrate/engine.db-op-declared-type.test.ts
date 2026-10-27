@@ -98,6 +98,22 @@ describe('entityFrom declared-type', () => {
     expect(ops(repo)).toEqual(['create:Grant', 'create:Job', 'delete:Job']);
   });
 
+  it("ignores writes to an inner scope's own binding of the same name", async () => {
+    const repo = await run(`  save(ids: number[]) {
+    let x = new Grant();
+    for (let x = 0; x < ids.length; x++) {}
+    ids.forEach((x) => {
+      x += 1;
+    });
+    {
+      let x = 0;
+      x++;
+    }
+    em.persist(x);
+  }`);
+    expect(ops(repo)).toEqual(['create:Grant']);
+  });
+
   it('reads a reassigned `let` when every assignment names the same entity', async () => {
     const repo = await run(`  async upsert(dto: object) {
     let x = await em.findOne(Grant, { id: '1' });
