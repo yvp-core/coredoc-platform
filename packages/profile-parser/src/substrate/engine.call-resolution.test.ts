@@ -55,7 +55,9 @@ function writeFixture(files: Record<string, string>): string {
   writeFileSync(
     join(root, 'tsconfig.json'),
     JSON.stringify({
-      compilerOptions: { target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler' },
+      // No DOM lib: `setTimeout` stays undeclared, so SCIP leaves its structural site for the
+      // engine's built-in drop instead of removing it as a TS-lib call.
+      compilerOptions: { target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', lib: ['ES2022'] },
       include: ['src'],
     }),
   );

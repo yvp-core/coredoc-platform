@@ -109,4 +109,25 @@ describe('CodeGraph', () => {
     g.removeUnresolvedCallAt('CALLER', 'a.ts', 7);
     expect(g.calls.size).toBe(0);
   });
+
+  it('removeUnresolvedCallAt removes only the same-named call when calls nest on one line', () => {
+    const g = new CodeGraph();
+    // `axios.post(buildUrl(x))`: outer call registered first, inner call last.
+    for (const [id, calleeExpression] of [
+      ['r:call:post', 'axios.post'],
+      ['r:call:buildUrl', 'buildUrl'],
+    ]) {
+      g.addCall({
+        id,
+        callerId: 'CALLER',
+        calleeExpression,
+        isMethodCall: true,
+        location: { filePath: 'a.ts', startLine: 4, endLine: 4 },
+      });
+    }
+    g.removeUnresolvedCallAt('CALLER', 'a.ts', 4, 'post');
+    expect([...g.calls.keys()]).toEqual(['r:call:buildUrl']);
+    // The site key survives for the remaining sibling, so SCIP can still upgrade it.
+    expect(g.resolveInternalCall('CALLER', 'a.ts', 4, 'BUILD_URL', 'buildUrl')).toBe(true);
+  });
 });

@@ -152,11 +152,9 @@ export class CodeGraph {
   }
 
   /** Remove the unresolved structural call edge at a site (it is being reclassified as an external call). */
-  removeUnresolvedCallAt(callerId: string, filePath: string, line: number): void {
-    const key = this.siteKey(callerId, filePath, line);
-    const edgeId = this.unresolvedCallSites.get(key)?.at(-1);
+  removeUnresolvedCallAt(callerId: string, filePath: string, line: number, calleeName?: string): void {
+    const edgeId = this.takeUnresolvedCallAt(callerId, filePath, line, calleeName);
     if (edgeId) this.calls.delete(edgeId);
-    this.unresolvedCallSites.delete(key);
   }
 
   private takeUnresolvedCallAt(

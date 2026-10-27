@@ -212,7 +212,7 @@ export function scipToEdges(
         // Noise (empty package = TS stdlib like Array.map/Promise.then; @types/*; tslib/reflect-metadata):
         // not a real edge. Drop the structural sibling so it isn't counted or re-resolved by the overlay, and skip.
         if (isNoiseExternalPackage(mon.packageName)) {
-          g.removeUnresolvedCallAt(callerId, doc.relativePath, line);
+          g.removeUnresolvedCallAt(callerId, doc.relativePath, line, methodNameFromMoniker(occ.symbol));
           continue;
         }
         // The moniker names one of this repo's OWN workspace packages, yet `symbolToNodeId` found
@@ -225,8 +225,8 @@ export function scipToEdges(
         // later resolution tier (interface-dispatch binding) upgrades in place.
         if (ownPackages.has(mon.packageName)) continue;
         // Real external (service/IO) call — drop the structural unresolved sibling and emit the external edge.
-        g.removeUnresolvedCallAt(callerId, doc.relativePath, line);
         const method = methodNameFromMoniker(occ.symbol);
+        g.removeUnresolvedCallAt(callerId, doc.relativePath, line, method);
         const extId = idGen.externalCallId(callerId, mon.packageName, method, loc);
         const edge: ExternalCallEdge = {
           id: extId,
