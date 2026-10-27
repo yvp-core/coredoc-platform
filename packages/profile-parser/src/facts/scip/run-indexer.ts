@@ -16,6 +16,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { parse as parseYaml } from 'yaml';
 import { SCIP_INDEXERS } from '../config.js';
+import { readPackageJsonWorkspaceGlobs } from '../workspace.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -143,8 +144,22 @@ export function enumeratePnpmWorkspaceProjects(repoRoot: string): string[] {
   } catch {
     return []; // missing or malformed workspace file
   }
-  if (!Array.isArray(patterns)) return [];
+  return Array.isArray(patterns) ? workspaceMemberProjects(repoRoot, patterns) : [];
+}
 
+/**
+ * The npm/yarn counterpart of `enumeratePnpmWorkspaceProjects`: members of a root package.json
+ * `workspaces` (array or `{ packages }` form). Without it such a repo has no root tsconfig to
+ * fall back on and indexes as ONE synthetic project, so member tsconfigs and their `paths`
+ * (`@/*` in `apps/web/tsconfig.json`) are never read. Never throws; no declaration yields `[]`.
+ */
+export function enumerateNpmWorkspaceProjects(repoRoot: string): string[] {
+  const patterns = readPackageJsonWorkspaceGlobs(repoRoot);
+  return patterns?.length ? workspaceMemberProjects(repoRoot, patterns) : [];
+}
+
+/** Absolute member dirs (root included) matched by workspace globs; a leading `!` excludes. */
+function workspaceMemberProjects(repoRoot: string, patterns: unknown[]): string[] {
   const included = new Set<string>();
   const excluded = new Set<string>();
   for (const entry of patterns) {
@@ -337,7 +352,10 @@ export function discoverSoloTsconfigProjects(repoRoot: string, coveredProjects: 
  * register subtrees of members as if they were independent projects.
  */
 export function enumerateIndexProjects(repoRoot: string): string[] {
-  const workspace = enumeratePnpmWorkspaceProjects(repoRoot);
+  // A pnpm-workspace.yaml wins over package.json `workspaces`, even when it yields nothing.
+  const workspace = isPnpmWorkspaceRoot(repoRoot)
+    ? enumeratePnpmWorkspaceProjects(repoRoot)
+    : enumerateNpmWorkspaceProjects(repoRoot);
   if (workspace.length === 0) return [];
   return [...workspace, ...discoverSoloTsconfigProjects(repoRoot, workspace)].sort();
 }
@@ -934,7 +952,7 @@ function runScipTypescriptCombined(repoRoot: string, scipPath: string, projects:
  * under `opts.outDir` and removed afterward; the analyzed repo is never modified.
  *
  * Three shapes, in precedence order:
- *   1. pnpm workspace with enumerable members → PER-PROJECT: `scipPaths`, one index per member
+ *   1. pnpm or npm/yarn workspace with enumerable members → PER-PROJECT: `scipPaths`, one index per member
  *      (`runScipTypescriptPerProject`). `COREDOC_SCIP_COMBINED=1` forces (2) instead.
  *   2. pnpm workspace with no enumerable members (or the rollback flag) → one combined index.
  *   3. single-project repo → one index, unchanged.
@@ -952,12 +970,12 @@ export async function runScipTypescript(repoRoot: string, opts: ScipRunOpts = {}
   // synthesis (projects bring their own). Default is per-project (one child per project, bounded
   // pool) because one process cannot hold a large workspace; the combined invocation stays
   // reachable via COREDOC_SCIP_COMBINED=1 and is the only option when enumeration finds nothing.
-  if (isPnpmWorkspaceRoot(repoRoot)) {
-    // Enumerate ourselves; `--pnpm-workspaces` is only the fallback (see
-    // enumeratePnpmWorkspaceProjects — it spawns `pnpm ls`, which dies in the desktop sandbox
-    // where HOME is empty and the network is denied). Ours also reaches the tsconfig-rooted trees
-    // outside the workspace globs, which `pnpm ls` by definition does not know about.
-    const projects = enumerateIndexProjects(repoRoot);
+  // Enumerate ourselves; `--pnpm-workspaces` is only the pnpm fallback (see
+  // enumeratePnpmWorkspaceProjects — it spawns `pnpm ls`, which dies in the desktop sandbox
+  // where HOME is empty and the network is denied). Ours also reaches npm/yarn `workspaces`
+  // members and the tsconfig-rooted trees outside the workspace globs.
+  const projects = enumerateIndexProjects(repoRoot);
+  if (isPnpmWorkspaceRoot(repoRoot) || projects.length > 0) {
     return usePerProjectIndexing(projects)
       ? runScipTypescriptPerProject(repoRoot, scipDir, projects)
       : runScipTypescriptCombined(repoRoot, scipPath, projects);

@@ -42,8 +42,9 @@ function readPnpmGlobs(repoRoot: string): string[] | null {
   }
 }
 
-/** package.json `workspaces`: an array of globs, or `{ packages: [...] }` (Yarn/Lerna shape). */
-function pkgJsonWorkspaceGlobs(pkg: unknown): string[] | null {
+/** Root package.json `workspaces`: an array of globs, or `{ packages: [...] }` (Yarn/Lerna shape). */
+export function readPackageJsonWorkspaceGlobs(repoRoot: string): string[] | null {
+  const pkg = readJson(join(repoRoot, 'package.json'));
   if (!pkg || typeof pkg !== 'object') return null;
   const ws = (pkg as { workspaces?: unknown }).workspaces;
   if (Array.isArray(ws)) return ws.filter((g): g is string => typeof g === 'string');
@@ -63,7 +64,7 @@ function normalizeGlob(g: string): string {
  * caller then falls back to a package.json directory scan.
  */
 function readWorkspaceGlobs(repoRoot: string): WorkspaceGlobs | null {
-  const globs = readPnpmGlobs(repoRoot) ?? pkgJsonWorkspaceGlobs(readJson(join(repoRoot, 'package.json')));
+  const globs = readPnpmGlobs(repoRoot) ?? readPackageJsonWorkspaceGlobs(repoRoot);
   if (!globs || globs.length === 0) return null;
   const includes: string[] = [];
   const excludes: string[] = [];
