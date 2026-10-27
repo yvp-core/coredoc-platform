@@ -53,4 +53,32 @@ describe('call graph — npm/yarn workspace member with its own tsconfig paths',
       .map((c) => `${nameById.get(c.callerId)}->${nameById.get(c.calleeId as string)}`);
     expect(edges).toContain('page->loadWidgets');
   });
+
+  it('still resolves calls in member files the member tsconfig excludes (a sibling tsconfig covers them)', async () => {
+    dir = writeFixture(['apps/*']);
+    writeFileSync(
+      join(dir, 'apps/web/tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } },
+        include: ['src'],
+        exclude: ['src/legacy'],
+      }),
+    );
+    writeFileSync(
+      join(dir, 'apps/web/tsconfig.legacy.json'),
+      JSON.stringify({ extends: './tsconfig.json', compilerOptions: { allowJs: true }, include: ['src/legacy'] }),
+    );
+    mkdirSync(join(dir, 'apps/web/src/legacy'), { recursive: true });
+    writeFileSync(join(dir, 'apps/web/src/legacy/a.ts'), 'export function f() {\n  g();\n}\nfunction g() {}\n');
+    const { repo } = await runProfile(
+      { parserId: 'test-npm-ws-paths', substrate: { language: 'ts', include: ['apps/**/*.ts'] } },
+      dir,
+      'npm-ws-paths',
+    );
+    const nameById = new Map(repo.functions.map((f) => [f.id, f.name]));
+    const edges = repo.calls
+      .filter((c) => c.calleeId)
+      .map((c) => `${nameById.get(c.callerId)}->${nameById.get(c.calleeId as string)}`);
+    expect(edges).toEqual(expect.arrayContaining(['f->g', 'page->loadWidgets']));
+  });
 });

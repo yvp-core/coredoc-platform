@@ -203,6 +203,8 @@ export interface TypescriptProjectPlan {
   sourceFiles?: string[];
   /** Repo-owned config whose compiler semantics a bounded root-residue project should inherit. */
   extendsConfig?: string;
+  /** Member files its own tsconfig leaves out, indexed beside (not instead of) that tsconfig. */
+  uncovered?: true;
 }
 
 /** Is `target` the root itself or a descendant, without prefix-confusing sibling paths? */
@@ -265,17 +267,57 @@ export function planTypescriptProjects(repoRoot: string, projects: string[]): Ty
   const root = resolve(repoRoot);
   const rootConfig = ['tsconfig.json', 'jsconfig.json'].map((name) => join(root, name)).find(existsSync);
   const resolvedProjects = projects.map((project) => resolve(project));
-  return resolvedProjects.map((projectDir) => {
+  // An npm/yarn workspace indexed as ONE synthetic project over every file before its members were
+  // enumerated, so a member tsconfig's `exclude` (often covered by a sibling `tsconfig.*.json`) must
+  // not now drop those files. pnpm members never had that coverage (see `scipCoverageGaps`).
+  const indexUncovered = !isPnpmWorkspaceRoot(root);
+  return resolvedProjects.flatMap((projectDir): TypescriptProjectPlan[] => {
     const contained = isInside(root, projectDir);
-    const needsSynthetic =
-      contained && existsSync(projectDir) && (projectDir === root || !existsSync(join(projectDir, 'tsconfig.json')));
-    if (!needsSynthetic) return { projectDir };
-    return {
-      projectDir,
-      sourceFiles: ownedTypescriptSourceFiles(projectDir, resolvedProjects),
-      ...(projectDir === root && rootConfig ? { extendsConfig: rootConfig } : {}),
-    };
+    const tsconfig = join(projectDir, 'tsconfig.json');
+    const needsSynthetic = contained && existsSync(projectDir) && (projectDir === root || !existsSync(tsconfig));
+    if (!needsSynthetic) {
+      const uncovered = indexUncovered && contained ? uncoveredSourceFiles(projectDir, tsconfig, resolvedProjects) : [];
+      return uncovered.length
+        ? [{ projectDir }, { projectDir, sourceFiles: uncovered, extendsConfig: tsconfig, uncovered: true }]
+        : [{ projectDir }];
+    }
+    return [
+      {
+        projectDir,
+        sourceFiles: ownedTypescriptSourceFiles(projectDir, resolvedProjects),
+        ...(projectDir === root && rootConfig ? { extendsConfig: rootConfig } : {}),
+      },
+    ];
   });
+}
+
+/**
+ * Files owned by `projectDir` that its `tsconfig` program (plus the projects it references, which
+ * scip-typescript follows) does not index. `[]` when the config cannot be read, so a broken config
+ * keeps its honest failure instead of a synthetic stand-in.
+ */
+function uncoveredSourceFiles(projectDir: string, tsconfig: string, allProjects: string[]): string[] {
+  const ts = createRequire(import.meta.url)('typescript') as typeof import('typescript');
+  const covered = new Set<string>();
+  const visited = new Set<string>(); // a reference cycle must terminate
+  const visit = (configPath: string): boolean => {
+    visited.add(configPath);
+    const { config, error } = ts.readConfigFile(configPath, ts.sys.readFile);
+    if (error) return false;
+    const parsed = ts.parseJsonConfigFileContent(config, ts.sys, dirname(configPath), undefined, configPath);
+    for (const file of parsed.fileNames) covered.add(resolve(file));
+    for (const ref of parsed.projectReferences ?? []) {
+      const refPath = ts.resolveProjectReferencePath(ref);
+      if (!visited.has(refPath)) visit(refPath);
+    }
+    return true;
+  };
+  try {
+    if (!visit(tsconfig)) return [];
+  } catch {
+    return [];
+  }
+  return ownedTypescriptSourceFiles(projectDir, allProjects).filter((file) => !covered.has(file));
 }
 
 /**
@@ -650,10 +692,11 @@ const PROJECT_INDEX_DIR = 'scip-projects';
  * path (stable across runs, collision-free for sibling dirs with the same basename) with the
  * basename kept as a human-readable prefix.
  */
-export function projectIndexPath(scipDir: string, repoRoot: string, projectDir: string): string {
+export function projectIndexPath(scipDir: string, repoRoot: string, projectDir: string, variant = ''): string {
   const rel = relative(repoRoot, projectDir) || '.';
   const slug = (rel === '.' ? 'root' : rel.split(/[\\/]/).pop() || 'project').replace(/[^\w.-]/g, '_');
-  return join(scipDir, PROJECT_INDEX_DIR, `${slug}-${createHash('sha1').update(rel).digest('hex').slice(0, 12)}.scip`);
+  const hash = createHash('sha1').update(rel).digest('hex').slice(0, 12);
+  return join(scipDir, PROJECT_INDEX_DIR, `${slug}${variant ? `-${variant}` : ''}-${hash}.scip`);
 }
 
 /** Index ONE enumerated project into its own file; never throws. */
@@ -671,7 +714,7 @@ async function indexOneProject(
   if (project.startsWith('..') || isAbsolute(project)) {
     return { project, ok: false, reason: `project path ${projectDir} is not inside the repo root ${repoRoot}` };
   }
-  const scipPath = projectIndexPath(scipDir, repoRoot, projectDir);
+  const scipPath = projectIndexPath(scipDir, repoRoot, projectDir, plan.uncovered ? 'uncovered' : '');
   mkdirSync(dirname(scipPath), { recursive: true });
   // Never let a previous run's file masquerade as this run's output.
   try {
