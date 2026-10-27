@@ -578,9 +578,21 @@ export class TreeSitterScipSubstrate implements Substrate {
    * and remain droppable hosts. Param identifiers (`${companyUuid}`) and
    * runtime-valued consts don't resolve to a string const, so they are left as
    * `${ident}` and normalized/dropped downstream exactly as before.
+   *
+   * A bare identifier argument (`this.post(SCHEMAS_PATH)`) is first replaced by the
+   * initializer of a same-file module `const` holding a string or template literal, so
+   * a template of consts (`` `${API}/items` ``) is then inlined like any other.
    */
   inlineStringConstInterpolations(raw: string | undefined, file: string): string | undefined {
-    return inlineConstInterpolations(raw, (ident) => this.resolveConst(ident, file));
+    const bare = raw?.trim();
+    const init =
+      bare && /^[A-Za-z_$][\w$]*$/.test(bare)
+        ? this.structuralFile(file)
+            ?.variables.find((v) => v.name === bare && v.declarationKind === 'const')
+            ?.initialValue?.trim()
+        : undefined;
+    const url = init && /^(['"`])[\s\S]*\1$/.test(init) ? init : raw;
+    return inlineConstInterpolations(url, (ident) => this.resolveConst(ident, file));
   }
 
   /**
