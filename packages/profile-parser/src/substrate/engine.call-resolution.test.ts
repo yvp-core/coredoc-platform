@@ -102,6 +102,27 @@ describe('engine — stats.callResolution', () => {
     expect(repo.calls.some((c) => c.calleeExpression === 'setTimeout')).toBe(false);
     expect(repo.stats.callResolution).toEqual({ callSites: 4, resolvedCalls: 3, outOfScopeCalls: 0 });
   });
+
+  it('binds a callback reference on a line whose calls are all built-ins', async () => {
+    dir = writeFixture({
+      'app.ts': `function isWidget(x: unknown): x is object {
+  return typeof x === 'object' && x !== null;
+}
+
+export function anyWidget(items: unknown[]): boolean {
+  return items.filter(isWidget).some((d) => {
+    return !!d;
+  });
+}
+`,
+    });
+    const { repo } = await runProfile(PROFILE, dir, 'call-resolution-callback');
+    const nameById = new Map(repo.functions.map((f) => [f.id, f.name]));
+    const edges = repo.calls
+      .filter((c) => c.calleeId)
+      .map((c) => `${nameById.get(c.callerId)}->${nameById.get(c.calleeId as string)}`);
+    expect(edges).toContain('anyWidget->isWidget');
+  });
 });
 
 // `@app/*` resolves nowhere, so SCIP cannot see the hierarchy and the DI tier must walk `extends`.

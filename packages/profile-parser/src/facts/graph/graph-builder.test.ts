@@ -130,4 +130,27 @@ describe('CodeGraph', () => {
     // The site key survives for the remaining sibling, so SCIP can still upgrade it.
     expect(g.resolveInternalCall('CALLER', 'a.ts', 4, 'BUILD_URL', 'buildUrl')).toBe(true);
   });
+
+  it('a named occurrence that matches no sibling neither removes nor upgrades one', () => {
+    const g = new CodeGraph();
+    // `days.filter(isObj).some(…)`: `isObj` is a callback REFERENCE, not one of the line's calls.
+    for (const [id, calleeExpression] of [
+      ['r:call:filter', 'days.filter'],
+      ['r:call:some', 'days.filter(isObj).some'],
+    ]) {
+      g.addCall({
+        id,
+        callerId: 'CALLER',
+        calleeExpression,
+        isMethodCall: true,
+        location: { filePath: 'a.ts', startLine: 2, endLine: 2 },
+      });
+    }
+    g.removeUnresolvedCallAt('CALLER', 'a.ts', 2, 'map');
+    expect(g.resolveInternalCall('CALLER', 'a.ts', 2, 'IS_OBJ', 'isObj')).toBe(false);
+    expect([...g.calls.values()].map((c) => [c.id, c.calleeId])).toEqual([
+      ['r:call:filter', undefined],
+      ['r:call:some', undefined],
+    ]);
+  });
 });

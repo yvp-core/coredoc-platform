@@ -135,7 +135,8 @@ export class CodeGraph {
    * line). Known limitation: a multi-line member-call chain whose method token sits on a different
    * line than the call-expression start will not collapse (rare; appears as two edges — best-effort).
    * Calls nested on one line (`this.publish(topicFor(X))`) share the key, so `calleeName` picks the
-   * sibling whose expression ends in that name; without a match the last-registered one is taken.
+   * sibling whose expression ends in that name; without a match nothing is upgraded (false), so
+   * the caller adds a fresh edge. Without `calleeName` the last-registered sibling is taken.
    */
   resolveInternalCall(
     callerId: string,
@@ -167,13 +168,16 @@ export class CodeGraph {
     const ids = this.unresolvedCallSites.get(key);
     if (!ids) return undefined;
     const name = calleeName?.startsWith('#') ? calleeName.slice(1) : calleeName;
-    let at = ids.length - 1;
-    for (let i = at; name && i >= 0; i--) {
+    // A named occurrence takes only a sibling ending in that name: a callback reference
+    // (`xs.filter(isObj)`) or another call on the line must not claim an unrelated sibling.
+    let at = name ? -1 : ids.length - 1;
+    for (let i = ids.length - 1; name && i >= 0; i--) {
       if (/([A-Za-z_$][\w$]*)\s*$/.exec(this.calls.get(ids[i])?.calleeExpression ?? '')?.[1] === name) {
         at = i;
         break;
       }
     }
+    if (at < 0) return undefined;
     const [edgeId] = ids.splice(at, 1);
     if (ids.length === 0) this.unresolvedCallSites.delete(key);
     return edgeId;
