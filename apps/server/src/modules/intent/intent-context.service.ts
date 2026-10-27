@@ -69,7 +69,6 @@ import {
 import {
   AUTHORITY_RANK,
   attachmentReason,
-  compareFallbackMatches,
   compareMatches,
   expandNodeIds,
   PATH_SCOPED_NODE_KINDS,
@@ -88,7 +87,7 @@ import { readIntentPendingReview } from './intent-review-queue.service.js';
 import { IntentErrorCode } from './contract/index.js';
 import { intentStateError } from './intent-state-errors.js';
 import { INTENT_NODE_SCAN, unknownNodeError } from './intent-node-suggest.js';
-import { IntentLexicalMatch, lexicalHits, lexicalPredicate, matchLexically } from './intent-lexical.js';
+import { IntentLexicalMatch, lexicalPredicate } from './intent-lexical.js';
 import { treeConditionsOf } from './intent-tree.service.js';
 
 /** Effectivity plus every per-repo delivery (BR-5); `deliveries` is omitted when there are none. */
@@ -109,7 +108,6 @@ function evidenceKey(itemId: string, repoKey: string, nodeId: string): string {
 interface CandidateIdRow {
   id: string;
   authorityRank: number;
-  hits?: number;
 }
 
 /** Everything a returned item needs, read once per response. */
@@ -209,6 +207,28 @@ export function listConditionsOf(row: {
   };
 }
 
+/** The authorities a source ref reaches: accepted, and candidates on opt-in. */
+function sourcedAuthorities(request: EffectiveContextRequest): string[] {
+  return request.includeCandidates ? ['accepted', 'candidate'] : ['accepted'];
+}
+
+/** A source row (aliased `s`) citing one of `refs`; only `kind: issue` refs fold case. */
+function sourceRefPredicate(refs: readonly string[]): Prisma.Sql {
+  const { exact, caseless } = sourceRefMatchSets(refs);
+  return Prisma.sql`(s.ref = ANY(${exact}::text[]) OR (s.kind::text = 'issue' AND LOWER(s.ref) = ANY(${caseless}::text[])))`;
+}
+
+/** The refs no item cites and the sentence that says so; both absent when every ref matched. */
+function unmatchedSourceRefsFields(refs: string[], returned: readonly { matchReason: string }[]) {
+  if (refs.length === 0) return {};
+  const textOnly =
+    returned.length > 0 && returned.every((match) => match.matchReason === IntentContextMatchReason.Text);
+  return {
+    unmatchedSourceRefs: refs,
+    unmatchedSourceRefsNote: `No item cites ${refs.join(', ')}${textOnly ? '; the items below matched the task text only' : ''}.`,
+  };
+}
+
 @Injectable()
 export class IntentContextService {
   constructor(
@@ -231,10 +251,17 @@ export class IntentContextService {
     const exact = [...exactIds, ...sourced];
     const excludeIds = exact.map((match) => match.id);
 
-    const modeAnswer =
+    const selected =
       request.mode === IntentContextMode.List
         ? await this.readList(workspaceId, request, scope, tokens, exact, excludeIds, filter)
         : await this.readContext(workspaceId, request, scope, tokens, exact, excludeIds, filter);
+    const modeAnswer = {
+      ...selected,
+      ...unmatchedSourceRefsFields(
+        await this.unmatchedSourceRefs(workspaceId, request),
+        'matches' in selected ? selected.matches : selected.entries,
+      ),
+    };
     const isExcluded = (id: string) => filter?.evaluations.get(id)?.state === ContextMatchState.Excluded;
     const contextExcluded = filter ? [...filter.evaluations.keys()].filter(isExcluded).length : 0;
     // Items the caller named (exact id or source ref) must not vanish silently.
@@ -619,18 +646,15 @@ export class IntentContextService {
     already: readonly SelectedMatch[],
   ): Promise<SelectedMatch[]> {
     if (!request.sourceRefs?.length) return [];
-    const { exact, caseless } = sourceRefMatchSets(request.sourceRefs);
-    const authorities = request.includeCandidates ? ['accepted', 'candidate'] : ['accepted'];
     const skip = already.map((match) => match.id);
     const rows = await this.prisma.$queryRaw<Array<{ id: string; authority: keyof typeof AUTHORITY_RANK }>>`
       SELECT i.id, i.authority::text AS authority FROM intent_items i
       WHERE i.workspace_id = ${workspaceId}::uuid
-        AND i.authority::text = ANY(${authorities}::text[])
+        AND i.authority::text = ANY(${sourcedAuthorities(request)}::text[])
         ${skip.length ? Prisma.sql`AND i.id NOT IN (${Prisma.join(skip)})` : Prisma.empty}
         AND EXISTS (
           SELECT 1 FROM intent_item_sources s
-          WHERE s.workspace_id = i.workspace_id AND s.item_id = i.id
-            AND (s.ref = ANY(${exact}::text[]) OR (s.kind::text = 'issue' AND LOWER(s.ref) = ANY(${caseless}::text[])))
+          WHERE s.workspace_id = i.workspace_id AND s.item_id = i.id AND ${sourceRefPredicate(request.sourceRefs)}
         )
       ORDER BY i.id
       LIMIT ${INTENT_CONTEXT_READ_LIMITS.sourceItems + 1}`;
@@ -641,6 +665,25 @@ export class IntentContextService {
         reason: IntentContextMatchReason.Source,
       }))
       .sort((a, b) => a.authorityRank - b.authorityRank || a.id.localeCompare(b.id));
+  }
+
+  /**
+   * The requested refs that select no item under the same authority and case
+   * rules as `selectBySource`. Counted over every citing item, not the capped
+   * page, so a ref past the cap is not reported unmatched.
+   */
+  private async unmatchedSourceRefs(workspaceId: string, request: EffectiveContextRequest): Promise<string[]> {
+    if (!request.sourceRefs?.length) return [];
+    const { exact } = sourceRefMatchSets(request.sourceRefs);
+    const rows = await this.prisma.$queryRaw<Array<{ ref: string }>>`
+      SELECT DISTINCT CASE WHEN s.ref = ANY(${exact}::text[]) THEN s.ref ELSE LOWER(s.ref) END AS ref
+      FROM intent_item_sources s
+      JOIN intent_items i ON i.workspace_id = s.workspace_id AND i.id = s.item_id
+      WHERE s.workspace_id = ${workspaceId}::uuid
+        AND i.authority::text = ANY(${sourcedAuthorities(request)}::text[])
+        AND ${sourceRefPredicate(request.sourceRefs)}`;
+    const cited = new Set(rows.map((row) => row.ref));
+    return request.sourceRefs.filter((ref) => !cited.has(exact.includes(ref) ? ref : ref.toLowerCase()));
   }
 
   private unknownIntentIds(request: EffectiveContextRequest, exact: readonly SelectedMatch[]): string[] {
@@ -704,24 +747,15 @@ export class IntentContextService {
   }
 
   /**
-   * The shared lexical matcher (`intent-lexical.ts`), ranked for context: an
-   * all-word answer by authority, an any-word fallback by words hit first.
-   * The task path (`selectTaskText`) is a different, full-text retrieval.
+   * The shared lexical matcher (`intent-lexical.ts`) with every word required,
+   * never any word: over a small workspace an any-word answer is unrelated
+   * items. The task path (`selectTaskText`) is a different, full-text retrieval.
    */
-  private selectLexical(where: Prisma.Sql[], tokens: readonly string[], take: number, allowFallback: boolean) {
-    return matchLexically<CandidateIdRow>(
-      tokens,
-      (predicate, match) =>
-        match === IntentLexicalMatch.All
-          ? this.selectIds([...where, predicate], Prisma.sql`"authorityRank", i.id`, take)
-          : this.prisma.$queryRaw<CandidateIdRow[]>`
-              SELECT i.id AS id, ${this.rankExpression} AS "authorityRank", (${lexicalHits(tokens)})::int AS hits
-              FROM intent_items i
-              WHERE ${Prisma.join([...where, predicate], ' AND ')}
-              ORDER BY hits DESC, "authorityRank", i.id
-              LIMIT ${take}
-            `,
-      allowFallback,
+  private selectLexical(where: Prisma.Sql[], tokens: readonly string[], take: number) {
+    return this.selectIds(
+      [...where, lexicalPredicate(tokens, IntentLexicalMatch.All)],
+      Prisma.sql`"authorityRank", i.id`,
+      take,
     );
   }
 
@@ -747,17 +781,16 @@ export class IntentContextService {
     if (words.length === 0) return [];
     const query = Prisma.sql`to_tsquery('english', ${words.join(' | ')})`;
     const lexemes = Prisma.sql`tsvector_to_array(to_tsvector('english', ${words.join(' ')}))`;
-    const title = Prisma.sql`to_tsvector('english', i.title)`;
-    // A rationale-only hit or one incidental statement word must not fill a
-    // task answer: the title matches any task word, or the statement shares at
-    // least two task lexemes (one for a one-lexeme task). Exact IDs and
-    // code-linked constraints bypass this predicate. Lexemes are intersected
-    // as-is, never re-stemmed: Snowball is not idempotent (licens -> licen).
-    const relevant = Prisma.sql`(${title} @@ ${query} OR cardinality(ARRAY(
+    // A rationale-only hit or one incidental title or statement word must not
+    // fill a task answer: title and statement together share at least two task
+    // lexemes (one for a one-lexeme task). Exact IDs and code-linked constraints
+    // bypass this predicate. Lexemes are intersected as-is, never re-stemmed:
+    // Snowball is not idempotent (licens -> licen).
+    const relevant = Prisma.sql`cardinality(ARRAY(
       SELECT unnest(${lexemes})
       INTERSECT
-      SELECT unnest(tsvector_to_array(to_tsvector('english', i.statement)))
-    )) >= GREATEST(1, LEAST(2, cardinality(${lexemes}))))`;
+      SELECT unnest(tsvector_to_array(to_tsvector('english', i.title) || to_tsvector('english', i.statement)))
+    )) >= GREATEST(1, LEAST(2, cardinality(${lexemes})))`;
     const document = Prisma.sql`(
       setweight(to_tsvector('english', i.title), 'A') ||
       setweight(to_tsvector('english', i.statement), 'B') ||
@@ -1090,7 +1123,6 @@ export class IntentContextService {
 
     let discovered: SelectedMatch[] = [];
     let scanTruncated = false;
-    let fallback = false;
     let derivation: IntentNodeDerivationResult | undefined;
     let unresolvedNodeIds: string[] = [];
     let matchedFeatureIds: string[] = [];
@@ -1113,10 +1145,9 @@ export class IntentContextService {
         matchedFeatureIds = selected.matchedFeatureIds;
       }
     } else if (!request.task && tokens.length > 0) {
-      const lexical = await this.selectLexical(where, tokens, scan + 1, true);
-      fallback = lexical.matched === IntentLexicalMatch.Any;
-      scanTruncated = lexical.rows.length > scan;
-      discovered = lexical.rows.slice(0, scan).map((row) => ({ ...row, reason: IntentContextMatchReason.Text }));
+      const rows = await this.selectLexical(where, tokens, scan + 1);
+      scanTruncated = rows.length > scan;
+      discovered = rows.slice(0, scan).map((row) => ({ ...row, reason: IntentContextMatchReason.Text }));
     } else if (!request.task && scope) {
       const rows = await this.selectIds(where, Prisma.sql`"authorityRank", i.id`, scan + 1);
       scanTruncated = rows.length > scan;
@@ -1154,7 +1185,7 @@ export class IntentContextService {
         (a, b) => a.authorityRank - b.authorityRank || (b.taskScore ?? 0) - (a.taskScore ?? 0) || compareMatches(a, b),
       );
     } else {
-      discovered.sort(fallback ? compareFallbackMatches : compareMatches);
+      discovered.sort(compareMatches);
     }
     const ordered = await this.applyContext(workspaceId, filter, [...exact, ...discovered]);
     const selected = ordered.slice(0, limit);
@@ -1185,8 +1216,6 @@ export class IntentContextService {
       omittedCount: ordered.length - selected.length,
       totalMatched: ordered.length,
       scanTruncated,
-      // No item held every query word, so these hold at least one.
-      ...(fallback ? { matched: IntentLexicalMatch.Any } : {}),
       unknownIntentIds: this.unknownIntentIds(request, exact),
       unresolvedNodeIds,
       ...(request.task ? { unresolvedFiles } : {}),
@@ -1314,15 +1343,9 @@ export class IntentContextService {
       : [];
 
     let rows: CandidateIdRow[] = [];
-    let fallback = false;
     let reason = IntentContextMatchReason.Default;
     if (take > 0 && tokens.length > 0) {
-      // A cursor is only ever issued from a conjunctive page, so its presence
-      // proves the conjunction matched: the fallback is not reconsidered, and an
-      // empty later page stays empty instead of re-answering with any-token hits.
-      const lexical = await this.selectLexical([...where, ...keyset], tokens, bound + 1, cursor === null);
-      rows = lexical.rows;
-      fallback = lexical.matched === IntentLexicalMatch.Any;
+      rows = await this.selectLexical([...where, ...keyset], tokens, bound + 1);
       reason = IntentContextMatchReason.Text;
     } else if (take > 0 && (scope !== undefined || !hasSelector(request))) {
       // Same guard the context mode applies: an id selector that matched nothing
@@ -1332,8 +1355,6 @@ export class IntentContextService {
       if (scope) reason = IntentContextMatchReason.Attached;
     }
 
-    // The fallback's hit-count order is not a keyset, so that page is bounded
-    // and cursor-less rather than pretending to paginate.
     const examined = rows.slice(0, bound);
     const kept = await this.applyContext(workspaceId, filter, examined);
     const page = kept.slice(0, take);
@@ -1341,18 +1362,18 @@ export class IntentContextService {
     // A window that ran out before filling the page resumes after its last EXAMINED row.
     const last = kept.length > take ? page[page.length - 1] : examined[examined.length - 1];
     const nextCursor =
-      !fallback && more && last
+      more && last
         ? encodeIntentCursor(IntentCursorScope.Context, [String(last.authorityRank), last.id], binding)
         : null;
     const matches = [...exactPage, ...page.map((row) => ({ ...row, reason }))];
     let truncated = more || exact.length > exactPage.length;
 
     // The whole answer's size, on the first page, where it is one COUNT over the
-    // same predicate. A context filter is applied after the read and the
-    // fallback ranks by hits, so neither has a countable total.
+    // same predicate. A context filter is applied after the read, so it has no
+    // countable total.
     // Counted even when exact ids filled the page, so a page they fill never reads as complete.
     let totalMatched: number | undefined;
-    if (!cursor && !filter && !fallback) {
+    if (!cursor && !filter) {
       const discoveredWhere =
         tokens.length > 0
           ? [...where, lexicalPredicate(tokens, IntentLexicalMatch.All)]
@@ -1363,10 +1384,7 @@ export class IntentContextService {
         ? await this.prisma.$queryRaw<{ total: bigint }[]>`
             SELECT count(*) AS total FROM intent_items i WHERE ${Prisma.join(discoveredWhere, ' AND ')}`
         : [{ total: 0n }];
-      const discovered = Number(row?.total ?? 0);
-      // No conjunctive match on a multi-word query means a real page would take the
-      // any-word fallback, whose size this count does not give.
-      if (!(take === 0 && tokens.length > 1 && discovered === 0)) totalMatched = exact.length + discovered;
+      totalMatched = exact.length + Number(row?.total ?? 0);
     }
     if (totalMatched !== undefined && totalMatched > matches.length) truncated = true;
 
@@ -1375,7 +1393,6 @@ export class IntentContextService {
       limit,
       entries: await this.listEntries(workspaceId, matches, scope, filter),
       nextCursor,
-      ...(fallback ? { matched: IntentLexicalMatch.Any } : {}),
       // True whenever this page is not the whole answer: a caller told to check
       // `truncated` must not read page one of many as complete.
       truncated,

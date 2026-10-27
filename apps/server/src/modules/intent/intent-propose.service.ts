@@ -22,8 +22,9 @@
  * is not a redefinition of the item, and a plain overwrite would silently erase
  * work recorded by an earlier capture or by a maintainer.
  */
-import { Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import {
+  INTENT_ID_MAX_LENGTH,
   IntentKind,
   RegistryIssueCode,
   VariantIssueCode,
@@ -63,7 +64,7 @@ import {
 } from './intent-idempotency.js';
 import { ProposalOutcome, planProposal, sourceIdentity, type ExistingItemFacts } from './intent-propose.plan.js';
 import { intentNotFound, intentStateError } from './intent-state-errors.js';
-import { IntentErrorCode } from './contract/index.js';
+import { IntentErrorCode, IntentPublicException, type IntentErrorDetail } from './contract/index.js';
 
 /**
  * Ids scanned when deriving a slug. A workspace with more than this many items
@@ -162,6 +163,9 @@ export class IntentProposeService {
         await this.validateContextConditions(tx, workspaceId, input);
         const results: ProposedItemResult[] = [];
         const audits: IntentAuditRecord[] = [];
+        // Every title too long for an id is named in one refusal, so a caller fixes them in one round.
+        // The batch still rolls back whole; other refusals stop it at the first.
+        const tooLong: IntentErrorDetail[] = [];
 
         for (const [index, proposal] of input.items.entries()) {
           const applied = await this.applyProposal(
@@ -171,9 +175,24 @@ export class IntentProposeService {
             proposal,
             index,
             suggestions.get(index) ?? [],
-          );
+          ).catch((error: unknown) => {
+            if (!(error instanceof IntentPublicException) || error.publicError.code !== IntentErrorCode.IdWouldTruncate)
+              throw error;
+            tooLong.push(error.publicError);
+            return undefined;
+          });
+          if (!applied) continue;
           results.push(applied.result);
           audits.push(...applied.audits);
+        }
+        if (tooLong.length > 0) {
+          throw intentStateError(
+            IntentErrorCode.IdWouldTruncate,
+            `Intent ids are at most ${INTENT_ID_MAX_LENGTH} characters including the kind prefix; shorten these titles or supply explicit ids.`,
+            tooLong[0]?.path ?? [],
+            HttpStatus.BAD_REQUEST,
+            tooLong,
+          );
         }
         const hints = await this.readHints(tx, workspaceId, results);
         return { response: { items: results, ...(hints.length > 0 ? { hints } : {}) }, audits };

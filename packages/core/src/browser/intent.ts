@@ -518,6 +518,10 @@ export interface IntentContextResponse {
   totalMatched: number;
   scanTruncated: boolean;
   unknownIntentIds: string[];
+  /** Requested sourceRefs no item cites; absent when every ref matched. */
+  unmatchedSourceRefs?: string[];
+  /** The sentence naming them, for a reader of the raw answer; absent with them. */
+  unmatchedSourceRefsNote?: string;
   unresolvedNodeIds: string[];
   matchedFeatureIds: string[];
   evidence: { available: boolean };
@@ -549,6 +553,10 @@ export interface IntentContextListResponse {
   truncated: boolean;
   /** Scanned items the supplied context dropped; absent when none. */
   contextExcluded?: number;
+  /** Requested sourceRefs no item cites; absent when every ref matched. */
+  unmatchedSourceRefs?: string[];
+  /** The sentence naming them, for a reader of the raw answer; absent with them. */
+  unmatchedSourceRefsNote?: string;
 }
 
 /** A "preview as" list read: the browse scope plus the reader context. */

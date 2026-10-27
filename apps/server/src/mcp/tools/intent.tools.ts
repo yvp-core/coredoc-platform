@@ -260,7 +260,7 @@ const GetIntentContextSchema = z
       .optional()
       .describe(
         `Words matched in title, statement, body and rationale; a ref:<value> word is an exact, case-insensitive source-ref match. ` +
-          `Every word must match; if none does, any word, and the answer carries matched: 'any' ` +
+          `Every word must match; an item holding only some of them is not returned ` +
           `(at most ${INTENT_CONTEXT_READ_LIMITS.queryTokens} words)`,
       ),
     nodeIds: z
@@ -465,7 +465,8 @@ const GET_INTENT_CONTEXT_DESCRIPTION =
 
 const INTENT_READ_DESCRIPTION =
   'Read the product intent the way you read a folder of Markdown files. ' +
-  'tree: the domains and their features, as ids and titles, nested; "(empty)" marks a node with no items. Call it ' +
+  'tree: the domains and their features, as ids and titles, nested; "(a accepted · c candidates)" counts a ' +
+  'node\'s own items; "(empty)" means neither. Call it ' +
   'first instead of guessing ids. node {domain | feature | neither for the product root, refs?, kind?, ' +
   'includeCandidates?}: one node as its document: prose, rules, use cases, flows, decisions, limitations and open ' +
   'questions, each item under its id. Below a --- line: the related nodes with the reason to read them, its features, ' +
@@ -473,10 +474,10 @@ const INTENT_READ_DESCRIPTION =
   'The product root (neither id) is the whole-product overview: each domain with its item, waiting, open-question and ' +
   'in-production counts, the items attached to the product as a whole, and delivery across every item outside archived domains. ' +
   'refs: false (default) gives the bare facts; refs: true keeps the Jira, Confluence and code references, for when ' +
-  'you must cite or check a source. search {query, domain?, feature?, kind?, refs?, limit?, after?}: items whose ' +
-  'title, statement, body or rationale contain every word (a ref:<value> word is an exact, case-insensitive source-ref match), or, when ' +
-  "none does, any word (the answer then says matched: 'any'), ordered by id, with the total; get_intent_context's query " +
-  'matches the same way. Then the nodes whose prose (overview, How it works) contains every word. An answer that stops short ' +
+  'you must cite or check a source. search {query, domain?, feature?, kind?, includeCandidates?, refs?, limit?, ' +
+  'after?}: items whose title, statement, body or rationale contain every word (a ref:<value> word is an exact, case-insensitive source-ref match), or, when ' +
+  "none does, any word (the answer then says matched: 'any'), ordered by id, with the total and how many candidates " +
+  "also match; get_intent_context's query needs every word. Then the nodes whose prose (overview, How it works) contains every word. An answer that stops short " +
   'says TRUNCATED and how to get the rest. Requires the intent:read permission.';
 
 const INTENT_PROPOSE_DESCRIPTION =
@@ -484,8 +485,9 @@ const INTENT_PROPOSE_DESCRIPTION =
   'never accepts intent and never touches an accepted item. Each item names at least one source (where the intent ' +
   'came from), attaches to the product root or to one domain or one feature (a domainId beside a featureId is a ' +
   "check and must be that feature's domain), and may carry anchor suggestions the server resolves against the " +
-  'workspace graph; an anchor is never conformance proof. Omit `id` and the server derives one from the title; a ' +
-  'title whose slug does not fit the id cap is REFUSED (id_would_truncate), because an id is immutable — pass a ' +
+  'workspace graph; an anchor is never conformance proof. Omit `id` and the server derives one from the title. ' +
+  'Item ids are at most 64 characters including the kind prefix (br-, dec-, …); a derived id is refused, never ' +
+  'truncated (id_would_truncate, one refusal naming every such title), because an id is immutable — pass a ' +
   'shorter title or an explicit id. To offer a replacement for an accepted item, name it in proposedSuccessorOfId ' +
   '— the swap itself is a reviewer decision. Conditions (appliesWhen, business_rule variants) are refused with ' +
   'dimension_not_found or dimension_value_not_found until the dimension and value are declared with intent_tree; ' +

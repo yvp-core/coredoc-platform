@@ -15,7 +15,6 @@ import { IntentContextMatchReason } from './intent-context.operations.js';
 import {
   AUTHORITY_RANK,
   attachmentReason,
-  compareFallbackMatches,
   compareMatches,
   enclosingNodeIdCandidates,
   expandNodeIds,
@@ -137,15 +136,6 @@ describe('authority ordering', () => {
     expect([...matches].sort(compareMatches).map((match) => match.id)).toEqual(
       [...matches].sort(compareMatches).map((match) => match.id),
     );
-  });
-
-  it('ranks the disjunctive fallback by token-hit count before the ordinary order', () => {
-    const matches: SelectedMatch[] = [
-      { id: 'br-a', authorityRank: 0, reason: IntentContextMatchReason.Text, hits: 1 },
-      { id: 'br-b', authorityRank: 1, reason: IntentContextMatchReason.Text, hits: 2 },
-      { id: 'br-c', authorityRank: 0, reason: IntentContextMatchReason.Text, hits: 2 },
-    ];
-    expect([...matches].sort(compareFallbackMatches).map((match) => match.id)).toEqual(['br-c', 'br-b', 'br-a']);
   });
 });
 

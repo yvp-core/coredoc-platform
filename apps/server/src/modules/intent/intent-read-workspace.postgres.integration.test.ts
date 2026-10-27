@@ -334,13 +334,49 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
       .expect(409);
   });
 
-  it('lists the nodes as a nested folder, marking the empty ones', async () => {
-    const text = await reads.tree(workspaceId);
-    expect(text).toContain('# Intent tree: 2 domains, 4 features, 6 accepted items');
-    expect(text).toContain(
-      '- auth: Sign-in and sessions\n  - sessions: Sessions and logout\n    - session-timeouts: Session timeouts (empty)\n  - sign-in: Sign-in (empty)',
-    );
-    expect(text).toContain('- time-tracking: Time tracking and attendance (empty)\n  - punches: Punches (empty)');
+  it("lists the nodes as a nested folder with each node's own accepted and candidate counts (SF-006 AC-4)", async () => {
+    // A candidate on an archived feature is out of the tree and out of its totals.
+    const author = { createdBy: OWNER.id, updatedBy: OWNER.id };
+    await prisma.intentFeature.create({
+      data: {
+        workspaceId,
+        id: 'retired-kiosks',
+        domainId: 'time-tracking',
+        title: 'Retired',
+        statement: '',
+        archived: true,
+        ...author,
+      },
+    });
+    await prisma.intentItem.create({
+      data: {
+        workspaceId,
+        id: 'br-retired-kiosk-punches',
+        kind: 'business_rule',
+        domainId: 'time-tracking',
+        featureId: 'retired-kiosks',
+        title: 'Retired kiosk punches',
+        statement: 'A retired kiosk refuses punches.',
+        authority: 'candidate',
+        ...author,
+      },
+    });
+    try {
+      const text = await reads.tree(workspaceId);
+      expect(text).toContain('# Intent tree: 2 domains, 4 features, 6 accepted items, 1 candidate\n');
+      expect(text).toContain(
+        '- auth: Sign-in and sessions (1 accepted · 0 candidates)\n' +
+          '  - sessions: Sessions and logout (5 accepted · 0 candidates)\n' +
+          '    - session-timeouts: Session timeouts (empty)\n' +
+          '  - sign-in: Sign-in (empty)\n' +
+          '- time-tracking: Time tracking and attendance (empty)\n' +
+          '  - punches: Punches (0 accepted · 1 candidates)',
+      );
+      expect(text).not.toContain('retired');
+    } finally {
+      await prisma.intentItem.delete({ where: { workspaceId_id: { workspaceId, id: 'br-retired-kiosk-punches' } } });
+      await prisma.intentFeature.delete({ where: { workspaceId_id: { workspaceId, id: 'retired-kiosks' } } });
+    }
   });
 
   it('counts the live items, waiting candidates and open questions attached directly to each tree node', async () => {
@@ -791,6 +827,50 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
     const last = await reads.search(workspaceId, { query: 'logout', limit: 5, after: 'dec-session-unsynced-punches' });
     expect(last).toContain('flow-session-kiosk-logout');
     expect(last).not.toContain('TRUNCATED');
+  });
+
+  it('says how many candidates also match a search that leaves them out (SF-006 AC-5)', async () => {
+    const hint = '1 candidates also match; pass includeCandidates: true to see them.';
+    // Only the candidate holds "unverified".
+    const only = await reads.search(workspaceId, { query: 'unverified' });
+    expect(only).toContain(`0 items match every word of "unverified"\n${hint}`);
+    const shown = await reads.search(workspaceId, { query: 'unverified', includeCandidates: true });
+    expect(shown).toContain('1 items match every word of "unverified"');
+    expect(shown).toContain('- br-punch-needs-device');
+    expect(shown).not.toContain('candidates also match');
+    // No item, accepted or candidate, has both words, so the re-run with candidates falls back to any word too.
+    expect(await reads.search(workspaceId, { query: 'unverified kiosk' })).toContain(
+      `items match any word of "unverified kiosk" (matched: 'any': no item matches every word)\n${hint}`,
+    );
+    expect(await reads.search(workspaceId, { query: 'kiosk' })).not.toContain('candidates also match');
+  });
+
+  it('counts the candidates a re-run with includeCandidates shows, even when that re-run needs every word', async () => {
+    // No accepted item holds both words, so the answer falls back to any word; this candidate holds both,
+    // so the re-run with candidates answers every word and shows it alone, not the mobile-only candidate.
+    await prisma.intentItem.create({
+      data: {
+        workspaceId,
+        id: 'br-mobile-kiosk-check-in',
+        kind: 'business_rule',
+        featureId: 'punches',
+        domainId: 'time-tracking',
+        title: 'Mobile kiosk check-in',
+        statement: 'A mobile kiosk checks people in.',
+        authority: 'candidate',
+        createdBy: OWNER.id,
+        updatedBy: OWNER.id,
+      },
+    });
+    try {
+      const fallback = await reads.search(workspaceId, { query: 'mobile kiosk' });
+      expect(fallback).toContain(`(matched: 'any': no item matches every word)\n1 candidates also match;`);
+      const shown = await reads.search(workspaceId, { query: 'mobile kiosk', includeCandidates: true });
+      expect(shown).toContain('1 items match every word of "mobile kiosk"');
+      expect(shown).toContain('- br-mobile-kiosk-check-in');
+    } finally {
+      await prisma.intentItem.delete({ where: { workspaceId_id: { workspaceId, id: 'br-mobile-kiosk-check-in' } } });
+    }
   });
 
   it('nests features: sub-features in the node read, same-domain parents only, no cycles, no orphaning', async () => {

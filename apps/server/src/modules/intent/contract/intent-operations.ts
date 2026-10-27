@@ -15,6 +15,7 @@
  */
 import {
   ContextConditionSchema,
+  INTENT_ID_MAX_LENGTH,
   INTENT_LIMITS,
   IntentAuthority,
   IntentDimensionSchema,
@@ -287,7 +288,9 @@ export const ProposedIntentItemSchema = z
      */
     id: slugId().optional(),
     kind: z.enum(IntentKind),
-    title: text(INTENT_CONTRACT_LIMITS.title),
+    title: text(INTENT_CONTRACT_LIMITS.title).describe(
+      `A few words that state the rule; its slug plus the kind prefix must fit ${INTENT_ID_MAX_LENGTH} characters.`,
+    ),
     /**
      * Mandatory and self-contained: one sentence that states the rule (or who wants
      * what) without its body or payload (D9). Longer text belongs in `body`.

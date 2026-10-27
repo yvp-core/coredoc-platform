@@ -466,6 +466,69 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
       }
     });
 
+    it('needs two task lexemes shared with title and statement, one shared title word is not enough (SF-006 AC-2)', async () => {
+      const rows = [
+        { id: 'br-shared-incidental', title: 'Hours report export', statement: 'Managers download the weekly report.' },
+        {
+          id: 'br-shared-statement',
+          title: 'Timesheet rounding',
+          statement: 'Hours convert to days at eight per day.',
+        },
+        { id: 'br-shared-title', title: 'Hours to days', statement: 'Partial values round up.' },
+      ];
+      await prisma.intentItem.createMany({
+        data: rows.map((row) => ({
+          ...row,
+          workspaceId,
+          domainId: 'security',
+          kind: 'business_rule' as const,
+          authority: 'accepted' as const,
+          createdBy: OWNER.id,
+          updatedBy: OWNER.id,
+        })),
+      });
+      try {
+        const body = await read({ task: 'Show worked hours as days', limit: '20' });
+        expect(idsOf(body)).not.toContain('br-shared-incidental');
+        for (const id of ['br-shared-statement', 'br-shared-title']) {
+          expect(body.matches.find((match: { id: string }) => match.id === id)?.matchReasons).toEqual([
+            IntentContextMatchReason.Text,
+          ]);
+        }
+      } finally {
+        await prisma.intentItem.deleteMany({ where: { workspaceId, id: { in: rows.map((row) => row.id) } } });
+      }
+    });
+
+    it('keeps an exact id as an exact id beside a task, without widening the task match (SF-006 AC-2)', async () => {
+      const rows = [
+        { id: 'br-exact-incidental', title: 'Hours report export', statement: 'Managers download the weekly report.' },
+        { id: 'br-other-incidental', title: 'Hours of support', statement: 'Support answers on weekdays.' },
+        { id: 'br-exact-shared', title: 'Timesheet rounding', statement: 'Hours convert to days at eight per day.' },
+      ];
+      await prisma.intentItem.createMany({
+        data: rows.map((row) => ({
+          ...row,
+          workspaceId,
+          domainId: 'security',
+          kind: 'business_rule' as const,
+          authority: 'accepted' as const,
+          createdBy: OWNER.id,
+          updatedBy: OWNER.id,
+        })),
+      });
+      try {
+        const body = await read({ task: 'Show worked hours as days', intentIds: 'br-exact-incidental', limit: '20' });
+        const match = (id: string) => body.matches.find((item: { id: string }) => item.id === id);
+        expect(match('br-exact-incidental')?.matchReason).toBe(IntentContextMatchReason.ExactId);
+        expect(match('br-exact-incidental')?.matchReasons ?? []).not.toContain(IntentContextMatchReason.Text);
+        expect(idsOf(body)).not.toContain('br-other-incidental');
+        expect(match('br-exact-shared')?.matchReasons).toEqual([IntentContextMatchReason.Text]);
+      } finally {
+        await prisma.intentItem.deleteMany({ where: { workspaceId, id: { in: rows.map((row) => row.id) } } });
+      }
+    });
+
     it('finds an unanchored rule from a code identifier in the task', async () => {
       const id = 'br-settlement-amount';
       await prisma.intentItem.create({
@@ -702,6 +765,23 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
       expect(idsOf(await read({ sourceRefs: 'jira:day-3' }))).toEqual([]);
     });
 
+    it('names the refs no item cites, and omits them when every ref matched (SF-006 AC-3)', async () => {
+      const partial = await read({ sourceRefs: ['jira:day-1', 'jira:DAY-404'] });
+      expect(idsOf(partial)).toEqual(['cap-checkout']);
+      expect(partial.unmatchedSourceRefs).toEqual(['jira:DAY-404']);
+      expect(partial.unmatchedSourceRefsNote).toBe('No item cites jira:DAY-404.');
+
+      const textOnly = await read({ sourceRefs: 'jira:DAY-404', task: 'refund window' });
+      expect(idsOf(textOnly)).toContain('br-refund-window');
+      expect(textOnly.unmatchedSourceRefsNote).toBe(
+        'No item cites jira:DAY-404; the items below matched the task text only.',
+      );
+
+      const full = await read({ sourceRefs: ['jira:DAY-1', 'jira:DAY-2'] });
+      expect(full).not.toHaveProperty('unmatchedSourceRefs');
+      expect(full).not.toHaveProperty('unmatchedSourceRefsNote');
+    });
+
     it('returns only the accepted items sourced at the ref by default, with reason source (AC-1)', async () => {
       const body = await read({ sourceRefs: 'jira:DAY-1' });
       expect(idsOf(body)).toEqual(['cap-checkout']);
@@ -760,13 +840,20 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
       expect(idsOf(await read({ query: 'refund administrator', limit: '20' }))).toEqual(['br-admin-only']);
     });
 
-    it('falls back to any-token matching, ranked by hit count, only from an EMPTY conjunction', async () => {
+    it('returns no text match when the words never co-occur, not an any-word match (SF-006 AC-1)', async () => {
+      // `uc-warehouse-limit` holds two of the words and the candidate one; neither holds all three.
       const body = await read({ query: 'warehouse stock shortfall', limit: '20', includeCandidates: 'true' });
-      // `uc-warehouse-limit` hits two tokens, the candidate hits one.
-      expect(idsOf(body)).toEqual(['uc-warehouse-limit', 'lim-legacy-export']);
-      expect(body.matches.every((match: ContextMatch) => match.matchReason === IntentContextMatchReason.Text)).toBe(
-        true,
-      );
+      expect(idsOf(body)).toEqual([]);
+      expect(body.matched).toBeUndefined();
+      const list = await read({
+        mode: IntentContextMode.List,
+        query: 'warehouse stock shortfall',
+        limit: '20',
+        includeCandidates: 'true',
+      });
+      expect(list.entries).toEqual([]);
+      expect(list.matched).toBeUndefined();
+      expect(list.totalMatched).toBe(0);
     });
 
     it('leaves a single-word query untouched: there is nothing to fall back to', async () => {
@@ -821,15 +908,27 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
         limit: 200,
       });
       const searchIds = [...search.matchAll(/^- ([a-z0-9-]+) \[/gm)].map((match) => match[1]).sort();
-      expect(searchIds).toEqual(contextIds);
-      expect(search.includes("matched: 'any'")).toBe(context.matched === 'any');
+      // Only search falls back to any word; the context read then answers nothing (SF-006).
+      expect(contextIds).toEqual(search.includes("matched: 'any'") ? [] : searchIds);
+      expect(context).not.toHaveProperty('matched');
     });
 
-    it('falls back to any word only when no item matches every word, and says so', async () => {
+    it('falls back to any word in search only, and says so; the context read never does (SF-006 AC-1)', async () => {
+      const search = await new IntentReadService(prisma as unknown as PrismaService).search(workspaceId, {
+        query: 'ref:jira:day-7 checkout',
+        includeCandidates: true,
+      });
+      expect(search).toContain("matched: 'any'");
+      expect([...search.matchAll(/^- ([a-z0-9-]+) \[/gm)].map((match) => match[1]).sort()).toEqual([
+        'cap-checkout',
+        'lim-legacy-export',
+      ]);
       const body = await read({ query: 'ref:jira:day-7 checkout', includeCandidates: 'true', limit: '20' });
-      expect(body.matched).toBe('any');
-      expect(idsOf(body).sort()).toEqual(['cap-checkout', 'lim-legacy-export']);
-      expect((await read({ query: 'ref:jira:day-7 legacy', includeCandidates: 'true' })).matched).toBeUndefined();
+      expect(idsOf(body)).toEqual([]);
+      expect(body.matched).toBeUndefined();
+      expect(idsOf(await read({ query: 'ref:jira:day-7 legacy', includeCandidates: 'true' }))).toEqual([
+        'lim-legacy-export',
+      ]);
     });
   });
 

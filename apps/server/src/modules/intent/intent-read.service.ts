@@ -18,7 +18,7 @@ import { IntentItemAuthority, IntentItemKind, IntentNodeKind, Prisma } from '../
 import { PrismaService } from '../../database/prisma.service.js';
 import { IntentErrorCode } from './contract/index.js';
 import { likePattern } from './intent-context.select.js';
-import { IntentLexicalMatch, matchLexically } from './intent-lexical.js';
+import { IntentLexicalMatch, lexicalPredicate, matchLexically } from './intent-lexical.js';
 import { INTENT_NODE_SCAN, unknownNodeError } from './intent-node-suggest.js';
 import { readReleaseSnapshot } from './intent-release.service.js';
 import type { Effectivity, ReleaseSnapshot } from './intent-release.fold.js';
@@ -180,7 +180,13 @@ export class IntentReadService {
   /* --------------------------------------------------------------- tree --- */
 
   async tree(workspaceId: string): Promise<string> {
-    const [domains, features, counts] = await Promise.all([
+    const countBy = (authority: IntentItemAuthority) =>
+      this.prisma.intentItem.groupBy({
+        by: ['domainId', 'featureId'],
+        where: { workspaceId, authority },
+        _count: { _all: true },
+      });
+    const [domains, features, acceptedRows, candidateRows] = await Promise.all([
       this.prisma.intentDomain.findMany({
         where: { workspaceId, archived: false },
         orderBy: { id: 'asc' },
@@ -191,22 +197,40 @@ export class IntentReadService {
         orderBy: { id: 'asc' },
         select: { id: true, domainId: true, parentFeatureId: true, title: true },
       }),
-      this.prisma.intentItem.groupBy({
-        by: ['domainId', 'featureId'],
-        where: { workspaceId, authority: IntentItemAuthority.accepted },
-        _count: { _all: true },
-      }),
+      countBy(IntentItemAuthority.accepted),
+      countBy(IntentItemAuthority.candidate),
     ]);
 
-    const itemCount = new Map<string, number>();
-    let rootItems = 0;
-    let totalItems = 0;
-    for (const row of counts) {
-      totalItems += row._count._all;
-      if (row.featureId) itemCount.set(nodeKey(IntentNodeKind.feature, row.featureId), row._count._all);
-      else if (row.domainId) itemCount.set(nodeKey(IntentNodeKind.domain, row.domainId), row._count._all);
-      else rootItems = row._count._all;
-    }
+    // Only listed nodes and the product root count, so an archived node's items stay out of the totals.
+    const listed = new Set([
+      ROOT_KEY,
+      ...domains.map((domain) => nodeKey(IntentNodeKind.domain, domain.id)),
+      ...features.map((feature) => nodeKey(IntentNodeKind.feature, feature.id)),
+    ]);
+    const tally = (rows: Awaited<ReturnType<typeof countBy>>) => {
+      const byNode = new Map<string, number>();
+      let total = 0;
+      for (const row of rows) {
+        const key = row.featureId
+          ? nodeKey(IntentNodeKind.feature, row.featureId)
+          : row.domainId
+            ? nodeKey(IntentNodeKind.domain, row.domainId)
+            : ROOT_KEY;
+        if (!listed.has(key)) continue;
+        byNode.set(key, row._count._all);
+        total += row._count._all;
+      }
+      return { byNode, total };
+    };
+    const accepted = tally(acceptedRows);
+    const candidates = tally(candidateRows);
+    /** A node's own counts, or undefined when it holds neither accepted items nor candidates. */
+    const ownCounts = (key: string) => {
+      const a = accepted.byNode.get(key) ?? 0;
+      const c = candidates.byNode.get(key) ?? 0;
+      return a === 0 && c === 0 ? undefined : `${a} accepted · ${c} candidates`;
+    };
+    const countLabel = (kind: IntentNodeKind, id: string) => ` (${ownCounts(nodeKey(kind, id)) ?? 'empty'})`;
     const byDomain = new Map<string, typeof features>();
     const byParent = new Map<string, typeof features>();
     const ids = new Set(features.map((feature) => feature.id));
@@ -216,28 +240,23 @@ export class IntentReadService {
         byParent.set(feature.parentFeatureId, [...(byParent.get(feature.parentFeatureId) ?? []), feature]);
       else byDomain.set(feature.domainId, [...(byDomain.get(feature.domainId) ?? []), feature]);
     }
-    const empty = (kind: IntentNodeKind, id: string) =>
-      (itemCount.get(nodeKey(kind, id)) ?? 0) === 0 ? ' (empty)' : '';
 
     const lines = [
-      `# Intent tree: ${domains.length} domains, ${features.length} features, ${totalItems} accepted items`,
+      `# Intent tree: ${domains.length} domains, ${features.length} features, ${plural(accepted.total, 'accepted item')}, ${plural(candidates.total, 'candidate')}`,
       'Open a node with intent_read {action: "node", domain or feature}; search item text with action "search".',
       '',
     ];
-    if (rootItems > 0) lines.push(`- (product root): ${rootItems} items; open it with action "node" and no id`);
+    const root = ownCounts(ROOT_KEY);
+    if (root) lines.push(`- (product root): ${root}; open it with action "node" and no id`);
     const pushFeatures = (list: typeof features, indent: string) => {
       for (const feature of list) {
-        lines.push(`${indent}- ${feature.id}: ${feature.title}${empty(IntentNodeKind.feature, feature.id)}`);
+        lines.push(`${indent}- ${feature.id}: ${feature.title}${countLabel(IntentNodeKind.feature, feature.id)}`);
         pushFeatures(byParent.get(feature.id) ?? [], `${indent}  `);
       }
     };
     for (const domain of domains) {
-      const children = byDomain.get(domain.id) ?? [];
-      const allEmpty = features
-        .filter((feature) => feature.domainId === domain.id)
-        .every((feature) => empty(IntentNodeKind.feature, feature.id));
-      lines.push(`- ${domain.id}: ${domain.title}${allEmpty ? empty(IntentNodeKind.domain, domain.id) : ''}`);
-      pushFeatures(children, '  ');
+      lines.push(`- ${domain.id}: ${domain.title}${countLabel(IntentNodeKind.domain, domain.id)}`);
+      pushFeatures(byDomain.get(domain.id) ?? [], '  ');
     }
     return lines.join('\n');
   }
@@ -337,13 +356,14 @@ export class IntentReadService {
     const kinds = parseKinds(request.kind);
     const scope = request.domain || request.feature ? await this.resolveNode(workspaceId, request) : undefined;
 
-    const conditions: Prisma.Sql[] = [
-      Prisma.sql`i.workspace_id = ${workspaceId}::uuid`,
+    const filters: Prisma.Sql[] = [Prisma.sql`i.workspace_id = ${workspaceId}::uuid`];
+    if (kinds) filters.push(Prisma.sql`i.kind::text IN (${Prisma.join(kinds)})`);
+    if (scope?.kind === 'feature') filters.push(Prisma.sql`i.feature_id = ${scope.id}`);
+    if (scope?.kind === 'domain') filters.push(Prisma.sql`i.domain_id = ${scope.id}`);
+    const conditions = [
+      ...filters,
       Prisma.sql`i.authority::text IN (${Prisma.join(authorities(request.includeCandidates))})`,
     ];
-    if (kinds) conditions.push(Prisma.sql`i.kind::text IN (${Prisma.join(kinds)})`);
-    if (scope?.kind === 'feature') conditions.push(Prisma.sql`i.feature_id = ${scope.id}`);
-    if (scope?.kind === 'domain') conditions.push(Prisma.sql`i.domain_id = ${scope.id}`);
     const page = request.after ? Prisma.sql`AND i.id > ${request.after}` : Prisma.empty;
     // The matched fields, the item's text first, so a snippet shows content before its title.
     const text = Prisma.sql`concat_ws(' ', i.statement,
@@ -401,6 +421,21 @@ export class IntentReadService {
       }
     }
     if (lines.length > 1) lines.push('Open a node with action "node" to read it in context.');
+    if (request.includeCandidates !== true) {
+      // The candidates a re-run with includeCandidates: true shows. That run needs every word unless no item
+      // holds them all, and an accepted one does exactly when this answer did not fall back.
+      const countCandidates = async (match: IntentLexicalMatch) => {
+        const [row] = await this.prisma.$queryRaw<{ total: bigint }[]>`
+          SELECT count(*) AS total FROM intent_items i
+          WHERE ${Prisma.join([...filters, Prisma.sql`i.authority::text = 'candidate'`, lexicalPredicate(tokens, match)], ' AND ')}`;
+        return Number(row?.total ?? 0);
+      };
+      let candidates = await countCandidates(IntentLexicalMatch.All);
+      if (candidates === 0 && matched === IntentLexicalMatch.Any)
+        candidates = await countCandidates(IntentLexicalMatch.Any);
+      if (candidates > 0)
+        lines.splice(1, 0, `${candidates} candidates also match; pass includeCandidates: true to see them.`);
+    }
     return lines.join('\n');
   }
 
@@ -857,6 +892,9 @@ export class IntentReadService {
 function nodeKey(kind: IntentNodeKind | string, id: string): string {
   return `${kind}:${id}`;
 }
+
+/** The product root among node keys; every other key carries a `kind:` prefix. */
+const ROOT_KEY = 'root';
 
 function parseKinds(kind: string[] | undefined): IntentItemKind[] | undefined {
   if (!kind || kind.length === 0) return undefined;

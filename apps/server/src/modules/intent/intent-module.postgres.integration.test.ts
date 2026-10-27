@@ -491,6 +491,41 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
       expect((await auditFor('br-refund-window-is-30-days')).map((row) => row.operation)).toEqual(['propose_create']);
     });
 
+    it('refuses a batch once for every title too long to become an id, and writes nothing (SF-006 AC-6)', async () => {
+      const item = (title: string, localId: string) => ({
+        kind: 'business_rule',
+        title,
+        statement: 'Orders beyond the stock are refused.',
+        sources: [{ kind: 'spec', ref: 'spec/sf006-stock', localId }],
+      });
+      const tail = 'orders beyond the available stock of the addressed warehouse are refused immediately';
+      const response = await proposeItems(
+        proposeBody([
+          item(`Bulk ${tail}`, 'BR-1'),
+          item('Stock limits orders', 'BR-2'),
+          item(`Retail ${tail}`, 'BR-3'),
+        ]),
+        400,
+      );
+
+      expect(response.body).toMatchObject({
+        code: IntentErrorCode.IdWouldTruncate,
+        message:
+          'Intent ids are at most 64 characters including the kind prefix; shorten these titles or supply explicit ids.',
+        path: ['items', '0', 'title'],
+      });
+      expect(response.body.details).toHaveLength(2);
+      expect(response.body.details[0].path).toEqual(['items', '0', 'title']);
+      expect(response.body.details[0].message).toContain(
+        "'br-bulk-orders-beyond-the-available-stock-of-the-addressed'",
+      );
+      expect(response.body.details[1].path).toEqual(['items', '2', 'title']);
+      expect(response.body.details[1].message).toContain(
+        "'br-retail-orders-beyond-the-available-stock-of-the-addressed'",
+      );
+      expect(await prisma.intentItemSource.count({ where: { workspaceId, ref: 'spec/sf006-stock' } })).toBe(0);
+    });
+
     it('persists a source title and url, which the contract accepts and the write used to drop', async () => {
       const titled = { kind: 'spec', ref: 'spec/provenance', localId: 'BR-9' };
       await proposeItems(
