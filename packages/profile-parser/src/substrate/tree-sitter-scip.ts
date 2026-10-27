@@ -3559,7 +3559,11 @@ function constructedClassNames(n: TsNode | null | undefined): string[] {
       const first = n.childForFieldName('arguments')?.namedChildren[0];
       if (text(fn) === 'Object.assign') return constructedClassNames(first);
       const method = fn?.type === 'member_expression' ? text(fn.childForFieldName('property')) : '';
-      return (method === 'create' || method.startsWith('find')) && first?.type === 'identifier' ? [text(first)] : [];
+      if (!(method === 'create' || method.startsWith('find')) || first?.type !== 'identifier') return [];
+      // `this.findOne(companyId, …)` is the class's own method, not `em.find(Entity, …)`: unless
+      // its first argument names a class, leave it to the method's return annotation.
+      if (fn?.childForFieldName('object')?.type === 'this' && !/^[A-Z]/.test(text(first))) return [];
+      return [text(first)];
     }
   }
   return [];

@@ -133,6 +133,17 @@ describe('entityFrom declared-type', () => {
     expect(ops(repo)).toEqual(['create:Grant', 'delete:Job']);
   });
 
+  it('reads a same-class `find*` method by its return annotation, not as `em.find(Entity)`', async () => {
+    const repo = await run(`  private async findOneOrFail(companyId: string, id: string): Promise<Grant> {
+    return em.findOneOrFail(Grant, { companyId, id });
+  }
+  async touch(companyId: string, id: string) {
+    const grant = await this.findOneOrFail(companyId, id);
+    em.persist(grant);
+  }`);
+    expect(ops(repo)).toEqual(['create:Grant']);
+  });
+
   it('reads an argument written on its own line', async () => {
     const repo = await run(`  save(grant: Grant) {
     em.persist(
