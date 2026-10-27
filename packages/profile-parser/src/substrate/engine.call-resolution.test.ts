@@ -73,20 +73,21 @@ describe('engine — stats.callResolution', () => {
     expect(repo.calls.some((c) => c.calleeExpression === 'setTimeout')).toBe(false);
     // 4 sites: `setTimeout` and `local` on line 8, `helper` and `local` on line 9. The two
     // `local(n)` facts on line 9 (one structural, one SCIP — different edge ids) are ONE site.
-    expect(repo.stats.callResolution).toEqual({ callSites: 4, resolvedCalls: 2, outOfScopeCalls: 1 });
+    // `helper` binds too: the SCIP pass upgrades the same-named sibling on a shared line.
+    expect(repo.stats.callResolution).toEqual({ callSites: 4, resolvedCalls: 3, outOfScopeCalls: 1 });
     const { callSites, resolvedCalls, outOfScopeCalls } = repo.stats.callResolution as {
       callSites: number;
       resolvedCalls: number;
       outOfScopeCalls: number;
     };
     expect(resolvedCalls + outOfScopeCalls).toBeLessThanOrEqual(callSites);
-    // The site with both a structural and a SCIP fact counts ONCE: five facts reach the engine
-    // and four edges ship, yet the line-9 `local` site contributes a single counted site.
+    // Line 9 shares one site key between `helper` and `local`; each SCIP reference upgrades its
+    // own structural sibling in place, so the `local` site ships one edge, not a duplicate.
     const line9Local = repo.calls.filter((c) => c.calleeExpression === 'local' && c.location.startLine === 9);
-    expect(line9Local.length).toBe(2);
+    expect(line9Local.length).toBe(1);
     expect(callSites).toBe(4);
-    // `resolvedCalls` is read from the emitted set, and counts sites — two edges bind `local`
-    // on line 9 and line 8, so the emitted resolved-edge count and the site count agree here.
+    // `resolvedCalls` is read from the emitted set, and counts sites — `local` on lines 8 and 9
+    // and `helper` on line 9, so the emitted resolved-edge count and the site count agree here.
     expect(resolvedCalls).toBe(repo.calls.filter((c) => c.calleeId).length);
   });
 
@@ -97,7 +98,7 @@ describe('engine — stats.callResolution', () => {
     // Same sites, same dropped edge — but `setTimeout` is now an in-repo name, so the unbound
     // site counts against the extractor instead of being excused as out of scope.
     expect(repo.calls.some((c) => c.calleeExpression === 'setTimeout')).toBe(false);
-    expect(repo.stats.callResolution).toEqual({ callSites: 4, resolvedCalls: 2, outOfScopeCalls: 0 });
+    expect(repo.stats.callResolution).toEqual({ callSites: 4, resolvedCalls: 3, outOfScopeCalls: 0 });
   });
 });
 

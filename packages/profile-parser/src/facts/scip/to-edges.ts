@@ -187,7 +187,7 @@ export function scipToEdges(
         if (calleeName !== undefined && normalizeName(calleeName) !== normalizeName(methodNameFromMoniker(occ.symbol)))
           continue;
         // Collapse: upgrade the structural sibling in place if one exists; else add a fresh edge.
-        if (!g.resolveInternalCall(callerId, doc.relativePath, line, calleeId)) {
+        if (!g.resolveInternalCall(callerId, doc.relativePath, line, calleeId, methodNameFromMoniker(occ.symbol))) {
           const edge: CallEdge = {
             // Keyed on the raw symbol, unchanged by the calleeExpression fix below, so this
             // edge's identity stays stable across parses (artifact caching joins on it). One

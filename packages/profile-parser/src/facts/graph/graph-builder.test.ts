@@ -76,6 +76,27 @@ describe('CodeGraph', () => {
     expect(g.resolveInternalCall('CALLER', 'b.ts', 9, 'OTHER')).toBe(false);
   });
 
+  it('resolveInternalCall upgrades the same-named sibling when calls nest on one line', () => {
+    const g = new CodeGraph();
+    // `this.publish(topicFor(Topics.A))`: outer call registered first, inner call last.
+    for (const [id, calleeExpression] of [
+      ['r:call:outer', 'this.publish'],
+      ['r:call:inner', 'topicFor'],
+    ]) {
+      g.addCall({
+        id,
+        callerId: 'CALLER',
+        calleeExpression,
+        isMethodCall: true,
+        location: { filePath: 'a.ts', startLine: 3, endLine: 3 },
+      });
+    }
+    expect(g.resolveInternalCall('CALLER', 'a.ts', 3, 'PUBLISH', 'publish')).toBe(true);
+    expect(g.resolveInternalCall('CALLER', 'a.ts', 3, 'TOPIC_FOR', 'topicFor')).toBe(true);
+    expect(g.calls.get('r:call:outer')!.calleeId).toBe('PUBLISH');
+    expect(g.calls.get('r:call:inner')!.calleeId).toBe('TOPIC_FOR');
+  });
+
   it('removeUnresolvedCallAt deletes a structural edge being reclassified as external', () => {
     const g = new CodeGraph();
     g.addCall({
