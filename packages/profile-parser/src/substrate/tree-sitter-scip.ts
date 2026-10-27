@@ -1544,6 +1544,41 @@ export class TreeSitterScipSubstrate implements Substrate {
     return innermost.initialValue;
   }
 
+  declaredTypeNames(file: string, name: string, line: number): string[] {
+    const root = this.cstRoots.get(file);
+    if (!root) return [];
+    const row = line - 1;
+    // The call argument `name` on `line`: descend only into nodes spanning that row.
+    let use: TsNode | undefined;
+    const find = (n: TsNode): void => {
+      if (use || n.startPosition.row > row || n.endPosition.row < row) return;
+      if (n.type === 'identifier' && n.parent?.type === 'arguments' && text(n) === name) use = n;
+      else for (const c of n.namedChildren) find(c);
+    };
+    find(root);
+    // Innermost declaration wins, walking out scope by scope (shadowing).
+    for (let n = use?.parent; n; n = n.parent) {
+      for (const decl of n.namedChildren) {
+        if (decl.type !== 'lexical_declaration') continue;
+        for (const d of decl.namedChildren) {
+          if (d.type !== 'variable_declarator' || text(d.childForFieldName('name')) !== name) continue;
+          // A reassigned `let` holds no single statically-known value.
+          if (this.structuralFile(file)?.localBindings.some((b) => b.name === name && b.reassigned)) return [];
+          return constructedClassNames(d.childForFieldName('value'));
+        }
+      }
+      const params = n.childForFieldName('parameters') ?? n.childForFieldName('parameter');
+      for (const p of params?.type === 'formal_parameters' ? params.namedChildren : params ? [params] : []) {
+        // TS wraps a parameter (`required_parameter` with `pattern`/`type`); JS has the bare identifier.
+        const pattern = p.childForFieldName('pattern') ?? p;
+        if (pattern.type !== 'identifier' || text(pattern) !== name) continue;
+        const type = p.childForFieldName('type');
+        return type ? this.descendantsOfType(type, 'type_identifier').map(text) : [];
+      }
+    }
+    return [];
+  }
+
   /**
    * Whether `file` DECLARES `name` itself (rather than only re-exporting it) — the barrel
    * hop's stop condition. Read off the CST, not the structural facts: a shadcn component is
@@ -3308,4 +3343,38 @@ export class TreeSitterScipSubstrate implements Substrate {
     }
     return undefined;
   }
+}
+
+/**
+ * Classes a local's initializer constructs or loads (`declaredTypeNames`): `new X(…)`,
+ * `Object.assign(new X(), …)`, `<em>.create(X, …)`, `<em>.find*(X, …)`, behind `await`/parens
+ * and on either side of `??`. Any other shape states no class.
+ */
+function constructedClassNames(n: TsNode | null | undefined): string[] {
+  if (!n) return [];
+  switch (n.type) {
+    case 'await_expression':
+    case 'parenthesized_expression':
+    case 'non_null_expression':
+    case 'as_expression':
+      return constructedClassNames(n.namedChildren[0]);
+    case 'binary_expression':
+      if (text(n.childForFieldName('operator')) !== '??') return [];
+      return [
+        ...constructedClassNames(n.childForFieldName('left')),
+        ...constructedClassNames(n.childForFieldName('right')),
+      ];
+    case 'new_expression': {
+      const ctor = n.childForFieldName('constructor');
+      return ctor?.type === 'identifier' ? [text(ctor)] : [];
+    }
+    case 'call_expression': {
+      const fn = n.childForFieldName('function');
+      const first = n.childForFieldName('arguments')?.namedChildren[0];
+      if (text(fn) === 'Object.assign') return constructedClassNames(first);
+      const method = fn?.type === 'member_expression' ? text(fn.childForFieldName('property')) : '';
+      return (method === 'create' || method.startsWith('find')) && first?.type === 'identifier' ? [text(first)] : [];
+    }
+  }
+  return [];
 }

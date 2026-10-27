@@ -26,6 +26,13 @@ export type ArgRef =
   | { arg: number; as: 'arrow-target' }
   /** A bare identifier argument → its text. */
   | { arg: number; as: 'identifier' }
+  /**
+   * `entityFrom` only: an identifier holding an entity INSTANCE (`em.persist(grant)`) → the entity
+   * the code states for it in the enclosing function: its parameter annotation (`grant: Grant`,
+   * `Grant[]`, `Array<Grant>`) or its const/let initializer (`new Grant()`, `em.create(Grant, …)`,
+   * `em.findOne(Grant, …) ?? …`). No unique entity → no op. An entity class reads as `identifier`.
+   */
+  | { arg: number; as: 'declared-type' }
   /** Read a property out of an object-literal argument: `@Tool({ name: 'x' })` with key 'name' → "x". */
   | { arg: number; as: 'object-property'; key: string }
   /**

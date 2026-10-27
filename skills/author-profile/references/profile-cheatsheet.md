@@ -40,6 +40,7 @@ case).
 | `const-string` | an identifier resolved to its string-literal const | `define(ENTITY_NAME,…)` → `"BreakType"` |
 | `arrow-target` | the identifier returned by an arrow | `() => Companies` → `Companies` |
 | `identifier` | a bare identifier's text | `em.create(User,…)` → `User` |
+| `declared-type` | `entityFrom` only: an entity instance → the one entity its param annotation or const/let initializer states (`new X()`, `em.create(X,…)`, `em.findOne(X,…) ?? …`); else as `identifier` | `persist(grant)` with `grant: Grant` → `Grant` |
 | `object-property` `{ key }` | a property read out of an object-literal arg | `@Tool({ name:'search_symbols' })` key `name` → `search_symbols`; `@Cron(EXPR, { name:'…' })` arg 1 key `name` |
 
 `object-property` works for both decorator args and call-shape args — point `arg` at the object literal and
@@ -165,7 +166,7 @@ entity node.
   repoReceiverPattern:'/repository$|repo$/i',    // repo.<op>() — entity inferred from repo type
   modelReceiverPattern:'(^|\\.)models\\.[A-Z]…', // models.User.<op>() — entity named inline
   transactionReceiverPattern:'…',                // entity-agnostic tx ops
-  entityFrom:{ arg:0, as:'identifier' } }
+  entityFrom:{ arg:0, as:'identifier' } }        // 'declared-type' also binds em.persist(grant) / remove(x) / assign(x,…)
 ```
 Map *every* op the ORM exposes that you see in source — missing ops drop db-op coverage.
 
