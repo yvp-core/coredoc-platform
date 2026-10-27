@@ -98,6 +98,19 @@ describe('entityFrom declared-type', () => {
     expect(ops(repo)).toEqual(['create:Grant', 'create:Job', 'delete:Job']);
   });
 
+  it('drops only the reassigned `let`, not a same-named binding in another function', async () => {
+    const repo = await run(`  first(other: Grant) {
+    let x = new Grant();
+    x = other;
+    em.persist(x);
+  }
+  second() {
+    const x = new Job();
+    em.persist(x);
+  }`);
+    expect(ops(repo)).toEqual(['create:Job']);
+  });
+
   it('emits nothing for an untyped local, or one that names two entities', async () => {
     const repo = await run(`  touch(x: any, flag: boolean) {
     const g = new Grant();

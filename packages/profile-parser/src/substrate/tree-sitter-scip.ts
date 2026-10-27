@@ -1594,8 +1594,8 @@ export class TreeSitterScipSubstrate implements Substrate {
         if (decl.type !== 'lexical_declaration') continue;
         for (const d of decl.namedChildren) {
           if (d.type !== 'variable_declarator' || text(d.childForFieldName('name')) !== name) continue;
-          // A reassigned `let` holds no single statically-known value.
-          if (this.structuralFile(file)?.localBindings.some((b) => b.name === name && b.reassigned)) return [];
+          // A `let` reassigned within its own scope holds no single statically-known value.
+          if (text(decl.child(0)) === 'let' && assignsTo(n, name)) return [];
           return constructedClassNames(d.childForFieldName('value'));
         }
       }
@@ -3426,6 +3426,18 @@ export class TreeSitterScipSubstrate implements Substrate {
     }
     return [...byTopic.values()];
   }
+}
+
+/** Is the identifier `name` assigned or updated anywhere under `scope`? */
+function assignsTo(scope: TsNode, name: string): boolean {
+  const target =
+    scope.type === 'assignment_expression' || scope.type === 'augmented_assignment_expression'
+      ? scope.childForFieldName('left')
+      : scope.type === 'update_expression'
+        ? scope.childForFieldName('argument')
+        : null;
+  if (target?.type === 'identifier' && text(target) === name) return true;
+  return scope.namedChildren.some((c) => assignsTo(c, name));
 }
 
 /**
