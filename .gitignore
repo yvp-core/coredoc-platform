@@ -30,6 +30,8 @@ neo4j-data/
 coredoc-output/
 coredoc-parsers/
 coredoc-sessions/
+# Local issue tracker: specs and tickets often cite customer work, and this repo is public
+.scratch/
 # `coredoc resolve` output — derived from coredoc-output, regenerable
 resolved-graph.json
 services-schema.sql
