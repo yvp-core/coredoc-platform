@@ -3463,8 +3463,12 @@ export class TreeSitterScipSubstrate implements Substrate {
     }
     const byTopic = new Map<string, QueueTopicResolution>();
     for (const edge of this.callersByCallee.get(callerId) ?? []) {
-      const arg = edge.arguments?.[index];
-      if (arg === undefined) continue;
+      const passed = edge.arguments?.[index];
+      if (passed === undefined) continue;
+      // A caller that binds the topic to a local first (`const t = wrap(X); this.send(t)`).
+      const arg = /^[A-Za-z_$][\w$]*$/.test(passed)
+        ? (this.localBindingInitializer(edge.location.filePath, passed, edge.location.startLine) ?? passed)
+        : passed;
       const topic = resolveCallerTopicArgument(arg, ref, written.wrapper, (r) =>
         this.baseline.resolver.resolve(r, edge.location.filePath),
       );

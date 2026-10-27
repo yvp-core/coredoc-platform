@@ -113,6 +113,27 @@ describe('queue egress topic passed through a method parameter — one caller ho
     ]);
   });
 
+  it('reads a caller argument bound to a local const first', async () => {
+    const repo = await run(
+      `export class WidgetEvents {
+  private producer!: Sender;
+
+  private async publish(topic: string): Promise<void> {
+    await this.producer.send({ topic });
+  }
+
+  created(): Promise<void> {
+    const topic = getTopicInNamespace(Topics.WidgetCreated);
+    return this.publish(topic);
+  }
+}`,
+      WRAPPED_OBJECT_TOPIC,
+    );
+    expect(messagingEdges(repo)).toEqual([
+      { system: 'kafka', destination: 'Topics.WidgetCreated', destinationValue: 'widget.created' },
+    ]);
+  });
+
   it("keeps a caller topic's edge id when another caller is added", async () => {
     const source = (extraCaller: string): string => `export class WidgetEvents {
   private producer!: Sender;
