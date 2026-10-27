@@ -112,6 +112,27 @@ describe('entityFrom declared-type', () => {
     expect(ops(repo)).toEqual(['create:Grant']);
   });
 
+  it("reads a same-class method's annotated return type, and infers nothing", async () => {
+    const repo = await run(`  private newGrant(dto: object): Grant {
+    return em.create(Grant, dto);
+  }
+  private async loadJob(id: string): Promise<Job> {
+    return em.findOneOrFail(Job, { id });
+  }
+  private newUntyped(dto: object) {
+    return em.create(Grant, dto);
+  }
+  async save(dto: object) {
+    const g = this.newGrant(dto);
+    em.persist(g);
+    const j = await this.loadJob('1');
+    em.remove(j);
+    const u = this.newUntyped(dto);
+    em.persist(u);
+  }`);
+    expect(ops(repo)).toEqual(['create:Grant', 'delete:Job']);
+  });
+
   it('reads an argument written on its own line', async () => {
     const repo = await run(`  save(grant: Grant) {
     em.persist(

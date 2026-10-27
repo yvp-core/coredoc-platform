@@ -1629,8 +1629,8 @@ export class TreeSitterScipSubstrate implements Substrate {
           // given (initializer included) names the same single one.
           const writes = text(decl.child(0)) === 'let' ? writesTo(n, name) : [];
           if (writes === undefined) return [];
-          if (writes.length === 0) return constructedClassNames(initializer);
-          const named = [...(initializer ? [initializer] : []), ...writes].map(constructedClassNames);
+          if (writes.length === 0) return this.valueTypeNames(initializer);
+          const named = [...(initializer ? [initializer] : []), ...writes].map((v) => this.valueTypeNames(v));
           const [first] = named[0];
           return named.every((ns) => ns.length === 1 && ns[0] === first) ? [first] : [];
         }
@@ -1645,6 +1645,28 @@ export class TreeSitterScipSubstrate implements Substrate {
       }
     }
     return [];
+  }
+
+  /**
+   * Classes a value states: what it constructs or loads (`constructedClassNames`), or, for
+   * `this.m(…)` (awaited or not), the return-type annotation of method `m` in the enclosing
+   * class. No inference: an unannotated or inherited method states nothing.
+   */
+  private valueTypeNames(value: TsNode | null): string[] {
+    const constructed = constructedClassNames(value);
+    if (constructed.length) return constructed;
+    let call = value;
+    while (call?.type === 'await_expression' || call?.type === 'parenthesized_expression') call = call.namedChildren[0];
+    const fn = call?.type === 'call_expression' ? call.childForFieldName('function') : null;
+    if (fn?.type !== 'member_expression' || fn.childForFieldName('object')?.type !== 'this') return [];
+    const method = text(fn.childForFieldName('property'));
+    let body = fn.parent;
+    while (body && body.type !== 'class_body') body = body.parent;
+    const def = body?.namedChildren.find(
+      (m) => m.type === 'method_definition' && text(m.childForFieldName('name')) === method,
+    );
+    const type = def?.childForFieldName('return_type');
+    return type ? this.descendantsOfType(type, 'type_identifier').map(text) : [];
   }
 
   /**
