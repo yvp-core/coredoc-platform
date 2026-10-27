@@ -101,7 +101,6 @@ import type {
   CallEdgeFact,
   CallSite,
   ComponentSite,
-  ExternalCallFact,
   Substrate,
   SubstrateClass,
   SubstrateFunction,
@@ -2251,14 +2250,12 @@ export class SubstrateProfileEngine {
   private extractExternalCalls(): void {
     const matchers = this.profile.externalCalls ?? [];
     const facts = this.substrate.externalCalls(matchers);
-    // A queue send whose topic is a method parameter emits one fact per caller topic at the
-    // same site; only those sites add the destination to the id, so every other id is unchanged.
-    const siteKey = (f: ExternalCallFact): string => `${f.callerId}|${f.method}|${f.location.startLine}`;
-    const perSite = new Map<string, number>();
-    for (const fact of facts) perSite.set(siteKey(fact), (perSite.get(siteKey(fact)) ?? 0) + 1);
     for (const fact of facts) {
       const idGen = this.substrate.idGen;
-      const fanOut = (perSite.get(siteKey(fact)) ?? 0) > 1 && fact.messaging ? [fact.messaging.destination] : [];
+      // A queue send whose topic is a method parameter emits one fact per caller topic at the
+      // same site. Those always add the destination to the id, so adding a caller never renames
+      // an existing edge; every other id is unchanged.
+      const fanOut = fact.messaging?.fromCaller ? [fact.messaging.destination] : [];
       const id = idGen.generateNodeId(
         'external-call' as Parameters<typeof idGen.generateNodeId>[0],
         fact.callerId,

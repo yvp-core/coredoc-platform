@@ -113,6 +113,32 @@ describe('queue egress topic passed through a method parameter — one caller ho
     ]);
   });
 
+  it("keeps a caller topic's edge id when another caller is added", async () => {
+    const source = (extraCaller: string): string => `export class WidgetEvents {
+  private producer!: Sender;
+
+  private async publish(topic: string): Promise<void> {
+    await this.producer.send({ topic });
+  }
+
+  created(): Promise<void> {
+    return this.publish(Topics.WidgetCreated);
+  }
+${extraCaller}
+}`;
+    const createdEdgeId = (repo: ParsedRepo): string | undefined =>
+      repo.externalCalls.find((c) => c.targetDescriptor?.messaging?.destination === 'Topics.WidgetCreated')?.id;
+    const before = createdEdgeId(await run(source(''), OBJECT_TOPIC));
+    const after = createdEdgeId(
+      await run(
+        source('  deleted(): Promise<void> {\n    return this.publish(Topics.WidgetDeleted);\n  }'),
+        OBJECT_TOPIC,
+      ),
+    );
+    expect(before).toBeDefined();
+    expect(after).toBe(before);
+  });
+
   it('reads an inline wrapped property value once unwrapCalls opts in', async () => {
     const source = `export class WidgetEvents {
   private producer!: Sender;

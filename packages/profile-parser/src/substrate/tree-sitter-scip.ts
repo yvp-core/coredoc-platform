@@ -3378,6 +3378,7 @@ export class TreeSitterScipSubstrate implements Substrate {
             system: m.system,
             destination: t.topic,
             ...(t.topicValue ? { destinationValue: t.topicValue } : {}),
+            ...(topic ? {} : { fromCaller: true as const }),
           },
         }));
       }

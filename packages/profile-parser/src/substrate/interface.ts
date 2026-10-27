@@ -212,6 +212,8 @@ export interface ExternalCallFact {
     destination: string;
     /** Runtime destination when the token is statically resolvable. */
     destinationValue?: string;
+    /** The destination was read from a caller's argument, so one site can carry several. */
+    fromCaller?: true;
   };
   /**
    * Registry-driven SDK egress (`loadStripe(…)`, `Sentry.init(…)`, `new OpenAI()`)
