@@ -98,6 +98,20 @@ describe('entityFrom declared-type', () => {
     expect(ops(repo)).toEqual(['create:Grant', 'create:Job', 'delete:Job']);
   });
 
+  it('reads a reassigned `let` when every assignment names the same entity', async () => {
+    const repo = await run(`  async upsert(dto: object) {
+    let x = await em.findOne(Grant, { id: '1' });
+    if (!x) x = em.create(Grant, dto);
+    em.persist(x);
+  }
+  async mixed(dto: object) {
+    let y = await em.findOne(Grant, { id: '1' });
+    if (!y) y = em.create(Job, dto);
+    em.persist(y);
+  }`);
+    expect(ops(repo)).toEqual(['create:Grant']);
+  });
+
   it('reads an argument written on its own line', async () => {
     const repo = await run(`  save(grant: Grant) {
     em.persist(

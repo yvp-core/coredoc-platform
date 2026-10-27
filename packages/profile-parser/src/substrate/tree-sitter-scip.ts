@@ -1624,9 +1624,15 @@ export class TreeSitterScipSubstrate implements Substrate {
         if (decl.type !== 'lexical_declaration') continue;
         for (const d of decl.namedChildren) {
           if (d.type !== 'variable_declarator' || text(d.childForFieldName('name')) !== name) continue;
-          // A `let` reassigned within its own scope holds no single statically-known value.
-          if (text(decl.child(0)) === 'let' && assignsTo(n, name)) return [];
-          return constructedClassNames(d.childForFieldName('value'));
+          const initializer = d.childForFieldName('value');
+          // A `let` reassigned within its own scope names an entity only when every value it is
+          // given (initializer included) names the same single one.
+          const writes = text(decl.child(0)) === 'let' ? writesTo(n, name) : [];
+          if (writes === undefined) return [];
+          if (writes.length === 0) return constructedClassNames(initializer);
+          const named = [...(initializer ? [initializer] : []), ...writes].map(constructedClassNames);
+          const [first] = named[0];
+          return named.every((ns) => ns.length === 1 && ns[0] === first) ? [first] : [];
         }
       }
       const params = n.childForFieldName('parameters') ?? n.childForFieldName('parameter');
@@ -3478,16 +3484,29 @@ export class TreeSitterScipSubstrate implements Substrate {
   }
 }
 
-/** Is the identifier `name` assigned or updated anywhere under `scope`? */
-function assignsTo(scope: TsNode, name: string): boolean {
-  const target =
-    scope.type === 'assignment_expression' || scope.type === 'augmented_assignment_expression'
-      ? scope.childForFieldName('left')
-      : scope.type === 'update_expression'
-        ? scope.childForFieldName('argument')
-        : null;
-  if (target?.type === 'identifier' && text(target) === name) return true;
-  return scope.namedChildren.some((c) => assignsTo(c, name));
+/**
+ * The values plainly assigned to the identifier `name` anywhere under `scope` (`name = v`).
+ * Undefined when it is also updated in place (`name += v`, `name++`), which states no value.
+ */
+function writesTo(scope: TsNode, name: string): TsNode[] | undefined {
+  const values: TsNode[] = [];
+  let updated = false;
+  const walk = (n: TsNode): void => {
+    const target =
+      n.type === 'assignment_expression' || n.type === 'augmented_assignment_expression'
+        ? n.childForFieldName('left')
+        : n.type === 'update_expression'
+          ? n.childForFieldName('argument')
+          : null;
+    if (target?.type === 'identifier' && text(target) === name) {
+      const value = n.type === 'assignment_expression' ? n.childForFieldName('right') : null;
+      if (value) values.push(value);
+      else updated = true;
+    }
+    for (const c of n.namedChildren) walk(c);
+  };
+  walk(scope);
+  return updated ? undefined : values;
 }
 
 /**
