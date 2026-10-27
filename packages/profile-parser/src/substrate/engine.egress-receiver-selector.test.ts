@@ -26,7 +26,8 @@ async function run(source: string): Promise<ParsedRepo> {
     externalCalls: [
       {
         kind: 'http',
-        receiverPattern: '\\.for\\(|^client$',
+        // Names only the chain: the bound local matches through its const initializer.
+        receiverPattern: '\\.for\\(',
         verbs: ['get'],
         url: { arg: 0, as: 'string-literal' },
         serviceSelector: { via: 'receiver-call-arg', callee: 'for', arg: 1, serviceMap: { widgets: 'widgets-api' } },

@@ -3237,6 +3237,17 @@ export class TreeSitterScipSubstrate implements Substrate {
     const rootProp = propName.split('.')[0];
     const diClass = this.diMap.get(file)?.get(rootProp);
     const diImportMod = this.diImportModule.get(file)?.get(rootProp);
+    // One hop through a bare local const (`const c = this.clients.for(env, 'x'); c.get(…)`): the
+    // receiver match and the receiver-call-arg selector also read the chain it was bound to.
+    let bound: string | undefined | null = null;
+    const boundReceiver = (): string | undefined => {
+      if (bound === null) {
+        bound = /^[A-Za-z_$][\w$]*$/.test(receiver)
+          ? this.localBindingInitializer(file, receiver, call.startLine)
+          : undefined;
+      }
+      return bound;
+    };
 
     for (const m of matchers) {
       if (m.kind === 'imported-sdk') {
@@ -3294,7 +3305,10 @@ export class TreeSitterScipSubstrate implements Substrate {
       // bareCallee http (fetch) + new-instance sdk are ts-morph-only frontend
       // matchers; the substrate doesn't classify them.
       if (m.kind === 'http' && 'bareCallee' in m) continue;
-      if (!externalReceiverMatches(receiver, propName, m)) continue;
+      if (!externalReceiverMatches(receiver, propName, m)) {
+        const chain = boundReceiver();
+        if (chain === undefined || !externalReceiverMatches(chain, chain, m)) continue;
+      }
       if (m.kind === 'http') {
         if (!('verbs' in m) || !m.verbs.includes(methodName)) continue;
         // Inline `${CONST}` string consts BEFORE route extraction so a leading
@@ -3327,12 +3341,8 @@ export class TreeSitterScipSubstrate implements Substrate {
         // The uri-template selector reads from the SAME arg the URL lives in.
         const selectorUrlArg =
           m.serviceSelector?.via === 'uri-template' ? call.arguments?.[m.url?.arg ?? 0] : undefined;
-        // The receiver-call-arg selector reads the receiver, taking one hop through a bare
-        // local const (`const c = this.clients.for(env, 'x'); c.get(…)`).
         const selectorReceiver =
-          m.serviceSelector?.via === 'receiver-call-arg' && /^[A-Za-z_$][\w$]*$/.test(receiver)
-            ? (this.localBindingInitializer(file, receiver, call.startLine) ?? receiver)
-            : receiver;
+          m.serviceSelector?.via === 'receiver-call-arg' ? (boundReceiver() ?? receiver) : receiver;
         const targetService = m.serviceSelector
           ? resolveServiceSelector(m.serviceSelector, call.arguments ?? [], selectorUrlArg, selectorReceiver)
           : undefined;
