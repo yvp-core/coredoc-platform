@@ -61,4 +61,32 @@ export class WidgetsClient {
     });
     expect(routes(repo)).toEqual(['widgets.ts:/v1/x', 'widgets.ts:/v2/widgets/items', 'widgets.ts:undefined']);
   });
+
+  it('leaves a name unresolved where a parameter or local shadows the module const', async () => {
+    const repo = await run({
+      'widgets.ts': `const PATH = '/admin';
+const ITEM_PATH = \`\${PATH}/items\`;
+
+export class WidgetsClient {
+  get(_p: string): void {}
+  byParam(PATH: string): void { this.get(PATH); }
+  byTemplate(PATH: string): void { this.get(\`\${PATH}/x\`); }
+  byLocal(): void {
+    const PATH = currentPath();
+    this.get(PATH);
+  }
+  byConstTemplate(PATH: string): void { this.get(ITEM_PATH); }
+}
+declare function currentPath(): string;
+`,
+    });
+    // ITEM_PATH's own `${PATH}` is the module const: its initializer is not in the call's scope.
+    // The shadowed leading `${PATH}` reads as a runtime host and is dropped, like any parameter.
+    expect(routes(repo)).toEqual([
+      'widgets.ts:/admin/items',
+      'widgets.ts:/x',
+      'widgets.ts:undefined',
+      'widgets.ts:undefined',
+    ]);
+  });
 });

@@ -593,16 +593,49 @@ export class TreeSitterScipSubstrate implements Substrate {
    * initializer of a same-file module `const` holding a string or template literal, so
    * a template of consts (`` `${API}/items` ``) is then inlined like any other.
    */
-  inlineStringConstInterpolations(raw: string | undefined, file: string): string | undefined {
+  inlineStringConstInterpolations(raw: string | undefined, file: string, line: number): string | undefined {
     const bare = raw?.trim();
     const init =
-      bare && /^[A-Za-z_$][\w$]*$/.test(bare)
+      bare && /^[A-Za-z_$][\w$]*$/.test(bare) && !this.shadowedAt(file, bare, line)
         ? this.structuralFile(file)
             ?.variables.find((v) => v.name === bare && v.declarationKind === 'const')
             ?.initialValue?.trim()
         : undefined;
-    const url = init && /^(['"`])[\s\S]*\1$/.test(init) ? init : raw;
-    return inlineConstInterpolations(url, (ident) => this.resolveConst(ident, file));
+    // A const's own initializer is read in module scope; the call-site text in the call's scope.
+    if (init && /^(['"`])[\s\S]*\1$/.test(init)) {
+      return inlineConstInterpolations(init, (ident) => this.resolveConst(ident, file));
+    }
+    return inlineConstInterpolations(raw, (ident) => this.resolveConstAt(ident, file, line));
+  }
+
+  /** `resolveConst`, unless a parameter or local enclosing 1-based `line` shadows the name. */
+  private resolveConstAt(name: string, file: string, line: number): string | undefined {
+    return this.shadowedAt(file, name, line) ? undefined : this.resolveConst(name, file);
+  }
+
+  /** Is `name` bound by a parameter or a non-module declaration of a scope enclosing 1-based `line`? */
+  private shadowedAt(file: string, name: string, line: number): boolean {
+    const row = line - 1;
+    const binds = (n: TsNode): boolean => {
+      const params = n.childForFieldName('parameters') ?? n.childForFieldName('parameter');
+      for (const p of params?.type === 'formal_parameters' ? params.namedChildren : params ? [params] : []) {
+        const pattern = p.childForFieldName('pattern') ?? p;
+        if (pattern.type === 'identifier' && text(pattern) === name) return true;
+      }
+      return (
+        n.type !== 'program' &&
+        n.namedChildren.some(
+          (d) =>
+            (d.type === 'lexical_declaration' || d.type === 'variable_declaration') &&
+            d.namedChildren.some((v) => v.type === 'variable_declarator' && text(v.childForFieldName('name')) === name),
+        )
+      );
+    };
+    for (let n = this.cstRoots.get(file); n; ) {
+      if (binds(n)) return true;
+      n = n.namedChildren.find((c) => c.startPosition.row <= row && row <= c.endPosition.row);
+    }
+    return false;
   }
 
   /**
@@ -3238,14 +3271,14 @@ export class TreeSitterScipSubstrate implements Substrate {
       // Inline `${CONST}` string consts BEFORE route extraction so a leading
       // const route-prefix (`${BASE}/…`) isn't mistaken for a config host and
       // dropped by templateTailRoute (see inlineStringConstInterpolations).
-      const rawUrlArg = m.url ? this.inlineStringConstInterpolations(urlArgText, file) : undefined;
+      const rawUrlArg = m.url ? this.inlineStringConstInterpolations(urlArgText, file, call.startLine) : undefined;
       const rawUrl = m.url ? resolveHttpUrl(rawUrlArg, m.url) : undefined;
       // Resolve `${CONST}` prefix interpolations surviving as `{IDENT}` placeholders to
       // their string-const value (e.g. `const BASE = 'foo'` → `/${BASE}/items/${x}` →
       // `/foo/items/{x}`), so a const-prefixed egress URL matches a concrete entrypoint.
       // Path PARAMS (`{id}`) don't resolve to a const → left as-is.
       const resolvedUrl = rawUrl?.replace(/\{([A-Za-z_$][\w$]*)\}/g, (full, ident) => {
-        const v = this.resolveConst(ident, file);
+        const v = this.resolveConstAt(ident, file, call.startLine);
         return typeof v === 'string' && v.length > 0 ? v : full;
       });
       // An absolute URL whose host came from an IN-REPO const still routes on its path;
@@ -3374,7 +3407,11 @@ export class TreeSitterScipSubstrate implements Substrate {
         // const route-prefix (`${BASE}/…`) isn't mistaken for a config host and
         // dropped by templateTailRoute (see inlineStringConstInterpolations).
         const rawUrlArg = m.url
-          ? this.inlineStringConstInterpolations(this.inlineRouteConstMembers(call.arguments?.[m.url.arg], file), file)
+          ? this.inlineStringConstInterpolations(
+              this.inlineRouteConstMembers(call.arguments?.[m.url.arg], file),
+              file,
+              call.startLine,
+            )
           : undefined;
         const rawPathTemplate = m.url ? resolveHttpUrl(rawUrlArg, m.url) : undefined;
         // Resolve `${CONST}` prefix interpolations that survive as `{IDENT}` placeholders
@@ -3382,7 +3419,7 @@ export class TreeSitterScipSubstrate implements Substrate {
         // → `/foo/items/{x}`), so a const-prefixed egress URL matches a concrete
         // entrypoint. Path PARAMS (`{id}`) don't resolve to a const → left as-is.
         const pathTemplate = rawPathTemplate?.replace(/\{([A-Za-z_$][\w$]*)\}/g, (full, ident) => {
-          const v = this.resolveConst(ident, file);
+          const v = this.resolveConstAt(ident, file, call.startLine);
           return typeof v === 'string' && v.length > 0 ? v : full;
         });
         // The HTTP verb: read from an arg (request-wrapper `{ method: 'POST' }`) when
