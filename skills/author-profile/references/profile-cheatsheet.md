@@ -227,6 +227,10 @@ routes: {
 unsupported routing is represented by omitting that rule (or just the unsupported app's entry) and
 explaining the gap in the profile comment — never by `{ framework: 'unknown', routeDir: 'unknown' }`.
 
+`joinNestedPaths: true` (with `componentProp`/`renderProp`/`configArray`) joins a react-router route
+nested under a parent `<Route path>` or a config `children:` array onto the parent path
+(`jobs` under `/acme/:id` → `/acme/:id/jobs`) and emits index routes with the parent's path.
+
 State-store rules name an exact factory callee bound to an exported const:
 
 ```ts

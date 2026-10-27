@@ -41,7 +41,7 @@ import type {
 import { globMatches } from './glob.js';
 import { regexFromSource, requirePathToRel } from './regex-util.js';
 import { text, unquote } from './scip/ts-text.js';
-import { calleeName, calleeTail, lineAt, routeFileInScope } from './scip/call-shapes.js';
+import { calleeName, calleeTail, lineAt, nestedRoutePath, routeFileInScope } from './scip/call-shapes.js';
 import { type RecordTableHost, recordTableRouteSites } from './scip/record-table-routes.js';
 import {
   buildBareImports,
@@ -1074,7 +1074,9 @@ export class TreeSitterScipSubstrate implements Substrate {
     for (const [file, text] of this.cstSource) {
       if (!routeFileInScope(file, rule)) continue;
       const seen = new Set<string>();
-      const add = (path: string, componentName: string, idx: number): void => {
+      const root = this.cstRoots.get(file);
+      const add = (rawPath: string, componentName: string, idx: number): void => {
+        const path = rule.joinNestedPaths && root ? nestedRoutePath(root, idx, rawPath) : rawPath;
         const key = `${path}::${componentName}`;
         if (seen.has(key)) return;
         seen.add(key);
@@ -1091,8 +1093,13 @@ export class TreeSitterScipSubstrate implements Substrate {
         // config-object route factories (TanStack `createRoute({ path: '/x',
         // beforeLoad: …, component: X })`); the CST read is quote-agnostic and survives
         // intervening function-valued props. `seen` dedups the overlap.
-        const root = this.cstRoots.get(file);
-        if (root) this.collectConfigObjectRoutes(root, add);
+        if (root) this.collectConfigObjectRoutes(root, add, rule.joinNestedPaths);
+      }
+      if (rule.joinNestedPaths && (rule.componentProp || rule.renderProp)) {
+        // Index routes have no `path`; `add` gives the empty path the parent route's.
+        const index = /<Route\s(?:[^<>]*\s)?index(?:=\{true\})?[\s/][^<>]*(?:element=\{<|component=\{)([A-Z]\w*)/g;
+        for (let m = index.exec(text); m !== null; m = index.exec(text))
+          add('', m[1], m.index + m[0].lastIndexOf(m[1]));
       }
       if (rule.componentProp || rule.renderProp) {
         const statFwd = /<Route[^<>]*path="([^"]+)"[^<>]*component=\{(\w+)\}/g;
@@ -1147,10 +1154,14 @@ export class TreeSitterScipSubstrate implements Substrate {
     return out;
   }
 
-  /** Object-literal route configs: `{ path: <string>, component: <Identifier> }` at one level. */
+  /**
+   * Object-literal route configs: `{ path: <string>, component: <Identifier> }` at one
+   * level. With `withIndex`, `{ index: true, component: X }` is a route with an empty path.
+   */
   private collectConfigObjectRoutes(
     root: TsNode,
     add: (path: string, componentName: string, idx: number) => void,
+    withIndex?: boolean,
   ): void {
     const visit = (n: TsNode): void => {
       if (n.type === 'object') {
@@ -1162,6 +1173,7 @@ export class TreeSitterScipSubstrate implements Substrate {
           const value = pair.childForFieldName('value');
           if (!value) continue;
           if (key === 'path' && value.type === 'string') routePath = unquote(text(value));
+          else if (withIndex && key === 'index' && value.type === 'true') routePath ??= '';
           else if (key === 'component' && value.type === 'identifier') component = value;
         }
         if (routePath !== undefined && component) add(routePath, text(component), component.startIndex);
