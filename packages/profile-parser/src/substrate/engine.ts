@@ -105,6 +105,7 @@ import type {
   SubstrateClass,
   SubstrateFunction,
   SubstrateLoc,
+  SubstrateProperty,
 } from './interface.js';
 import { markUnresolved } from '../unresolved-sentinel.js';
 
@@ -118,6 +119,30 @@ import { markUnresolved } from '../unresolved-sentinel.js';
  */
 export function entityVersionSeed(prefix: string, fields: unknown, relations: unknown): string {
   return `${prefix}:${JSON.stringify({ fields, relations })}`;
+}
+
+/**
+ * An abstract entity base owns no table: MikroORM's `@Entity({ abstract: true })`, or the
+ * entity decorator on an `abstract class` (TypeORM). Its columns live on the concrete subclasses.
+ */
+function isAbstractEntity(c: SubstrateClass, entityDec: string): boolean {
+  return c.isAbstract === true || /\babstract\s*:\s*true\b/.test(entityDec);
+}
+
+/**
+ * The class's properties plus those it inherits through in-repo `extends` bases, root first. A
+ * redeclared property overrides the base one. The chain stops at a base declared outside the
+ * scoped files or under an ambiguous name (`null`).
+ */
+function inheritedProperties(c: SubstrateClass, classByName: Map<string, SubstrateClass | null>): SubstrateProperty[] {
+  const chain: SubstrateClass[] = [];
+  for (let k: SubstrateClass | null | undefined = c; k && !chain.includes(k); ) {
+    chain.push(k);
+    k = k.extendsClass && classByName.get(k.extendsClass.name);
+  }
+  const byName = new Map<string, SubstrateProperty>();
+  for (const k of chain.reverse()) for (const p of k.properties) byName.set(p.name, p);
+  return [...byName.values()];
 }
 
 /** GraphQL root type for a root operation (`query` → `Query`, `mutation` → `Mutation`, …). */
@@ -693,7 +718,8 @@ export class SubstrateProfileEngine {
       if ('schemaPath' in rule) continue;
       if (rule.detect.via === 'class-decorator') {
         for (const c of this.substrate.classes()) {
-          if (this.hasDecorator(c, rule.detect.name)) this.registerEntity(c.loc.filePath, c.name);
+          const dec = this.findDecorator(c, rule.detect.name);
+          if (dec && !isAbstractEntity(c, dec)) this.registerEntity(c.loc.filePath, c.name);
         }
       } else if (rule.detect.via === 'call-shape') {
         for (const site of this.substrate.callShapes(rule.detect.callee)) {
@@ -747,15 +773,19 @@ export class SubstrateProfileEngine {
     const idGen = this.substrate.idGen;
     const fieldDecs = new Set(rule.fields.decorators ?? []);
     const relDecs = rule.relations.decorators ?? {};
+    const classes = this.substrate.classes();
+    // A name declared twice maps to null: its base chain is ambiguous, so nothing is inherited.
+    const classByName = new Map<string, SubstrateClass | null>();
+    for (const c of classes) classByName.set(c.name, classByName.has(c.name) ? null : c);
 
-    for (const c of this.substrate.classes()) {
+    for (const c of classes) {
       const entityDec = this.findDecorator(c, rule.detect.name);
-      if (!entityDec) continue;
+      if (!entityDec || isAbstractEntity(c, entityDec)) continue;
       const tableName = this.resolveTableName(c.name, rule, entityDec);
       const fields: EntityField[] = [];
       const relations: EntityRelation[] = [];
 
-      for (const p of c.properties) {
+      for (const p of inheritedProperties(c, classByName)) {
         const relDec = p.decorators.find((d) => relDecs[decoName(d)] !== undefined);
         if (relDec) {
           relations.push(this.buildDecoratorRelation(p.name, relDec, relDecs, rule));
@@ -2310,9 +2340,6 @@ export class SubstrateProfileEngine {
     return undefined;
   }
 
-  private hasDecorator(c: SubstrateClass, name: string): boolean {
-    return c.decorators.some((d) => decoName(d) === name);
-  }
   private findDecorator(c: SubstrateClass, name: string): string | undefined {
     return c.decorators.find((d) => decoName(d) === name);
   }

@@ -508,6 +508,7 @@ export class TreeSitterScipSubstrate implements Substrate {
             loc: { filePath: f.path, startLine: p.startLine, endLine: p.endLine },
           })),
           extendsClass: c.extendsClass,
+          isAbstract: c.isAbstract,
           loc: { filePath: f.path, startLine: c.startLine, endLine: c.endLine },
         });
       }

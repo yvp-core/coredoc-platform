@@ -888,7 +888,7 @@ export async function parseTsStructural(
         file.classes.push({
           name,
           isExported: n.parent?.type === 'export_statement',
-          isAbstract: n.text.includes('abstract'),
+          isAbstract: n.type === 'abstract_class_declaration',
           startLine: lineOf(n),
           endLine: endLineOf(n),
           decorators: decoratorsOf(n),
