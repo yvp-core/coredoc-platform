@@ -55,6 +55,8 @@ export interface SubstrateClass {
    * when the class has no `extends` clause. Drives repo-base-class entity resolution.
    */
   extendsClass?: { name: string; typeArgs: string[] };
+  /** Declared `abstract class`: an entity base declared this way owns no table. */
+  isAbstract?: boolean;
   loc: SubstrateLoc;
 }
 
