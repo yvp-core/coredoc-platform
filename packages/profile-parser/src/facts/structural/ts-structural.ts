@@ -318,6 +318,18 @@ function text(n: TsNode | null | undefined): string {
 }
 
 /**
+ * A call_expression's callee. Grammar quirk: `await x.m<A, B>(…)` (await + type arguments)
+ * mis-parses with the whole `await x.m` as the `function` field, so unwrap the await (and
+ * report it) or the receiver is lost and the call reads as a bare callee named "await x.m".
+ * Plain `await x.m()` parses normally and is unaffected.
+ */
+export function callCallee(call: TsNode): { fn: TsNode | null; awaited: boolean } {
+  const fn = call.childForFieldName('function');
+  const inner = fn?.type === 'await_expression' ? fn.namedChildren[0] : undefined;
+  return inner ? { fn: inner, awaited: true } : { fn, awaited: false };
+}
+
+/**
  * The base NAME one entry of a heritage clause (`implements A, B<T>`, `extends Y, Z<Q>`) declares.
  * A `generic_type` is peeled to its own identifier so `Z<Q>` reads as `Z` — the type arguments are
  * not part of the base's identity. A `nested_type_identifier` (`ns.IBar`) keeps its dotted text:
@@ -1206,22 +1218,7 @@ export async function parseTsStructural(
         break;
       }
       case 'call_expression': {
-        let fn = n.childForFieldName('function');
-        // Grammar quirk: `await x.m<A, B>(…)` (await + type arguments) mis-parses so the
-        // call_expression's `function` field is the whole `await_expression` (`await x.m`)
-        // rather than the normal `await_expression > call_expression` nesting. Unwrap the
-        // await so receiver/method extraction sees the real member_expression callee; without
-        // this the receiver is lost and the call (incl. axios/SDK egress with type args) is
-        // mis-classified as a bare callee named "await x.m". Plain `await x.m()` (no type args)
-        // parses normally and is unaffected.
-        let awaitUnwrapped = false;
-        if (fn && fn.type === 'await_expression') {
-          const inner = fn.namedChildren[0];
-          if (inner) {
-            fn = inner;
-            awaitUnwrapped = true;
-          }
-        }
+        const { fn, awaited: awaitUnwrapped } = callCallee(n);
         let receiver: string | undefined;
         let methodName: string | undefined;
         if (fn && fn.type === 'member_expression') {

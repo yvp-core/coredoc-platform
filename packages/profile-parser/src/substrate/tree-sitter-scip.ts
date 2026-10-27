@@ -62,7 +62,7 @@ import {
   type SymbolIdentityResolver,
   createSymbolIdentityResolver,
 } from '../facts/structural/symbol-ref-identity.js';
-import type { StructuralLocalBinding, StructuralParam } from '../facts/structural/ts-structural.js';
+import { callCallee, type StructuralLocalBinding, type StructuralParam } from '../facts/structural/ts-structural.js';
 import {
   bareStringMethodName,
   bareStringVerb,
@@ -760,10 +760,7 @@ export class TreeSitterScipSubstrate implements Substrate {
   }
 
   private toCallSite(call: TsNode, file: string, chain: CallSite[]): CallSite {
-    let fn = call.childForFieldName('function');
-    // tree-sitter-typescript parses `await x.y<T>(…)` as `(await x.y)<T>(…)`: the await
-    // lands inside the callee only when type arguments are present.
-    if (fn?.type === 'await_expression') fn = fn.namedChildren[0] ?? fn;
+    const { fn } = callCallee(call);
     let receiver: string | undefined;
     let method: string | undefined;
     let calleeText = '';
