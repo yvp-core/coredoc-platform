@@ -2158,6 +2158,13 @@ export class SubstrateProfileEngine {
   }
 
   private extractRawQueryDbOps(rule: DbOpRule): void {
+    // A table an emitted entity owns names that entity, so the op binds to its node. A table
+    // two entities share (single-table inheritance) is ambiguous and keeps its own name.
+    const entityByTable = new Map<string, string | undefined>();
+    for (const e of this.entities) {
+      const table = e.tableName?.replace(/["`]/g, '').toLowerCase();
+      if (table) entityByTable.set(table, entityByTable.has(table) ? undefined : e.name);
+    }
     for (const matcher of rule.rawQueries ?? []) {
       for (const site of this.substrate.callShapes()) {
         if (!site.method || !matcher.methods.includes(site.method)) continue;
@@ -2176,7 +2183,8 @@ export class SubstrateProfileEngine {
         // a function in FROM) still describes a real operation; Cypher stays all-or-nothing.
         const parsed = q ? (matcher.dialect === 'cypher' ? parseCypherOp(q) : parseSqlStatement(q)) : undefined;
         if (parsed?.entity) {
-          this.pushDbOp(callerId, parsed.op, site, `${parsed.entity}:${site.loc.startLine}`, parsed.entity);
+          const entity = entityByTable.get(parsed.entity.toLowerCase()) ?? parsed.entity;
+          this.pushDbOp(callerId, parsed.op, site, `${parsed.entity}:${site.loc.startLine}`, entity);
           continue;
         }
         // No readable target: the call site IS a db-op surface (that is what the matcher
