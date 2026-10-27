@@ -345,7 +345,12 @@ export class SubstrateProfileEngine {
     }
 
     const result = assemble(g, opts, [...baseline.errors, ...this.unresolvedWarnings()], 0, baseline.plan);
-    result.stats.callResolution = callResolutionOf(corrected, g, emittedIdsBySite);
+    result.stats.callResolution = callResolutionOf(
+      corrected,
+      g,
+      emittedIdsBySite,
+      Boolean(this.profile.registries?.length),
+    );
     // Absent = not measured: a profile with no `dbOperations` block ran no db-op lane at all.
     if (this.profile.dbOperations)
       result.stats.dbOpResolution = {
@@ -2348,6 +2353,7 @@ function callResolutionOf(
   sites: readonly CallEdgeFact[],
   g: CodeGraph,
   emittedIdsBySite: ReadonlyMap<string, string[]>,
+  countRegistryAmbiguity: boolean,
 ): CallResolutionStats {
   const declared = new Set<string>();
   for (const fn of g.functions.values()) declared.add(fn.name);
@@ -2367,5 +2373,18 @@ function callResolutionOf(
     const tail = /([A-Za-z_$][\w$]*)\s*$/.exec(calleeExpression)?.[1];
     if (tail && !declared.has(tail)) outOfScopeCalls++;
   }
-  return { callSites: expressionBySite.size, resolvedCalls: resolved.size, outOfScopeCalls };
+  const stats: CallResolutionStats = {
+    callSites: expressionBySite.size,
+    resolvedCalls: resolved.size,
+    outOfScopeCalls,
+  };
+  if (countRegistryAmbiguity) {
+    const ambiguous = new Set<string>();
+    for (const site of sites) {
+      const key = callSiteKey(site.callerId, site.location, site.calleeExpression);
+      if (site.registryAmbiguous && !resolved.has(key)) ambiguous.add(key);
+    }
+    stats.registryAmbiguousCalls = ambiguous.size;
+  }
+  return stats;
 }

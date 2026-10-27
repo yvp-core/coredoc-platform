@@ -16,8 +16,9 @@
  *          (it follows the receiver TYPE). A ctorParams-based DI map resolves the
  *          member-chain call to the right METHOD instead.
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { isBuiltin } from 'node:module';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { TreeSitterLoader } from '../tree-sitter/tree-sitter-loader.js';
 import type { StableIdGenerator } from '@coredoc/core';
 import { releaseParsedTree } from '../tree-sitter/tree-release.js';
@@ -32,6 +33,7 @@ import type { Node as TsNode } from 'web-tree-sitter';
 import type {
   ExternalClientMatcher,
   ImportResolution,
+  RegistryRule,
   RouteRule,
   StateStoreBuilders,
   StateStoreRule,
@@ -104,6 +106,8 @@ export interface BuildSubstrateOptions {
   language?: 'typescript' | 'javascript';
   /** Accessor-hook names from the profile's `callGraph.accessorHooks` (empty/absent = off). */
   accessorHooks?: string[];
+  /** Untyped-JS registry rules from the profile's `registries` (empty/absent = off). */
+  registries?: RegistryRule[];
 }
 
 /** A destructured `await import()` binding, resolved to the node it names, with its live span. */
@@ -208,8 +212,19 @@ export class TreeSitterScipSubstrate implements Substrate {
   private readonly diMap = new Map<string, Map<string, string>>();
   // DI provenance: filePath -> (ctor param name -> module its type is imported from).
   private readonly diImportModule = new Map<string, Map<string, string>>();
+  // The three indexes below are keyed by bare class name, so a name declared in two files mixes
+  // both classes: every lookup through them checks `isUniqueClass` first.
+  // DI member types: className -> (property, ctor param or `return this.<field>` getter -> ClassName), for `this.a.b.m()`.
+  // `null`: the member is declared, but its type is not an in-repo class.
+  private readonly memberTypesByClass = new Map<string, Map<string, string | null>>();
   // method id index: className -> (methodName -> methodId).
   private readonly methodsByClass = new Map<string, Map<string, string>>();
+  // `extends` index: className -> in-repo base class name (package-imported bases are left out).
+  private readonly baseByClass = new Map<string, string>();
+  // className -> files declaring it, for the uniqueness check.
+  private readonly classFilesByName = new Map<string, string[]>();
+  // `${dir}\0${package}` -> isPackageImport verdict; the lookup walks node_modules up from dir.
+  private readonly packageImportByDir = new Map<string, boolean>();
   // function id index: filePath -> Set(name).
   private readonly fnNamesByFile = new Map<string, Set<string>>();
 
@@ -370,20 +385,43 @@ export class TreeSitterScipSubstrate implements Substrate {
       for (const fn of f.functions) fnSet.add(fn.name);
       this.fnNamesByFile.set(f.path, fnSet);
 
+      const importByName = importNameToModule(f);
       for (const c of f.classes) {
         // method id index
         const mmap = this.methodsByClass.get(c.name) ?? new Map<string, string>();
         for (const m of c.methods) mmap.set(m.name, this.idGen.methodId(f.path, c.name, m.name));
         this.methodsByClass.set(c.name, mmap);
+        const baseModule = c.extendsClass && importByName.get(c.extendsClass.name.split('.')[0]);
+        if (c.extendsClass && !(baseModule && this.isPackageImport(baseModule, f.path)))
+          this.baseByClass.set(c.name, c.extendsClass.name);
+        this.classFilesByName.set(c.name, [...(this.classFilesByName.get(c.name) ?? []), f.path]);
+
+        if (di) {
+          const members = this.memberTypesByClass.get(c.name) ?? new Map<string, string | null>();
+          // An untyped field (`repo = new OtherRepo()`) still shadows a base's typed member.
+          for (const p of c.properties) if (!p.type) members.set(p.name, null);
+          for (const p of [...c.properties, ...c.ctorParams]) {
+            if (!p.type) continue;
+            const type = this.diTypeName(p.type);
+            const typeModule = importByName.get(type.split(/[.<\s]/)[0]);
+            // A package-imported type is external: its name may also name an unrelated in-repo class.
+            members.set(p.name, typeModule && this.isPackageImport(typeModule, f.path) ? null : type);
+          }
+          // An unannotated `get x() { return this._x; }` has the type of its backing field.
+          for (const m of c.methods) {
+            const fieldType = !m.returnType && m.getterField && members.get(m.getterField);
+            if (fieldType) members.set(m.name, fieldType);
+          }
+          this.memberTypesByClass.set(c.name, members);
+        }
 
         // DI map from ctorParams
         if (di && c.ctorParams.length) {
           const fileMap = this.diMap.get(f.path) ?? new Map<string, string>();
-          const importByName = importNameToModule(f);
           let provMap = this.diImportModule.get(f.path);
           for (const p of c.ctorParams) {
             if (!p.type) continue;
-            const cleaned = this.opts.stripGenerics ? p.type.replace(/<.*>/, '').trim() : p.type.trim();
+            const cleaned = this.diTypeName(p.type);
             fileMap.set(p.name, cleaned);
             // Provenance: the type's root identifier → its import module specifier.
             const typeRoot = cleaned.split(/[.<\s]/)[0];
@@ -400,6 +438,45 @@ export class TreeSitterScipSubstrate implements Substrate {
         }
       }
     }
+  }
+
+  private diTypeName(type: string): string {
+    return this.opts.stripGenerics ? type.replace(/<.*>/, '').trim() : type.trim();
+  }
+
+  /**
+   * A bare specifier naming an installed package (`typeorm`, `node:events`), as opposed to a
+   * relative path, a tsconfig alias (no `node_modules` entry) or a workspace package (its entry
+   * links back into the repo).
+   */
+  private isPackageImport(specifier: string, fromFile: string): boolean {
+    if (specifier.startsWith('.') || specifier.startsWith('/')) return false;
+    if (isBuiltin(specifier)) return true;
+    const pkg = specifier
+      .split('/')
+      .slice(0, specifier.startsWith('@') ? 2 : 1)
+      .join('/');
+    const root = resolve(this.opts.repoRoot);
+    const from = dirname(join(root, fromFile));
+    const key = `${from}\0${pkg}`;
+    const cached = this.packageImportByDir.get(key);
+    if (cached !== undefined) return cached;
+    let verdict = false;
+    for (let dir = from; ; dir = dirname(dir)) {
+      const entry = join(dir, 'node_modules', pkg);
+      if (existsSync(entry)) {
+        verdict = realpathSync(entry).split(sep).includes('node_modules');
+        break;
+      }
+      if (dir === root || dir === dirname(dir)) break;
+    }
+    this.packageImportByDir.set(key, verdict);
+    return verdict;
+  }
+
+  /** A class name declared in exactly one scoped file: only then do the name-keyed indexes describe one class. */
+  private isUniqueClass(className: string): boolean {
+    return this.classFilesByName.get(className)?.length === 1;
   }
 
   // ── plain structural facts ─────────────────────────────────────────────────
@@ -456,8 +533,21 @@ export class TreeSitterScipSubstrate implements Substrate {
     return this.baseline.graph.functions.has(id);
   }
 
+  /**
+   * Walks the in-repo `extends` chain (at most 5 levels) when the class does not declare the
+   * method itself; the first declaring class wins, so an override shadows its base. An external
+   * base is not in the index, so the walk ends there unresolved, and so does a class name declared
+   * in two files.
+   */
   resolveMethodOnClass(className: string, methodName: string): string | undefined {
-    return this.methodsByClass.get(className)?.get(methodName);
+    let cls: string | undefined = className;
+    for (let level = 0; cls !== undefined && level <= 5; level++) {
+      if (!this.isUniqueClass(cls)) return undefined;
+      const id = this.methodsByClass.get(cls)?.get(methodName);
+      if (id) return id;
+      cls = this.baseByClass.get(cls);
+    }
+    return undefined;
   }
 
   functionId(filePath: string, name: string): string | undefined {
@@ -1929,7 +2019,13 @@ export class TreeSitterScipSubstrate implements Substrate {
 
       // DI correction: a member-chain call `this.svc.method()` that SCIP pointed at a
       // CONSTRUCTOR (or left unresolved) — re-resolve to the real method via the ctor DI map.
-      const corrected = this.diCorrect(edge.callerId, edge.location.filePath, edge.location.startLine, siteIndex);
+      const corrected = this.diCorrect(
+        edge.callerId,
+        edge.location.filePath,
+        edge.location.startLine,
+        siteIndex,
+        edge.calleeExpression,
+      );
       if (corrected && scopedFnIds.has(corrected)) {
         calleeId = corrected;
         provenance = 'di';
@@ -1938,6 +2034,17 @@ export class TreeSitterScipSubstrate implements Substrate {
         // dynamic-import pass already resolved. The name-gate exemption belongs to THAT
         // resolution alone — carrying it over would let a mismatched DI callee through.
         viaDynamicImport = false;
+      }
+
+      // Registry binding: untyped-JS `this.services.<name>.m()`, by the profile's class-naming rule.
+      let registryAmbiguous = false;
+      if (!calleeId) {
+        const bound = this.registryCallee(edge.calleeExpression);
+        registryAmbiguous = bound.ambiguous;
+        if (bound.id && scopedFnIds.has(bound.id)) {
+          calleeId = bound.id;
+          provenance = 'registry';
+        }
       }
 
       // Interface-dispatch binding: `activities.m()` where `activities` is a PARAMETER typed by
@@ -1983,6 +2090,7 @@ export class TreeSitterScipSubstrate implements Substrate {
         isMethodCall: edge.isMethodCall,
         location: edge.location,
         arguments: edge.arguments,
+        ...(registryAmbiguous && !calleeId ? { registryAmbiguous } : {}),
       });
     }
 
@@ -2321,22 +2429,72 @@ export class TreeSitterScipSubstrate implements Substrate {
     return best;
   }
 
-  /** Resolve `this.<injected>.method()` at a site to the real method id via the DI map. */
+  /**
+   * Callee id for `<receiver>.<name>.<method>` under a profile registry rule: `<method>` on the class
+   * `upperFirst(name) + classSuffix`, which must be declared in exactly one scoped file, under the
+   * rule's `inPaths`. Inherited methods count (`resolveMethodOnClass`). A rule that binds nothing
+   * falls through to the next; `ambiguous` reports that some rule's class name was declared twice.
+   */
+  private registryCallee(calleeExpression: string): { id?: string; ambiguous: boolean } {
+    let ambiguous = false;
+    const rules = this.opts.registries;
+    if (!rules?.length) return { ambiguous };
+    const expr = calleeExpression.replace(/\s+/g, '').replaceAll('?.', '.');
+    const dot = expr.lastIndexOf('.');
+    if (dot < 0) return { ambiguous };
+    const receiver = expr.slice(0, dot);
+    for (const rule of rules) {
+      for (const prefix of rule.receivers) {
+        if (!receiver.startsWith(`${prefix}.`)) continue;
+        const name = receiver.slice(prefix.length + 1);
+        if (!/^[A-Za-z_$][\w$]*$/.test(name)) continue;
+        const className = name[0].toUpperCase() + name.slice(1) + rule.classSuffix;
+        const files = this.classFilesByName.get(className) ?? [];
+        if (files.length > 1) ambiguous = true;
+        if (files.length !== 1 || !rule.inPaths.some((p) => files[0].startsWith(p))) continue;
+        const id = this.resolveMethodOnClass(className, expr.slice(dot + 1));
+        if (id) return { id, ambiguous };
+      }
+    }
+    return { ambiguous };
+  }
+
+  /**
+   * Resolve `this.<injected>.method()` — or `this.<injected>.<member>.method()`, one hop through
+   * the injected class's declared member type — at a site to the real method id via the DI map.
+   */
   private diCorrect(
     callerId: string,
     file: string,
     line: number,
     siteIndex: Map<string, StructuralCall>,
+    calleeExpression: string,
   ): string | undefined {
     const site = siteIndex.get(`${callerId}|${file}|${line}`);
     if (!site || !site.receiver || !site.methodName) return undefined;
-    // member chain: receiver = `this.svc` (or `svc`); property after the last dot is the DI prop.
+    // The index holds one site per line: another call on that line (`wrap(this.a.b.m())`) keeps its callee.
+    const tail = calleeTail(calleeExpression);
+    if (tail !== undefined && tail.replace(/^#/, '') !== site.methodName.replace(/^#/, '')) return undefined;
+    // receiver = `this.svc` / `this.svc.repo` (or without `this.`); the first segment is the DI prop.
     const recv = site.receiver;
-    const propName = recv.startsWith('this.') ? recv.slice('this.'.length) : recv;
-    if (propName.includes('.')) return undefined; // deeper chains: leave to SCIP
-    const targetClass = this.diMap.get(file)?.get(propName);
+    const [propName, member, ...deeper] = (recv.startsWith('this.') ? recv.slice('this.'.length) : recv).split('.');
+    if (deeper.length) return undefined; // longer chains: leave to SCIP
+    let targetClass = this.diMap.get(file)?.get(propName);
+    if (targetClass && member !== undefined) targetClass = this.memberType(targetClass, member);
     if (!targetClass) return undefined;
     return this.resolveMethodOnClass(targetClass, site.methodName);
+  }
+
+  /** Declared type of `member` on the class, walking its in-repo bases like `resolveMethodOnClass`. */
+  private memberType(className: string, member: string): string | undefined {
+    let cls: string | undefined = className;
+    for (let level = 0; cls !== undefined && level <= 5; level++) {
+      if (!this.isUniqueClass(cls)) return undefined;
+      const members = this.memberTypesByClass.get(cls);
+      if (members?.has(member)) return members.get(member) ?? undefined;
+      cls = this.baseByClass.get(cls);
+    }
+    return undefined;
   }
 
   /**

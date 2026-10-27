@@ -34,6 +34,7 @@ import { handleExplainEntrypoint } from './explain-entrypoint.js';
 import { handleDescribeDbSchema } from '../discovery/describe-db-schema.js';
 import { handleListFileSymbols } from '../discovery/list-file-symbols.js';
 import { formatExplain, createMetadata, resolveRepoName } from '../../response-formatter.js';
+import { truncate } from '../../truncate.js';
 import { declaredElsewhereLine } from '../../empty-results.js';
 import { crossRepoLookupHashes } from '../../scope-resolver.js';
 import { debug, debugResult } from '../../debug-logger.js';
@@ -318,7 +319,8 @@ function renderClassProperty(p: ClassPropertyInfo): string {
   if (p.isOptional) flags.push('optional');
   if (p.isStatic) flags.push('static');
   const type = p.typeText ? `: ${p.typeText}` : '';
-  return `${p.name}${type}${flags.length ? ` [${flags.join(', ')}]` : ''}`;
+  const def = p.defaultValue ? ` = ${truncate(p.defaultValue, 80)}` : '';
+  return `${p.name}${type}${flags.length ? ` [${flags.join(', ')}]` : ''}${def}`;
 }
 
 function renderInterfaceMember(m: InterfaceMemberInfo): string {
@@ -438,8 +440,18 @@ async function buildMetadata(
       meta.followUpHint = `describe_db_schema({entityName: "${el.name}"}) — columns/relations · find_entity_usage({entityName: "${el.name}"}) — read/write sites`;
       break;
     }
+    case 'variable': {
+      // The initializer is stored as a bounded value (not source), so it is shown regardless of
+      // ALLOW_SOURCES_IN_GRAPH.
+      const stored = await repo.getNodeWithProperties(el.id, scope.repoHashes);
+      const initializer = stored?.properties.initializerText;
+      if (typeof initializer === 'string' && initializer) {
+        applyFieldsPreview(meta, [`= ${initializer}`], 'Value', fieldLimit);
+      }
+      meta.followUpHint = `read ${el.filePath}:${el.startLine} for the full declaration`;
+      break;
+    }
     case 'component':
-    case 'variable':
     case 'route':
       // Structural detail (props / route target / declared type) isn't exposed
       // via the repo interface yet — point at the source for now.

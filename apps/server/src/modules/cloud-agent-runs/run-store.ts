@@ -1,5 +1,5 @@
+import { redactPayload } from '@coredoc/core/utils';
 import type { Prisma } from '../../generated/prisma/client.js';
-import { redactPayload } from './redact-secrets.js';
 
 export const CLOUD_AGENT_RUNS_CLOCK = Symbol('CLOUD_AGENT_RUNS_CLOCK');
 export type Clock = () => Date;

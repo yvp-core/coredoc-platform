@@ -9,5 +9,8 @@ export default defineConfig({
     // reason). Machine-load headroom, not permission for slow tests.
     testTimeout: 30_000,
     include: ['src/**/*.test.ts'],
+    // Real-backend suites load the Ladybug native binding, which is not safe
+    // under the worker_threads pool (see packages/db/vitest.config.ts).
+    poolMatchGlobs: [['**/*.backends.test.ts', 'forks']],
   },
 });

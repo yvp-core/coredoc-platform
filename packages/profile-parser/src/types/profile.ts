@@ -61,6 +61,21 @@ export type CallGraphRule = {
 
 export type DiRule = { style: 'constructor-type' | 'none'; stripGenerics?: boolean };
 
+/**
+ * A name-keyed instance registry in untyped JS: the framework stores each class instance under its
+ * class name with `classSuffix` stripped and the first letter lowered, so
+ * `this.services.notification.m()` calls `NotificationService.m`. The site stays unbound when no
+ * class or more than one class in scope has that name, or the class (with its in-repo bases) lacks `m`.
+ */
+export type RegistryRule = {
+  /** Receiver expressions whose next member is the instance name, e.g. 'this.services', 'ctx.services'. */
+  receivers: string[];
+  /** Class-name suffix the framework strips, e.g. 'Service'. */
+  classSuffix: string;
+  /** Repo-relative path prefixes where those classes are declared, e.g. ['app/services/']. */
+  inPaths: string[];
+};
+
 export type SynthesizeRule = {
   /** `module.exports = { m: () => {} }` → synthesized FunctionNodes. */
   objectLiteralExportMethods?: boolean;
@@ -85,6 +100,8 @@ export interface ExtractionProfile extends BaseProfile {
   synthesize?: SynthesizeRule;
   di?: DiRule;
   callGraph?: CallGraphRule;
+  /** Untyped-JS registries: `<receiver>.<name>.<method>()` binds by class-naming convention. */
+  registries?: RegistryRule[];
   entrypoints?: EntrypointRule[];
   /** Cross-file require/alias registries referenced by entrypoint handler resolution. */
   handlerTables?: HandlerTable[];

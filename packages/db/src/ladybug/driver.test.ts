@@ -20,6 +20,7 @@ import {
   streamLadybugExecutedRows,
   streamLadybugRows,
 } from './driver.js';
+import { withReadSignal } from '../read-signal.js';
 
 describe('resolveLadybugBudgets', () => {
   it('uses the measured read-only and read-write defaults', () => {
@@ -333,6 +334,29 @@ describe('Ladybug connection lifecycle', () => {
       expect(events).toEqual(['first:start', 'first:end', 'second']);
     } finally {
       releaseFirst?.();
+      await driver.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('stops a tool read at the next query once its read signal aborts', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'coredoc-ladybug-driver-abort-'));
+    const driver = new LadybugDriver(join(root, 'graph.lbug'), { readOnly: false });
+    const controller = new AbortController();
+    try {
+      await driver.initialize();
+      const read = withReadSignal(controller.signal, () =>
+        driver.withReadTransaction(async (tx) => {
+          const first = await tx.run<{ n: number }>('RETURN 1 AS n');
+          controller.abort(new Error('deadline'));
+          return [first, await tx.run('RETURN 2 AS n')];
+        }),
+      );
+
+      await expect(read).rejects.toThrow('deadline');
+      // Reads outside the aborted call are untouched.
+      await expect(driver.withReadTransaction((tx) => tx.run('RETURN 3 AS n'))).resolves.toEqual([{ n: 3 }]);
+    } finally {
       await driver.close();
       rmSync(root, { recursive: true, force: true });
     }

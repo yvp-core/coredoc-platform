@@ -5,6 +5,7 @@
  */
 
 import { type IGraphReadRepository } from '@coredoc/db';
+import { type EntrypointAddress, entrypointAddressTokens, normalizeRoutePath } from '@coredoc/db/route-path';
 import type { EntrypointType } from '@coredoc/core/types';
 import { allowSourcesInGraph } from '@coredoc/core/utils';
 import { formatEntrypointExplanation, createMetadata } from '../../response-formatter.js';
@@ -94,7 +95,31 @@ export async function handleExplainEntrypoint(
 
   debugResult('findEntrypoint', matchingEntrypoints.length);
 
-  const ep = matchingEntrypoints[0]!;
+  // Backends order `listEntrypoints` differently (Ladybug with localeCompare,
+  // Neo4j with Cypher ORDER BY), so the pick must not depend on row order: rank
+  // by how much each address adds to the query. An exact match adds nothing.
+  const query = path ? normalizeRoutePath(path) : '';
+  const ranked = query
+    ? [...matchingEntrypoints].sort(
+        (a, b) =>
+          addressDistance(a, query) - addressDistance(b, query) ||
+          compareCodePoints(a.fullPath ?? a.path ?? '', b.fullPath ?? b.path ?? '') ||
+          compareCodePoints(a.method ?? '', b.method ?? '') ||
+          compareCodePoints(a.id, b.id),
+      )
+    : matchingEntrypoints;
+  const ep = ranked[0]!;
+  const closestOf =
+    query && ranked.length > 1 && addressDistance(ep, query) > 0
+      ? {
+          total: ranked.length,
+          others: ranked.slice(1, 6).map((other) => ({
+            id: other.id,
+            ...(other.method ? { method: other.method } : {}),
+            path: entrypointAddressTokens(other)[0] ?? other.id,
+          })),
+        }
+      : undefined;
   const entrypoint: EntrypointInfo = {
     id: ep.id,
     type: ep.type,
@@ -265,10 +290,29 @@ export async function handleExplainEntrypoint(
     entities,
     externalServices,
     upstreamCallers: upstreamCallers.length > 0 ? upstreamCallers : undefined,
+    ...(closestOf ? { closestOf } : {}),
   };
 
   const metadata = await createMetadata(scope, format, detailLevel, detailConfig, repository);
   return formatEntrypointExplanation(result, metadata);
+}
+
+/**
+ * Characters the closest address of `ep` adds to the normalized `query`: 0 for an
+ * exact match, Infinity when no address contains the query.
+ */
+function addressDistance(ep: EntrypointAddress, query: string): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (const token of entrypointAddressTokens(ep)) {
+    const normalized = normalizeRoutePath(token);
+    if (normalized.includes(query)) best = Math.min(best, normalized.length - query.length);
+  }
+  return best;
+}
+
+/** Locale-independent tie-break, so the pick is the same on every host. */
+function compareCodePoints(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /**

@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { createClient } from '@libsql/client';
+import { withReadSignal } from '../read-signal.js';
 import { getSqliteUrl, SqliteDriver } from './driver.js';
 
 // A fixed cwd path lets overlapping Vitest processes delete or lock each other's database.
@@ -93,6 +94,19 @@ describe('SqliteDriver', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0]!.count).toBe(0);
+  });
+
+  it('refuses a read issued after the read signal aborts', async () => {
+    const controller = new AbortController();
+    const deadline = new Error('tool deadline');
+    const reads = withReadSignal(controller.signal, () =>
+      driver.withReadTransaction(async (tx) => {
+        await tx.run('SELECT 1 AS one');
+        controller.abort(deadline);
+        return tx.run('SELECT 2 AS two');
+      }),
+    );
+    await expect(reads).rejects.toBe(deadline);
   });
 
   it('should execute write transactions', async () => {

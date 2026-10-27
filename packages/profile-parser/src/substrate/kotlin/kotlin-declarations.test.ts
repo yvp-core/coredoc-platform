@@ -94,6 +94,7 @@ describe('emitted nodes per declaration kind', () => {
     const f = await facts('a/T.kt', 'package a\ntypealias Things = List<Thing>\nval topLevel = 1');
     expect(f.typeAliases.map((t) => `${t.name}=${t.aliasedType.text}`)).toEqual(['Things=List<Thing>']);
     expect(f.variables.map((v) => `${v.name}:${v.declarationKind}`)).toEqual(['topLevel:const']);
+    expect(f.variables[0].initialValue).toBe('1');
   });
 });
 
@@ -115,7 +116,11 @@ describe('companions and objects are static members, never synthetic classes', (
     const make = f.functions.find((fn) => fn.name === 'make');
     expect(make?.isStatic).toBe(true);
     expect(make?.classId).toBe(f.classes[0].id);
-    expect(f.classes[0].properties.find((p) => p.name === 'TABLE')?.isStatic).toBe(true);
+    // The companion `const val` keeps its value on the enclosing class, where `explain` prints it.
+    expect(f.classes[0].properties.find((p) => p.name === 'TABLE')).toMatchObject({
+      isStatic: true,
+      defaultValue: '"things"',
+    });
   });
 
   it('ANTI: no `Companion` and no file-facade class is emitted', async () => {

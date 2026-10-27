@@ -17,6 +17,7 @@ import {
   getConfiguredBackend,
   getRepository,
   openProjectDatabase,
+  TOOL_DEADLINE_MS,
 } from '@coredoc/db';
 import type { IGraphReadRepository, McpMetricsRepository, ProjectDatabase } from '@coredoc/db';
 import { semanticSearchEnabled, getTelemetryConfig } from '@coredoc/core/utils';
@@ -48,6 +49,7 @@ import { handleDescribeDbSchema } from './tools/discovery/describe-db-schema.js'
 import { handleGetExtractionCoverage } from './tools/discovery/get-extraction-coverage.js';
 import { handleTraceCrossRepoCall } from './tools/cross-repo/trace-cross-repo-call.js';
 import { handleListServiceDependencies } from './tools/cross-repo/list-service-dependencies.js';
+import { ToolDeadlineError, withToolDeadline } from './tool-deadline.js';
 
 // =============================================================================
 // Shared Schema Definitions
@@ -340,8 +342,9 @@ function emitFirstAnswer(scope: ScopeContext): void {
     });
 }
 
-function projectReadOptions(): { mode: 'read'; backend?: 'ladybug' } {
-  return getConfiguredBackend() === 'ladybug' ? { mode: 'read', backend: 'ladybug' } : { mode: 'read' };
+function projectReadOptions(): { mode: 'read'; backend?: 'ladybug'; queryTimeoutMs: number } {
+  const options = { mode: 'read' as const, queryTimeoutMs: TOOL_DEADLINE_MS };
+  return getConfiguredBackend() === 'ladybug' ? { ...options, backend: 'ladybug' } : options;
 }
 
 async function projectDatabaseForScope(scope: ScopeContext | undefined): Promise<ProjectDatabase> {
@@ -583,14 +586,15 @@ export function createServer(repository?: IGraphReadRepository, sessionId?: stri
 
     try {
       // Execute tool handler
-      const scopedRepository = await resolveScopedRepository(scopeResult.scope, repository);
-      const response = await handler(
-        args || {},
-        scopeResult.scope,
-        format,
-        detailLevel,
-        detailConfig,
-        scopedRepository,
+      const response = await withToolDeadline(name, async () =>
+        handler(
+          args || {},
+          scopeResult.scope,
+          format,
+          detailLevel,
+          detailConfig,
+          await resolveScopedRepository(scopeResult.scope, repository),
+        ),
       );
 
       // Resolve resultCount for metrics:
@@ -646,6 +650,9 @@ export function createServer(repository?: IGraphReadRepository, sessionId?: stri
           /* swallowed */
         });
 
+      if (error instanceof ToolDeadlineError) {
+        return { content: error.toContent(), isError: true };
+      }
       return {
         content: [
           {

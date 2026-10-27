@@ -48,7 +48,7 @@ function upperFirst(word: string): string {
 }
 
 /** snake_case -> PascalCase (`user_profile` -> `UserProfile`). */
-function pascalCase(s: string): string {
+export function pascalCase(s: string): string {
   return s.split('_').filter(Boolean).map(upperFirst).join('');
 }
 

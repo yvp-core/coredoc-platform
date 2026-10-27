@@ -665,6 +665,15 @@ export interface EntrypointExplanationResult {
     repo: string;
     callSites: number;
   }[];
+  /**
+   * Set when no entrypoint matched the queried path exactly and several matched it
+   * as a substring: `entrypoint` is the closest of `total` matches and `others` the
+   * next closest, at most 5.
+   */
+  closestOf?: {
+    total: number;
+    others: { id: string; method?: string; path: string }[];
+  };
 }
 
 /**

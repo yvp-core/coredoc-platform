@@ -10,7 +10,13 @@ import { Logger } from '@nestjs/common';
 import type { Request } from 'express';
 import type { IGraphReadRepository } from '@coredoc/db';
 import type { ScopeContext, OutputFormat, DetailLevel, DetailLevelConfig, McpResponseMetadata } from '@coredoc/mcp';
-import { resolveDetailLevel, getDefaultDetailLevel, formatMcpContent } from '@coredoc/mcp';
+import {
+  resolveDetailLevel,
+  getDefaultDetailLevel,
+  formatMcpContent,
+  ToolDeadlineError,
+  withToolDeadline,
+} from '@coredoc/mcp';
 
 import { WorkspaceMcpContextService, type WorkspaceContext } from '../workspace-mcp-context.service.js';
 import type { GraphBackend } from '../../database/graph-backend.js';
@@ -91,21 +97,23 @@ export abstract class BaseCoredocTool {
     args: Record<string, unknown>,
     request: Request,
     handler: (ctx: ToolContext) => Promise<{ data: unknown }>,
-  ): Promise<{ content: { type: 'text'; text: string }[] }> {
+  ): Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean }> {
     const startTime = Date.now();
     const workspaceId = (request as unknown as Record<string, unknown>).workspaceId as string | undefined;
     const user = (request as unknown as Record<string, unknown>).user as { id?: string } | undefined;
     let scope: string | null = null;
 
     try {
-      const completed = await this.wsContext.withContext(request, async (workspaceContext) => {
-        const ctx = this.buildToolContext(args, request, workspaceContext, toolName);
-        // "The" repo scope the tool resolved: the vantage repo (currentRepo)
-        // when one applied, else a single explicitly narrowed repo.
-        scope = ctx.scope.currentRepo ?? (ctx.scope.resolvedRepos.length === 1 ? ctx.scope.resolvedRepos[0] : null);
-        const response = await handler(ctx);
-        return { response, result: this.formatResponse(response) };
-      });
+      const completed = await withToolDeadline(toolName, () =>
+        this.wsContext.withContext(request, async (workspaceContext) => {
+          const ctx = this.buildToolContext(args, request, workspaceContext, toolName);
+          // "The" repo scope the tool resolved: the vantage repo (currentRepo)
+          // when one applied, else a single explicitly narrowed repo.
+          scope = ctx.scope.currentRepo ?? (ctx.scope.resolvedRepos.length === 1 ? ctx.scope.resolvedRepos[0] : null);
+          const response = await handler(ctx);
+          return { response, result: this.formatResponse(response) };
+        }),
+      );
 
       if (workspaceId) {
         this.metricsService
@@ -145,6 +153,9 @@ export abstract class BaseCoredocTool {
               `Failed to record MCP query metric for ${toolName}: ${(writeErr as Error)?.message ?? writeErr}`,
             );
           });
+      }
+      if (err instanceof ToolDeadlineError) {
+        return { content: err.toContent(), isError: true };
       }
       throw err;
     }

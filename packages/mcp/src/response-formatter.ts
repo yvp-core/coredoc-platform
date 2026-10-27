@@ -49,6 +49,7 @@ import {
 } from './coverage.js';
 import { getDefaultDetailLevel, resolveDetailLevel, detailEscalationFooter } from './detail-level.js';
 import { isRepeatBanner } from './staleness-dedupe.js';
+import { truncate } from './truncate.js';
 
 // =============================================================================
 // Staleness Information
@@ -355,15 +356,6 @@ function formatHeaderBanners(
   const staleness = formatStalenessHeader(metadata.staleness, metadata.scope?.sessionKey, contributing);
   const ambiguity = metadata.ambiguity ? `> ⚠ ${metadata.ambiguity.hint}\n` : '';
   return `${warnings}${staleness}${ambiguity}`;
-}
-
-/**
- * Trim long single-line strings (e.g. AI-generated package descriptions)
- * so a single row doesn't dominate a multi-line list.
- */
-function truncate(s: string, max: number): string {
-  if (s.length <= max) return s;
-  return `${s.slice(0, max - 1).trimEnd()}…`;
 }
 
 /**
@@ -837,6 +829,16 @@ export function formatEntrypointExplanation(
     lines.push(`## ${ep.type}${system}: \`${address}\`${epRepoTag}\n`);
   }
 
+  // No route matched the query exactly: say this one is a guess, and name the
+  // alternatives so the agent can re-ask with the right one.
+  if (result.closestOf) {
+    lines.push(`No exact match; showing the closest of ${result.closestOf.total} matches. Others:`);
+    for (const other of result.closestOf.others) {
+      lines.push(`- ${other.method ? `${other.method} ` : ''}\`${other.path}\``);
+    }
+    lines.push('');
+  }
+
   // Handler info
   lines.push(`### Handler`);
   lines.push(`${formatFunctionSummary(result.handler.function, { resolve })}\n`);
@@ -1207,9 +1209,7 @@ export function formatCodeElementList(
     // Prefer the AI one-line `purpose` (concise — no truncation needed). Fall back
     // to a capped `summary` (the long detailed prose) with a trailing `…` ONLY when
     // truncated, so the cut reads as intentional rather than a mid-word corruption.
-    const desc =
-      el.purpose ??
-      (el.summary ? (el.summary.length > 120 ? `${el.summary.slice(0, 120).trimEnd()}…` : el.summary) : undefined);
+    const desc = el.purpose ?? (el.summary ? truncate(el.summary, 120) : undefined);
     // Multi-kind declarations (class+entity, function+component) collapse to one
     // row; show every collapsed kind so the dual nature stays visible.
     const kindLabel = el.kinds && el.kinds.length > 1 ? el.kinds.join('+') : el.type;
@@ -1588,7 +1588,7 @@ export function formatSemanticSearchResults(
     // Summaries are multi-line prose; keep list rows one-line (first line,
     // capped) — the trailing … marks an intentional cut (see formatCodeElementList).
     const firstLine = r.summary?.split('\n')[0]?.trim();
-    const desc = firstLine && firstLine.length > 120 ? `${firstLine.slice(0, 120).trimEnd()}…` : firstLine;
+    const desc = firstLine && truncate(firstLine, 120);
     lines.push(
       `- ${r.similarity.toFixed(2)} \`${r.name}\` (${r.kind}) - ${formatLocation(r.filePath, r.startLine)}${repoTag(r.id, resolve)}${desc ? `\n   ${desc}` : ''}`,
     );

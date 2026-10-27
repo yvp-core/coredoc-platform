@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import type { Connection, Database, PreparedStatement, QueryResult } from '@ladybugdb/core';
 import { GraphFileReadOnlyError } from '../errors.js';
+import { currentReadSignal } from '../read-signal.js';
 import type { ITransaction } from '../types.js';
 import { getLadybugSchemaStatements } from './schema.js';
 
@@ -308,6 +309,9 @@ class LadybugTransaction implements ITransaction {
   constructor(private readonly connection: Connection) {}
 
   async run<T = unknown>(query: string, params?: Record<string, unknown>): Promise<T[]> {
+    // @ladybugdb/core exposes no interrupt, so an abort cannot stop a running
+    // query (the budget's queryTimeoutMs bounds that); it stops the next one.
+    currentReadSignal()?.throwIfAborted();
     if (!params || Object.keys(params).length === 0) {
       return queryLadybugRows<T & LadybugRow>(this.connection, query) as Promise<T[]>;
     }
@@ -502,6 +506,7 @@ export class LadybugDriver {
     const connection = this.requireConnection();
     const release = await this.acquireOperation();
     try {
+      currentReadSignal()?.throwIfAborted();
       if (Object.keys(params).length === 0) {
         yield* streamLadybugRows<T>(connection, query);
       } else {
@@ -537,6 +542,7 @@ export class LadybugDriver {
     }
     const connection = this.requireConnection();
     return this.serialize(async () => {
+      currentReadSignal()?.throwIfAborted();
       connection.setQueryTimeout(timeoutMs);
       try {
         const output =

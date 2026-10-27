@@ -881,6 +881,84 @@ describe('explain_entrypoint Tool Handler', () => {
     });
   });
 
+  describe('exact route preference', () => {
+    const route = (method: string, path: string) =>
+      createMockEntrypointInfo({ id: `abc:entrypoint:${method}:${path}`, type: 'http', method, path, fullPath: path });
+
+    async function explainAgainst(rows: ReturnType<typeof route>[], target: string) {
+      const mockRepo = createMockRepository({
+        listEntrypoints: vi.fn().mockResolvedValue(rows),
+        getCallTree: vi.fn().mockResolvedValue([]),
+      });
+      const result = await handleExplainEntrypoint(
+        { path: target },
+        mockScope,
+        'raw',
+        defaultDetailLevel,
+        defaultDetailConfig,
+        mockRepo,
+      );
+      return result.data as EntrypointExplanationResult;
+    }
+
+    // Each backend orders `listEntrypoints` its own way (Ladybug by JS localeCompare,
+    // Neo4j by Cypher `ORDER BY ep.fullPath`), so every case runs against the rows
+    // in both directions: the answer may not depend on which one came first.
+    const bothOrders = <T>(rows: T[]) => [rows, [...rows].reverse()];
+
+    it('returns the exact method + path over substring matches in either order', async () => {
+      const rows = [
+        route('POST', '/admin/api/admin/widgets'),
+        route('POST', '/api/admin/widgets/:id/archive'),
+        route('GET', '/api/admin/widgets'),
+        route('POST', '/api/admin/widgets'),
+      ];
+      for (const ordered of bothOrders(rows)) {
+        const data = await explainAgainst(ordered, 'POST /api/admin/widgets');
+        expect(data.entrypoint.id).toBe('abc:entrypoint:POST:/api/admin/widgets');
+        expect(data.closestOf).toBeUndefined();
+      }
+    });
+
+    it('treats parameter syntax as equal when matching exactly', async () => {
+      const rows = [route('GET', '/api/widgets/{widgetId}/shifts'), route('GET', '/api/widgets/:id')];
+      for (const ordered of bothOrders(rows)) {
+        const data = await explainAgainst(ordered, 'GET /api/widgets/{uuid}');
+        expect(data.entrypoint.id).toBe('abc:entrypoint:GET:/api/widgets/:id');
+      }
+    });
+
+    it('names the closest substring match and up to 5 others when nothing matches exactly', async () => {
+      const rows = [
+        route('POST', '/v1/api/admin/widgets/import'),
+        route('POST', '/api/admin/widgets/bulk'),
+        route('POST', '/api/admin/widgets/:id/archive'),
+        route('POST', '/api/admin/widgets/:id/restore'),
+        route('POST', '/api/admin/widgets/:id/managers'),
+        route('POST', '/api/admin/widgets/:id'),
+        route('POST', '/internal/api/admin/widgets/sync'),
+      ];
+      for (const ordered of bothOrders(rows)) {
+        const data = await explainAgainst(ordered, 'POST /api/admin/widgets');
+        expect(data.entrypoint.id).toBe('abc:entrypoint:POST:/api/admin/widgets/:id');
+        expect(data.closestOf?.total).toBe(7);
+        expect(data.closestOf?.others.map((o) => o.path)).toEqual([
+          '/api/admin/widgets/bulk',
+          '/v1/api/admin/widgets/import',
+          '/api/admin/widgets/:id/archive',
+          '/api/admin/widgets/:id/restore',
+          '/api/admin/widgets/:id/managers',
+        ]);
+      }
+    });
+
+    it('adds no closest note when the only match is a substring match', async () => {
+      const data = await explainAgainst([route('POST', '/api/admin/widgets/bulk')], 'POST /api/admin/widgets');
+      expect(data.entrypoint.id).toBe('abc:entrypoint:POST:/api/admin/widgets/bulk');
+      expect(data.closestOf).toBeUndefined();
+    });
+  });
+
   describe('entities touched + outbound services', () => {
     it('populates deduped entities and reachable outbound services', async () => {
       const handlerId = 'abc123:function:src/user.controller.ts:createUser';

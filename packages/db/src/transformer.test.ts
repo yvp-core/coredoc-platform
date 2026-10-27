@@ -696,6 +696,123 @@ describe('containment edges for previously-orphan node kinds', () => {
     expect(edge).toBeDefined();
     expect(edge!.sourceId).toBe(FILE_ID);
   });
+
+  const variable = (name: string, initialValue: string) => ({
+    id: `h0:variable:a:${name}`,
+    versionedId: `h0:variable:a:${name}@v`,
+    kind: 'variable' as const,
+    name,
+    fileId: FILE_ID,
+    isExported: true,
+    declarationKind: 'const' as const,
+    initialValue,
+    location: LOC,
+  });
+
+  it('stores the variable initializer as initializerText, cut at 200 characters', () => {
+    const long = `'${'x'.repeat(250)}'`;
+    const result = transformParsedRepo(
+      createMinimalParsedRepo({ variables: [variable('SHORT', "'tok'"), variable('LONG', long)] }),
+    );
+    const props = (name: string) => result.nodes.find((n) => n.name === name)!.properties;
+    expect(props('SHORT').initializerText).toBe("'tok'");
+    expect(props('LONG').initializerText).toBe(`${long.slice(0, 200)}…`);
+  });
+
+  it.each([
+    'SECRET_KEY',
+    'JWT_SECRET_KEY',
+    'secretKey',
+    'githubToken',
+    'STRIPE_TOKEN',
+    'SIGNING_KEY',
+    'encryptionKey',
+    'credentials',
+    'DB_PWD',
+    'authHeader',
+  ])('stores no value for the secret-named %s', (name) => {
+    const result = transformParsedRepo(createMinimalParsedRepo({ variables: [variable(name, "'plain'")] }));
+    expect(result.nodes.find((n) => n.name === name)!.properties.initializerText).toBeUndefined();
+  });
+
+  it('masks an opaque literal under a neutral name and keeps readable ones', () => {
+    const result = transformParsedRepo(
+      createMinimalParsedRepo({
+        variables: [
+          variable('SALT', "'a8f5f167f44f4964e6c998dee827110c'"),
+          variable('DEFAULTS', '{ region: \'eu-west-1\', seed: "Zx81ab0QpLm2Rt7Yw4Kc" }'),
+          variable('REGION', "'eu-west-1'"),
+          variable('BANNER', "'Welcome to the scheduling dashboard v2'"),
+        ],
+      }),
+    );
+    const value = (name: string) => result.nodes.find((n) => n.name === name)!.properties.initializerText;
+    expect(value('SALT')).toBe("'[REDACTED]'");
+    expect(value('DEFAULTS')).toBe('{ region: \'eu-west-1\', seed: "[REDACTED]" }');
+    expect(value('REGION')).toBe("'eu-west-1'");
+    expect(value('BANNER')).toBe("'Welcome to the scheduling dashboard v2'");
+  });
+
+  it('masks the whole quoted value of a secret-named nested key and keeps its neighbours', () => {
+    const result = transformParsedRepo(
+      createMinimalParsedRepo({
+        variables: [
+          variable('CONFIG', "{ pwd: 'hunter2', region: 'eu-west-1' }"),
+          variable('LOGIN', "{ password: 'correct horse battery staple' }"),
+          variable('JSON_CONFIG', '{ "apiKey": "abc", "host": "db" }'),
+          variable('SETTINGS', "Settings(auth_token = 'a b c', retries = 3)"),
+        ],
+      }),
+    );
+    const value = (name: string) => result.nodes.find((n) => n.name === name)!.properties.initializerText;
+    expect(value('CONFIG')).toBe("{ pwd: '[REDACTED]', region: 'eu-west-1' }");
+    expect(value('LOGIN')).toBe("{ password: '[REDACTED]' }");
+    expect(value('JSON_CONFIG')).toBe('{ "apiKey": "[REDACTED]", "host": "db" }');
+    expect(value('SETTINGS')).toBe("Settings(auth_token = '[REDACTED]', retries = 3)");
+  });
+
+  it.each(['MONKEY_COUNT', 'keyboardLayout'])('keeps the value of %s, which only looks secret-named', (name) => {
+    const result = transformParsedRepo(createMinimalParsedRepo({ variables: [variable(name, "'plain'")] }));
+    expect(result.nodes.find((n) => n.name === name)!.properties.initializerText).toBe("'plain'");
+  });
+
+  it('keeps secrets out of stored values: none for a secret name, masked tokens otherwise', () => {
+    const property = (name: string, defaultValue: string) => ({
+      id: `h0:property:a:Client:${name}`,
+      name,
+      classId: 'h0:class:a:Client',
+      visibility: 'private' as const,
+      isStatic: false,
+      isReadonly: true,
+      isOptional: false,
+      defaultValue,
+      location: LOC,
+    });
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
+    const result = transformParsedRepo(
+      createMinimalParsedRepo({
+        variables: [
+          variable('DB_PASSWORD', '"hunter2"'),
+          variable('apiKey', "'abc'"),
+          variable('OPENAI', "'sk-proj0123456789abcdefABCDEF'"),
+          variable('GH', `'ghp_0123456789abcdefghijABCDEFGHIJ012345'`),
+          variable('SESSION', `'${jwt}'`),
+          variable('MAX_RETRIES', '5'),
+        ],
+        classes: [cls('h0:class:a:Client', 'Client', [property('clientSecret', "'s3cr3t'"), property('session', jwt)])],
+      }),
+    );
+    const props = (name: string) => result.nodes.find((n) => n.name === name)!.properties;
+    expect(props('DB_PASSWORD').initializerText).toBeUndefined();
+    expect(props('apiKey').initializerText).toBeUndefined();
+    expect(props('OPENAI').initializerText).toBe("'[REDACTED]'");
+    expect(props('GH').initializerText).toBe("'[REDACTED]'");
+    expect(props('SESSION').initializerText).toBe("'[REDACTED]'");
+    expect(props('MAX_RETRIES').initializerText).toBe('5');
+    const [secret, session] = props('Client').properties_ as Array<Record<string, unknown>>;
+    expect(secret!.defaultValue).toBeUndefined();
+    expect(session!.defaultValue).toBe('[REDACTED]');
+  });
 });
 
 describe('class/interface/type_alias graph nodes carry shape data', () => {

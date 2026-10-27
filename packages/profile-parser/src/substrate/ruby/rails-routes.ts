@@ -12,6 +12,12 @@
  *   - `resource :profile` (singular)         → GET/POST/PATCH/PUT/DELETE /profile (no :id)
  *   - `get 'foo'` / `post 'foo/bar'` / …     → that verb + path
  *
+ * Each route also carries its Rails `controller`/`action` when the DSL decides them: a
+ * resource route's RESTful action, a verb's `to: 'ctrl#act'` / `controller:` / `action:`,
+ * else the owning resource's controller with the verb's own word as the action. The
+ * controller is the qualified class (`AdminApi::WidgetsController`); `namespace`
+ * (or its `module:`) and `scope module:` ancestors contribute the module.
+ *
  * Ignored: `root`, `mount` (Grape lives elsewhere), and redirects.
  */
 import {
@@ -22,12 +28,17 @@ import {
   methodName,
   normalizePath,
   ownBlock,
+  tokenText,
   withParsedRuby,
 } from './ruby-cst.js';
+import { pascalCase, pluralize, singularize } from './ruby-inflect.js';
 
 export interface RailsRoute {
   method: string;
   path: string;
+  /** Qualified controller class, e.g. `AdminApi::WidgetsController`. */
+  controller?: string;
+  action?: string;
 }
 
 const VERBS = new Set(['get', 'post', 'put', 'patch', 'delete']);
@@ -36,27 +47,19 @@ const SCOPE_KEYWORDS = new Set(['namespace', 'scope']);
 /** Routing context a verb sits in within a `resources` block. */
 type RestContext = 'member' | 'collection';
 
-/** Crude singularization for nested-resource member params (`photos` → `photo`). */
-function singularize(name: string): string {
-  if (name.endsWith('ies')) return `${name.slice(0, -3)}y`;
-  if (name.endsWith('ses')) return name.slice(0, -2);
-  if (name.endsWith('s')) return name.slice(0, -1);
-  return name;
-}
-
 /** The standard 7 RESTful actions for a plural `resources` collection. */
 function pluralResourceRoutes(name: string, prefix: string[]): RailsRoute[] {
   const base = [...prefix, name];
   const member = [...base, ':id'];
   return [
-    { method: 'GET', path: normalizePath(base) },
-    { method: 'POST', path: normalizePath(base) },
-    { method: 'GET', path: normalizePath([...base, 'new']) },
-    { method: 'GET', path: normalizePath(member) },
-    { method: 'GET', path: normalizePath([...member, 'edit']) },
-    { method: 'PATCH', path: normalizePath(member) },
-    { method: 'PUT', path: normalizePath(member) },
-    { method: 'DELETE', path: normalizePath(member) },
+    { method: 'GET', path: normalizePath(base), action: 'index' },
+    { method: 'POST', path: normalizePath(base), action: 'create' },
+    { method: 'GET', path: normalizePath([...base, 'new']), action: 'new' },
+    { method: 'GET', path: normalizePath(member), action: 'show' },
+    { method: 'GET', path: normalizePath([...member, 'edit']), action: 'edit' },
+    { method: 'PATCH', path: normalizePath(member), action: 'update' },
+    { method: 'PUT', path: normalizePath(member), action: 'update' },
+    { method: 'DELETE', path: normalizePath(member), action: 'destroy' },
   ];
 }
 
@@ -64,43 +67,113 @@ function pluralResourceRoutes(name: string, prefix: string[]): RailsRoute[] {
 function singularResourceRoutes(name: string, prefix: string[]): RailsRoute[] {
   const base = [...prefix, name];
   return [
-    { method: 'GET', path: normalizePath([...base, 'new']) },
-    { method: 'POST', path: normalizePath(base) },
-    { method: 'GET', path: normalizePath(base) },
-    { method: 'GET', path: normalizePath([...base, 'edit']) },
-    { method: 'PATCH', path: normalizePath(base) },
-    { method: 'PUT', path: normalizePath(base) },
-    { method: 'DELETE', path: normalizePath(base) },
+    { method: 'GET', path: normalizePath([...base, 'new']), action: 'new' },
+    { method: 'POST', path: normalizePath(base), action: 'create' },
+    { method: 'GET', path: normalizePath(base), action: 'show' },
+    { method: 'GET', path: normalizePath([...base, 'edit']), action: 'edit' },
+    { method: 'PATCH', path: normalizePath(base), action: 'update' },
+    { method: 'PUT', path: normalizePath(base), action: 'update' },
+    { method: 'DELETE', path: normalizePath(base), action: 'destroy' },
   ];
+}
+
+/**
+ * The value node of the call's OWN `key:` option — never one of a call inside its block
+ * (`resources :a, only: [] do resources :b, only: [:index] end` must not read `:index` for `:a`).
+ */
+function ownOption(call: TsNode, key: string): TsNode | undefined {
+  const block = ownBlock(call);
+  const blockStart = block ? block.startIndex : Number.POSITIVE_INFINITY;
+  for (const pair of call.descendantsOfType('pair') as TsNode[]) {
+    if (pair.startIndex >= blockStart) continue;
+    const k = (pair.childForFieldName?.('key')?.text ?? pair.child(0)?.text)?.replace(/^:|:$/g, '');
+    if (k === key) return pair.childForFieldName?.('value') ?? pair.child(pair.childCount - 1);
+  }
+  return undefined;
+}
+
+/** A string/symbol option's value (`module: 'a'` / `module: :a` → `a`); undefined for anything else. */
+function optionValue(call: TsNode, key: string): string | undefined {
+  const value = ownOption(call, key);
+  if (value?.type !== 'string' && value?.type !== 'simple_symbol') return undefined;
+  return tokenText(value) || undefined;
+}
+
+/** Controller modules contributed by `namespace` (its `module:`, else its name) and `scope module:` ancestors, outermost first. */
+function ancestorModules(node: TsNode, stop?: TsNode): string[] {
+  const modules: string[] = [];
+  for (let cur: TsNode = node.parent; cur && cur.id !== stop?.id; cur = cur.parent) {
+    if (!isCall(cur)) continue;
+    const m = methodName(cur);
+    if (m !== 'namespace' && m !== 'scope') continue;
+    const mod = optionValue(cur, 'module') ?? (m === 'namespace' ? firstArg(cur)?.value : undefined);
+    if (mod) modules.unshift(mod);
+  }
+  return modules;
+}
+
+/** The nearest enclosing `resources`/`resource` — the controller a verb inside it defaults to. */
+function ownerResource(node: TsNode, stop?: TsNode): TsNode | undefined {
+  for (let cur: TsNode = node.parent; cur && cur.id !== stop?.id; cur = cur.parent) {
+    const m = isCall(cur) ? methodName(cur) : undefined;
+    if (m === 'resources' || m === 'resource') return cur;
+  }
+  return undefined;
+}
+
+/** `resources :photos` → `photos`, `resource :profile` → `profiles`; a `controller:` option wins. */
+function resourceController(call: TsNode): string | undefined {
+  const explicit = optionValue(call, 'controller');
+  if (explicit) return explicit;
+  const name = firstArg(call)?.value;
+  if (!name || methodName(call) === 'resources') return name;
+  // Rails pluralizes an already-plural name to itself (`resource :sessions` → SessionsController);
+  // the naive pluralizer would append `es`, so round-trip through the singular.
+  return pluralize(singularize(name));
+}
+
+/**
+ * `['admin_api']` + `locations` → `AdminApi::WidgetsController` (`a/b` nests too). A
+ * leading `/` is absolute: `controller: '/users'` inside a namespace is the top-level `UsersController`.
+ */
+function controllerClass(modules: string[], controller: string): string {
+  const parts = [...(controller.startsWith('/') ? [] : modules), controller]
+    .flatMap((s) => s.split('/'))
+    .filter(Boolean);
+  return `${parts.map(pascalCase).join('::')}Controller`;
+}
+
+/**
+ * A verb route's handler: `to: 'ctrl#act'`, else `controller:` / `action:`, else the owning
+ * resource's controller with the verb's own word as the action (`post :sync` → `#sync`).
+ * Undefined fields when the DSL does not decide both.
+ */
+function verbHandler(
+  call: TsNode,
+  pathArg: string,
+  baseModules: string[],
+  stop?: TsNode,
+): { controller?: string; action?: string } {
+  const to = optionValue(call, 'to');
+  const [toController, toAction] = to?.includes('#') ? to.split('#') : [];
+  const owner = ownerResource(call, stop);
+  const controller = toController || optionValue(call, 'controller') || (owner && resourceController(owner));
+  const action =
+    toAction || optionValue(call, 'action') || (/^[\w-]+$/.test(pathArg) ? pathArg.replace(/-/g, '_') : undefined);
+  if (!controller || !action) return {};
+  return { controller: controllerClass([...baseModules, ...ancestorModules(call, stop)], controller), action };
 }
 
 /**
  * The path segment a `scope`/`namespace` ancestor contributes, if any. A `path:`
  * option ALWAYS overrides the positional name for the URL (Rails: `namespace 'api',
- * path: 'api/management'` serves `/api/management`, not `/api`; `module:`/`as:` don't
+ * path: 'api/admin'` serves `/api/admin`, not `/api`; `module:`/`as:` don't
  * affect the URL). `scope module: 'x'` (no path, no positional) contributes nothing.
  */
 function scopePrefix(node: TsNode): string | undefined {
   const m = methodName(node);
   if (m === 'namespace' || m === 'scope') {
-    return scopePathOption(node) ?? firstArg(node)?.value;
-  }
-  return undefined;
-}
-
-/** Read the value of a `path:` keyword option on a `scope` call (`scope path: 'v1'`). */
-function scopePathOption(node: TsNode): string | undefined {
-  for (const pair of node.descendantsOfType('pair') as TsNode[]) {
-    const key = pair.childForFieldName?.('key')?.text ?? pair.child(0)?.text;
-    if (key === 'path:' || key === 'path') {
-      const val = pair.childForFieldName?.('value') ?? pair.child(pair.childCount - 1);
-      // NOT `ruby-cst.tokenText`: this fallback strips a LEADING `:` too, so one read handles both
-      // `path: 'v1'` and `path: :v1` without first branching on the value's node type.
-      const inner = (val?.descendantsOfType('string_content')[0]?.text ?? val?.text?.replace(/^['":]+|['"]+$/g, '')) as
-        | string
-        | undefined;
-      if (inner) return inner;
-    }
+    return optionValue(node, 'path') ?? firstArg(node)?.value;
   }
   return undefined;
 }
@@ -153,17 +226,8 @@ function ancestorPrefix(node: TsNode, stop?: TsNode, ctx?: RestContext): string[
 
 /** The `on: :member` / `on: :collection` inline option on a verb call, if present. */
 function onOption(call: TsNode): RestContext | undefined {
-  const block = ownBlock(call);
-  const blockStart = block ? block.startIndex : Number.POSITIVE_INFINITY;
-  for (const pair of call.descendantsOfType('pair') as TsNode[]) {
-    if (pair.startIndex >= blockStart) continue;
-    const key = (pair.childForFieldName?.('key')?.text ?? pair.child(0)?.text)?.replace(/:$/, '');
-    if (key !== 'on') continue;
-    const value = pair.childForFieldName?.('value') ?? pair.child(pair.childCount - 1);
-    const v = (value?.text as string | undefined)?.replace(/^:/, '');
-    if (v === 'member' || v === 'collection') return v;
-  }
-  return undefined;
+  const v = optionValue(call, 'on');
+  return v === 'member' || v === 'collection' ? v : undefined;
 }
 
 /**
@@ -220,22 +284,18 @@ function insideAny(node: TsNode, blocks: TsNode[]): boolean {
 }
 
 /** The route(s) a single resources/resource/verb call yields, with a base prefix and an ancestor-walk boundary. */
-function routesForCall(call: TsNode, basePrefix: string[], stop: TsNode): RailsRoute[] {
+function routesForCall(call: TsNode, basePrefix: string[], baseModules: string[], stop: TsNode): RailsRoute[] {
   const m = methodName(call);
   if (!m) return [];
-  if (m === 'resources') {
+  if (m === 'resources' || m === 'resource') {
     const prefix = [...basePrefix, ...ancestorPrefix(call, stop)];
     const arg = firstArg(call);
-    if (!arg) return [];
-    const base = normalizePath([...prefix, arg.value]);
-    return applyFilter(pluralResourceRoutes(arg.value, prefix), base, actionFilter(call));
-  }
-  if (m === 'resource') {
-    const prefix = [...basePrefix, ...ancestorPrefix(call, stop)];
-    const arg = firstArg(call);
-    if (!arg) return [];
-    const base = normalizePath([...prefix, arg.value]);
-    return applyFilter(singularResourceRoutes(arg.value, prefix), base, actionFilter(call));
+    const controllerName = resourceController(call);
+    if (!arg || !controllerName) return [];
+    const controller = controllerClass([...baseModules, ...ancestorModules(call, stop)], controllerName);
+    const routes =
+      m === 'resources' ? pluralResourceRoutes(arg.value, prefix) : singularResourceRoutes(arg.value, prefix);
+    return applyFilter(routes, actionFilter(call)).map((r) => ({ ...r, controller }));
   }
   if (VERBS.has(m)) {
     const arg = firstArg(call);
@@ -244,59 +304,48 @@ function routesForCall(call: TsNode, basePrefix: string[], stop: TsNode): RailsR
     const ctx = restContext(call, stop);
     if (!arg?.value || (arg.kind === 'symbol' && !ctx)) return [];
     const prefix = [...basePrefix, ...ancestorPrefix(call, stop, ctx)];
-    return [{ method: m.toUpperCase(), path: normalizePath([...prefix, arg.value]) }];
+    return [
+      {
+        method: m.toUpperCase(),
+        path: normalizePath([...prefix, arg.value]),
+        ...verbHandler(call, arg.value, baseModules, stop),
+      },
+    ];
   }
   return [];
 }
 
-/** Restricted action set from `only:`/`except:` if a positional-symbol array is given. */
+const ACTION_ARRAYS = new Set(['array', 'string_array', 'symbol_array']);
+
+/** `:index`, `'index'` or a `%w`/`%i` word; undefined for anything else (a constant, a call). */
+function actionName(node: TsNode): string | undefined {
+  if (node.type === 'simple_symbol' || node.type === 'string') return tokenText(node) || undefined;
+  if (node.type === 'bare_string' || node.type === 'bare_symbol') return node.text;
+  return undefined;
+}
+
+/** Restricted action set from the call's own `only:`/`except:` (an action name or an array of them). */
 function actionFilter(node: TsNode): { only?: Set<string>; except?: Set<string> } {
   const filter: { only?: Set<string>; except?: Set<string> } = {};
-  for (const pair of node.descendantsOfType('pair') as TsNode[]) {
-    const key = (pair.childForFieldName?.('key')?.text ?? pair.child(0)?.text)?.replace(/:$/, '');
-    if (key !== 'only' && key !== 'except') continue;
-    const value = pair.childForFieldName?.('value') ?? pair.child(pair.childCount - 1);
-    const syms = new Set<string>();
-    if (value?.type === 'simple_symbol') syms.add((value.text as string).replace(/^:/, ''));
-    for (const sym of (value?.descendantsOfType?.('simple_symbol') ?? []) as TsNode[]) {
-      syms.add((sym.text as string).replace(/^:/, ''));
-    }
-    if (syms.size > 0) {
-      if (key === 'only') filter.only = syms;
-      else filter.except = syms;
-    }
+  for (const key of ['only', 'except'] as const) {
+    const value = ownOption(node, key);
+    if (!value) continue;
+    const items: TsNode[] = ACTION_ARRAYS.has(value.type)
+      ? value.namedChildren.filter((c: TsNode) => c.type !== 'comment')
+      : [value];
+    const names = items.map(actionName);
+    // `only: []` is a real, empty action set: Rails draws no RESTful route for it. A value this
+    // cannot read as action names leaves the full default set rather than a guessed subset.
+    if (names.every((name): name is string => name !== undefined)) filter[key] = new Set(names);
   }
   return filter;
 }
 
-const ACTION_OF: Record<string, string> = {
-  'GET /': 'index',
-  'POST /': 'create',
-  'GET /new': 'new',
-  'GET /:id': 'show',
-  'GET /:id/edit': 'edit',
-  'PATCH /:id': 'update',
-  'PUT /:id': 'update',
-  'DELETE /:id': 'destroy',
-};
-
-/** Map a generated RESTful route back to its Rails action name (for only/except). */
-function restAction(route: RailsRoute, base: string): string | undefined {
-  const tail = route.path.slice(base.length) || '/';
-  return ACTION_OF[`${route.method} ${tail}`];
-}
-
-function applyFilter(
-  routes: RailsRoute[],
-  base: string,
-  filter: { only?: Set<string>; except?: Set<string> },
-): RailsRoute[] {
-  if (!filter.only && !filter.except) return routes;
+function applyFilter(routes: RailsRoute[], filter: { only?: Set<string>; except?: Set<string> }): RailsRoute[] {
   return routes.filter((r) => {
-    const action = restAction(r, base);
-    if (!action) return true;
-    if (filter.only) return filter.only.has(action);
-    if (filter.except) return !filter.except.has(action);
+    if (!r.action) return true;
+    if (filter.only) return filter.only.has(r.action);
+    if (filter.except) return !filter.except.has(r.action);
     return true;
   });
 }
@@ -324,19 +373,21 @@ export function railsRoutesFromRoot(root: TsNode): RailsRoute[] {
     if (!m) continue;
 
     if (m === 'concerns') {
-      const prefix = ancestorPrefix(call); // the enclosing namespace(s) at the include site
+      // The enclosing namespace(s) at the include site.
+      const prefix = ancestorPrefix(call);
+      const modules = ancestorModules(call);
       for (const name of symbolArgs(call)) {
         const cc = concernByName.get(name);
         const block = cc && ownBlock(cc);
         if (!cc || !block) continue;
         for (const inner of collectCalls(block)) {
-          routes.push(...routesForCall(inner, prefix, cc));
+          routes.push(...routesForCall(inner, prefix, modules, cc));
         }
       }
       continue;
     }
 
-    routes.push(...routesForCall(call, [], root));
+    routes.push(...routesForCall(call, [], [], root));
   }
 
   // De-dupe (nested blocks / multi-namespace concerns can produce identical routes).

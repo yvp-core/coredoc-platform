@@ -28,6 +28,7 @@ import {
   countResolvedRubySites,
   emptyRubyCallSiteMeasurement,
   indexRubyDefs,
+  resolveControllerAction,
   resolveRubyCalls,
 } from './ruby-callgraph.js';
 import { buildRubyMappingHooks, scipRubyToCallEdges, unionRubyCalls } from './ruby-scip.js';
@@ -127,7 +128,7 @@ function httpEgressEdge(
  */
 export const rubySubstrate: Substrate<RubyProfile, SourceFile> = {
   language: 'ruby',
-  parserVersion: '1.4.1-ruby',
+  parserVersion: '1.5.0-ruby',
   scope: (profile, root) =>
     discoverRubyFileScope(
       root,
@@ -156,11 +157,11 @@ export const rubySubstrate: Substrate<RubyProfile, SourceFile> = {
 
     const entrypoints: Entrypoint[] = [];
     const seen = new Set<string>();
-    const addEp = (method: string, path: string, file: string, line: number) => {
+    const addEp = (method: string, path: string, file: string, line: number, handlerId?: string) => {
       const key = `${method} ${path}`;
       if (seen.has(key)) return;
       seen.add(key);
-      entrypoints.push(httpEntrypoint(idGen, method as HttpMethod, path, file, line, line));
+      entrypoints.push(httpEntrypoint(idGen, method as HttpMethod, path, file, line, line, handlerId));
     };
 
     if (grapeEnabled) {
@@ -171,9 +172,6 @@ export const rubySubstrate: Substrate<RubyProfile, SourceFile> = {
         grapeInputs.push({ relPath: routeFile, source: routesRbSource });
       }
       for (const g of await resolveGrapeEntrypoints(grapeInputs)) addEp(g.method, g.path, g.file, g.line);
-    }
-    if (railsRoutesEnabled) {
-      for (const r of await extractRailsRoutes(routesRbSource)) addEp(r.method, r.path, routeFile, 1);
     }
 
     // Karafka queue (Kafka consumer) entrypoints — a topic the repo consumes.
@@ -252,6 +250,15 @@ export const rubySubstrate: Substrate<RubyProfile, SourceFile> = {
     for (const f of index.byId.values()) fnById.set(f.id, f);
     for (const f of functions) if (!fnById.has(f.id)) fnById.set(f.id, f);
     functions = [...fnById.values()];
+
+    // Rails routes after the def index, so each binds to its controller action. Grape routes were
+    // added first and still win a shared `METHOD path` in `addEp`.
+    if (railsRoutesEnabled) {
+      for (const r of await extractRailsRoutes(routesRbSource)) {
+        const handlerId = r.controller && r.action ? resolveControllerAction(index, r.controller, r.action) : undefined;
+        addEp(r.method, r.path, routeFile, 1, handlerId);
+      }
+    }
 
     // CALLS — Tier-B baseline: the measured >=0.90-precision tree-sitter tiers (rb-const +
     // rb-self). rb-unique (~0.55 on real code) and unresolved sites are dropped — they would

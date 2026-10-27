@@ -5,7 +5,7 @@
  * Uses Cypher queries for all graph operations.
  */
 
-import { toInt, type Neo4jDriver } from './driver.js';
+import { closingSessionOnReadAbort, toInt, type Neo4jDriver } from './driver.js';
 // NodeType/EdgeType are enums (runtime values) — used as values in
 // normalizeNodeType's map and the Tier B edge-label mapping.
 import { NodeType, EdgeType } from '../types.js';
@@ -2931,16 +2931,18 @@ export class Neo4jRepository implements IGraphRepository {
     const driver = await this.driver.getOriginalDriver();
     const session = driver.session({ defaultAccessMode: 'READ' });
     try {
-      const explained = await session.executeRead((tx) => tx.run(`EXPLAIN ${query}`, params), {
-        timeout: CYPHER_TIMEOUT_MS,
+      return await closingSessionOnReadAbort(session, async () => {
+        const explained = await session.executeRead((tx) => tx.run(`EXPLAIN ${query}`, params), {
+          timeout: CYPHER_TIMEOUT_MS,
+        });
+        const queryType = explained.summary?.queryType;
+        if (queryType !== 'r') {
+          throw new Error(
+            `Only read-only Cypher is allowed (Neo4j classified this query as "${queryType ?? 'unknown'}")`,
+          );
+        }
+        return session.executeRead((tx) => tx.run(query, params), { timeout: CYPHER_TIMEOUT_MS });
       });
-      const queryType = explained.summary?.queryType;
-      if (queryType !== 'r') {
-        throw new Error(
-          `Only read-only Cypher is allowed (Neo4j classified this query as "${queryType ?? 'unknown'}")`,
-        );
-      }
-      return await session.executeRead((tx) => tx.run(query, params), { timeout: CYPHER_TIMEOUT_MS });
     } finally {
       await session.close();
     }

@@ -3,7 +3,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { PassThrough, type Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import * as tar from 'tar';
-import { redactTranscriptLine } from './redact-secrets.js';
+import { redactTranscriptLine } from '@coredoc/core/utils';
 
 /** Archives are capped compressed and JSONL compresses well, so a transcript can far exceed its archive. */
 export const MAX_TRANSCRIPT_BYTES = 256 * 1024 * 1024;

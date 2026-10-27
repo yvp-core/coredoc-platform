@@ -571,6 +571,15 @@ function resolveInstanceMethod(
 }
 
 /**
+ * The def id of a Rails controller action (`AdminApi::WidgetsController#create`), own or
+ * inherited. The route names the controller from the top level, so only an EXACT class matches:
+ * a bare-name fallback would bind `Admin::UsersController` routes to some other `UsersController`.
+ */
+export function resolveControllerAction(index: RubyDefIndex, controller: string, action: string): string | undefined {
+  return index.constants.has(controller) ? resolveInstanceMethod(index, controller, action)?.id : undefined;
+}
+
+/**
  * Whether the class's SINGLETON ancestry declares `new` itself — a `def self.new` on the class or
  * inherited from a superclass, or (the case a singleton-map walk cannot see) a module's INSTANCE
  * `new` installed by `extend Mod`. Such a `new` may allocate something else, memoize, or never run

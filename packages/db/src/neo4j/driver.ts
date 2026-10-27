@@ -9,6 +9,7 @@ import type { ManagedTransaction, Driver, Session, SessionConfig } from 'neo4j-d
 import { createRequire } from 'node:module';
 import { EdgeType } from '@coredoc/core';
 import type { IDatabaseDriver, ITransaction, DatabaseBackend } from '../types.js';
+import { currentReadSignal } from '../read-signal.js';
 
 // =============================================================================
 // Module State
@@ -234,9 +235,25 @@ export async function withReadTransaction<T>(
   fn: (tx: ManagedTransaction) => Promise<T>,
   options: Neo4jSessionOptions = {},
 ): Promise<T> {
-  return withSession(async (session) => {
-    return session.executeRead(fn);
-  }, options);
+  return withSession((session) => closingSessionOnReadAbort(session, () => session.executeRead(fn)), options);
+}
+
+/**
+ * Run `fn`, closing `session` if the enclosing read signal aborts meanwhile.
+ * Closing a session with a request in flight sends a Bolt RESET, which stops
+ * the query on the server.
+ */
+export async function closingSessionOnReadAbort<T>(session: Session, fn: () => Promise<T>): Promise<T> {
+  const signal = currentReadSignal();
+  if (!signal) return fn();
+  signal.throwIfAborted();
+  const close = () => void session.close().catch(() => undefined);
+  signal.addEventListener('abort', close, { once: true });
+  try {
+    return await fn();
+  } finally {
+    signal.removeEventListener('abort', close);
+  }
 }
 
 // =============================================================================
