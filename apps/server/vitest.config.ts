@@ -6,6 +6,7 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     setupFiles: ['reflect-metadata'],
+    globalSetup: ['./vitest.global-setup.ts'],
     // The Ladybug native binding is not safe under the worker_threads pool: on
     // Linux the suite intermittently aborts with glibc heap corruption at
     // teardown ("free(): invalid next size"). Child processes isolate it.
