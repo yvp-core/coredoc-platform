@@ -91,7 +91,7 @@ COPY --from=build /app/apps/agent-runner/dist /app/apps/agent-runner/dist
 # executable that aborts under QEMU, so an emulated build could not run it.
 RUN set -eu; \
     sdk_dir="$(realpath node_modules/@anthropic-ai/claude-agent-sdk)"; \
-    test "$(node -p "require('$sdk_dir/package.json').version")" = "0.3.285"; \
+    test "$(node -p "require('$sdk_dir/package.json').version")" = "0.3.311"; \
     rm -rf /app/node_modules/.pnpm/@anthropic-ai+claude-agent-sdk-linux-x64-musl@*; \
     test -x "$sdk_dir/../claude-agent-sdk-linux-x64/claude"; \
     chown -R root:root /app; \
