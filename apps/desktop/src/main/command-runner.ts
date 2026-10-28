@@ -844,7 +844,7 @@ async function runGenerateCommand(options: CommandRunOptions, id: string, mainWi
     typeof options.args?.model === 'string' && options.args.model.trim().length > 0
       ? options.args.model.trim()
       : undefined;
-  const model = requestedModel ?? (harnessSettings.provider === 'claude-code' ? 'claude-sonnet-5' : 'gpt-6-sol');
+  const model = requestedModel ?? (harnessSettings.provider === 'claude-code' ? 'claude-sonnet-5-5' : 'gpt-6-sol');
 
   // Schema reference: packaged apps read the bundled copy inside the kit; in dev the monorepo is
   // present, so the skill's native "packages/profile-parser/..." refs resolve once we grant its root.

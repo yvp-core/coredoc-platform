@@ -1,4 +1,4 @@
-export const PRICE_MAP_VERSION = '2026-09-23';
+export const PRICE_MAP_VERSION = '2026-10-27';
 export const PRICE_MAP_BASIS = 'standard-global-public-api-5m-cache-writes';
 
 export interface SessionTokenUsage {
@@ -125,6 +125,26 @@ const MODEL_PRICES: readonly ModelPrice[] = [
     outputPerMillion: 20,
     inputIncludesCache: false,
   },
+  {
+    provider: 'claude-code',
+    model: 'claude-sonnet-5-5',
+    inputPerMillion: 2,
+    cachedInputPerMillion: 0.1,
+    cacheCreationPerMillion: 2.5,
+    outputPerMillion: 10,
+    inputIncludesCache: false,
+  },
+  // Haiku 5.5 prompts over 100K tokens bill at 5x; only the base tier is priced.
+  {
+    provider: 'claude-code',
+    model: 'claude-haiku-5-5',
+    inputPerMillion: 0.1,
+    cachedInputPerMillion: 0.01,
+    cacheCreationPerMillion: 0.125,
+    outputPerMillion: 0.5,
+    inputIncludesCache: false,
+    maxBaseTierAggregateInput: 100_000,
+  },
 ];
 
 function validCount(value: number): boolean {
@@ -136,7 +156,8 @@ export function estimateSessionCostUsd(provider: string, model: string, usage: S
   if (usage.reasoning > usage.output) return null;
   const price = MODEL_PRICES.find((candidate) => candidate.provider === provider && candidate.model === model);
   if (!price) return null;
-  if (price.maxBaseTierAggregateInput !== undefined && usage.input > price.maxBaseTierAggregateInput) return null;
+  const promptInput = price.inputIncludesCache ? usage.input : usage.input + usage.cacheRead + usage.cacheCreation;
+  if (price.maxBaseTierAggregateInput !== undefined && promptInput > price.maxBaseTierAggregateInput) return null;
 
   const ordinaryInput = price.inputIncludesCache ? usage.input - usage.cacheRead - usage.cacheCreation : usage.input;
   if (ordinaryInput < 0) return null;

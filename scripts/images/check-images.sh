@@ -28,7 +28,7 @@ set -euo pipefail
 
 SERVER_MAX_MB="${SERVER_MAX_MB:-1100}"
 RUNNER_MAX_MB="${RUNNER_MAX_MB:-800}"
-SDK_VERSION="0.3.285"
+SDK_VERSION="0.3.311"
 RUNNER_ROOT=/opt/coredoc-agent-runner
 PLUGIN_ROOT=/opt/coredoc-workflows
 

@@ -60,9 +60,9 @@ inputs:
     required: false
     default: 'openrouter'
   llm-model:
-    description: 'Model for summarization (default: anthropic/claude-haiku-4-5-20251001)'
+    description: 'Model for summarization (default: anthropic/claude-haiku-5.5)'
     required: false
-    default: 'anthropic/claude-haiku-4-5-20251001'
+    default: 'anthropic/claude-haiku-5.5'
   push-timeout:
     description: 'Minutes to wait for the server-side push job to finish before the step fails (the push itself keeps running server-side on timeout).'
     required: false

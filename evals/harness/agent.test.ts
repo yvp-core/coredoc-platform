@@ -265,7 +265,7 @@ describe('runAgent MCP availability probe', () => {
       return await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withMcp',
         accessMode: AccessMode.Worktree,
@@ -368,7 +368,7 @@ describe('runAgent MCP availability probe', () => {
       const result = await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withMcp',
         extraTools: [],
@@ -396,7 +396,7 @@ describe('runAgent timeout error rewriting', () => {
       const result = await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withoutMcp',
         extraTools: [],
@@ -421,7 +421,7 @@ describe('runAgent terminal contract', () => {
       return await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withoutMcp',
         extraTools: [],
@@ -521,14 +521,14 @@ describe('runAgent terminal contract', () => {
 });
 
 describe('runAgent --claude-model passthrough', () => {
-  it('records the requested model on the result (default claude-sonnet-5)', async () => {
+  it('records the requested model on the result (default claude-sonnet-5-5)', async () => {
     mockBehavior = 'complete';
     const dir = checkoutDir('evals-agent-');
     try {
       const result = await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withoutMcp',
         extraTools: [],
@@ -536,7 +536,7 @@ describe('runAgent --claude-model passthrough', () => {
         timeoutMs: 10_000,
         transcriptPath: join(dir, 'transcript.json'),
       });
-      expect(result.model).toBe('claude-sonnet-5');
+      expect(result.model).toBe('claude-sonnet-5-5');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -573,7 +573,7 @@ describe('runAgent planning extensions', () => {
       await runAgent({
         prompt: 'hi',
         systemPrompt: 'planning system',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withMcp',
         baseTools: ['Read', 'Grep', 'Glob'],
@@ -615,7 +615,7 @@ describe('runAgent planning extensions', () => {
           runAgent({
             prompt: 'hi',
             systemPrompt: 'sys',
-            model: 'claude-sonnet-5',
+            model: 'claude-sonnet-5-5',
             cwd: dir,
             arm: 'withoutMcp',
             accessMode,
@@ -644,7 +644,7 @@ describe('runAgent remote MCP server', () => {
       await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withoutMcp',
         baseTools: ['Read', 'Grep', 'Glob'],
@@ -683,7 +683,7 @@ describe('runAgent no-checkout tool isolation', () => {
       const options = {
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withMcp' as const,
         accessMode: AccessMode.NoCheckout,
@@ -731,7 +731,7 @@ describe('runAgent no-checkout tool isolation', () => {
       const options = {
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withoutMcp' as const,
         accessMode: AccessMode.NoCheckout,
@@ -760,7 +760,7 @@ describe('runAgent no-checkout tool isolation', () => {
       await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withoutMcp',
         extraTools: ['TodoWrite'],
@@ -795,7 +795,7 @@ describe('runAgent workspace precondition', () => {
       const result = await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: missing,
         arm: 'withoutMcp',
         accessMode: AccessMode.Worktree,
@@ -825,7 +825,7 @@ describe('runAgent workspace precondition', () => {
       const result = await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withoutMcp',
         accessMode: AccessMode.Worktree,
@@ -851,7 +851,7 @@ describe('runAgent workspace precondition', () => {
       const result = await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withoutMcp',
         extraTools: [],
@@ -875,7 +875,7 @@ describe('runAgent workspace precondition', () => {
       const result = await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withoutMcp',
         accessMode: AccessMode.NoCheckout,
@@ -928,7 +928,7 @@ describe('runAgent worktree permission envelope', () => {
       await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withMcp',
         accessMode: AccessMode.Worktree,
@@ -1065,7 +1065,7 @@ describe('runAgent worktree permission envelope', () => {
       await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withMcp',
         accessMode: AccessMode.Worktree,
@@ -1124,7 +1124,7 @@ describe('runAgent worktree permission envelope', () => {
       await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withoutMcp',
         accessMode: AccessMode.Worktree,
@@ -1160,7 +1160,7 @@ describe('runAgent worktree permission envelope', () => {
       await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withoutMcp',
         extraTools: [],
@@ -1184,7 +1184,7 @@ describe('runAgent worktree permission envelope', () => {
       await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withMcp',
         accessMode: AccessMode.NoCheckout,
@@ -1213,7 +1213,7 @@ describe('runAgent historyless snapshot tool confinement', () => {
       await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withMcp',
         accessMode: AccessMode.HistorylessSnapshot,
@@ -1265,7 +1265,7 @@ describe('runAgent historyless snapshot tool confinement', () => {
       await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withMcp',
         accessMode: AccessMode.HistorylessSnapshot,
@@ -1371,7 +1371,7 @@ describe('runAgent historyless snapshot tool confinement', () => {
       await runAgent({
         prompt: 'hi',
         systemPrompt: 'sys',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         cwd: dir,
         arm: 'withoutMcp',
         accessMode: AccessMode.HistorylessSnapshot,

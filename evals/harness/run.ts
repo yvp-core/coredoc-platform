@@ -122,7 +122,7 @@ import { entrypointPermissionAuditCase } from '../cases/entrypoint-permission-au
 import { deepChainSideEffectsCase } from '../cases/deep-chain-side-effects.js';
 import { impactDiffCase } from '../cases/impact-diff.js';
 
-const AGENT_MODEL = 'claude-sonnet-5';
+const AGENT_MODEL = 'claude-sonnet-5-5';
 const SYSTEM_PROMPT =
   'You are a careful, terse senior engineer. Cite file paths in backticks. Do not fabricate.';
 // A string `systemPrompt` REPLACES the Claude Code preset (see the SDK's
@@ -342,7 +342,7 @@ async function main() {
     );
   }
   // Claude agent model override — e.g. running the claude arm against
-  // claude-opus-5-5 instead of the default claude-sonnet-5. Independent of the
+  // claude-opus-5-5 instead of the default claude-sonnet-5-5. Independent of the
   // judge, which is chosen with --judge.
   const claudeModel = values['claude-model'] ?? process.env.COREDOC_EVAL_CLAUDE_MODEL ?? AGENT_MODEL;
   // `--judge <backend>:<model>`, e.g. codex:gpt-6-sol. Absent → the pinned

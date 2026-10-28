@@ -136,7 +136,7 @@ Add these repository secrets in GitHub (Settings → Secrets and variables → A
 | `dry-run` | `false` | Parse without pushing (for testing) |
 | `llm-api-key` | — | API key for LLM summarization. If not provided, summarization is skipped. |
 | `llm-provider` | `openrouter` | LLM provider: `openrouter`, `openai`, `anthropic`, or a custom OpenAI-compatible URL |
-| `llm-model` | `anthropic/claude-haiku-4-5-20251001` | Model to use for summarization |
+| `llm-model` | `anthropic/claude-haiku-5.5` | Model to use for summarization |
 | `push-timeout` | `15` | Minutes to wait for the server-side push job. The push is enqueued and polled — no long-lived HTTP connection — so on timeout the job keeps running server-side; the step fails only so you notice, and a later run picks up the published graph. |
 
 ### 4. Enable AI Summarization (Optional)
@@ -154,7 +154,7 @@ Add an LLM API key to your repository secrets and pass it to the action:
     llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}
 ```
 
-**Default provider is [OpenRouter](https://openrouter.ai)** — it routes to any model (Claude, GPT, Llama, etc.) through a single API key. The default model is `anthropic/claude-haiku-4-5-20251001` which is fast and cheap (~$0.01–0.10 per CI run for most repos).
+**Default provider is [OpenRouter](https://openrouter.ai)** — it routes to any model (Claude, GPT, Llama, etc.) through a single API key. The default model is `anthropic/claude-haiku-5.5` which is fast and cheap (~$0.01–0.10 per CI run for most repos).
 
 **Corporate / self-hosted LLMs** — pass a custom OpenAI-compatible endpoint:
 
@@ -206,7 +206,7 @@ coredoc ci run -r backend --dry-run
 | `COREDOC_SERVER_URL` | No | Server URL (default: `https://api.coredoc.ai`) |
 | `COREDOC_LLM_API_KEY` | No | API key for LLM summarization (enables summarize step) |
 | `COREDOC_LLM_PROVIDER` | No | LLM provider (default: `openrouter`) |
-| `COREDOC_LLM_MODEL` | No | Model identifier (default: `anthropic/claude-haiku-4-5-20251001`) |
+| `COREDOC_LLM_MODEL` | No | Model identifier (default: `anthropic/claude-haiku-5.5`) |
 
 **Output**: JSON to stdout with parse results:
 ```json

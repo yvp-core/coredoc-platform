@@ -80,10 +80,10 @@ describe('parseJudgeSpec', () => {
       model: 'gpt-6-sol',
       slug: 'codex-gpt-6-sol',
     });
-    expect(parseJudgeSpec('claude:claude-sonnet-5')).toEqual({
+    expect(parseJudgeSpec('claude:claude-sonnet-5-5')).toEqual({
       backend: JudgeBackend.Claude,
-      model: 'claude-sonnet-5',
-      slug: 'claude-claude-sonnet-5',
+      model: 'claude-sonnet-5-5',
+      slug: 'claude-claude-sonnet-5-5',
     });
   });
 

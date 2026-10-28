@@ -80,7 +80,7 @@ describe('judgeWithSpec', () => {
     const { runners, claudeCalls, codexCalls } = spyRunners();
     const result = await judgeWithSpec(
       {
-        spec: parseJudgeSpec('claude:claude-sonnet-5'),
+        spec: parseJudgeSpec('claude:claude-sonnet-5-5'),
         judge: JUDGE_INPUT,
         codexLastMessagePath: '/evals/last.txt',
       },
@@ -88,7 +88,7 @@ describe('judgeWithSpec', () => {
     );
     expect(result.raw).toBe('claude');
     expect(codexCalls).toHaveLength(0);
-    expect(claudeCalls[0]).toMatchObject({ ...JUDGE_INPUT, model: 'claude-sonnet-5' });
+    expect(claudeCalls[0]).toMatchObject({ ...JUDGE_INPUT, model: 'claude-sonnet-5-5' });
   });
 
   it('routes a codex spec to the codex backend with the claude-identical rubric prompt', async () => {

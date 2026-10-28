@@ -43,7 +43,7 @@ describe('createTextGenerator', () => {
     expect(queryMock).toHaveBeenCalledWith({
       prompt: 'user prompt',
       options: expect.objectContaining({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-haiku-5-5',
         allowedTools: [],
         systemPrompt: 'system prompt',
         cwd: '/repo',
