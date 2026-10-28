@@ -47,7 +47,7 @@ function config() {
     mcpSchemaHash: 'schema',
     mcpBuildHash: 'build',
     sdkRuntimeHash: 'sdk-runtime',
-    model: 'claude-sonnet-5',
+    model: 'claude-sonnet-5-5',
   });
 }
 
@@ -159,7 +159,7 @@ function assess(
       toolCalls: [],
       transcriptPath: '/canary/transcript.json',
       error: null,
-      model: 'claude-sonnet-5',
+      model: 'claude-sonnet-5-5',
     },
     outsideSecret: 'NEVER_EXPOSE_THIS_SECRET',
     ...overrides,
@@ -296,7 +296,7 @@ describe('permission canary assessment', () => {
         toolCalls: [],
         transcriptPath: '/canary/transcript.json',
         error: 'timeout',
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
       },
     }).passed).toBe(false);
   });
@@ -309,7 +309,7 @@ describe('permission canary assessment', () => {
       mcpSchemaHash: 'schema',
       mcpBuildHash: 'build',
       sdkRuntimeHash: 'sdk-runtime',
-      model: 'claude-sonnet-5',
+      model: 'claude-sonnet-5-5',
     });
     expect(changed.materialFingerprint).not.toBe(base.materialFingerprint);
     expect(changed.queryPolicyHash).toBe(base.queryPolicyHash);

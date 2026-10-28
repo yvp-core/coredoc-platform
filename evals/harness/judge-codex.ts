@@ -37,7 +37,7 @@ export function parseJudgeSpec(raw: string): JudgeSpec {
   const idx = raw.indexOf(':');
   if (idx <= 0 || idx === raw.length - 1) {
     throw new Error(
-      `Invalid --judge "${raw}". Expected "<backend>:<model>", e.g. claude:claude-sonnet-5 or codex:gpt-6-sol.`,
+      `Invalid --judge "${raw}". Expected "<backend>:<model>", e.g. claude:claude-sonnet-5-5 or codex:gpt-6-sol.`,
     );
   }
   const backendRaw = raw.slice(0, idx);

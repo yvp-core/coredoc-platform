@@ -119,7 +119,7 @@ function admittedPrimaryManifest(runDir: string): RunManifest {
     mcpSchemaHash: 'schema',
     mcpBuildHash: 'build',
     sdkRuntimeHash: 'sdk-runtime',
-    model: 'claude-sonnet-5',
+    model: 'claude-sonnet-5-5',
   });
   const manifest = createRunManifest({
     createdAt: '2026-08-23T00:00:00.000Z',
@@ -162,7 +162,7 @@ function admittedPrimaryManifest(runDir: string): RunManifest {
     mcp: { mcpSchemaHash: 'schema', mcpBuildHash: 'build' },
     models: {
       provider: AgentProvider.Claude,
-      agentModel: 'claude-sonnet-5',
+      agentModel: 'claude-sonnet-5-5',
       agentSdkVersion: '0.2.77',
       judgeProvider: 'codex',
       judgeModel: 'gpt-6-sol',
@@ -342,7 +342,7 @@ describe('paired report statistics', () => {
         meta: {
           runId: 'mixed',
           wallClockMs: 1,
-          agentModel: 'claude-sonnet-5',
+          agentModel: 'claude-sonnet-5-5',
           judgeModel: 'claude:claude-opus-5-5',
           commit: 'head',
         },
@@ -360,7 +360,7 @@ describe('paired report statistics', () => {
       meta: {
         runId: 'run',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'codex:gpt-6-sol',
         commit: 'head',
         actualTargetSha: 'actual',
@@ -393,7 +393,7 @@ describe('paired report statistics', () => {
         meta: {
           runId: 'primary-worktree',
           wallClockMs: 1,
-          agentModel: 'claude-sonnet-5',
+          agentModel: 'claude-sonnet-5-5',
           judgeModel: 'codex:gpt-6-sol',
           commit: 'head',
           accessMode: AccessMode.Worktree,
@@ -420,7 +420,7 @@ describe('paired report statistics', () => {
         meta: {
           runId: 'primary-no-checkout',
           wallClockMs: 1,
-          agentModel: 'claude-sonnet-5',
+          agentModel: 'claude-sonnet-5-5',
           judgeModel: 'codex:gpt-6-sol',
           commit: 'head',
           accessMode: AccessMode.NoCheckout,
@@ -447,7 +447,7 @@ describe('paired report statistics', () => {
         meta: {
           runId: 'primary-historyless',
           wallClockMs: 1,
-          agentModel: 'claude-sonnet-5',
+          agentModel: 'claude-sonnet-5-5',
           judgeModel: 'codex:gpt-6-sol',
           commit: 'head',
           accessMode: AccessMode.HistorylessSnapshot,
@@ -479,7 +479,7 @@ describe('paired report statistics', () => {
       meta: {
         runId: 'primary-admitted',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'codex:gpt-6-sol',
         commit: manifest.harness.head,
         provider: AgentProvider.Claude,
@@ -498,7 +498,7 @@ describe('paired report statistics', () => {
       meta: {
         runId: 'primary-unregistered',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'codex:gpt-6-sol',
         commit: manifest.harness.head,
         provider: AgentProvider.Claude,
@@ -521,7 +521,7 @@ describe('paired report statistics', () => {
       meta: {
         runId: 'primary-rejected',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'codex:gpt-6-sol',
         commit: manifest.harness.head,
         provider: AgentProvider.Claude,
@@ -573,7 +573,7 @@ describe('paired report statistics', () => {
       meta: {
         runId: 'primary-summary',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'codex:gpt-6-sol',
         commit: manifest.harness.head,
         provider: AgentProvider.Claude,
@@ -641,7 +641,7 @@ describe('paired report statistics', () => {
       meta: {
         runId: 'primary-failures',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'codex:gpt-6-sol',
         commit: manifest.harness.head,
         provider: AgentProvider.Claude,
@@ -685,7 +685,7 @@ describe('paired report statistics', () => {
       meta: {
         runId: 'factors',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'claude:claude-opus-5-5',
         commit: 'head',
       },
@@ -742,7 +742,7 @@ describe('paired report statistics', () => {
       meta: {
         runId: 'ops',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'claude:claude-opus-5-5',
         commit: 'head',
       },

@@ -113,7 +113,7 @@ describe('report', () => {
       meta: {
         runId: '2026-05-09T00-00-00Z',
         wallClockMs: 60_000,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'claude-opus-5-5',
         commit: 'abc1234',
       },
@@ -122,7 +122,7 @@ describe('report', () => {
     expect(md).toContain('# Coredoc MCP Eval');
     expect(md).toContain('Decision summary');
     expect(md).toContain(
-      '**Models:** claude-sonnet-5 (agent), claude-opus-5-5 (rubric judge (ungrounded))',
+      '**Models:** claude-sonnet-5-5 (agent), claude-opus-5-5 (rubric judge (ungrounded))',
     );
     expect(md).toContain(
       '| Case | Run | w/wo MCP | Score (programmatic / rubric judge (ungrounded)) | Tokens | Latency |',
@@ -207,7 +207,7 @@ describe('report', () => {
       meta: {
         runId: 'oracle',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'claude:claude-opus-5-5',
         judgeMode: JudgeMode.OracleBatch,
         oracleJudgeUsage: { calls: 1, totalTokens: 345, costUsd: 0.02 },
@@ -255,7 +255,7 @@ describe('report', () => {
       meta: {
         runId: 'adherence',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'claude-opus-5-5',
         commit: 'abc1234',
       },
@@ -346,7 +346,7 @@ describe('report', () => {
       meta: {
         runId: 'drifted-run',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'codex:gpt-6-sol',
         commit: 'abc1234',
         accessMode: AccessMode.HistorylessSnapshot,
@@ -376,7 +376,7 @@ describe('report', () => {
       meta: {
         runId: 're-reported-drifted-run',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'codex:gpt-6-sol',
         commit: 'abc1234',
       },
@@ -417,7 +417,7 @@ describe('report', () => {
       meta: {
         runId: '2026-05-09T00-00-00Z',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'claude-opus-5-5',
         commit: 'abc1234',
       },
@@ -433,7 +433,7 @@ describe('report', () => {
       meta: {
         runId: '2026-08-21T00-00-00Z-claude-sqlite',
         wallClockMs: 60_000,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'claude-opus-5-5',
         commit: 'abc1234',
         backend: GraphBackend.Sqlite,
@@ -454,7 +454,7 @@ describe('report', () => {
       meta: {
         runId: '2026-08-23T00-00-00Z-claude-ladybug-no-checkout',
         wallClockMs: 60_000,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'codex:gpt-6-sol',
         commit: 'abc1234',
         accessMode: AccessMode.NoCheckout,
@@ -474,7 +474,7 @@ describe('report', () => {
       meta: {
         runId: '2026-05-09T00-00-00Z',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'claude-opus-5-5',
         commit: 'abc1234',
       },
@@ -538,7 +538,7 @@ describe('report', () => {
       meta: {
         runId: '2026-08-21T00-00-00Z',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'claude-opus-5-5',
         commit: 'abc1234',
       },
@@ -602,7 +602,7 @@ describe('report', () => {
       meta: {
         runId: '2026-08-21T00-00-00Z',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'claude-opus-5-5',
         commit: 'abc1234',
       },
@@ -671,7 +671,7 @@ describe('report', () => {
       meta: {
         runId: 'dose',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'claude-opus-5-5',
         commit: 'abc1234',
       },
@@ -717,7 +717,7 @@ describe('report', () => {
       meta: {
         runId: 'dosed',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'claude-opus-5-5',
         commit: 'abc1234',
       },
@@ -738,7 +738,7 @@ describe('report', () => {
       meta: {
         runId: '2026-05-09T00-00-00Z',
         wallClockMs: 1,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         judgeModel: 'claude-opus-5-5',
         commit: 'abc1234',
       },

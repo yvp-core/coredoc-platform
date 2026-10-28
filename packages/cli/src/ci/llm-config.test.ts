@@ -20,10 +20,10 @@ describe('llm-config', () => {
       const model = createModel({
         provider: 'openrouter',
         apiKey: 'test-key',
-        model: 'anthropic/claude-haiku-4-5-20251001',
+        model: 'anthropic/claude-haiku-5.5',
       });
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('anthropic/claude-haiku-4-5-20251001');
+      expect(model.modelId).toBe('anthropic/claude-haiku-5.5');
     });
 
     it('should create OpenAI model', () => {
@@ -36,10 +36,10 @@ describe('llm-config', () => {
       const model = createModel({
         provider: 'anthropic',
         apiKey: 'test-key',
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-haiku-5-5',
       });
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('claude-haiku-4-5-20251001');
+      expect(model.modelId).toBe('claude-haiku-5-5');
     });
 
     it('should create custom OpenAI-compatible model from URL', () => {

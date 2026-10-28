@@ -214,7 +214,7 @@ export async function runCi(options: CiRunOptions): Promise<CiRunResult> {
       const model = createModel({
         provider: process.env.COREDOC_LLM_PROVIDER || 'openrouter',
         apiKey: process.env.COREDOC_LLM_API_KEY,
-        model: process.env.COREDOC_LLM_MODEL || 'anthropic/claude-haiku-4-5-20251001',
+        model: process.env.COREDOC_LLM_MODEL || 'anthropic/claude-haiku-5.5',
       });
 
       try {

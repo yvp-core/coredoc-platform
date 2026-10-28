@@ -65,7 +65,7 @@ import {
 } from '../cases-intent/setup.js';
 
 /** Agent model for both arms; overridable for a cheap smoke (`--model`). */
-const INTENT_MODEL = 'claude-sonnet-5';
+const INTENT_MODEL = 'claude-sonnet-5-5';
 /** Judge model, pinned separately from the arms (`--judge-model`). */
 const INTENT_JUDGE_MODEL = 'claude-opus-5-5';
 const ARM_TIMEOUT_MS = 12 * 60 * 1000;

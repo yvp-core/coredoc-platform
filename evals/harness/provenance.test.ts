@@ -150,7 +150,7 @@ describe('run manifest cohort', () => {
     mcpSchemaHash: null,
     mcpBuildHash: null,
     sdkRuntimeHash: 'sdk-runtime',
-    model: 'claude-sonnet-5',
+    model: 'claude-sonnet-5-5',
   });
 
   function manifestInput() {
@@ -194,7 +194,7 @@ describe('run manifest cohort', () => {
       },
       models: {
         provider: AgentProvider.Claude,
-        agentModel: 'claude-sonnet-5',
+        agentModel: 'claude-sonnet-5-5',
         agentSdkVersion: '0.2.77',
         judgeProvider: 'codex',
         judgeModel: 'gpt-6-sol',
@@ -242,7 +242,7 @@ describe('run manifest cohort', () => {
           mcpSchemaHash: null,
           mcpBuildHash: null,
           sdkRuntimeHash: 'different-sdk-runtime',
-          model: 'claude-sonnet-5',
+          model: 'claude-sonnet-5-5',
         }),
         evidence: null,
       },

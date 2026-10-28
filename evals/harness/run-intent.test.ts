@@ -214,7 +214,7 @@ describe('renderIntentReport', () => {
         importCounts: { domains: 3 },
         anchorsStaged: false,
       },
-      agentModel: 'claude-sonnet-5',
+      agentModel: 'claude-sonnet-5-5',
       judgeModel: 'claude-opus-5-5',
       invocation: { taskIds: ['plan-stock-shortfall'], armIds: ['baseline', 'intent'], reps: 1, smoke: true, partial: true },
       records: gateInput.records,

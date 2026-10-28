@@ -3,7 +3,7 @@ import { PRICE_MAP_BASIS, PRICE_MAP_VERSION, estimateSessionCostUsd } from './se
 
 describe('session pricing', () => {
   it('pins the public standard-global price-map basis', () => {
-    expect(PRICE_MAP_VERSION).toBe('2026-09-23');
+    expect(PRICE_MAP_VERSION).toBe('2026-10-27');
     expect(PRICE_MAP_BASIS).toBe('standard-global-public-api-5m-cache-writes');
   });
 
@@ -84,6 +84,12 @@ describe('session pricing', () => {
     expect(estimateSessionCostUsd('codex', 'gpt-5.6-luna', usage)).toBeGreaterThan(0);
   });
 
+  it('counts Claude cache tokens toward the Haiku 5.5 base-tier ceiling', () => {
+    const usage = { input: 40_000, output: 10, cacheRead: 40_000, cacheCreation: 20_000, reasoning: 0 };
+    expect(estimateSessionCostUsd('claude-code', 'claude-haiku-5-5', usage)).not.toBeNull();
+    expect(estimateSessionCostUsd('claude-code', 'claude-haiku-5-5', { ...usage, input: 40_001 })).toBeNull();
+  });
+
   it('prices claude-opus-5[1m] identically to claude-opus-5 for the same usage', () => {
     const usage = { input: 50_000, output: 5_000, cacheRead: 2_000, cacheCreation: 1_000, reasoning: 500 };
     expect(estimateSessionCostUsd('claude-code', 'claude-opus-5[1m]', usage)).toBeCloseTo(
@@ -104,6 +110,8 @@ describe('session pricing', () => {
     expect(estimateSessionCostUsd('codex', 'gpt-6-luna', none)).not.toBeNull();
     expect(estimateSessionCostUsd('claude-code', 'claude-opus-5-5', none)).not.toBeNull();
     expect(estimateSessionCostUsd('claude-code', 'claude-opus-5-5[1m]', none)).not.toBeNull();
+    expect(estimateSessionCostUsd('claude-code', 'claude-sonnet-5-5', none)).not.toBeNull();
+    expect(estimateSessionCostUsd('claude-code', 'claude-haiku-5-5', none)).not.toBeNull();
     expect(estimateSessionCostUsd('codex', 'gpt-invented-9000', none)).toBeNull();
   });
 });

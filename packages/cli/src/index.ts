@@ -314,7 +314,7 @@ program
   .option('-f, --force', 'Force re-summarization (ignore cache)', false)
   .option(
     '-m, --model <name>',
-    'Model to use (defaults to claude-haiku-4-5-20251001 for the Claude Code harness, gpt-6-luna for the Codex harness; required with --provider)',
+    'Model to use (defaults to claude-haiku-5-5 for the Claude Code harness, gpt-6-luna for the Codex harness; required with --provider)',
   )
   .option(
     '--provider <name>',

@@ -19,7 +19,7 @@ export interface TextGeneratorOptions {
   sdkEnv?: NodeJS.ProcessEnv;
 }
 
-const DEFAULT_CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
+const DEFAULT_CLAUDE_MODEL = 'claude-haiku-5-5';
 const DEFAULT_CODEX_MODEL = 'gpt-6-luna';
 let queryFn: typeof import('@anthropic-ai/claude-agent-sdk').query | null = null;
 async function getClaudeQuery() {

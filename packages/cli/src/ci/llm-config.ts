@@ -24,7 +24,7 @@ export interface LlmConfig {
   provider: string;
   /** API key. Not required for Ollama (a placeholder is sent). */
   apiKey: string;
-  /** Model id, e.g. "anthropic/claude-haiku-4-5-20251001" or "qwen2.5-coder:7b". */
+  /** Model id, e.g. "anthropic/claude-haiku-5.5" or "qwen2.5-coder:7b". */
   model: string;
   /** Override the provider base URL (Ollama host / OpenAI-compatible endpoint). */
   baseURL?: string;

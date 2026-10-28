@@ -609,7 +609,7 @@ export default profile;
     expect(startAgentRunMock).toHaveBeenCalledOnce();
     const request = startAgentRunMock.mock.calls[0][1];
     const adapter = startAgentRunMock.mock.calls[0][3];
-    expect(request).toMatchObject({ model: 'claude-sonnet-5', env: { PATH: '/usr/bin' } });
+    expect(request).toMatchObject({ model: 'claude-sonnet-5-5', env: { PATH: '/usr/bin' } });
     expect(request.prompt).toContain('mcp__coredoc__score_profile');
     expect(adapter).toMatchObject({ kind: 'claude-code' });
   });
