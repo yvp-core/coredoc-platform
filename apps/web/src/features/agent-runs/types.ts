@@ -36,6 +36,8 @@ interface AgentRunTurn {
   claimedAt: string | null;
 }
 
+export type QuestionsPolicy = 'pause' | 'assume';
+
 export interface AgentRun {
   id: string;
   issueKey: string;
@@ -45,7 +47,8 @@ export interface AgentRun {
   startedBy: string | null;
   previousRunId: string | null;
   runOwner: { userId: string; email: string | null };
-  questionsPolicy: 'pause' | 'assume';
+  scopeQuestionsPolicy: QuestionsPolicy;
+  implementQuestionsPolicy: QuestionsPolicy;
   scopeAcceptancePolicy: 'required' | 'automatic';
   model: string | null;
   branch: string;
@@ -290,7 +293,8 @@ export interface AgentRunSettings {
   doneStatus: string | null;
   failedStatus: string | null;
   cancelledStatus: string | null;
-  questionsPolicy: 'pause' | 'assume';
+  scopeQuestionsPolicy: QuestionsPolicy;
+  implementQuestionsPolicy: QuestionsPolicy;
   scopeAcceptancePolicy: 'required' | 'automatic';
   maxSpendUsd: number;
   maxTurnDurationSeconds: number;
@@ -315,7 +319,8 @@ export type AgentRunSettingsUpdate = Partial<
     | 'doneStatus'
     | 'failedStatus'
     | 'cancelledStatus'
-    | 'questionsPolicy'
+    | 'scopeQuestionsPolicy'
+    | 'implementQuestionsPolicy'
     | 'scopeAcceptancePolicy'
     | 'maxSpendUsd'
     | 'maxTurnDurationSeconds'

@@ -159,8 +159,8 @@ export function cloudAgentRunError(
 export const RUNNER_STARTUP_PROBLEM_TEXT: Record<RunnerStartupProblemCode, string> = {
   sdk_unusable: 'The Agent SDK could not start Claude Code in the runner image.',
   plugin_missing:
-    'Claude Code did not load a runner plugin (coredoc-workflows or one the manifest names) from its path.',
-  plugin_errors: 'The coredoc-workflows plugin loaded with errors.',
+    'The coredoc-workflows plugin or its secret scanner is missing at COREDOC_WORKFLOWS_PLUGIN_PATH, or Claude Code did not load a plugin the manifest names.',
+  plugin_errors: 'A runner plugin loaded with errors.',
   plugin_skills_missing: 'A runner plugin loaded without its skills, or a manifest entry skill is not among them.',
   bot_admin:
     'The bot account has admin or maintain permission on a repository it can see; give it the Write role only.',
@@ -168,7 +168,7 @@ export const RUNNER_STARTUP_PROBLEM_TEXT: Record<RunnerStartupProblemCode, strin
     "GitHub refused or failed to list the bot account's repositories; check the bot token and the GitHub API URL.",
   registry_config_invalid: 'COREDOC_PACKAGE_REGISTRIES in the runner Secret is not valid.',
   manifest_invalid:
-    'The runner manifest (COREDOC_RUNNER_MANIFEST) is not valid, or does not name exactly one coredoc-workflows plugin.',
+    'The runner manifest (COREDOC_RUNNER_MANIFEST) is not valid, or leaves out the coredoc-workflows plugin while a phase has no entry skill.',
 };
 
 export enum RunnerRefusal {

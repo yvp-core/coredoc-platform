@@ -26,7 +26,12 @@ import { PrismaService } from '../../database/prisma.service.js';
 import type { CloudAgentRun, Prisma } from '../../generated/prisma/client.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE, type CloudAgentRunArchiveStore } from './cloud-agent-run-archive.store.js';
 import { CloudAgentRunIssueReader, JiraReadFailure } from './cloud-agent-run-issue-reader.js';
-import { answerForTurn, recordQuestion, settleTurnQuestions } from './cloud-agent-run-questions.service.js';
+import {
+  answerForTurn,
+  phaseQuestionsPolicy,
+  recordQuestion,
+  settleTurnQuestions,
+} from './cloud-agent-run-questions.service.js';
 import { CloudAgentRunDeliveryService } from './cloud-agent-run-delivery.service.js';
 import { CloudAgentRunImplementService, RunCheckFailure } from './cloud-agent-run-implement.service.js';
 import {
@@ -301,7 +306,7 @@ export class CloudAgentTurnService {
         run: {
           id: run.id,
           issueKey: run.issueKey,
-          questionsPolicy: fromColumn(QuestionsPolicy, run.questionsPolicy),
+          questionsPolicy: phaseQuestionsPolicy(run, claimed.kind),
           scopeAcceptancePolicy: fromColumn(ScopeAcceptancePolicy, run.scopeAcceptancePolicy),
           model: run.model,
           notes: run.notes,
@@ -671,7 +676,7 @@ export class CloudAgentTurnService {
       await failRun(tx, run, RunFailureCode.NoOutcome, request.lastMessage?.trim() || null, at);
     } else {
       const nudged = await tx.cloudAgentRun.update({ where: { id: run.id }, data: { outcomeLessCount: count } });
-      await queueTurn(tx, nudged, kind, nudge(run.questionsPolicy, kind), at);
+      await queueTurn(tx, nudged, kind, nudge(phaseQuestionsPolicy(run, kind), kind), at);
     }
     return TurnOutcome.NoOutcome;
   }

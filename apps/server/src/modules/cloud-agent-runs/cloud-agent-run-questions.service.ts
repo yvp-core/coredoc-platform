@@ -64,6 +64,17 @@ function questionEvent(row: CloudAgentRunQuestion) {
   };
 }
 
+/** Delivery has no agent session; it takes the scope policy. */
+export function phaseQuestionsPolicy(
+  run: Pick<CloudAgentRun, 'scopeQuestionsPolicy' | 'implementQuestionsPolicy'>,
+  phase: string,
+): QuestionsPolicy {
+  return fromColumn(
+    QuestionsPolicy,
+    phase === RunPhase.Implement ? run.implementQuestionsPolicy : run.scopeQuestionsPolicy,
+  );
+}
+
 /** The caller holds the fenced turn and the locked run. */
 export async function recordQuestion(
   tx: Tx,
@@ -82,7 +93,7 @@ export async function recordQuestion(
     askedInTurnId: turnId,
     askedAt: at,
   };
-  if (run.questionsPolicy === QuestionsPolicy.Assume) {
+  if (phaseQuestionsPolicy(run, run.phase) === QuestionsPolicy.Assume) {
     const row = await tx.cloudAgentRunQuestion.create({
       data: {
         ...base,

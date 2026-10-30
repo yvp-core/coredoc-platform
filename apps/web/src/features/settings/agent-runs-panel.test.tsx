@@ -38,7 +38,8 @@ beforeEach(() => {
     doneStatus: null,
     failedStatus: null,
     cancelledStatus: null,
-    questionsPolicy: 'pause',
+    scopeQuestionsPolicy: 'pause',
+    implementQuestionsPolicy: 'pause',
     scopeAcceptancePolicy: 'required',
     maxSpendUsd: 25,
     maxTurnDurationSeconds: 3 * 3600,
@@ -208,7 +209,9 @@ describe('AgentRunsPanel', () => {
     mount();
 
     fireEvent.change(await screen.findByLabelText('Trigger label'), { target: { value: 'ai-build' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Assume' }));
+    fireEvent.click(
+      within(screen.getByRole('group', { name: 'Implement questions' })).getByRole('button', { name: 'Assume' }),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Automatic' }));
     fireEvent.change(screen.getByLabelText('Spend per run (USD)'), { target: { value: '40' } });
     fireEvent.change(screen.getByLabelText('Turn duration (hours)'), { target: { value: '2' } });
@@ -230,7 +233,8 @@ describe('AgentRunsPanel', () => {
             doneStatus: null,
             failedStatus: null,
             cancelledStatus: null,
-            questionsPolicy: 'assume',
+            scopeQuestionsPolicy: 'pause',
+            implementQuestionsPolicy: 'assume',
             scopeAcceptancePolicy: 'automatic',
             maxSpendUsd: 40,
             maxTurnDurationSeconds: 7200,

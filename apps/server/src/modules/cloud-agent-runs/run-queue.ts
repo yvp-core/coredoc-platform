@@ -26,7 +26,8 @@ export interface NewRun {
   startedBy: string | null;
   runOwnerId: string;
   previousRunId?: string;
-  questionsPolicy: QuestionsPolicy;
+  scopeQuestionsPolicy: QuestionsPolicy;
+  implementQuestionsPolicy: QuestionsPolicy;
   scopeAcceptancePolicy: ScopeAcceptancePolicy;
   seeds: string[];
   notes?: string | null;
@@ -60,7 +61,8 @@ export async function createRun(
       previousRunId: input.previousRunId ?? null,
       status,
       phase: RunPhase.Scope,
-      questionsPolicy: input.questionsPolicy,
+      scopeQuestionsPolicy: input.scopeQuestionsPolicy,
+      implementQuestionsPolicy: input.implementQuestionsPolicy,
       scopeAcceptancePolicy: input.scopeAcceptancePolicy,
       model: settings.model,
       seeds: input.seeds,

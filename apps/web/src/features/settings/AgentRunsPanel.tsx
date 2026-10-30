@@ -29,6 +29,7 @@ import { runnerRefusalText, runnerVersionsText } from '@/features/agent-runs/age
 import type {
   AgentRunSettings,
   AvailabilityReason,
+  QuestionsPolicy,
   RepositoryEligibility,
   RunnerTokenStatus,
 } from '@/features/agent-runs/types';
@@ -303,6 +304,30 @@ function StatusSelect({
   );
 }
 
+function QuestionsPolicyField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: QuestionsPolicy;
+  onChange: (value: QuestionsPolicy) => void;
+}) {
+  return (
+    <fieldset className="flex flex-col gap-1.5">
+      <legend className="mb-1.5 text-[13px] font-medium text-ink-2">{label}</legend>
+      <Segmented<QuestionsPolicy>
+        value={value}
+        onChange={onChange}
+        items={[
+          { value: 'pause', label: 'Pause' },
+          { value: 'assume', label: 'Assume' },
+        ]}
+      />
+    </fieldset>
+  );
+}
+
 function NumberField({
   id,
   label,
@@ -334,7 +359,8 @@ function SettingsForm({ wsId, settings }: { wsId: string; settings: AgentRunSett
     failedStatus: settings.failedStatus,
     cancelledStatus: settings.cancelledStatus,
   });
-  const [questionsPolicy, setQuestionsPolicy] = useState(settings.questionsPolicy);
+  const [scopeQuestionsPolicy, setScopeQuestionsPolicy] = useState(settings.scopeQuestionsPolicy);
+  const [implementQuestionsPolicy, setImplementQuestionsPolicy] = useState(settings.implementQuestionsPolicy);
   const [scopeAcceptancePolicy, setScopeAcceptancePolicy] = useState(settings.scopeAcceptancePolicy);
   const [spend, setSpend] = useState(String(settings.maxSpendUsd));
   const [turnHours, setTurnHours] = useState(String(settings.maxTurnDurationSeconds / HOUR));
@@ -357,7 +383,8 @@ function SettingsForm({ wsId, settings }: { wsId: string; settings: AgentRunSett
           wsId,
           triggerLabel: triggerLabel.trim(),
           ...statuses,
-          questionsPolicy,
+          scopeQuestionsPolicy,
+          implementQuestionsPolicy,
           scopeAcceptancePolicy,
           maxSpendUsd: Number(spend),
           maxTurnDurationSeconds: Math.round(Number(turnHours) * HOUR),
@@ -393,17 +420,12 @@ function SettingsForm({ wsId, settings }: { wsId: string; settings: AgentRunSett
         )}
       </fieldset>
       <div className="flex flex-wrap gap-6">
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[13px] font-medium text-ink-2">Questions</span>
-          <Segmented<'pause' | 'assume'>
-            value={questionsPolicy}
-            onChange={setQuestionsPolicy}
-            items={[
-              { value: 'pause', label: 'Pause' },
-              { value: 'assume', label: 'Assume' },
-            ]}
-          />
-        </div>
+        <QuestionsPolicyField label="Scope questions" value={scopeQuestionsPolicy} onChange={setScopeQuestionsPolicy} />
+        <QuestionsPolicyField
+          label="Implement questions"
+          value={implementQuestionsPolicy}
+          onChange={setImplementQuestionsPolicy}
+        />
         <div className="flex flex-col gap-1.5">
           <span className="text-[13px] font-medium text-ink-2">Scope acceptance</span>
           <Segmented<'required' | 'automatic'>

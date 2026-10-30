@@ -15,14 +15,14 @@ describe('resolveManifest', () => {
   it('overrides plugins and tools, and merges each phase over the defaults', () => {
     const manifest = JSON.stringify({
       version: 1,
-      plugins: [{ path: '/opt/coredoc-workflows' }, { path: '/opt/dayio/plugins/day-agent-run' }],
+      plugins: [{ path: '/opt/coredoc-workflows' }, { path: '/opt/acme/plugins/acme-agent-run' }],
       tools: { jira: ['read'] },
-      phases: { scope: { model: 'claude-opus-5-5', entrySkill: 'day-agent-run:scope' } },
+      phases: { scope: { model: 'claude-opus-5-5', entrySkill: 'acme-agent-run:scope' } },
     });
     expect(resolveManifest(manifest, DEFAULT_PLUGIN)).toEqual({
-      plugins: [{ path: '/opt/coredoc-workflows' }, { path: '/opt/dayio/plugins/day-agent-run' }],
+      plugins: [{ path: '/opt/coredoc-workflows' }, { path: '/opt/acme/plugins/acme-agent-run' }],
       tools: { jira: ['read'] },
-      phases: { scope: { model: 'claude-opus-5-5', entrySkill: 'day-agent-run:scope' }, implement: {} },
+      phases: { scope: { model: 'claude-opus-5-5', entrySkill: 'acme-agent-run:scope' }, implement: {} },
     });
   });
 

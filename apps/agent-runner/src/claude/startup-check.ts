@@ -2,7 +2,8 @@
  * Uses the control protocol's initialize answer: no prompt and no model call (Claude Code sends its
  * init message only after a first user message). Plugin load errors surface in each session's init.
  */
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import {
@@ -23,6 +24,7 @@ export interface StartupCheckOptions {
   query: StartupQueryFn;
   manifest: ResolvedManifest;
   manifestDigest: string | null;
+  scannerPluginPath: string;
   scratchRoot: string;
   versions: RunnerVersions;
   timeoutMs?: number;
@@ -30,6 +32,25 @@ export interface StartupCheckOptions {
 
 export async function checkClaudeStartup(options: StartupCheckOptions): Promise<StartupReport> {
   const { manifest } = options;
+  const scanner = await readPluginManifest(options.scannerPluginPath);
+  if (!scanner) {
+    return {
+      versions: options.versions,
+      problem: {
+        code: RunnerStartupProblemCode.PluginMissing,
+        detail: `No plugin manifest at ${options.scannerPluginPath}, the secret scanner's plugin.`,
+      },
+    };
+  }
+  const launcher = join(options.scannerPluginPath, 'bin', 'coredoc-workflows');
+  try {
+    await access(launcher, constants.X_OK);
+  } catch {
+    return {
+      versions: options.versions,
+      problem: { code: RunnerStartupProblemCode.PluginMissing, detail: `No executable secret scanner at ${launcher}.` },
+    };
+  }
   const plugins: Array<{ name: string; version?: string }> = [];
   for (const { path } of manifest.plugins) {
     const plugin = await readPluginManifest(path);
@@ -41,20 +62,20 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
     }
     plugins.push(plugin);
   }
-  const core = plugins.filter((plugin) => plugin.name === CORE_PLUGIN_NAME);
-  if (core.length !== 1) {
+  const { scope, implement } = manifest.phases;
+  // A phase without an entry skill follows the default prompts, which run coredoc-workflows routes.
+  if (!plugins.some((plugin) => plugin.name === CORE_PLUGIN_NAME) && !(scope.entrySkill && implement.entrySkill)) {
     return {
       versions: options.versions,
       problem: {
         code: RunnerStartupProblemCode.ManifestInvalid,
-        detail: `The runner manifest names ${core.length} ${CORE_PLUGIN_NAME} plugins; it needs exactly one.`,
+        detail: `The runner manifest loads no ${CORE_PLUGIN_NAME} plugin, so every phase needs an entry skill.`,
       },
     };
   }
-  const { scope, implement } = manifest.phases;
   const versions: RunnerVersions = {
     ...options.versions,
-    ...(core[0]!.version ? { plugin: core[0]!.version } : {}),
+    ...(scanner.version ? { plugin: scanner.version } : {}),
     // Only a manifest file is reported: the defaults are what the other versions already say.
     ...(options.manifestDigest
       ? {

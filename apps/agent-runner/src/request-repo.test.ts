@@ -74,6 +74,7 @@ describe('request_repo in implement turns', () => {
         api: client,
         scratchRoot: scratch,
         manifest: resolveManifest(undefined, plugin.path),
+        scannerPluginPath: plugin.path,
         modelApiKey: 'sk-ant-test',
         hostEnv: { PATH: process.env.PATH },
         bot: { token: BOT_TOKEN, name: 'Coredoc Bot', email: 'bot@users.noreply.example.com' },

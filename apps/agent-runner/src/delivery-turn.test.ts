@@ -81,6 +81,7 @@ describe('delivery turns in the runner loop', () => {
         api: client,
         scratchRoot: scratch,
         manifest: resolveManifest(undefined, join(scratch, 'no-plugin')),
+        scannerPluginPath: join(scratch, 'no-plugin'),
         modelApiKey: 'sk-ant-test',
         hostEnv: { PATH: process.env.PATH },
         bot: { token: BOT_TOKEN, name: 'Coredoc Bot', email: 'bot@users.noreply.example.com' },

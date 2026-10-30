@@ -7,7 +7,11 @@ export const SUBMIT_RESULT_TOOL = 'mcp__agent_run__submit_result';
 export const REQUEST_REPO_TOOL = 'mcp__agent_run__request_repo';
 export const READ_REPO_TOOL = 'mcp__agent_run__read_repo';
 
-export function runPreamble(turn: TurnAssignment, entrySkill?: string): string {
+/**
+ * `entrySkill` is the skill still to invoke in this session; `methodOwnedBySkill` says the manifest names one for
+ * this phase, which then owns the method (routes, interviews, product questions) on every turn.
+ */
+export function runPreamble(turn: TurnAssignment, entrySkill?: string, methodOwnedBySkill = false): string {
   const { run } = turn;
   const runControl = turn.turn.kind === TurnKind.Implement ? SUBMIT_RESULT_TOOL : PROPOSE_SCOPE_TOOL;
   return [
@@ -24,7 +28,9 @@ export function runPreamble(turn: TurnAssignment, entrySkill?: string): string {
     '- The runner commits, pushes and opens pull requests after your turn. Never run git writes, network git commands or gh.',
     // The runner pod has no Docker daemon or browser, and a few GB of memory: an OOM kill loses the turn's work.
     '- This machine has no Docker and no browser, and little memory. Do not run tests that need Docker (Testcontainers, docker compose) or a browser (end-to-end, Playwright, Cypress); report them as not run, with the reason, in your run-control call. Run test runners with at most 2 workers (for example Jest --maxWorkers=2, Vitest --maxWorkers=2).',
-    '- Ask only developer-owned questions, through AskUserQuestion, and only from the main session; subagents return their questions to the main session. Product questions the PRD leaves open are never asked: list them as candidates for the PRD.',
+    methodOwnedBySkill
+      ? '- Ask questions only through AskUserQuestion, and only from the main session; subagents return their questions to the main session.'
+      : '- Ask only developer-owned questions, through AskUserQuestion, and only from the main session; subagents return their questions to the main session. Product questions the PRD leaves open are never asked: list them as candidates for the PRD.',
     run.questionsPolicy === 'pause'
       ? '- A question parks this session for a person in Coredoc; their answer arrives when the session resumes. Ask everything you need in one AskUserQuestion call.'
       : '- No one answers questions during this run: an AskUserQuestion call is answered at once, and you decide on stated assumptions that you list in your run-control call.',
@@ -75,25 +81,35 @@ export function implementPrompt(
   specPath: string,
   prdPath: string,
   clones: PromptClone[],
+  methodOwnedBySkill = false,
 ): string {
   const { run, acceptedSpec } = turn;
   const approval = acceptedSpec
     ? `Version ${acceptedSpec.version}, accepted by ${acceptedSpec.acceptedBy ?? 'the system (automatic acceptance)'} at ${acceptedSpec.acceptedAt}, sha256 ${acceptedSpec.digest}.`
     : 'No acceptance record was sent.';
   const withheld = clones.filter((clone) => clone.withheldPaths.length > 0);
+  const steps = [
+    'Before changing a repository, read its agent instruction files (AGENTS.md, CLAUDE.md and similar) and set it up from its own instructions, lockfile and package scripts. Install its dependencies before declaring it unbuildable, and quote the exact error if that fails. Write temporary files under $TMPDIR.',
+    ...(methodOwnedBySkill
+      ? []
+      : [
+          "Register every clone with the plugin's repository tracking, run the coredoc-workflows implement route with the approval record above, and run review per repository.",
+        ]),
+    'Never write the specification into a repository. Never commit, push or open pull requests: the runner commits and pushes after your turn.',
+    `If the change needs a repository that is not listed here, ask for it with ${REQUEST_REPO_TOOL} instead of working around it.`,
+    `End with ${SUBMIT_RESULT_TOOL}, listing any repository you could not build or test in the runner and why. When you stop short of the specification, submit status partial or blocked with every unmet acceptance criterion.`,
+  ];
   return [
     `Implement Jira issue ${run.issueKey} from its accepted specification: ${specPath}. Re-read it whenever you need it; it sits outside every repository and is never pushed.`,
     `The PRD it was written from is ${prdPath}: the specification is the accepted contract, the PRD the source of its acceptance criteria and examples.`,
-    `Approval record (this is the user approval the implement route asks for): ${approval}`,
+    methodOwnedBySkill
+      ? `Approval record: ${approval}`
+      : `Approval record (this is the user approval the implement route asks for): ${approval}`,
     '',
     'Repositories, in merge order. Each is a clone on the run branch ' + `${run.branch}:`,
     ...clones.map((clone) => `- ${clone.key}: ${clone.path}`),
     '',
-    '1. Before changing a repository, read its agent instruction files (AGENTS.md, CLAUDE.md and similar) and set it up from its own instructions, lockfile and package scripts. Install its dependencies before declaring it unbuildable, and quote the exact error if that fails. Write temporary files under $TMPDIR.',
-    "2. Register every clone with the plugin's repository tracking, run the coredoc-workflows implement route with the approval record above, and run review per repository.",
-    '3. Never write the specification into a repository. Never commit, push or open pull requests: the runner commits and pushes after your turn.',
-    `4. If the change needs a repository that is not listed here, ask for it with ${REQUEST_REPO_TOOL} instead of working around it.`,
-    `5. End with ${SUBMIT_RESULT_TOOL}, listing any repository you could not build or test in the runner and why. When you stop short of the specification, submit status partial or blocked with every unmet acceptance criterion.`,
+    ...steps.map((step, index) => `${index + 1}. ${step}`),
     ...(withheld.length
       ? [
           '',
@@ -128,17 +144,24 @@ export function scopePrompt(
   prdPath: string,
   specPath: string,
   candidates: BaseCandidates | null = null,
+  methodOwnedBySkill = false,
 ): string {
   const { run } = turn;
   const seeds = run.seeds.length ? run.seeds.join(', ') : 'none';
+  const propose = `Call ${PROPOSE_SCOPE_TOOL} with the scope; the content of ${specPath} is proposed as its specification. Every seed repository and every base-branch candidate repository is either included or listed in droppedSeeds with a reason. Give a repository's baseBranch when the work must build on a branch other than its default (an unmerged dependency), and say why in its reason; the run's notes come first, then the candidates below.`;
+  const steps = methodOwnedBySkill
+    ? [`1. Write the specification to ${specPath}.`, `2. ${propose}`]
+    : [
+        `1. Read accepted intent sourced at the issue for repository hints: call the Coredoc MCP tool get_intent_context with the source ref jira:${run.issueKey}, and jira:<KEY> for each child issue the PRD lists.`,
+        `2. Run the coredoc-workflows spec route in PRD-input mode (--intent spec, work item ${run.issueKey}) with the PRD file as its input. Verify the PRD's claims against the Coredoc MCP and mark the ones you cannot verify as [unverified]. Do not interview anyone: list product gaps as candidates for the PRD. Write the specification to ${specPath}.`,
+        `3. ${propose}`,
+        "4. After the proposal is recorded, finish the plugin's spec stage and close its workflow run with outcome success: people review the scope in Coredoc, not in this session. Then end your turn.",
+      ];
   return [
     `Scope Jira issue ${run.issueKey}. The PRD is the task source: ${prdPath}.`,
     `Repositories named up front (starting points, not the answer): ${seeds}.`,
     '',
-    `1. Read accepted intent sourced at the issue for repository hints: call the Coredoc MCP tool get_intent_context with the source ref jira:${run.issueKey}, and jira:<KEY> for each child issue the PRD lists.`,
-    `2. Run the coredoc-workflows spec route in PRD-input mode (--intent spec, work item ${run.issueKey}) with the PRD file as its input. Verify the PRD's claims against the Coredoc MCP and mark the ones you cannot verify as [unverified]. Do not interview anyone: list product gaps as candidates for the PRD. Write the specification to ${specPath}.`,
-    `3. Call ${PROPOSE_SCOPE_TOOL} with the scope; the content of ${specPath} is proposed as its specification. Every seed repository and every base-branch candidate repository is either included or listed in droppedSeeds with a reason. Give a repository's baseBranch when the work must build on a branch other than its default (an unmerged dependency), and say why in its reason; the run's notes come first, then the candidates below.`,
-    "4. After the proposal is recorded, finish the plugin's spec stage and close its workflow run with outcome success: people review the scope in Coredoc, not in this session. Then end your turn.",
+    ...steps,
     '',
     'Do not change any repository and do not run git writes.',
     ...candidatesBlock(candidates),

@@ -450,10 +450,11 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
   });
 
   it('re-run creates a new run for the same issue from a terminal run, linked to it, on the next branch', async () => {
-    const { id } = await workspace({ settings: { maxStartedRuns: 5 } });
+    const { id } = await workspace({
+      settings: { maxStartedRuns: 5, scopeQuestionsPolicy: 'assume', implementQuestionsPolicy: 'pause' },
+    });
     const { body: first } = await start(id, {
       issueKey: 'ORD-61',
-      questionsPolicy: 'assume',
       scopeAcceptancePolicy: 'automatic',
       repositoryKeys: ['orders-api'],
       notes: 'Orders only.',
@@ -469,7 +470,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     await api()
       .put(`${runsBase(id)}/settings`)
       .set('Authorization', human(OWNER))
-      .send({ model: 'test-model', maxSpendUsd: 40 })
+      .send({ model: 'test-model', maxSpendUsd: 40, scopeQuestionsPolicy: 'pause', implementQuestionsPolicy: 'assume' })
       .expect(200);
     const rerun = await api()
       .post(`${runsBase(id)}/${first.id}/rerun`)
@@ -482,7 +483,8 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
       branch: 'coredoc/ORD-61-2',
       status: 'scoping',
       runOwner: { userId: OTHER_MEMBER.id },
-      questionsPolicy: 'assume',
+      scopeQuestionsPolicy: 'assume',
+      implementQuestionsPolicy: 'pause',
       scopeAcceptancePolicy: 'automatic',
       seeds: ['orders-api'],
       notes: 'Orders only.',
@@ -505,7 +507,8 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
       .send({
         triggerLabel: 'ai-build',
         doneStatus: 'In Review',
-        questionsPolicy: 'assume',
+        scopeQuestionsPolicy: 'pause',
+        implementQuestionsPolicy: 'assume',
         scopeAcceptancePolicy: 'automatic',
         maxSpendUsd: 10,
         maxTurnDurationSeconds: 3600,
@@ -520,7 +523,8 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
       runOwner: { userId: OWNER.id, valid: true },
       triggerLabel: 'ai-build',
       doneStatus: 'In Review',
-      questionsPolicy: 'assume',
+      scopeQuestionsPolicy: 'pause',
+      implementQuestionsPolicy: 'assume',
       maxStartedRuns: 3,
       model: 'test-model',
       repositories: expect.arrayContaining([
