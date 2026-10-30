@@ -10,6 +10,7 @@ export const StartRunSchema = z.object({
     .trim()
     .transform((value) => value.toUpperCase())
     .pipe(z.string().regex(ISSUE_KEY_RE, { error: 'issueKey must look like PROJ-123' })),
+  /** Overrides both phases' policy. */
   questionsPolicy: z.enum(QuestionsPolicy).optional(),
   scopeAcceptancePolicy: z.enum(ScopeAcceptancePolicy).optional(),
   repositoryKeys: z
@@ -52,7 +53,8 @@ export const UpdateSettingsSchema = z
     doneStatus: jiraStatusName('doneStatus'),
     failedStatus: jiraStatusName('failedStatus'),
     cancelledStatus: jiraStatusName('cancelledStatus'),
-    questionsPolicy: z.enum(QuestionsPolicy).optional(),
+    scopeQuestionsPolicy: z.enum(QuestionsPolicy).optional(),
+    implementQuestionsPolicy: z.enum(QuestionsPolicy).optional(),
     scopeAcceptancePolicy: z.enum(ScopeAcceptancePolicy).optional(),
     maxSpendUsd: z
       .number({ error: 'maxSpendUsd must be a number' })

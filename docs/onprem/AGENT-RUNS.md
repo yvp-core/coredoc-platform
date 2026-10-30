@@ -28,7 +28,7 @@ how to install the runner, and what it changes about your egress and risk.
 | Component | Does | Holds |
 |---|---|---|
 | **coredoc-server** | Run state, the Jira trigger and the Jira comments, scope acceptance, run pages, verifying reported pull requests. **Calls no LLM.** | Its existing secrets. The GitHub connector token stays read-only. |
-| **agent runner** | Claims one turn at a time over outbound HTTPS, clones the run's repositories, runs Claude Code with the `coredoc-workflows` plugin, pushes `coredoc/**` branches and opens draft pull requests as the bot account. | Only its own Secret: the model key, the bot's GitHub token and the runner token. None of the server's database, storage, Neo4j, encryption, OAuth or license configuration. |
+| **agent runner** | Claims one turn at a time over outbound HTTPS, clones the run's repositories, runs Claude Code with the `coredoc-workflows` plugin (or the plugins its manifest names, §3.1), pushes `coredoc/**` branches and opens draft pull requests as the bot account. | Only its own Secret: the model key, the bot's GitHub token and the runner token. None of the server's database, storage, Neo4j, encryption, OAuth or license configuration. |
 
 The runner needs no inbound connections. It reaches the Coredoc API (by default
 the in-cluster server Service) and the hosts in [§7](#7-egress). One runner
@@ -224,7 +224,7 @@ With one, its keys override the defaults:
 ```json
 {
   "version": 1,
-  "plugins": [{ "path": "/opt/coredoc-workflows" }, { "path": "/opt/acme/plugins/acme-agent-run" }],
+  "plugins": [{ "path": "/opt/acme/plugins/acme-agent-run" }],
   "tools": { "jira": ["read"] },
   "phases": {
     "scope": { "model": "claude-opus-5-5", "entrySkill": "acme-agent-run:scope" },
@@ -235,9 +235,9 @@ With one, its keys override the defaults:
 
 | Key | Effect |
 |---|---|
-| `plugins` | Replaces the default plugin list. Exactly one must be `coredoc-workflows`; the runner uses it for the secret scan. Copy your plugins into the image read-only. |
+| `plugins` | Replaces the plugins loaded into the agent session. Copy them into the image read-only. A list without `coredoc-workflows` needs an `entrySkill` for both phases. The secret scan never depends on this list: it runs the plugin at `COREDOC_WORKFLOWS_PLUGIN_PATH` (§8). |
 | `phases.<scope\|implement>.model` | The model for that phase; it wins over the workspace's model setting. |
-| `phases.<scope\|implement>.entrySkill` | `<plugin>:<skill>`. The agent is told to start with it, and `propose_scope` / `submit_result` are refused until the session has invoked it. |
+| `phases.<scope\|implement>.entrySkill` | `<plugin>:<skill>`. The agent is told to start with it, and `propose_scope` / `submit_result` are refused until the session has invoked it. The skill owns the phase's method: the prompt then carries only the run's facts, the fixed rules, the questions policy and the run-control tools, without the default `coredoc-workflows` steps and without the default intent read (`get_intent_context` for `jira:<KEY>`), which the scope skill then makes itself. Ship a server that supports this before a runner image whose manifest leaves `coredoc-workflows` out. Whether and what the agent asks people is the skill's to decide; where questions go is the workspace's questions policy for that phase. |
 | `tools.jira` | `["read"]` gives the agent `jira_get_issue` and `jira_search` over the workspace Jira connector, confined to its projects. Leaving it out hides the tools from the agent but is not an access boundary: every scope and implement turn token may read those projects, the same issues the run already reads as its PRD. |
 
 A manifest that does not parse, a plugin that does not load, or an entry skill
@@ -335,7 +335,9 @@ Then, under **Settings → Agent runs** (workspace admins):
    Jira-triggered runs act as that member, who must stay a current member.
 3. Review the settings: trigger label (default `coredoc-agent`), the Jira
    statuses for started, done, failed and cancelled runs (each optional),
-   questions policy, scope acceptance, spend per run, turn and run time
+   questions policy for the scope and the implement phase (**Pause** parks
+   the run until a person answers in Coredoc; **Assume** answers at once and
+   the agent lists its assumptions), scope acceptance, spend per run, turn and run time
    limits, started runs per workspace, repositories per run, and the model
    (Claude Code's default when unset).
 
@@ -345,7 +347,7 @@ the **Agent runs** page:
 | Shown | Meaning |
 |---|---|
 | `claim …` / `heartbeat …` with versions | The runner is polling or working. |
-| *Start-up check failed: …* | The runner started but claims nothing: the Agent SDK could not start Claude Code, the plugin did not load or loaded with errors or without its skills, the bot account has admin or maintain permission, GitHub refused to list the bot's repositories, `COREDOC_PACKAGE_REGISTRIES` is invalid, or the runner manifest is invalid or names a plugin or entry skill that did not load (§3.1). It checks again every minute. |
+| *Start-up check failed: …* | The runner started but claims nothing: the Agent SDK could not start Claude Code, the plugin did not load or loaded with errors or without its skills, the bot account has admin or maintain permission, GitHub refused to list the bot's repositories, `COREDOC_PACKAGE_REGISTRIES` is invalid, the runner manifest is invalid, names a plugin or entry skill that did not load, or leaves `coredoc-workflows` out while a phase has no entry skill (§3.1), or `COREDOC_WORKFLOWS_PLUGIN_PATH` has no plugin or no executable `bin/coredoc-workflows` for the secret scan. It checks again every minute. |
 | *Refused: this runner version is not supported* | The runner's protocol version is one the server does not support. Upgrade the runner (or the server, §9). |
 | *Refused: its creator is no longer an admin* | Mint a new token and update the Secret. |
 | *Never connected* | No runner has used the token yet. |
@@ -449,7 +451,7 @@ them set. It still checks that Claude Code starts and logs the result.
 | `COREDOC_RUNNER_SCRATCH` | no | `/scratch` (image) | The scratch volume. |
 | `COREDOC_RUNNER_POLL_SECONDS` | no | `5` | Seconds an idle runner waits between claims. |
 | `COREDOC_RUNNER_ONCE` | no | | `1` makes the runner exit after one turn, for one Job per turn ([§10](#10-sizing)). With no turn to claim for 5 minutes it exits too, so a runner started for a turn another runner took does not hold a node. |
-| `COREDOC_WORKFLOWS_PLUGIN_PATH` | no | `/opt/coredoc-workflows` (image) | The pinned plugin in the image; the default manifest's only plugin. |
+| `COREDOC_WORKFLOWS_PLUGIN_PATH` | no | `/opt/coredoc-workflows` (image) | The pinned `coredoc-workflows` plugin in the image. The secret scan runs its `bin/coredoc-workflows` and the runner reports its version, whatever the manifest loads into the session; without a manifest it is also the session's only plugin. A missing plugin or launcher there is a start-up problem (§6). |
 | `COREDOC_RUNNER_MANIFEST` | no | `/etc/coredoc/agent-runner.json` | The runner manifest (§3.1). A missing file means the defaults. |
 | `ANTHROPIC_API_KEY` | yes | | The dedicated model key (§2.1). |
 | `ANTHROPIC_BASE_URL` | no | Anthropic API | Your model gateway. |

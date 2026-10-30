@@ -139,7 +139,7 @@ check_runner() {
       import { resolveManifest } from '@coredoc/core/agent-runner';
       import { checkClaudeStartup } from './dist/claude/startup-check.js';
       const report = await checkClaudeStartup({
-        query, manifest: resolveManifest(undefined, '$PLUGIN_ROOT'), manifestDigest: null,
+        query, manifest: resolveManifest(undefined, '$PLUGIN_ROOT'), manifestDigest: null, scannerPluginPath: '$PLUGIN_ROOT',
         scratchRoot: '/scratch', versions: { runner: 'image-check' },
       });
       console.log(JSON.stringify(report));

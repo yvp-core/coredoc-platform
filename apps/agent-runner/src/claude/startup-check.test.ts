@@ -42,6 +42,8 @@ describe('runner start-up check', () => {
       join(plugin, '.claude-plugin', 'plugin.json'),
       JSON.stringify({ name: 'coredoc-workflows', version: '0.14.0' }),
     );
+    await mkdir(join(plugin, 'bin'));
+    await writeFile(join(plugin, 'bin', 'coredoc-workflows'), '#!/bin/sh\n', { mode: 0o755 });
   });
 
   afterEach(async () => {
@@ -60,7 +62,14 @@ describe('runner start-up check', () => {
       idlePollMs: 5,
       startupRetryMs: 5,
       startupCheck: () => {
-        const claude = { query, manifest, manifestDigest: null, scratchRoot: scratch, versions: VERSIONS };
+        const claude = {
+          query,
+          manifest,
+          manifestDigest: null,
+          scannerPluginPath: plugin,
+          scratchRoot: scratch,
+          versions: VERSIONS,
+        };
         return github
           ? checkRunnerStartup({
               ...claude,
@@ -94,6 +103,7 @@ describe('runner start-up check', () => {
       query: () => ({ initializationResult: () => new Promise<never>(() => undefined) }),
       manifest: resolveManifest(undefined, plugin),
       manifestDigest: null,
+      scannerPluginPath: plugin,
       scratchRoot: scratch,
       versions: VERSIONS,
       timeoutMs: 20,
@@ -165,38 +175,46 @@ describe('runner start-up check', () => {
   });
 
   describe('a runner manifest', () => {
-    let dayPlugin: string;
+    let acmePlugin: string;
 
     beforeEach(async () => {
-      dayPlugin = await mkdtemp(join(tmpdir(), 'runner-day-plugin-'));
-      await writePlugin(dayPlugin, 'day-agent-run', '0.1.0');
+      acmePlugin = await mkdtemp(join(tmpdir(), 'runner-acme-plugin-'));
+      await writePlugin(acmePlugin, 'acme-agent-run', '0.1.0');
     });
 
     afterEach(async () => {
-      await rm(dayPlugin, { recursive: true, force: true });
+      await rm(acmePlugin, { recursive: true, force: true });
     });
 
-    function dayManifest(overrides: Partial<{ plugins: string[]; entrySkill: string }> = {}): ResolvedManifest {
+    function acmeManifest(
+      overrides: Partial<{ plugins: string[]; entrySkill: string; implementEntrySkill: string }> = {},
+    ): ResolvedManifest {
       return resolveManifest(
         JSON.stringify({
           version: 1,
-          plugins: (overrides.plugins ?? [plugin, dayPlugin]).map((path) => ({ path })),
+          plugins: (overrides.plugins ?? [plugin, acmePlugin]).map((path) => ({ path })),
           phases: {
-            scope: { model: 'claude-opus-5-5', entrySkill: overrides.entrySkill ?? 'day-agent-run:scope' },
-            implement: { model: 'claude-sonnet-5-5' },
+            scope: { model: 'claude-opus-5-5', entrySkill: overrides.entrySkill ?? 'acme-agent-run:scope' },
+            implement: { model: 'claude-sonnet-5-5', entrySkill: overrides.implementEntrySkill },
           },
         }),
         '/opt/unused',
       );
     }
 
-    const bothLoaded = initResult(['init', 'coredoc-workflows:spec', 'day-agent-run:scope']);
+    const bothLoaded = initResult([
+      'init',
+      'coredoc-workflows:spec',
+      'acme-agent-run:scope',
+      'acme-agent-run:implement',
+    ]);
 
     it('claims with the effective manifest in its versions once every plugin and entry skill loads', async () => {
       const report = await checkClaudeStartup({
         query: bothLoaded,
-        manifest: dayManifest(),
+        manifest: acmeManifest(),
         manifestDigest: 'sha256:abc',
+        scannerPluginPath: plugin,
         scratchRoot: scratch,
         versions: VERSIONS,
       });
@@ -210,43 +228,71 @@ describe('runner start-up check', () => {
             models: { scope: 'claude-opus-5-5', implement: 'claude-sonnet-5-5' },
             plugins: [
               { name: 'coredoc-workflows', version: '0.14.0' },
-              { name: 'day-agent-run', version: '0.1.0' },
+              { name: 'acme-agent-run', version: '0.1.0' },
             ],
           },
         },
       });
     });
 
+    it('claims without coredoc-workflows in the session when every phase has an entry skill, scanning with the plugin at its own path', async () => {
+      const report = await checkClaudeStartup({
+        query: initResult(['init', 'acme-agent-run:scope', 'acme-agent-run:implement']),
+        manifest: acmeManifest({ plugins: [acmePlugin], implementEntrySkill: 'acme-agent-run:implement' }),
+        manifestDigest: 'sha256:abc',
+        scannerPluginPath: plugin,
+        scratchRoot: scratch,
+        versions: VERSIONS,
+      });
+      expect(report.problem).toBeNull();
+      expect(report.versions).toMatchObject({
+        plugin: '0.14.0',
+        manifest: { plugins: [{ name: 'acme-agent-run', version: '0.1.0' }] },
+      });
+    });
+
     it.each([
       [
         'an entry skill Claude Code does not list',
-        () => dayManifest({ entrySkill: 'day-agent-run:implement' }),
+        () => acmeManifest({ entrySkill: 'acme-agent-run:review' }),
+        () => plugin,
         RunnerStartupProblemCode.PluginSkillsMissing,
-        'day-agent-run:implement',
+        'acme-agent-run:review',
       ],
       [
         'a plugin without a manifest',
-        () => dayManifest({ plugins: [plugin, join(scratch, 'missing')] }),
+        () => acmeManifest({ plugins: [plugin, join(scratch, 'missing')] }),
+        () => plugin,
         RunnerStartupProblemCode.PluginMissing,
         'No plugin manifest',
       ],
       [
-        'no coredoc-workflows plugin',
-        () => dayManifest({ plugins: [dayPlugin] }),
-        RunnerStartupProblemCode.ManifestInvalid,
-        'coredoc-workflows',
+        'no plugin manifest at the scanner path',
+        () => acmeManifest({ plugins: [acmePlugin], implementEntrySkill: 'acme-agent-run:implement' }),
+        () => join(scratch, 'missing'),
+        RunnerStartupProblemCode.PluginMissing,
+        'No plugin manifest',
       ],
       [
-        'two coredoc-workflows plugins',
-        () => dayManifest({ plugins: [plugin, plugin, dayPlugin] }),
+        'no launcher at the scanner path',
+        () => acmeManifest({ plugins: [acmePlugin], implementEntrySkill: 'acme-agent-run:implement' }),
+        () => acmePlugin,
+        RunnerStartupProblemCode.PluginMissing,
+        'bin/coredoc-workflows',
+      ],
+      [
+        'no coredoc-workflows plugin while a phase has no entry skill',
+        () => acmeManifest({ plugins: [acmePlugin] }),
+        () => plugin,
         RunnerStartupProblemCode.ManifestInvalid,
         'coredoc-workflows',
       ],
-    ])('reports %s', async (_case, manifest, code, detail) => {
+    ])('reports %s', async (_case, manifest, scannerPluginPath, code, detail) => {
       const report = await checkClaudeStartup({
         query: bothLoaded,
         manifest: manifest(),
         manifestDigest: null,
+        scannerPluginPath: scannerPluginPath(),
         scratchRoot: scratch,
         versions: VERSIONS,
       });

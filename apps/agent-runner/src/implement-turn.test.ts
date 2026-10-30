@@ -89,6 +89,7 @@ describe('implement turns in the runner loop', () => {
         api: client,
         scratchRoot: scratch,
         manifest,
+        scannerPluginPath: plugin.path,
         modelApiKey: 'sk-ant-test',
         hostEnv: { PATH: process.env.PATH },
         bot: { token: BOT_TOKEN, name: 'Coredoc Bot', email: 'bot@users.noreply.example.com' },
@@ -173,6 +174,44 @@ describe('implement turns in the runner loop', () => {
     });
     expect(api.results.length).toBe(recorded ? 1 : 0);
     if (!recorded) expect(seen[0]!.toolResults.join()).toContain('Invoke the skill coredoc-workflows:implement');
+  });
+
+  it('with only a deployment plugin in the session, scans the push with the scanner plugin and pushes', async () => {
+    const { bare, repo } = await orders();
+    const acmePlugin = join(root, 'acme-agent-run');
+    const manifest = resolveManifest(
+      JSON.stringify({
+        version: 1,
+        plugins: [{ path: acmePlugin }],
+        phases: {
+          scope: { entrySkill: 'acme-agent-run:scope' },
+          implement: { entrySkill: 'acme-agent-run:implement' },
+        },
+      }),
+      '/opt/unused',
+    );
+    const { done, seen } = runTurn(
+      implementAssignment([repo]),
+      [
+        {
+          skills: ['acme-agent-run:implement'],
+          act: async (cwd) => writeFile(join(cwd, 'orders-api', 'src', 'export.ts'), 'export {};\n'),
+          submit: RESULT,
+        },
+      ],
+      60_000,
+      undefined,
+      manifest,
+    );
+    await expect(done).resolves.toBe('completed');
+    expect(seen[0]!.options.plugins).toEqual([{ type: 'local', path: acmePlugin }]);
+    expect(seen[0]!.prompt).not.toMatch(/coredoc-workflows|implement route/);
+    expect(remoteFiles(bare, BRANCH)).toContain('src/export.ts');
+    const operations = (await readFile(plugin.log, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => (JSON.parse(line) as { args: string[] }).args[2]);
+    expect(operations).toEqual(expect.arrayContaining(['commit', 'push']));
   });
 
   it('clones over HTTPS, works on the run branch, then commits and pushes the turn after the session', async () => {

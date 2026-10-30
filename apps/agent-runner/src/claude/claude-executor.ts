@@ -19,7 +19,7 @@ import { listBaseCandidates } from '../git/branch-scan.js';
 import { repositoryReader } from '../git/read-repo.js';
 import { type Clone, TurnGit } from '../git/turn-git.js';
 import { type BotGithubOptions, botGithub, checkBotPermissions, requireBot } from '../github/bot-github.js';
-import { corePluginPath, sdkPlugins } from '../manifest.js';
+import { sdkPlugins } from '../manifest.js';
 import { type PackageRegistry, writeUserRegistryConfig } from '../package-registries.js';
 import type { RunnerApiClient } from '../runner-api.js';
 import { type TurnExecutor, type TurnIO, type TurnResult, TurnAbandoned } from '../runner.js';
@@ -61,6 +61,8 @@ export interface ClaudeExecutorOptions extends BotGithubOptions {
   /** The only writable volume; wiped at the end of every turn. */
   scratchRoot: string;
   manifest: ResolvedManifest;
+  /** The coredoc-workflows plugin whose launcher scans every commit and push, loaded into the session or not. */
+  scannerPluginPath: string;
   modelApiKey: string;
   modelCredentialKind?: 'api_key' | 'subscription';
   modelBaseUrl?: string;
@@ -98,15 +100,13 @@ const TOOL_DEFERRED = 'tool_deferred';
 export class ClaudeExecutor implements TurnExecutor {
   private readonly log: (message: string) => void;
 
-  private corePluginPath: Promise<string> | undefined;
-
   constructor(private readonly options: ClaudeExecutorOptions) {
     this.log = options.log ?? (() => undefined);
   }
 
-  private corePlugin(): Promise<string> {
-    this.corePluginPath ??= corePluginPath(this.options.manifest);
-    return this.corePluginPath;
+  private phase(turn: TurnAssignment) {
+    const { phases } = this.options.manifest;
+    return turn.turn.kind === TurnKind.Implement ? phases.implement : phases.scope;
   }
 
   async run(turn: TurnAssignment, io: TurnIO): Promise<TurnResult> {
@@ -142,7 +142,7 @@ export class ClaudeExecutor implements TurnExecutor {
     const git = new Git(gitEnvironment({ hostEnv: this.options.hostEnv, home: paths.home, author: bot }), bot.token);
     const turnGit = new TurnGit({
       git,
-      scanner: new SecretScanner(await this.corePlugin()),
+      scanner: new SecretScanner(this.options.scannerPluginPath),
       issueKey: turn.run.issueKey,
       branch: turn.run.branch,
       turnNumber: turn.turn.ordinal,
@@ -158,7 +158,13 @@ export class ClaudeExecutor implements TurnExecutor {
     await writeFile(prdPath, turn.prd?.markdown ?? '(The server sent no PRD.)\n', 'utf8');
 
     const resume = sessionExists(paths, turn.run.sessionId);
-    const firstPrompt = implementPrompt(turn, specPath, prdPath, clones.map(promptClone));
+    const firstPrompt = implementPrompt(
+      turn,
+      specPath,
+      prdPath,
+      clones.map(promptClone),
+      this.phase(turn).entrySkill !== undefined,
+    );
     const prompt = resume
       ? resumeInput(turn, clones)
       : turn.turn.inputText
@@ -297,7 +303,7 @@ export class ClaudeExecutor implements TurnExecutor {
     const resume = sessionExists(paths, turn.run.sessionId);
     const candidates = turn.branchScan && !resume ? await listBaseCandidates(git, turn.branchScan, paths.work) : null;
     const specPath = join(paths.work, 'spec.md');
-    const firstPrompt = scopePrompt(turn, prdPath, specPath, candidates);
+    const firstPrompt = scopePrompt(turn, prdPath, specPath, candidates, this.phase(turn).entrySkill !== undefined);
     const prompt = resume
       ? (turn.turn.inputText ?? 'Continue where you stopped.')
       : turn.turn.inputText
@@ -483,7 +489,7 @@ export class ClaudeExecutor implements TurnExecutor {
     budgetUsd: number,
   ): Options {
     const { manifest } = this.options;
-    const phase = turn.turn.kind === TurnKind.Implement ? manifest.phases.implement : manifest.phases.scope;
+    const phase = this.phase(turn);
     const model = phase.model ?? turn.run.model;
     // The run state records the entry skill once invoked; a resumed session that did is not asked again.
     const invokedMarker = join(paths.state, 'entry-skill-invoked');
@@ -566,7 +572,11 @@ export class ClaudeExecutor implements TurnExecutor {
       plugins: sdkPlugins(manifest),
       mcpServers,
       strictMcpConfig: true,
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: runPreamble(turn, entrySkill) },
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+        append: runPreamble(turn, entrySkill, phase.entrySkill !== undefined),
+      },
       permissionMode: 'default',
       // AskUserQuestion is offered only when a permission callback is set; the policy lives in the hook.
       canUseTool: questions.canUseTool,

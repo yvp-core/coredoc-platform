@@ -1676,7 +1676,8 @@ model CloudAgentRun {
   phase                  String    @db.VarChar(16)
   failureCode            String?   @map("failure_code") @db.VarChar(64)
   failureReason          String?   @map("failure_reason") @db.VarChar(2000)
-  questionsPolicy        String    @map("questions_policy") @db.VarChar(16)
+  scopeQuestionsPolicy   String    @map("questions_policy") @db.VarChar(16)
+  implementQuestionsPolicy String  @default("pause") @map("implement_questions_policy") @db.VarChar(16)
   scopeAcceptancePolicy  String    @map("scope_acceptance_policy") @db.VarChar(16)
   /// Null means Claude Code's default model.
   model                  String?   @db.VarChar(128)
@@ -1871,7 +1872,8 @@ model AgentRunSettings {
   doneStatus             String?  @map("done_status") @db.VarChar(255)
   failedStatus           String?  @map("failed_status") @db.VarChar(255)
   cancelledStatus        String?  @map("cancelled_status") @db.VarChar(255)
-  questionsPolicy        String   @default("pause") @map("questions_policy") @db.VarChar(16)
+  scopeQuestionsPolicy   String   @default("pause") @map("questions_policy") @db.VarChar(16)
+  implementQuestionsPolicy String @default("pause") @map("implement_questions_policy") @db.VarChar(16)
   scopeAcceptancePolicy  String   @default("required") @map("scope_acceptance_policy") @db.VarChar(16)
   maxSpendUsd            Float    @default(25) @map("max_spend_usd") @db.DoublePrecision
   maxTurnDurationSeconds Int      @default(10800) @map("max_turn_duration_seconds")

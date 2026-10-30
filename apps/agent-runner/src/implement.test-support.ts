@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { HookCallback, Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import {
   type AssignedRepository,
@@ -18,6 +18,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { assignment } from './fake-coredoc-api.test-support.js';
 import type { QueryFn } from './claude/claude-executor.js';
+import { readPluginManifest } from './manifest.js';
 
 export const BOT_TOKEN = 'ghp_bot_token_for_tests_0123456789';
 
@@ -374,12 +375,18 @@ export function fakeImplementQuery(steps: SessionStep[], seen: SeenSession[]): Q
       const record: SeenSession = { prompt, options, denials: [], toolResults: [] };
       seen.push(record);
       const sessionId = options.sessionId ?? options.resume!;
+      const plugins = await Promise.all(
+        options.plugins!.map(async ({ path }) => ({
+          name: (await readPluginManifest(path))?.name ?? basename(path),
+          path,
+        })),
+      );
       yield {
         type: 'system',
         subtype: 'init',
         session_id: sessionId,
-        plugins: [{ name: 'coredoc-workflows', path: options.plugins![0]!.path }],
-        skills: ['coredoc-workflows:implement'],
+        plugins,
+        skills: plugins.map(({ name }) => `${name}:implement`),
       } as unknown as SDKMessage;
 
       // Claude Code keeps its transcript under its config directory, keyed by the work directory.

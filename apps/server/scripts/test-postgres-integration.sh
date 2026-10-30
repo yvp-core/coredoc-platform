@@ -56,6 +56,7 @@ CLOUD_AGENT_RUNS_TEST_DATABASE_URL="${database_url}" \
     src/modules/capture/capture.postgres.integration.test.ts \
     src/modules/tokens/telemetry-token.postgres.integration.test.ts \
     src/database/ci-token-intent-migration.postgres.integration.test.ts \
+    src/database/agent-run-phase-questions-policy-migration.postgres.integration.test.ts \
     src/modules/capture/capture-retention.postgres.integration.test.ts \
     src/modules/delivery/canonical-delivery.postgres.integration.test.ts \
     src/modules/jobs/push-worker-license-claim.postgres.integration.test.ts \

@@ -1,7 +1,7 @@
 /** A deployment's runner configuration, baked into its runner image; absent keys keep the platform defaults. */
 import { z } from 'zod';
 
-/** The plugin the runner itself depends on (secret scan, workflow state): exactly one manifest plugin carries this name. */
+/** The plugin the default phase prompts run; a manifest may leave it out only when every phase names an entry skill. */
 export const CORE_PLUGIN_NAME = 'coredoc-workflows';
 
 export enum JiraAccess {

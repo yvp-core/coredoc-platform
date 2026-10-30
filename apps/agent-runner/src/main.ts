@@ -60,7 +60,14 @@ try {
     detail: error instanceof Error ? error.message : String(error),
   };
 }
-const claudeCheck = { query, manifest: loaded.manifest, manifestDigest: loaded.digest, scratchRoot, versions };
+const claudeCheck = {
+  query,
+  manifest: loaded.manifest,
+  manifestDigest: loaded.digest,
+  scannerPluginPath: pluginPath,
+  scratchRoot,
+  versions,
+};
 
 const shutdown = new AbortController();
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
@@ -129,6 +136,7 @@ const runner = new Runner({
     api,
     scratchRoot,
     manifest: loaded.manifest,
+    scannerPluginPath: pluginPath,
     modelApiKey,
     modelCredentialKind: DEV_SUBSCRIPTION ? 'subscription' : 'api_key',
     modelBaseUrl: process.env.ANTHROPIC_BASE_URL?.trim() || undefined,

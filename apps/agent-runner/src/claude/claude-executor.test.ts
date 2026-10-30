@@ -393,6 +393,7 @@ describe('Claude executor in the runner loop', () => {
         api: client,
         scratchRoot: scratch,
         manifest: resolveManifest(undefined, PLUGIN),
+        scannerPluginPath: PLUGIN,
         modelApiKey: 'sk-ant-test',
         hostEnv: { PATH: '/usr/bin' },
         ...executorOptions,
@@ -460,22 +461,22 @@ describe('Claude executor in the runner loop', () => {
   });
 
   describe('the runner manifest', () => {
-    const DAY_PLUGIN = '/opt/dayio/plugins/day-agent-run';
-    const dayManifest = resolveManifest(
+    const ACME_PLUGIN = '/opt/acme/plugins/acme-agent-run';
+    const acmeManifest = resolveManifest(
       JSON.stringify({
         version: 1,
-        plugins: [{ path: PLUGIN }, { path: DAY_PLUGIN }],
+        plugins: [{ path: PLUGIN }, { path: ACME_PLUGIN }],
         tools: { jira: ['read'] },
-        phases: { scope: { model: 'claude-opus-5-5', entrySkill: 'day-agent-run:scope' } },
+        phases: { scope: { model: 'claude-opus-5-5', entrySkill: 'acme-agent-run:scope' } },
       }),
       PLUGIN,
     );
-    const dayInit = {
+    const acmeInit = {
       plugins: [
         { name: 'coredoc-workflows', path: PLUGIN },
-        { name: 'day-agent-run', path: DAY_PLUGIN },
+        { name: 'acme-agent-run', path: ACME_PLUGIN },
       ],
-      initSkills: ['coredoc-workflows:spec', 'day-agent-run:scope'],
+      initSkills: ['coredoc-workflows:spec', 'acme-agent-run:scope'],
     };
 
     it('without a manifest, keeps the workspace model, the one plugin and no Jira server', async () => {
@@ -490,15 +491,15 @@ describe('Claude executor in the runner loop', () => {
       const turn = assignment({ run: { ...assignment().run, model: 'claude-workspace' } });
       const { done, seen } = runTurn(
         turn,
-        { ...dayInit, skills: ['day-agent-run:scope'], propose: [proposal] },
-        { manifest: dayManifest },
+        { ...acmeInit, skills: ['acme-agent-run:scope'], propose: [proposal] },
+        { manifest: acmeManifest },
       );
       await expect(done).resolves.toBe('completed');
       expect(seen[0]!.options).toMatchObject({
         model: 'claude-opus-5-5',
         plugins: [
           { type: 'local', path: PLUGIN },
-          { type: 'local', path: DAY_PLUGIN },
+          { type: 'local', path: ACME_PLUGIN },
         ],
       });
       expect(seen[0]!.options.mcpServers!.jira).toEqual({
@@ -507,53 +508,60 @@ describe('Claude executor in the runner loop', () => {
         headers: { Authorization: 'Bearer cdt_turn_token' },
         timeout: 120_000,
       });
-      expect(seen[0]!.options.systemPrompt).toMatchObject({ append: expect.stringContaining('day-agent-run:scope') });
+      expect(seen[0]!.options.systemPrompt).toMatchObject({ append: expect.stringContaining('acme-agent-run:scope') });
+      expect(seen[0]!.prompt).toMatch(/^1\. Write the specification to \S+spec\.md\.$/m);
+      expect(seen[0]!.prompt).not.toMatch(/coredoc-workflows|get_intent_context|interview/);
     });
 
     it('a resumed session is not asked for the entry skill again', async () => {
       const first = assignment();
       await runTurn(
         first,
-        { ...dayInit, skills: ['day-agent-run:scope'], propose: [proposal] },
-        { manifest: dayManifest },
+        { ...acmeInit, skills: ['acme-agent-run:scope'], propose: [proposal] },
+        { manifest: acmeManifest },
       ).done;
       const second = assignment({
         turn: { ...first.turn, id: crypto.randomUUID(), ordinal: 2, inputText: 'Also cover billing exports.' },
         run: first.run,
         hasStateArchive: true,
       });
-      const { done, seen } = runTurn(second, { ...dayInit, propose: [proposal] }, { manifest: dayManifest });
+      const { done, seen } = runTurn(second, { ...acmeInit, propose: [proposal] }, { manifest: acmeManifest });
       await expect(done).resolves.toBe('completed');
       expect(seen[0]!.options.resume).toBe(first.run.sessionId);
       expect(seen[0]!.toolErrors).toEqual([]);
       expect(api.proposals).toHaveLength(2);
+      // The skill still owns the method once it is no longer asked for.
+      const { append } = seen[0]!.options.systemPrompt as { append: string };
+      expect(append).not.toContain('Start by invoking');
+      expect(append).not.toMatch(/developer-owned|Product questions/);
+      expect(append).toContain('Ask questions only through AskUserQuestion, and only from the main session');
     });
 
     it('a session resumed after stopping short of the entry skill is still asked for it', async () => {
       const first = assignment();
-      await runTurn(first, { ...dayInit, propose: [proposal] }, { manifest: dayManifest }).done;
+      await runTurn(first, { ...acmeInit, propose: [proposal] }, { manifest: acmeManifest }).done;
       expect(api.proposals).toEqual([]);
       const second = assignment({
         turn: { ...first.turn, id: crypto.randomUUID(), ordinal: 2, inputText: 'Continue.' },
         run: first.run,
         hasStateArchive: true,
       });
-      const { done, seen } = runTurn(second, { ...dayInit, propose: [proposal] }, { manifest: dayManifest });
+      const { done, seen } = runTurn(second, { ...acmeInit, propose: [proposal] }, { manifest: acmeManifest });
       await expect(done).resolves.toBe('completed');
       expect(seen[0]!.options.resume).toBe(first.run.sessionId);
-      expect(seen[0]!.toolErrors.join()).toContain('Invoke the skill day-agent-run:scope');
+      expect(seen[0]!.toolErrors.join()).toContain('Invoke the skill acme-agent-run:scope');
       expect(api.proposals).toEqual([]);
     });
 
     it('refuses propose_scope until the entry skill was invoked', async () => {
       const { done, seen } = runTurn(
         assignment(),
-        { ...dayInit, skills: ['coredoc-workflows:spec'], propose: [proposal] },
-        { manifest: dayManifest },
+        { ...acmeInit, skills: ['coredoc-workflows:spec'], propose: [proposal] },
+        { manifest: acmeManifest },
       );
       await expect(done).resolves.toBe('completed');
       expect(api.proposals).toEqual([]);
-      expect(seen[0]!.toolErrors.join()).toContain('Invoke the skill day-agent-run:scope');
+      expect(seen[0]!.toolErrors.join()).toContain('Invoke the skill acme-agent-run:scope');
     });
   });
 
@@ -859,6 +867,7 @@ describe('Claude executor in the runner loop', () => {
       api: new RunnerApiClient({ baseUrl: api.baseUrl, workspaceId: WORKSPACE, token: TOKEN }),
       scratchRoot: scratch,
       manifest: resolveManifest(undefined, PLUGIN),
+      scannerPluginPath: PLUGIN,
       modelApiKey: 'sk-ant-test',
       hostEnv: {},
     });
@@ -1145,6 +1154,7 @@ describe('Claude executor in the runner loop', () => {
         api: client,
         scratchRoot: scratch,
         manifest: resolveManifest(undefined, PLUGIN),
+        scannerPluginPath: PLUGIN,
         modelApiKey: 'sk-ant-test',
         hostEnv: {},
         maxArchiveBytes: 10,

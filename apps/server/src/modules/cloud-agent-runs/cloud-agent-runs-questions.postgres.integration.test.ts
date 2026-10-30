@@ -438,6 +438,35 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: questions and policies (P
     });
   });
 
+  describe('policy per phase', () => {
+    it('parks a scope question but answers an implement question at once when only implement assumes', async () => {
+      const run = await startRun({ scopeAcceptancePolicy: 'automatic' });
+      await prisma.cloudAgentRun.update({ where: { id: run.id }, data: { implementQuestionsPolicy: 'assume' } });
+
+      await complete(await claimTurn()).expect(200);
+      const scope = await claimTurn();
+      expect(scope.body.run.questionsPolicy).toBe('pause');
+      expect(scope.body.turn.inputText).toMatch(/Finish with propose_scope, or ask a person through AskUserQuestion/);
+      const parked = await turnCall(scope, 'questions', question()).expect(200);
+      expect(parked.body).toMatchObject({ state: 'open' });
+      await complete(scope).expect(200);
+      await answer(run.id, parked.body.requestId, goodAnswers).expect(200);
+
+      const resumed = await claimTurn();
+      await turnCall(resumed, 'propose-scope', proposal()).expect(200);
+      await complete(resumed).expect(200);
+
+      const implement = await claimTurn();
+      expect(implement.body.turn.kind).toBe('implement');
+      expect(implement.body.run.questionsPolicy).toBe('assume');
+      const answered = await turnCall(implement, 'questions', question('toolu_ask_2')).expect(200);
+      expect(answered.body).toMatchObject({ state: 'auto_answered' });
+
+      await complete(implement).expect(200);
+      expect((await claimTurn()).body.turn.inputText).toMatch(/Finish on stated assumptions: call submit_result/);
+    });
+  });
+
   describe('outcome-less turns', () => {
     it('get one nudge under pause, and a second in a row fails the run with the agent’s last message', async () => {
       const run = await startRun();

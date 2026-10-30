@@ -132,7 +132,8 @@ function RunDetails({ run }: { run: AgentRunDetail }) {
     >
       <Field label="Acts as">{run.runOwner.email ?? run.runOwner.userId}</Field>
       <Field label="Trigger">{TRIGGER_LABELS[run.trigger] ?? run.trigger}</Field>
-      <Field label="Questions">{run.questionsPolicy}</Field>
+      <Field label="Scope questions">{run.scopeQuestionsPolicy}</Field>
+      <Field label="Implement questions">{run.implementQuestionsPolicy}</Field>
       <Field label="Scope acceptance">{run.scopeAcceptancePolicy}</Field>
       <Field label="Model">{run.model ?? 'Claude Code default'}</Field>
       <Field label="Branch">
