@@ -267,10 +267,11 @@ export class TurnGit {
       });
       if (result.code === 0) return;
       const output = `${result.stdout}\n${result.stderr}`;
-      if (/\[remote rejected\]/.test(output)) {
+      const refused = finalRemoteRejection(output);
+      if (refused) {
         throw new TurnFailure(
           RunFailureCode.GithubError,
-          `GitHub refused the push to ${branch} in ${clone.repository.key}: ${remoteReason(output)}`,
+          `GitHub refused the push to ${branch} in ${clone.repository.key}: ${refused}`,
         );
       }
       if (/\[rejected\]|non-fast-forward|fetch first/.test(output)) throw this.pushRejected(clone.repository.key);
@@ -336,8 +337,11 @@ export class TurnGit {
   }
 }
 
-function remoteReason(output: string): string {
-  return /\[remote rejected\][^\n]*/.exec(output)?.[0].slice(0, 300) ?? 'remote rejected';
+/** Why GitHub refused the push for good; null for none, and for a GitHub 500, which is retried like a network failure. */
+export function finalRemoteRejection(output: string): string | null {
+  const line = /\[remote rejected\][^\n]*/.exec(output)?.[0];
+  if (!line || line.includes('(Internal Server Error)')) return null;
+  return line.slice(0, 300);
 }
 
 /** Agent-chosen branch names reach git only after this: never as an option, always a valid ref name. */

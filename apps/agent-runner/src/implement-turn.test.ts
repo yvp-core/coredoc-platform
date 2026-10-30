@@ -676,6 +676,7 @@ describe('implement turns in the runner loop', () => {
           expect.objectContaining({ key: 'billing', pushedHead: null }),
         ],
       });
+      expect(api.archive).not.toBeNull();
     });
 
     it('a retried attempt that died between reserving and pushing creates the branch and pushes', async () => {

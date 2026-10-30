@@ -199,23 +199,28 @@ export class ClaudeExecutor implements TurnExecutor {
     if (io.checkpoint.aborted) throw new TurnAbandoned();
     let session = await this.runSession(turn, io, paths, prompt, resume, control, questions, limits);
     let result = session.result;
+    const keep = (outcome: TurnOutcome) => this.keepFailedState(paths, io, outcome);
     for (let invocation = 1; ; invocation += 1) {
       const spend = spendOf(result, turn);
       const lastMessage = lastMessageOf(result);
       if (io.signal.aborted) return { spend };
-      if (cloneFailure) return { spend, outcome: failed(cloneFailure), repositories: turnGit.untouchedReports(clones) };
+      if (cloneFailure) {
+        return { spend, outcome: await keep(failed(cloneFailure)), repositories: turnGit.untouchedReports(clones) };
+      }
       // Classified from the runner's own state: a recorded result outlives a late SDK error.
       if (session.failure && (session.failure.code !== RunFailureCode.AgentError || !control.submitted)) {
         return {
           spend,
-          outcome: sessionFailureOutcome(session.failure),
+          outcome: await keep(sessionFailureOutcome(session.failure)),
           repositories: turnGit.untouchedReports(clones),
         };
       }
       // The turn that recorded the result names its commit after the accepted scope.
       const title = control.submitted ? (turn.acceptedSpec?.title ?? null) : null;
       const published = await this.publish(turnGit, clones, title);
-      if (published.kind === 'failed') return { spend, outcome: published.outcome, repositories: published.reports };
+      if (published.kind === 'failed') {
+        return { spend, outcome: await keep(published.outcome), repositories: published.reports };
+      }
       if (published.kind === 'published') {
         // A parked question pauses the run with the work pushed; a checkpoint continues it.
         const checkpoint =
@@ -232,6 +237,7 @@ export class ClaudeExecutor implements TurnExecutor {
         const reason = `The secret scan blocked the push${invocation === 2 ? ' twice' : ' while a question was open'}, so nothing was pushed. Blocked: ${published.findings.join('; ')}`;
         return {
           spend,
+          // Not kept: the session holds what the scan flagged.
           outcome: failed(new TurnFailure(RunFailureCode.SecretScanBlocked, reason)),
           repositories: turnGit.untouchedReports(clones),
         };
@@ -291,6 +297,12 @@ export class ClaudeExecutor implements TurnExecutor {
     return null;
   }
 
+  /** A failed run keeps its archive for the transcript download; not keeping it never hides the failure. */
+  private async keepFailedState(paths: TurnPaths, io: TurnIO, outcome: TurnOutcome): Promise<TurnOutcome> {
+    if (outcome.kind === 'failed') await this.uploadState(paths, io).catch(() => undefined);
+    return outcome;
+  }
+
   private async scopeTurn(turn: TurnAssignment, io: TurnIO, paths: TurnPaths): Promise<TurnResult> {
     const prdPath = join(paths.work, 'PRD.md');
     await writeFile(prdPath, turn.prd?.markdown ?? '(The server sent no PRD.)\n', 'utf8');
@@ -326,7 +338,11 @@ export class ClaudeExecutor implements TurnExecutor {
 
     if (session.failure && (session.failure.code !== RunFailureCode.AgentError || control.proposedVersion === null)) {
       // Classified from the runner's own state: a recorded proposal outlives a late SDK error.
-      return { spend, outcome: sessionFailureOutcome(session.failure), lastMessage };
+      return {
+        spend,
+        outcome: await this.keepFailedState(paths, io, sessionFailureOutcome(session.failure)),
+        lastMessage,
+      };
     }
     // Like an implement turn, a limit hit before any proposal or question continues the session.
     const checkpoint =
