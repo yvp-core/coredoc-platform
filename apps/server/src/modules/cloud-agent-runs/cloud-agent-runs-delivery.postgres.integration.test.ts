@@ -27,6 +27,7 @@ import { TokensController } from '../tokens/tokens.controller.js';
 import { TokensService } from '../tokens/tokens.service.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE } from './cloud-agent-run-archive.store.js';
 import { CloudAgentRunSweep } from './cloud-agent-run-sweep.service.js';
+import { CloudAgentRunService } from './cloud-agent-run.service.js';
 import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import {
@@ -44,6 +45,7 @@ import {
   STATUSES,
 } from './cloud-agent-runs.test-support.js';
 import { commentHasMarker, runMarker } from './jira-comments.js';
+import { RUNNER_RATE_LIMIT } from './runner-rate-limit.guard.js';
 
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
@@ -79,6 +81,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
   let previousEncryptionKey: string | undefined;
   let app: INestApplication;
   let sweep: CloudAgentRunSweep;
+  let runs: CloudAgentRunService;
   let workspaceId: string;
   let runnerToken: string;
   let issueSeed = 0;
@@ -160,6 +163,8 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
         { provide: JIRA_CLIENT_FACTORY, useValue: () => jira.client() },
         { provide: GITHUB_CLIENT_FACTORY, useValue: () => github.client() },
         { provide: CLOUD_AGENT_RUN_ARCHIVE_STORE, useValue: archives },
+        // One runner token drives every scenario here, faster than the default burst allows.
+        { provide: RUNNER_RATE_LIMIT, useValue: { burst: 10_000, refillPerSec: 100 } },
         { provide: STORAGE_CONFIG, useValue: { ...storage, r2: { ...storage.r2, endpoint: 'https://r2.example' } } },
         {
           provide: AuthService,
@@ -179,6 +184,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
     await app.init();
     await app.listen(0, '127.0.0.1');
     sweep = moduleRef.get(CloudAgentRunSweep);
+    runs = moduleRef.get(CloudAgentRunService);
 
     await setAgentRunsEnabled(prisma, workspaceId);
 
@@ -962,6 +968,299 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
         status: 'failed',
         jiraOutcome: { failure: { state: 'posted' }, transitions: { failed: { state: 'already_in_status' } } },
       });
+    });
+  });
+
+  describe('continuing a stopped run', () => {
+    const continueRun = (runId: string, text?: string) =>
+      api()
+        .post(`${runsBase()}/${runId}/continue`)
+        .set('Authorization', human(MEMBER))
+        .send(text === undefined ? {} : { text });
+
+    afterEach(async () => {
+      await api()
+        .put(`${runsBase()}/settings`)
+        .set('Authorization', human(ADMIN))
+        .send({ startedStatus: null, failedStatus: null, maxStartedRuns: 50 })
+        .expect(200);
+    });
+
+    /** Scope accepted, then the implement turn fails the way a refused push does. */
+    async function failedInImplement() {
+      issueSeed += 1;
+      const issue = jira.add({ key: `PROJ-${issueSeed}`, summary: `Export orders ${issueSeed}`, project: 'PROJ' });
+      const started = await api()
+        .post(runsBase())
+        .set('Authorization', human(MEMBER))
+        .send({ issueKey: issue.key, repositoryKeys: ['orders-api'] })
+        .expect(201);
+      const runId = started.body.id as string;
+      const scopeTurn = await claimTurn();
+      await turnCall(scopeTurn, 'propose-scope', proposal).expect(200);
+      await complete(scopeTurn).expect(200);
+      await api().post(`${runsBase()}/${runId}/specs/1/accept`).set('Authorization', human(MEMBER)).expect(200);
+      await complete(await claimTurn(), {
+        outcome: { kind: 'failed', code: 'github_error', reason: 'GitHub refused the push (Internal Server Error)' },
+      }).expect(200);
+      return { runId, issue };
+    }
+
+    async function done() {
+      const { runId, issue, branch, turn } = await delivering();
+      const reports = openPulls(branch);
+      await complete(turn, { deliveries: reports }).expect(200);
+      await sweep.tick();
+      await sweep.tick();
+      expect((await detail(runId)).status).toBe('done');
+      return { runId, issue, branch, reports };
+    }
+
+    it('a run failed in implement reopens with a fresh allowance and one implement turn carrying the failure and the text', async () => {
+      const { runId } = await failedInImplement();
+      await prisma.cloudAgentRun.update({
+        where: { id: runId },
+        data: { spendUsd: 30, unknownSpendTurns: 3, activeSeconds: 90_000 },
+      });
+
+      const res = await continueRun(runId, 'The push hit a GitHub outage; push again.').expect(200);
+      expect(res.body).toMatchObject({
+        status: 'implementing',
+        phase: 'implement',
+        failureCode: null,
+        failureReason: null,
+        finishedAt: null,
+        continuations: 1,
+        spend: { usd: 30, maxUsd: 55, unknownTurns: 0 },
+      });
+      const settings = await prisma.agentRunSettings.findUniqueOrThrow({ where: { workspaceId } });
+      const reopened = await prisma.cloudAgentRun.findUniqueOrThrow({ where: { id: runId } });
+      expect(reopened.maxActiveSeconds).toBe(90_000 + settings.maxActiveSeconds);
+      const continued = (await events(runId)).find((event) => event.payload?.code === 'continued');
+      expect(continued?.payload).toMatchObject({
+        text: 'The push hit a GitHub outage; push again.',
+        from: 'failed',
+        by: MEMBER.id,
+      });
+
+      // Spent past the old cap, the turn is still claimed rather than failing the run on budget.
+      const turn = await claimTurn();
+      expect(turn.body.turn.kind).toBe('implement');
+      expect(turn.body.turn.inputText).toContain(
+        'failed (github_error): GitHub refused the push (Internal Server Error)',
+      );
+      expect(turn.body.turn.inputText).toContain('The push hit a GitHub outage; push again.');
+      await complete(turn, { outcome: { kind: 'failed', code: 'github_error', reason: 'again' } }).expect(200);
+
+      await continueRun(runId).expect(200);
+      expect((await claimTurn()).body.turn.inputText).toContain('Continue where you stopped.');
+    });
+
+    it('a delivery failure goes back to implement with text, and retries delivery without; a scope failure resumes scope', async () => {
+      const { runId, branch, turn } = await delivering({ status: 'partial', unmetCriteria: ['AC-7 needs staging'] });
+      await complete(turn, { deliveries: openPulls(branch) }).expect(200);
+      expect((await detail(runId)).failureCode).toBe('incomplete_result');
+
+      await continueRun(runId, 'AC-7 is checked after the merge; submit complete.').expect(200);
+      const implement = await claimTurn();
+      expect(implement.body.turn.kind).toBe('implement');
+      expect(implement.body.turn.inputText).toContain('are updated, not reopened');
+      await turnCall(implement, 'submit-result', {
+        status: 'partial',
+        summary: 'Still partial.',
+        repositories: [{ key: 'orders-api', summary: 'Export' }],
+        unmetCriteria: ['AC-7 needs staging'],
+      }).expect(200);
+      await complete(implement).expect(200);
+      const delivery = await claimTurn();
+      await complete(delivery, { deliveries: openPulls(branch) }).expect(200);
+      expect((await detail(runId)).status).toBe('failed');
+
+      await continueRun(runId).expect(200);
+      expect(await detail(runId)).toMatchObject({ status: 'delivering', phase: 'delivery' });
+      const retried = await claimTurn();
+      expect(retried.body.turn).toMatchObject({ kind: 'delivery', inputText: null });
+      await complete(retried, { deliveries: openPulls(branch) }).expect(200);
+
+      issueSeed += 1;
+      const issue = jira.add({ key: `PROJ-${issueSeed}`, summary: 'Scope failure', project: 'PROJ' });
+      const started = await api()
+        .post(runsBase())
+        .set('Authorization', human(MEMBER))
+        .send({ issueKey: issue.key, repositoryKeys: ['orders-api'] })
+        .expect(201);
+      await complete(await claimTurn(), {
+        outcome: { kind: 'failed', code: 'agent_error', reason: 'The model was unavailable.' },
+      }).expect(200);
+      await continueRun(started.body.id as string).expect(200);
+      expect((await claimTurn()).body.turn.kind).toBe('scope');
+    });
+
+    it('a done run goes back to implement with the review, is delivered into the same pull request, and gets its own Jira comment', async () => {
+      await api()
+        .put(`${runsBase()}/settings`)
+        .set('Authorization', human(ADMIN))
+        .send({ startedStatus: 'In Progress' })
+        .expect(200);
+      const { runId, issue, branch, reports } = await done();
+      const first = jira.commentsOn(issue.key);
+      expect(first).toHaveLength(1);
+      // A person marked the pull requests ready for review.
+      for (const report of reports) {
+        const name = report.key === 'orders-api' ? 'example-org/orders-api' : 'example-org/billing-api';
+        github.add(name, { number: report.pullRequest!.number, headRepo: name, headRef: branch, draft: false });
+      }
+
+      await continueRun(runId, 'Read the PR comments and fix them.').expect(200);
+      expect(await detail(runId)).toMatchObject({
+        status: 'implementing',
+        jiraOutcome: { transitions: { started: { state: 'pending' } } },
+      });
+      const implement = await claimTurn();
+      expect(implement.body.turn.inputText).toContain('read_pr_feedback');
+      expect(implement.body.turn.inputText).toContain(
+        `https://github.com/example-org/orders-api/pull/${reports[1]!.pullRequest!.number}`,
+      );
+      await turnCall(implement, 'submit-result', {
+        summary: 'Addressed the review.',
+        repositories: [
+          { key: 'orders-api', summary: 'Renamed the column' },
+          { key: 'billing-api', summary: 'Unchanged' },
+        ],
+      }).expect(200);
+      await complete(implement, { repositories: [pushed('orders-api'), pushed('billing-api')] }).expect(200);
+      await complete(await claimTurn(), { deliveries: reports }).expect(200);
+      await sweep.tick();
+      await sweep.tick();
+
+      const redelivered = await detail(runId);
+      expect(redelivered).toMatchObject({ status: 'done', continuations: 1 });
+      expect(redelivered.pullRequests.map((pull: { draft: boolean }) => pull.draft)).toEqual([false, false]);
+      const comments = jira.commentsOn(issue.key);
+      expect(comments).toHaveLength(2);
+      expect(commentHasMarker(comments[1]!.body, runMarker(runId, 'done', 1))).toBe(true);
+      expect(commentHasMarker(comments[0]!.body, runMarker(runId, 'done', 1))).toBe(false);
+    });
+
+    it('a failed run whose pull request was merged meanwhile is refused; a long multibyte message keeps the event', async () => {
+      const { runId, branch, turn } = await delivering({ status: 'partial', unmetCriteria: ['AC-7 needs staging'] });
+      const reports = openPulls(branch);
+      await complete(turn, { deliveries: reports }).expect(200);
+      github.add('example-org/orders-api', {
+        number: reports[1]!.pullRequest!.number,
+        headRepo: 'example-org/orders-api',
+        headRef: branch,
+        merged: true,
+        state: 'closed',
+      });
+      expect((await continueRun(runId, 'fix').expect(409)).body.code).toBe('PULL_REQUEST_CLOSED');
+
+      const { runId: failedId } = await failedInImplement();
+      await continueRun(failedId, '漢'.repeat(6_000)).expect(200);
+      const continued = (await events(failedId)).find((event) => event.payload?.code === 'continued');
+      expect(continued?.payload).toMatchObject({ from: 'failed', failureCode: 'github_error' });
+      expect(continued?.payload.text).toMatch(/^漢+ \[…\]$/);
+    });
+
+    it('a continued run waits in the queue for a free slot, then starts in its phase', async () => {
+      const { runId } = await failedInImplement();
+      await api()
+        .put(`${runsBase()}/settings`)
+        .set('Authorization', human(ADMIN))
+        .send({ maxStartedRuns: 1 })
+        .expect(200);
+      issueSeed += 1;
+      const other = jira.add({ key: `PROJ-${issueSeed}`, summary: 'Holds the slot', project: 'PROJ' });
+      await api()
+        .post(runsBase())
+        .set('Authorization', human(MEMBER))
+        .send({ issueKey: other.key, repositoryKeys: ['orders-api'] })
+        .expect(201);
+
+      expect((await continueRun(runId, 'Push again.').expect(200)).body.status).toBe('queued');
+      const holder = await claimTurn();
+      expect(holder.body.run.issueKey).toBe(other.key);
+      await complete(holder, { outcome: { kind: 'failed', code: 'agent_error', reason: 'Done holding' } }).expect(200);
+      // The continued run's turn is queued, but not handed out while the run waits for a slot.
+      await api()
+        .post(`${runnerBase()}/claim`)
+        .set('Authorization', `Bearer ${runnerToken}`)
+        .send({ protocolVersion: RUNNER_PROTOCOL_VERSION, versions: VERSIONS })
+        .expect(204);
+
+      await runs.promote(workspaceId, await prisma.agentRunSettings.findUniqueOrThrow({ where: { workspaceId } }));
+      expect((await detail(runId)).status).toBe('implementing');
+      const turn = await claimTurn();
+      expect(turn.body.turn).toMatchObject({ kind: 'implement', inputText: expect.stringContaining('Push again.') });
+    });
+
+    it('a continue while the failure comment is out drops that outcome; the continuation’s own failure gets its comment and transition', async () => {
+      await api()
+        .put(`${runsBase()}/settings`)
+        .set('Authorization', human(ADMIN))
+        .send({ startedStatus: 'In Progress', failedStatus: 'Blocked' })
+        .expect(200);
+      const { runId, issue } = await failedInImplement();
+      jira.duringNextComment = async () => {
+        await continueRun(runId, 'Try again.').expect(200);
+      };
+      await sweep.tick();
+      expect(jira.commentsOn(issue.key)).toHaveLength(1);
+      const reopened = await detail(runId);
+      expect(reopened.status).toBe('implementing');
+      expect(reopened.jiraOutcome.failure).toBeUndefined();
+      expect(reopened.jiraOutcome.transitions.failed).toBeUndefined();
+
+      later(1);
+      await sweep.tick();
+      expect(jira.appliedOn(issue.key)).toEqual(['41']);
+
+      await complete(await claimTurn(), {
+        outcome: { kind: 'failed', code: 'github_error', reason: 'Refused again' },
+      }).expect(200);
+      later(1);
+      await sweep.tick();
+      later(1);
+      await sweep.tick();
+      const comments = jira.commentsOn(issue.key);
+      expect(comments).toHaveLength(2);
+      expect(commentHasMarker(comments[1]!.body, runMarker(runId, 'failure', 1))).toBe(true);
+      expect(jira.appliedOn(issue.key)).toEqual(['41', '52']);
+    });
+
+    it('refuses without changing the run: running, cancelled, no text on done, a merged pull request, an open or newer run', async () => {
+      issueSeed += 1;
+      const issue = jira.add({ key: `PROJ-${issueSeed}`, summary: 'Refusals', project: 'PROJ' });
+      const running = await api()
+        .post(runsBase())
+        .set('Authorization', human(MEMBER))
+        .send({ issueKey: issue.key, repositoryKeys: ['orders-api'] })
+        .expect(201);
+      const runningId = running.body.id as string;
+      expect((await continueRun(runningId, 'go').expect(409)).body.code).toBe('RUN_NOT_CONTINUABLE');
+      expect(await detail(runningId)).toMatchObject({ status: 'scoping', continuations: 0 });
+      await api().post(`${runsBase()}/${runningId}/cancel`).set('Authorization', human(MEMBER)).expect(200);
+      expect((await continueRun(runningId, 'go').expect(409)).body.code).toBe('RUN_NOT_CONTINUABLE');
+      expect(await detail(runningId)).toMatchObject({ status: 'cancelled', continuations: 0 });
+
+      const { runId: doneId, branch, reports } = await done();
+      expect((await continueRun(doneId).expect(400)).body.code).toBe('TEXT_REQUIRED');
+      github.add('example-org/orders-api', {
+        number: reports[1]!.pullRequest!.number,
+        headRepo: 'example-org/orders-api',
+        headRef: branch,
+        merged: true,
+        state: 'closed',
+      });
+      expect((await continueRun(doneId, 'fix').expect(409)).body.code).toBe('PULL_REQUEST_CLOSED');
+      expect(await detail(doneId)).toMatchObject({ status: 'done', continuations: 0 });
+
+      const { runId: failedId } = await failedInImplement();
+      const rerun = await api().post(`${runsBase()}/${failedId}/rerun`).set('Authorization', human(MEMBER));
+      expect((await continueRun(failedId).expect(409)).body.code).toBe('ACTIVE_RUN_EXISTS');
+      await api().post(`${runsBase()}/${rerun.body.id}/cancel`).set('Authorization', human(MEMBER)).expect(200);
+      expect((await continueRun(failedId).expect(409)).body.code).toBe('RUN_SUPERSEDED');
+      expect(await detail(failedId)).toMatchObject({ status: 'failed', continuations: 0 });
     });
   });
 });

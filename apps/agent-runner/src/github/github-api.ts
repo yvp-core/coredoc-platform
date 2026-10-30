@@ -14,6 +14,34 @@ import type { StartupProblem } from '../runner.js';
 export interface ExistingPull {
   number: number;
   open: boolean;
+  url: string;
+}
+
+interface GithubUser {
+  login?: string;
+}
+
+export interface PullReview {
+  user: GithubUser | null;
+  state: string;
+  body: string | null;
+  submitted_at?: string;
+}
+
+export interface PullReviewComment {
+  id: number;
+  user: GithubUser | null;
+  path: string;
+  line: number | null;
+  body: string;
+  in_reply_to_id?: number;
+  created_at: string;
+}
+
+export interface IssueComment {
+  user: GithubUser | null;
+  body: string | null;
+  created_at: string;
 }
 
 /** `ambiguous`: look the pull request up before retrying. */
@@ -26,6 +54,14 @@ export const GITHUB_API_VERSION = '2022-11-28';
 /** The start-up check reads at most this many repositories the bot can see. */
 const BOT_CHECK_PAGE_SIZE = 100;
 const BOT_CHECK_MAX_PAGES = 10;
+const FEEDBACK_PAGE_SIZE = 100;
+const FEEDBACK_MAX_PAGES = 5;
+
+export interface Listed<T> {
+  items: T[];
+  /** Older items GitHub listed beyond the pages read. */
+  skipped: number;
+}
 
 export interface GithubApiOptions {
   token: string;
@@ -97,11 +133,53 @@ export class GithubApi {
       repository,
       failure,
     );
-    const pulls = ((await response.json().catch(() => [])) as Array<{ number?: unknown; state?: unknown }>).filter(
-      (pull): pull is { number: number; state: string } => typeof pull.number === 'number',
-    );
+    const pulls = (
+      (await response.json().catch(() => [])) as Array<{ number?: unknown; state?: unknown; html_url?: unknown }>
+    ).filter((pull): pull is { number: number; state: string; html_url?: unknown } => typeof pull.number === 'number');
     const pull = pulls.find((candidate) => candidate.state === 'open') ?? pulls[0];
-    return pull ? { number: pull.number, open: pull.state === 'open' } : null;
+    return pull
+      ? {
+          number: pull.number,
+          open: pull.state === 'open',
+          url: typeof pull.html_url === 'string' ? pull.html_url : '',
+        }
+      : null;
+  }
+
+  async botLogin(repository: AssignedRepository): Promise<string> {
+    const response = await this.ok(await this.get('/user', repository), repository, RunFailureCode.GithubError);
+    const body = (await response.json().catch(() => ({}))) as { login?: unknown };
+    return typeof body.login === 'string' ? body.login : '';
+  }
+
+  listReviews(repository: AssignedRepository, number: number): Promise<Listed<PullReview>> {
+    return this.list(`${this.repoPath(repository)}/pulls/${number}/reviews`, repository);
+  }
+
+  listReviewComments(repository: AssignedRepository, number: number): Promise<Listed<PullReviewComment>> {
+    return this.list(`${this.repoPath(repository)}/pulls/${number}/comments`, repository);
+  }
+
+  listIssueComments(repository: AssignedRepository, number: number): Promise<Listed<IssueComment>> {
+    return this.list(`${this.repoPath(repository)}/issues/${number}/comments`, repository);
+  }
+
+  /** GitHub lists oldest first; past FEEDBACK_MAX_PAGES pages the newest are kept and the older ones counted. */
+  private async list<T>(path: string, repository: AssignedRepository): Promise<Listed<T>> {
+    const page = async (number: number) => {
+      const response = await this.ok(
+        await this.get(`${path}?per_page=${FEEDBACK_PAGE_SIZE}&page=${number}`, repository),
+        repository,
+        RunFailureCode.GithubError,
+      );
+      const last = /[?&]page=(\d+)[^>]*>;\s*rel="last"/.exec(response.headers.get('link') ?? '');
+      return { items: (await response.json().catch(() => [])) as T[], last: last ? Number(last[1]) : number };
+    };
+    const first = await page(1);
+    const from = Math.max(1, first.last - FEEDBACK_MAX_PAGES + 1);
+    const items = from === 1 ? [...first.items] : [];
+    for (let number = Math.max(2, from); number <= first.last; number += 1) items.push(...(await page(number)).items);
+    return { items, skipped: (from - 1) * FEEDBACK_PAGE_SIZE };
   }
 
   /** Never retried here: after an ambiguous answer the caller looks the pull request up by head first. */

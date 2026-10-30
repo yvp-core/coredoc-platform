@@ -6,6 +6,7 @@ export const PROPOSE_SCOPE_TOOL = 'mcp__agent_run__propose_scope';
 export const SUBMIT_RESULT_TOOL = 'mcp__agent_run__submit_result';
 export const REQUEST_REPO_TOOL = 'mcp__agent_run__request_repo';
 export const READ_REPO_TOOL = 'mcp__agent_run__read_repo';
+export const READ_PR_FEEDBACK_TOOL = 'mcp__agent_run__read_pr_feedback';
 
 /**
  * `entrySkill` is the skill still to invoke in this session; `methodOwnedBySkill` says the manifest names one for
@@ -43,6 +44,7 @@ export function runPreamble(turn: TurnAssignment, entrySkill?: string, methodOwn
       : []),
     ...(turn.turn.kind === TurnKind.Implement
       ? [
+          `- ${READ_PR_FEEDBACK_TOOL}: reads the review feedback on this run's pull requests.`,
           run.scopeAcceptancePolicy === 'automatic'
             ? `- ${REQUEST_REPO_TOOL}: ask for a repository the accepted scope left out, by its durable repository key, with the reason. A repository that passes the checks is added and cloned at once, and the tool answers with its path.`
             : `- ${REQUEST_REPO_TOOL}: ask for a repository the accepted scope left out, by its durable repository key, with the reason. A person decides whether to add it, so the request ends your turn; the decision arrives when your session resumes.`,

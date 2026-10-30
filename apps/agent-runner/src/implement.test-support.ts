@@ -151,6 +151,8 @@ export class FakeGithub {
   readonly repositories = new Map<string, FakeRepository>();
   readonly requests: Array<{ method: string; path: string; authorization?: string; apiVersion?: string }> = [];
   readonly pulls: FakePull[] = [];
+  /** Review feedback by `owner/name#number`, in GitHub's wire shape. */
+  readonly feedback = new Map<string, { reviews: unknown[]; comments: unknown[]; conversation: unknown[] }>();
   createAnswers: CreateAnswer[] = [];
   /** Runs before each create is answered; tests use it to stop the turn mid-delivery. */
   beforeCreate: (() => Promise<void>) | null = null;
@@ -254,6 +256,18 @@ export class FakeGithub {
         res.end(JSON.stringify(body));
       };
       if (req.headers.authorization !== `Bearer ${BOT_TOKEN}`) return reply(401, { message: 'Bad credentials' });
+      if (url.pathname === '/user') return reply(200, { login: 'coredoc-bot' });
+      const listed = /^\/repos\/([^/]+\/[^/]+)\/(pulls|issues)\/(\d+)\/(reviews|comments)$/.exec(url.pathname);
+      if (method === 'GET' && listed) {
+        const feedback = this.feedback.get(`${listed[1]}#${listed[3]}`);
+        const list = listed[4] === 'reviews' ? 'reviews' : listed[2] === 'pulls' ? 'comments' : 'conversation';
+        const all = feedback?.[list] ?? [];
+        const size = Number(url.searchParams.get('per_page') ?? 30);
+        const page = Number(url.searchParams.get('page') ?? 1);
+        const last = Math.max(1, Math.ceil(all.length / size));
+        const link = `<http://github.test${url.pathname}?per_page=${size}&page=${last}>; rel="last"`;
+        return reply(200, all.slice((page - 1) * size, page * size), last > 1 ? { link } : {});
+      }
       const pulls = /^\/repos\/([^/]+)\/([^/]+)\/pulls(.*)$/.exec(req.url ?? '');
       if (pulls) {
         if (!this.repositories.has(`${pulls[1]}/${pulls[2]}`)) return reply(404, { message: 'Not Found' });
@@ -328,6 +342,8 @@ export interface SessionStep {
   calls?: Array<RequestRepoRequest | ((cwd: string) => Promise<void>)>;
   /** `read_repo` calls before `act`; tool results land in `toolResults`. */
   reads?: ReadRepoRequest[];
+  /** Calls `read_pr_feedback` before `act`; its result lands in `toolResults`. */
+  readFeedback?: boolean;
   /** Edits the agent makes; `cwd` is the work directory holding the clones. */
   act?: (cwd: string) => Promise<void>;
   submit?: SubmitResultRequest;
@@ -421,6 +437,10 @@ export function fakeImplementQuery(steps: SessionStep[], seen: SeenSession[]): Q
       }
       for (const read of step.reads ?? []) {
         const answer = await callTool('read_repo', read);
+        record.toolResults.push(JSON.stringify({ isError: answer.isError ?? false, content: answer.content }));
+      }
+      if (step.readFeedback) {
+        const answer = await callTool('read_pr_feedback', {});
         record.toolResults.push(JSON.stringify({ isError: answer.isError ?? false, content: answer.content }));
       }
       await step.act?.(options.cwd!);

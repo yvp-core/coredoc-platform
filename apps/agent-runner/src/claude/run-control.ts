@@ -24,6 +24,8 @@ export interface RunControlState {
   candidateKeys?: string[];
   /** Turns with a branch scan (scope and implement); throws with the reason the agent should see. */
   readRepository?: (key: string, branch?: string) => Promise<string>;
+  /** Implement turns only; throws with the reason the agent should see. */
+  readPullFeedback?: () => Promise<string>;
   /** Implement turns only; throws when the repository cannot be used, which fails the turn. */
   cloneRepository?: (repository: AssignedRepository) => Promise<string>;
   /** Further tool calls are refused with the reason; a session that does not end itself within `graceMs` is stopped. */
@@ -156,12 +158,26 @@ export function runControlServer(
       }
     },
   );
+  const readPrFeedback = tool(
+    'read_pr_feedback',
+    "Read the reviews, review comments and conversation comments on this run's pull requests, oldest first.",
+    {},
+    async () => {
+      try {
+        return { content: [{ type: 'text' as const, text: await state.readPullFeedback!() }] };
+      } catch (error) {
+        return { isError: true, content: [{ type: 'text' as const, text: (error as Error).message }] };
+      }
+    },
+  );
   const reading = state.readRepository ? [readRepo] : [];
+  const feedback = state.readPullFeedback ? [readPrFeedback] : [];
   return createSdkMcpServer({
     name: RUN_CONTROL_SERVER,
     version: '1.0.0',
     alwaysLoad: true,
-    tools: kind === TurnKind.Implement ? [...reading, requestRepo, submitResult] : [...reading, proposeScope],
+    tools:
+      kind === TurnKind.Implement ? [...reading, ...feedback, requestRepo, submitResult] : [...reading, proposeScope],
   });
 }
 
