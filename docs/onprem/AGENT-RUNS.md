@@ -406,8 +406,8 @@ session from the last state archive.
 - Refused: a cancelled or still-running run (`RUN_NOT_CONTINUABLE`; re-run
   it instead), another open run of the issue (`ACTIVE_RUN_EXISTS`), a newer run
   of the issue (`RUN_SUPERSEDED`), a done run without a message
-  (`TEXT_REQUIRED`), and a done run with a merged or closed pull request
-  (`PULL_REQUEST_CLOSED`; start a new run). When that check cannot reach
+  (`TEXT_REQUIRED`), and a run, failed or done, whose pull request was merged
+  or closed (`PULL_REQUEST_CLOSED`; start a new run). When that check cannot reach
   GitHub, or a repository no longer resolves, the refusal is
   `GITHUB_UNAVAILABLE` with the reason.
 - A continued run joins the queue like a new one: it starts in its phase when

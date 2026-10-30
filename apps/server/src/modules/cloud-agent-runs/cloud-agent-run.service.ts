@@ -33,7 +33,14 @@ import {
   TurnState,
 } from './run-states.js';
 import { createRun, type NewRun, promoteQueuedRuns } from './run-queue.js';
-import { CLOUD_AGENT_RUNS_CLOCK, type Clock, lockCloudAgentRunCreation, systemClock, type Tx } from './run-store.js';
+import {
+  CLOUD_AGENT_RUNS_CLOCK,
+  type Clock,
+  lockCloudAgentRunCreation,
+  MAX_EVENT_PAYLOAD_BYTES,
+  systemClock,
+  type Tx,
+} from './run-store.js';
 import { cancelRun, lockRun, queueTurn, setRunStatus } from './run-transitions.js';
 import { isUniqueViolation } from '../../libs/coerce.js';
 
@@ -274,10 +281,11 @@ export class CloudAgentRunService {
         HttpStatus.BAD_REQUEST,
       );
     }
+    // Any run with recorded pull requests, failed ones too: work pushed after a merge would reach none.
     // GitHub is read outside the transaction; the lock then checks the run has not moved since.
-    let closed: RecordedPullRequest[] = [];
+    let closed: RecordedPullRequest[];
     try {
-      if (seen.status === RunStatus.Done) closed = await this.delivery.closedPullRequests(seen);
+      closed = await this.delivery.closedPullRequests(seen);
     } catch (error) {
       throw cloudAgentRunError(
         CloudAgentRunErrorCode.GithubUnavailable,
@@ -338,16 +346,18 @@ export class CloudAgentRunService {
         [
           {
             type: ServerEventType.RunEvent,
-            payload: {
-              code: RunEventCode.Continued,
-              text: text.length > MAX_CONTINUED_EVENT_TEXT ? `${text.slice(0, MAX_CONTINUED_EVENT_TEXT)} […]` : text,
-              by: actorId,
-              // The reopened run clears these; the timeline keeps how it had ended.
-              from: run.status,
-              failureCode: run.failureCode,
-              failureReason: run.failureReason,
-              finishedAt: run.finishedAt?.toISOString() ?? null,
-            },
+            payload: continuedPayload(
+              {
+                code: RunEventCode.Continued,
+                by: actorId,
+                // The reopened run clears these; the timeline keeps how it had ended.
+                from: run.status,
+                failureCode: run.failureCode,
+                failureReason: run.failureReason && byteCut(run.failureReason, 4 * 1024),
+                finishedAt: run.finishedAt?.toISOString() ?? null,
+              },
+              text,
+            ),
           },
         ],
       );
@@ -555,8 +565,23 @@ export class CloudAgentRunService {
   }
 }
 
-/** The event keeps a preview within the event payload cap; the turn input keeps the whole text. */
-const MAX_CONTINUED_EVENT_TEXT = 8_000;
+/**
+ * A payload over the event cap would be replaced by a bare preview, losing the fields the timeline
+ * needs, so the text is cut until it fits. The turn input keeps the whole text.
+ */
+function continuedPayload(fields: Record<string, unknown>, text: string): Record<string, unknown> {
+  for (let budget = MAX_EVENT_PAYLOAD_BYTES; ; budget = Math.floor(budget / 2)) {
+    const payload = { ...fields, text: byteCut(text, budget) };
+    if (budget === 0 || Buffer.byteLength(JSON.stringify(payload), 'utf8') <= MAX_EVENT_PAYLOAD_BYTES) return payload;
+  }
+}
+
+/** At most `bytes` of UTF-8 on a character boundary, marked when cut. */
+function byteCut(text: string, bytes: number): string {
+  const encoded = Buffer.from(text, 'utf8');
+  if (encoded.length <= bytes) return text;
+  return `${encoded.subarray(0, bytes).toString('utf8').replace(/�+$/, '')} […]`;
+}
 
 /** Server-written: what stopped the run, the person's text, and how the phase ends. */
 function continuationInput(

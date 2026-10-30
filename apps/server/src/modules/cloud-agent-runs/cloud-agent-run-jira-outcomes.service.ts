@@ -430,7 +430,14 @@ export class CloudAgentRunJiraOutcomes {
     await this.prisma.$transaction(async (tx) => {
       const locked = await lockRun(tx, run.workspaceId, run.id);
       const current = locked ? jiraOutcomeOf(locked) : null;
-      if (!locked || locked.status !== RunStatus.Delivering || current?.done?.state !== 'pending') return;
+      if (
+        !locked ||
+        locked.status !== RunStatus.Delivering ||
+        current?.done?.state !== 'pending' ||
+        continuedSince(locked, run)
+      ) {
+        return;
+      }
       const events: NewRunEvent[] = [];
       if (done.state === 'posted') events.push(commented('Posted the done comment on Jira'));
       else if (done.reason === MARKER_UNKNOWN) events.push(warning(MARKER_UNKNOWN));

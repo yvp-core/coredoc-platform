@@ -1142,6 +1142,26 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       expect(commentHasMarker(comments[0]!.body, runMarker(runId, 'done', 1))).toBe(false);
     });
 
+    it('a failed run whose pull request was merged meanwhile is refused; a long multibyte message keeps the event', async () => {
+      const { runId, branch, turn } = await delivering({ status: 'partial', unmetCriteria: ['AC-7 needs staging'] });
+      const reports = openPulls(branch);
+      await complete(turn, { deliveries: reports }).expect(200);
+      github.add('example-org/orders-api', {
+        number: reports[1]!.pullRequest!.number,
+        headRepo: 'example-org/orders-api',
+        headRef: branch,
+        merged: true,
+        state: 'closed',
+      });
+      expect((await continueRun(runId, 'fix').expect(409)).body.code).toBe('PULL_REQUEST_CLOSED');
+
+      const { runId: failedId } = await failedInImplement();
+      await continueRun(failedId, '漢'.repeat(6_000)).expect(200);
+      const continued = (await events(failedId)).find((event) => event.payload?.code === 'continued');
+      expect(continued?.payload).toMatchObject({ from: 'failed', failureCode: 'github_error' });
+      expect(continued?.payload.text).toMatch(/^漢+ \[…\]$/);
+    });
+
     it('a continued run waits in the queue for a free slot, then starts in its phase', async () => {
       const { runId } = await failedInImplement();
       await api()
