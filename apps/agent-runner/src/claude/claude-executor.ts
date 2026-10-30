@@ -19,6 +19,7 @@ import { listBaseCandidates } from '../git/branch-scan.js';
 import { repositoryReader } from '../git/read-repo.js';
 import { type Clone, TurnGit } from '../git/turn-git.js';
 import { type BotGithubOptions, botGithub, checkBotPermissions, requireBot } from '../github/bot-github.js';
+import { pullFeedback } from '../github/pull-feedback.js';
 import { sdkPlugins } from '../manifest.js';
 import { type PackageRegistry, writeUserRegistryConfig } from '../package-registries.js';
 import type { RunnerApiClient } from '../runner-api.js';
@@ -173,6 +174,12 @@ export class ClaudeExecutor implements TurnExecutor {
 
     const control: RunControlState = { proposedVersion: null, submitted: false };
     if (turn.branchScan) control.readRepository = repositoryReader(git, turn.branchScan, paths.work);
+    control.readPullFeedback = () =>
+      pullFeedback(
+        botGithub(this.options),
+        clones.map((clone) => clone.repository),
+        turn.run.branch,
+      );
     // request_repo under automatic acceptance: the server added the repository, so clone it mid-turn.
     let cloneFailure: TurnFailure | null = null;
     control.cloneRepository = async (repository) => {

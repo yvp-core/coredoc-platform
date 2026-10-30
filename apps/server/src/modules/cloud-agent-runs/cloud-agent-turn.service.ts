@@ -49,6 +49,7 @@ import {
   RunFailureCode,
   RunnerSeenAction,
   RunPhase,
+  RunStatus,
   ScopeAcceptancePolicy,
   ServerEventType,
   TERMINAL_RUN_STATUSES,
@@ -248,7 +249,7 @@ export class CloudAgentTurnService {
           JOIN cloud_agent_runs r ON r.id = t.run_id
           WHERE t.workspace_id = ${runner.workspaceId}::uuid
             AND t.state = ${TurnState.Queued}
-            AND r.status <> ALL(${[...TERMINAL_RUN_STATUSES]}::text[])
+            AND r.status <> ALL(${[...TERMINAL_RUN_STATUSES, RunStatus.Queued]}::text[])
           ORDER BY t.created_at, t.id
           LIMIT 1
           FOR UPDATE OF t SKIP LOCKED

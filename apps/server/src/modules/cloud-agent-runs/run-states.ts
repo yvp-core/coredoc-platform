@@ -32,6 +32,13 @@ export function isTerminalRunStatus(status: string): boolean {
 /** A run's phase is the kind of turn it runs. */
 export { TurnKind as RunPhase };
 
+/** The status of a run working in a phase. */
+export const ACTIVE_STATUS_OF_PHASE: Partial<Record<string, RunStatus>> = {
+  [TurnKind.Scope]: RunStatus.Scoping,
+  [TurnKind.Implement]: RunStatus.Implementing,
+  [TurnKind.Delivery]: RunStatus.Delivering,
+};
+
 export enum RunTrigger {
   JiraLabel = 'jira_label',
   Manual = 'manual',
@@ -97,6 +104,7 @@ export enum RunEventCode {
   Warning = 'warning',
   RepositoryAdded = 'repository_added',
   RepositoryDeclined = 'repository_declined',
+  Continued = 'continued',
 }
 
 /** Agent event types come from the runner contract. */
@@ -134,6 +142,11 @@ export enum CloudAgentRunErrorCode {
   TranscriptTooLarge = 'TRANSCRIPT_TOO_LARGE',
   InvalidReport = 'INVALID_REPORT',
   RateLimited = 'RATE_LIMITED',
+  RunNotContinuable = 'RUN_NOT_CONTINUABLE',
+  RunSuperseded = 'RUN_SUPERSEDED',
+  TextRequired = 'TEXT_REQUIRED',
+  PullRequestClosed = 'PULL_REQUEST_CLOSED',
+  GithubUnavailable = 'GITHUB_UNAVAILABLE',
 }
 
 const ERROR_NAMES: Partial<Record<number, string>> = {

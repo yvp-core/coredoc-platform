@@ -377,6 +377,42 @@ branch must build on that branch, not the default one.
 - Upgrade the runner with the server. A runner older than base-branch support
   ignores a recorded base, and its pull request then fails delivery.
 
+**Continuing a run.** A member continues a failed or done run from its page,
+with a message for the agent (up to 20,000 characters). The run is reopened;
+it is not a new run, so it keeps its branch, its pull requests and the agent's
+session from the last state archive.
+
+| Run | Message | Next turn |
+|---|---|---|
+| Failed in scope | Optional | Scope |
+| Failed in implement | Optional | Implement |
+| Failed in delivery | Given | Implement (for example, `incomplete_result` for a check that runs after the merge) |
+| Failed in delivery | None | Delivery again |
+| Done | Required | Implement, then delivery into the same pull requests |
+
+- No message means "continue where you stopped". The agent also gets the
+  failure reason, or the run's pull request links.
+- On implement turns, `read_pr_feedback` gives the agent the reviews, inline
+  comments and conversation comments of the run branch's pull requests, so a
+  message such as "read the PR comments and fix them" works. Resolved threads
+  are not marked. On a very long discussion it keeps the newest comments
+  (64 KiB) and says how many older ones it left out.
+- Each continuation gets a fresh allowance: the spend and active-time limits
+  restart from the current settings.
+- Jira: the issue moves to the started status again, and the continuation's
+  end posts its own done or failure comment and transition.
+- After the 30-day archive retention (§10), or after a secret-scan block, the
+  session starts fresh from the accepted specification and the message.
+- Refused: a cancelled or still-running run (`RUN_NOT_CONTINUABLE`; re-run
+  it instead), another open run of the issue (`ACTIVE_RUN_EXISTS`), a newer run
+  of the issue (`RUN_SUPERSEDED`), a done run without a message
+  (`TEXT_REQUIRED`), and a done run with a merged or closed pull request
+  (`PULL_REQUEST_CLOSED`; start a new run). When that check cannot reach
+  GitHub, or a repository no longer resolves, the refusal is
+  `GITHUB_UNAVAILABLE` with the reason.
+- A continued run joins the queue like a new one: it starts in its phase when
+  the workspace has a free started-run slot, after the runs queued before it.
+
 Runs queue without a runner and say they are waiting, so a runner restart
 never refuses a start. The runner logs its runner, SDK, Claude Code and plugin
 versions at start-up.
@@ -490,7 +526,7 @@ The server side has one setting of its own, `AGENT_RUN_RETENTION_ENABLED`
 | Scratch per replica | `16Gi` | Clones, installed dependencies and package caches of one turn, wiped after it. Measured: about 6 GiB for five large backend services, about 12 GiB for five large web apps. |
 | Runner CPU / memory | 1 CPU / 2Gi request, 4 CPU / 8Gi limit | Builds and tests run inside the pod; raise with your toolchains. |
 | Base image | about 700 MB (about 290 MB compressed) | A derived image with five Node majors and Go measured about 1.9 GB. |
-| State archives (object storage) | capped at 128 MiB per archive | Measured median 2.3 MiB; deleted 30 days after the run ends. |
+| State archives (object storage) | capped at 128 MiB per archive | Measured median 2.3 MiB; deleted 30 days after the run ends. A failed turn keeps its archive too (not after a secret-scan block), for its transcript and for continuing the run. |
 
 ### One Job per turn
 

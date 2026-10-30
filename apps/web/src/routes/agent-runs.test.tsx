@@ -30,6 +30,7 @@ function run(overrides: Record<string, unknown> = {}) {
     branch: 'coredoc/PROJ-7',
     failureCode: null,
     failureReason: null,
+    continuations: 0,
     spend: { usd: 0, maxUsd: 25, unknownTurns: 0 },
     currentTurn: {
       id: 't1',
@@ -135,6 +136,7 @@ let answerReply: 'ok' | 'already_answered' = 'ok';
 
 let specs: ReturnType<typeof spec>[] = [];
 let reviewAnswer: 'ok' | 'stale' = 'ok';
+let continueReply: 'ok' | 'closed' = 'ok';
 
 let agentRunsEnabled = true;
 let posts: { path: string; body: unknown }[] = [];
@@ -160,6 +162,7 @@ beforeEach(() => {
   timelineEvents = EVENTS;
   specs = [];
   reviewAnswer = 'ok';
+  continueReply = 'ok';
   answerReply = 'ok';
   availability = { available: true, reasons: [] };
   runnerTokens = [];
@@ -199,6 +202,20 @@ beforeEach(() => {
         }
         if (path.endsWith('/cancel')) {
           detail = { ...detail, status: 'cancelled', currentTurn: null };
+          return new Response(JSON.stringify(detail));
+        }
+        if (path.endsWith('/continue')) {
+          if (continueReply === 'closed') {
+            return new Response(
+              JSON.stringify({
+                statusCode: 409,
+                code: 'PULL_REQUEST_CLOSED',
+                message: 'https://github.com/o/r/pull/1 is merged or closed; start a new run instead',
+              }),
+              { status: 409 },
+            );
+          }
+          detail = { ...detail, status: 'implementing', failureCode: null, failureReason: null, continuations: 1 };
           return new Response(JSON.stringify(detail));
         }
         if (path.endsWith('/rerun')) {
@@ -471,6 +488,38 @@ describe('agent runs routes', () => {
     expect(await screen.findByRole('button', { name: 'Re-run' })).toBeInTheDocument();
     expect(screen.getAllByText('Cancelled').length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: 'Cancel run' })).toBeNull();
+  });
+
+  it('continues a failed run with an optional message, and a done run only with review feedback', async () => {
+    detail = run({ status: 'failed', failureCode: 'github_error', failureReason: 'Push refused', currentTurn: null });
+    mount(`/w/acme/agent-runs/${RUN_ID}`);
+    const form = await screen.findByRole('form', { name: 'Continue the run' });
+    fireEvent.change(within(form).getByRole('textbox'), { target: { value: 'Push again.' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Continue' }));
+    await waitFor(() =>
+      expect(posts).toEqual([
+        { path: `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/continue`, body: { text: 'Push again.' } },
+      ]),
+    );
+    await waitFor(() => expect(screen.queryByRole('form', { name: 'Continue the run' })).toBeNull());
+
+    cleanup();
+    posts = [];
+    continueReply = 'closed';
+    detail = run({ status: 'done', currentTurn: null });
+    mount(`/w/acme/agent-runs/${RUN_ID}`);
+    const review = await screen.findByRole('form', { name: 'Continue the run' });
+    const send = within(review).getByRole('button', { name: 'Continue' });
+    expect(send).toBeDisabled();
+    fireEvent.change(within(review).getByRole('textbox'), { target: { value: 'Fix the review comments.' } });
+    fireEvent.click(send);
+    expect(await within(review).findByText(/is merged or closed; start a new run instead/)).toBeInTheDocument();
+    expect(posts).toEqual([
+      {
+        path: `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}/continue`,
+        body: { text: 'Fix the review comments.' },
+      },
+    ]);
   });
 
   it('offers no cancel once the run has ended', async () => {

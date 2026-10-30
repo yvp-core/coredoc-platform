@@ -57,6 +57,7 @@ export interface AgentRun {
   notes: string | null;
   failureCode: string | null;
   failureReason: string | null;
+  continuations: number;
   spend: { usd: number; maxUsd: number; unknownTurns: number };
   /** The queued or claimed turn, if any. */
   currentTurn: AgentRunTurn | null;

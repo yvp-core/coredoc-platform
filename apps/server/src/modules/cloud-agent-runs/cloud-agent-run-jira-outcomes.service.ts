@@ -53,6 +53,11 @@ const MARKER_UNKNOWN =
 
 class ConnectorUnavailable extends Error {}
 
+/** A person continued the run while its Jira call was out: the outcome belongs to the earlier end, so it is dropped. */
+function continuedSince(locked: CloudAgentRun | null, read: CloudAgentRun): boolean {
+  return locked !== null && locked.continuations !== read.continuations;
+}
+
 function transientJira(error: unknown): { retryAfterMs: number | null } | false {
   if (error instanceof JiraRateLimitError) return { retryAfterMs: error.retryAfterMs };
   if (error instanceof JiraApiError)
@@ -239,7 +244,7 @@ export class CloudAgentRunJiraOutcomes {
       const locked = await lockRun(tx, run.workspaceId, run.id);
       const current = locked ? jiraOutcomeOf(locked) : null;
       const queued = current?.transitions?.[event];
-      if (!locked || !current || queued?.state !== 'pending') return;
+      if (!locked || !current || queued?.state !== 'pending' || continuedSince(locked, run)) return;
       await this.writeTransition(tx, locked, current, event, { ...queued, ...patch, nextAttemptAt: null });
       await appendRunEvents(tx, { workspaceId: locked.workspaceId, runId: locked.id }, events, at);
     });
@@ -251,7 +256,7 @@ export class CloudAgentRunJiraOutcomes {
       const locked = await lockRun(tx, run.workspaceId, run.id);
       const current = locked ? jiraOutcomeOf(locked) : null;
       const queued = current?.transitions?.[event];
-      if (!locked || !current || queued?.state !== 'pending') return;
+      if (!locked || !current || queued?.state !== 'pending' || continuedSince(locked, run)) return;
       const attempts = queued.attempts + 1;
       const reason = `The issue could not be moved to ${queued.status}: ${describe(error)}`;
       if (!isPermanent(error) && attempts < MAX_ATTEMPTS) {
@@ -307,7 +312,7 @@ export class CloudAgentRunJiraOutcomes {
       let commentId = outcome.commentId ?? null;
       if (!commentId) {
         const runUrl = await runPageUrl(this.prisma, run.workspaceId, run.id);
-        commentId = await this.postOnce(target.client, run, runMarker(run.id, 'done'), (marker) =>
+        commentId = await this.postOnce(target.client, run, runMarker(run.id, 'done', run.continuations), (marker) =>
           doneComment({ pullRequests: this.commentPulls(run), runUrl, marker }),
         );
         if (!commentId) {
@@ -339,8 +344,11 @@ export class CloudAgentRunJiraOutcomes {
       const message = run.failureCode
         ? FAILURE_MESSAGES[fromColumn(RunFailureCode, run.failureCode)]
         : 'The run failed; the run page says why.';
-      const commentId = await this.postOnce(target.client, run, runMarker(run.id, 'failure'), (marker) =>
-        failureComment({ message, pullRequests: this.commentPulls(run), runUrl, marker }),
+      const commentId = await this.postOnce(
+        target.client,
+        run,
+        runMarker(run.id, 'failure', run.continuations),
+        (marker) => failureComment({ message, pullRequests: this.commentPulls(run), runUrl, marker }),
       );
       if (!commentId) {
         await this.settle(run, 'failure', { state: 'skipped', reason: MARKER_UNKNOWN }, [warning(MARKER_UNKNOWN)]);
@@ -459,7 +467,9 @@ export class CloudAgentRunJiraOutcomes {
     await this.prisma.$transaction(async (tx) => {
       const locked = await lockRun(tx, run.workspaceId, run.id);
       const current = locked ? jiraOutcomeOf(locked) : null;
-      if (!locked || !current || (current[kind]?.state ?? 'pending') !== 'pending') return;
+      if (!locked || !current || (current[kind]?.state ?? 'pending') !== 'pending' || continuedSince(locked, run)) {
+        return;
+      }
       const next: RunJiraOutcome = {
         ...current,
         [kind]: { state: 'pending', attempts: 0, ...current[kind], nextAttemptAt: null, ...patch },
@@ -480,7 +490,7 @@ export class CloudAgentRunJiraOutcomes {
     await this.prisma.$transaction(async (tx) => {
       const locked = await lockRun(tx, run.workspaceId, run.id);
       const current = locked ? jiraOutcomeOf(locked) : null;
-      if (!locked || !current || current[kind]?.state !== 'pending') return;
+      if (!locked || !current || current[kind]?.state !== 'pending' || continuedSince(locked, run)) return;
       await tx.cloudAgentRun.update({
         where: { id: locked.id },
         data: {
@@ -498,7 +508,7 @@ export class CloudAgentRunJiraOutcomes {
       const locked = await lockRun(tx, run.workspaceId, run.id);
       const current = locked ? jiraOutcomeOf(locked) : null;
       const outcome = current?.[kind] ?? { state: 'pending', attempts: 0, nextAttemptAt: null };
-      if (!locked || !current || outcome.state !== 'pending') return;
+      if (!locked || !current || outcome.state !== 'pending' || continuedSince(locked, run)) return;
       const attempts = outcome.attempts + 1;
       const giveUp = isPermanent(error) || attempts >= MAX_ATTEMPTS;
       const next: JiraCommentOutcome = giveUp

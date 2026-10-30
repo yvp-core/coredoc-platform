@@ -19,8 +19,9 @@ const link = (value: string, href: string): AdfNode => ({
 });
 const paragraph = (...content: AdfNode[]): AdfNode => ({ type: 'paragraph', content });
 
-export function runMarker(runId: string, kind: 'done' | 'failure'): string {
-  return `coredoc-agent-run:${runId}:${kind}`;
+/** A continued run's end gets its own comment: the marker carries the continuation. */
+export function runMarker(runId: string, kind: 'done' | 'failure', continuations = 0): string {
+  return `coredoc-agent-run:${runId}:${kind}${continuations ? `-${continuations}` : ''}`;
 }
 
 export function commentHasMarker(body: unknown, marker: string): boolean {

@@ -1706,11 +1706,15 @@ model CloudAgentRun {
   jiraOutcome            Json      @default("{}") @map("jira_outcome") @db.JsonB
   assumptions            Json      @default("[]") @db.JsonB
   outcomeLessCount       Int       @default(0) @map("outcome_less_count")
+  /// How many times a person continued the run after it ended; numbers its Jira comment markers.
+  continuations          Int       @default(0)
   /// The implement phase's adopted `submit_result`: summary, per-repository summaries, notes.
   result                 Json?     @db.JsonB
   /// Last timeline sequence number handed out; the run row serialises numbering.
   lastEventSeq           Int       @default(0) @map("last_event_seq")
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  /// When the run joined the queue: at creation, and again when a person continues it.
+  queuedAt               DateTime  @default(now()) @map("queued_at") @db.Timestamptz
   startedAt              DateTime? @map("started_at") @db.Timestamptz
   finishedAt             DateTime? @map("finished_at") @db.Timestamptz
   lastTurnEndedAt        DateTime? @map("last_turn_ended_at") @db.Timestamptz

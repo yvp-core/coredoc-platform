@@ -30,6 +30,8 @@ import { CloudAgentRunService } from './cloud-agent-run.service.js';
 import {
   type AnswerQuestionInput,
   AnswerQuestionSchema,
+  type ContinueRunInput,
+  ContinueRunSchema,
   EventsQuerySchema,
   ListRunsQuerySchema,
   RequestScopeChangesSchema,
@@ -158,6 +160,18 @@ export class CloudAgentRunsController {
   @WorkspaceRole('member')
   cancel(@Param('workspaceId') workspaceId: string, @Param('runId', ParseUUIDPipe) runId: string) {
     return this.runs.cancel(workspaceId, runId);
+  }
+
+  @Post(':runId/continue')
+  @HttpCode(200)
+  @WorkspaceRole('member')
+  continueRun(
+    @Param('workspaceId') workspaceId: string,
+    @Param('runId', ParseUUIDPipe) runId: string,
+    @Body(new ZodValidationPipe(ContinueRunSchema)) body: ContinueRunInput,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.runs.continueRun(workspaceId, runId, user.id, body.text);
   }
 
   @Post(':runId/rerun')

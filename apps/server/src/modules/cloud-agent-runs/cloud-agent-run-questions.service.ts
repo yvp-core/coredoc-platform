@@ -9,6 +9,7 @@ import {
 } from './cloud-agent-run-repository-requests.service.js';
 import type { QuestionAnswer } from './cloud-agent-runs.contract.js';
 import {
+  ACTIVE_STATUS_OF_PHASE,
   cloudAgentRunError,
   CloudAgentRunErrorCode,
   fromColumn,
@@ -25,11 +26,6 @@ import { lockRun, queueTurn, setRunStatus } from './run-transitions.js';
 
 export const ASSUME_ANSWER =
   'No one is available to answer. Choose the option you judge best, continue, and list this decision in the assumptions of your next propose_scope or submit_result call.';
-
-const ACTIVE_STATUS_OF_PHASE: Record<string, string> = {
-  [RunPhase.Scope]: RunStatus.Scoping,
-  [RunPhase.Implement]: RunStatus.Implementing,
-};
 
 const asQuestions = (row: CloudAgentRunQuestion) => row.questions as unknown as AskedQuestion[];
 const asAnswers = (row: CloudAgentRunQuestion) => (row.answers ?? null) as unknown as QuestionAnswer[] | null;
