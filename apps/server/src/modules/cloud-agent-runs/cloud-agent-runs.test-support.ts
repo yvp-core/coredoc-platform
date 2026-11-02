@@ -63,6 +63,8 @@ export class FakeJira {
   listedComments: number | null = null;
   /** The next comment is stored, then the call throws: Jira accepted it and the caller crashed. */
   crashAfterNextComment = false;
+  /** Runs once while the next comment call is in flight, before Jira answers. */
+  duringNextComment: (() => Promise<void>) | null = null;
   private commentSeq = 0;
 
   commentsOn(issueKey: string): JiraComment[] {
@@ -143,6 +145,9 @@ export class FakeJira {
         const issue = this.find(idOrKey);
         if (!issue) throw new JiraNotFoundError(`Jira API 404 for /issue/${idOrKey}/comment`);
         if (this.commentError) throw this.commentError;
+        const during = this.duringNextComment;
+        this.duringNextComment = null;
+        await during?.();
         this.commentSeq += 1;
         const comment = { id: String(20_000 + this.commentSeq), body: structuredClone(body) };
         this.comments.set(issue.id, [...(this.comments.get(issue.id) ?? []), comment]);

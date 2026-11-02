@@ -8,9 +8,13 @@ import {
   type AssignedRepository,
   RunFailureCode,
   type TurnAssignment,
+  TurnKind,
 } from '@coredoc/core/agent-runner';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ClaudeExecutor } from './claude/claude-executor.js';
+import { runControlServer } from './claude/run-control.js';
 import { FakeCoredocApi, TOKEN, WORKSPACE } from './fake-coredoc-api.test-support.js';
 import {
   BOT_TOKEN,
@@ -27,7 +31,7 @@ import {
   type SessionStep,
 } from './implement.test-support.js';
 import { RunnerApiClient } from './runner-api.js';
-import { Runner } from './runner.js';
+import { Runner, type TurnIO } from './runner.js';
 
 const BRANCH = 'coredoc/PROJ-1';
 const SEARCH = { key: 'search-api', reason: 'Owns the search index' };
@@ -115,6 +119,108 @@ describe('request_repo in implement turns', () => {
     expect(JSON.parse(seen[0]!.toolResults[1]!).isError).toBe(true);
     expect(remoteHead(search.bare, BRANCH)).toBeNull();
     expect(remoteHead(orders.bare, BRANCH)).not.toBeNull();
+  });
+
+  it('read_pr_feedback lists the pull request feedback oldest first without the bot’s own', async () => {
+    const orders = await remote('orders-api');
+    github.pulls.push({
+      repository: 'example-org/orders-api',
+      number: 7,
+      head: `example-org:${BRANCH}`,
+      base: 'main',
+      title: 'Orders',
+      body: '',
+      draft: true,
+      state: 'open',
+      merged: false,
+    });
+    const user = (login: string) => ({ login });
+    github.feedback.set('example-org/orders-api#7', {
+      reviews: [
+        { user: user('alice'), state: 'CHANGES_REQUESTED', body: 'Split the export.', submitted_at: '2026-10-02' },
+        { user: user('alice'), state: 'COMMENTED', body: '', submitted_at: '2026-10-03' },
+      ],
+      comments: [
+        { id: 11, user: user('bob'), path: 'src/a.ts', line: 4, body: 'Rename this.', created_at: '2026-10-01' },
+        { id: 12, user: user('bob'), path: 'src/b.ts', line: null, body: 'Old line.', created_at: '2026-10-04' },
+      ],
+      conversation: [
+        { user: user('carol'), body: 'Also CSV please.', created_at: '2026-10-05' },
+        { user: user('coredoc-bot'), body: 'Bot summary.', created_at: '2026-10-06' },
+      ],
+    });
+    const { done, seen } = runTurn(implementAssignment([orders.repo]), [
+      { readFeedback: true, submit: { summary: 'Orders.', repositories: [{ key: 'orders-api', summary: 'Orders' }] } },
+    ]);
+    await expect(done).resolves.toBe('completed');
+    const text = JSON.parse(seen[0]!.toolResults[0]!).content[0].text as string;
+    expect(text).toContain('https://github.example/example-org/orders-api/pull/7');
+    expect(text.indexOf('Rename this.')).toBeLessThan(text.indexOf('Split the export.'));
+    expect(text).toContain('on src/a.ts:4');
+    expect(text).toContain('on src/b.ts (outdated)');
+    expect(text).toContain('Also CSV please.');
+    expect(text).not.toContain('Bot summary.');
+    expect(text).not.toContain('(COMMENTED)');
+  });
+
+  it('read_pr_feedback keeps the newest comments of a long pull request within 64 KiB and says how many it left out', async () => {
+    const orders = await remote('orders-api');
+    github.pulls.push({
+      repository: 'example-org/orders-api',
+      number: 8,
+      head: `example-org:${BRANCH}`,
+      base: 'main',
+      title: 'Orders',
+      body: '',
+      draft: true,
+      state: 'open',
+      merged: false,
+    });
+    const day = (index: number) => new Date(Date.UTC(2026, 0, 1) + index * 60_000).toISOString();
+    github.feedback.set('example-org/orders-api#8', {
+      reviews: [],
+      comments: [],
+      conversation: Array.from({ length: 700 }, (_, index) => ({
+        user: { login: 'carol' },
+        body: `comment-${index} ${'x'.repeat(200)}`,
+        created_at: day(index),
+      })),
+    });
+    const { done, seen } = runTurn(implementAssignment([orders.repo]), [
+      { readFeedback: true, submit: { summary: 'Orders.', repositories: [{ key: 'orders-api', summary: 'Orders' }] } },
+    ]);
+    await expect(done).resolves.toBe('completed');
+    const text = JSON.parse(seen[0]!.toolResults[0]!).content[0].text as string;
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(64 * 1024);
+    expect(text).toContain('comment-699 ');
+    expect(text).not.toContain('comment-199 ');
+    const note = /(\d+) older items are not shown\./.exec(text);
+    expect(Number(note?.[1])).toBe(700 - (text.match(/comment-\d+ /g) ?? []).length);
+  });
+
+  it('read_pr_feedback says when the run branch has no pull request yet', async () => {
+    const orders = await remote('orders-api');
+    const { done, seen } = runTurn(implementAssignment([orders.repo]), [
+      { readFeedback: true, submit: { summary: 'Orders.', repositories: [{ key: 'orders-api', summary: 'Orders' }] } },
+    ]);
+    await expect(done).resolves.toBe('completed');
+    expect(JSON.parse(seen[0]!.toolResults[0]!).content[0].text).toBe(`No pull request from ${BRANCH} yet.`);
+  });
+
+  it('read_pr_feedback is not offered on scope turns', async () => {
+    const names = async (kind: TurnKind) => {
+      const state = { proposedVersion: null, submitted: false, readPullFeedback: async () => '' };
+      const server = runControlServer({} as TurnIO, state, kind);
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await server.instance.connect(serverTransport);
+      const client = new Client({ name: 'fake-claude-code', version: '0' });
+      await client.connect(clientTransport);
+      const { tools } = await client.listTools();
+      await client.close();
+      return tools.map(({ name }) => name);
+    };
+    expect(await names(TurnKind.Implement)).toContain('read_pr_feedback');
+    expect(await names(TurnKind.Scope)).not.toContain('read_pr_feedback');
   });
 
   describe('under automatic acceptance', () => {

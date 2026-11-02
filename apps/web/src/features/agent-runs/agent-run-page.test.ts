@@ -28,6 +28,7 @@ function run(overrides: Partial<AgentRunDetail> = {}): AgentRunDetail {
     seeds: [],
     failureCode: null,
     failureReason: null,
+    continuations: 0,
     spend: { usd: 0, maxUsd: 5, unknownTurns: 0 },
     currentTurn: null,
     createdAt: at(13, 58),
@@ -218,6 +219,28 @@ describe('conversationItems', () => {
     ]);
     const result = items.find((item) => item.kind === 'result');
     expect(result?.kind === 'result' && result.points).toEqual(['cli: JSON mode']);
+  });
+
+  it('keeps the failure a continuation reopened from, then the person’s message', () => {
+    const continued: AgentRunEvent = {
+      seq: 20,
+      type: 'run_event',
+      payload: {
+        code: 'continued',
+        text: 'Push again.',
+        from: 'failed',
+        failureCode: 'github_error',
+        failureReason: 'Push refused',
+        finishedAt: at(15, 0),
+      },
+      truncated: false,
+      createdAt: at(15, 30),
+    };
+    const reopened = run({ status: 'implementing', finishedAt: null });
+    const items = conversationItems(reopened, [], [], [continued]);
+    expect(items.map((item) => item.id)).toEqual(['started', 'ended-20', 'continued-20']);
+    expect(items[1]).toMatchObject({ status: 'failed', text: 'Failed (github_error): Push refused' });
+    expect(items[2]).toMatchObject({ kind: 'continued', text: 'Push again.' });
   });
 
   it('offers the review actions on the newest proposal only while the run waits for acceptance', () => {

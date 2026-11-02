@@ -147,7 +147,8 @@ export type ConversationItem =
     }
   | { kind: 'result'; id: string; at: string; result: AgentRunResult; points: string[]; pulls: AgentRunPullRequest[] }
   | { kind: 'delivery'; id: string; at: string; pulls: AgentRunPullRequest[]; lines: JiraLine[] }
-  | { kind: 'ended'; id: string; at: string; status: 'done' | 'failed' | 'cancelled'; text: string };
+  | { kind: 'ended'; id: string; at: string; status: 'done' | 'failed' | 'cancelled'; text: string }
+  | { kind: 'continued'; id: string; at: string; text: string };
 
 const TRIGGER_TEXT: Record<string, string> = {
   jira_label: 'Started by the Jira label',
@@ -319,12 +320,29 @@ export function conversationItems(
       id: 'ended',
       at: run.finishedAt,
       status: run.status,
-      text:
-        run.status === 'failed'
-          ? `Failed${run.failureCode ? ` (${run.failureCode})` : ''}${run.failureReason ? `: ${run.failureReason}` : ''}`
-          : run.status === 'cancelled'
-            ? `Cancelled${run.failureReason ? `: ${run.failureReason}` : ''}`
-            : 'Done',
+      text: endedText(run.status, run.failureCode, run.failureReason),
+    });
+  }
+
+  // A continuation reopens the run, so the end it continued from comes from its event.
+  for (const event of events) {
+    if (event.type !== 'run_event' || event.payload?.code !== 'continued') continue;
+    const from = event.payload.from === 'done' ? 'done' : 'failed';
+    const endedAt = text(event.payload.finishedAt);
+    if (endedAt) {
+      items.push({
+        kind: 'ended',
+        id: `ended-${event.seq}`,
+        at: endedAt,
+        status: from,
+        text: endedText(from, text(event.payload.failureCode), text(event.payload.failureReason)),
+      });
+    }
+    items.push({
+      kind: 'continued',
+      id: `continued-${event.seq}`,
+      at: event.createdAt,
+      text: text(event.payload.text) ?? '',
     });
   }
 
@@ -338,6 +356,12 @@ export function conversationItems(
     .map((item, index) => ({ item, index }))
     .sort((a, b) => a.item.at.localeCompare(b.item.at) || a.index - b.index)
     .map(({ item }) => item);
+}
+
+function endedText(status: 'done' | 'failed' | 'cancelled', code: string | null, reason: string | null): string {
+  if (status === 'failed') return `Failed${code ? ` (${code})` : ''}${reason ? `: ${reason}` : ''}`;
+  if (status === 'cancelled') return `Cancelled${reason ? `: ${reason}` : ''}`;
+  return 'Done';
 }
 
 export function stageTarget(stage: RunStage, items: readonly ConversationItem[]): string | null {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 
@@ -9,6 +9,7 @@ import {
   agentRunSpecsQueryOptions,
   agentRunTimelineQueryOptions,
   cancelAgentRun,
+  continueAgentRun,
   rerunAgentRun,
 } from '@/api/queries/agent-runs';
 import { meQueryOptions } from '@/api/queries/me';
@@ -16,6 +17,7 @@ import { PageHead } from '@/components/page-head';
 import { QueryBoundary } from '@/components/query-boundary';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import {
   conversationItems,
   type RunStage,
@@ -77,6 +79,56 @@ function RerunAction({ wsId, slug, run }: { wsId: string; slug: string; run: Age
         </span>
       )}
     </div>
+  );
+}
+
+function ContinueForm({ wsId, run }: { wsId: string; run: AgentRun }) {
+  const queryClient = useQueryClient();
+  const textId = useId();
+  const [text, setText] = useState('');
+  const mutation = useMutation({
+    mutationFn: continueAgentRun,
+    onSuccess: () => {
+      setText('');
+      void queryClient.invalidateQueries({ queryKey: ['ws', wsId, 'agent-runs', run.id] });
+      void queryClient.invalidateQueries({ queryKey: ['ws', wsId, 'agent-runs', 'list'] });
+    },
+  });
+  if (run.status !== 'failed' && run.status !== 'done') return null;
+  const done = run.status === 'done';
+  return (
+    <form
+      aria-label="Continue the run"
+      className="flex flex-col gap-2 rounded-xl border border-border-soft p-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        mutation.mutate({ wsId, runId: run.id, text: text.trim() });
+      }}
+    >
+      <label htmlFor={textId} className="text-[12.5px] text-ink-3">
+        {done ? 'Review feedback for the agent' : 'Message for the agent (optional)'}
+      </label>
+      <Textarea
+        id={textId}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        placeholder={
+          done
+            ? 'What should change in the pull requests? "Read the PR comments and fix them" works too.'
+            : 'Leave empty to continue where it stopped.'
+        }
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" size="sm" disabled={mutation.isPending || (done && !text.trim())}>
+          {mutation.isPending ? 'Continuing…' : 'Continue'}
+        </Button>
+        {mutation.error && (
+          <span className="text-[13px] text-danger-text">
+            {mutation.error instanceof ApiError ? mutation.error.message : 'Failed to continue'}
+          </span>
+        )}
+      </div>
+    </form>
   );
 }
 
@@ -218,15 +270,18 @@ function RunPage({ wsId, slug, run }: { wsId: string; slug: string; run: AgentRu
           <ArtifactCards run={run} specs={specs.data ?? []} activity={activity.data} onOpen={setDrawer} />
           <RunDetails run={run} />
         </aside>
-        <RunConversation
-          wsId={wsId}
-          run={run}
-          items={items}
-          tasks={isTerminalStatus(run.status) ? [] : currentTasks(events)}
-          waitingSince={waitingForRunnerSince(run)}
-          now={now}
-          onOpen={setDrawer}
-        />
+        <div className="flex min-w-0 flex-col gap-3">
+          <RunConversation
+            wsId={wsId}
+            run={run}
+            items={items}
+            tasks={isTerminalStatus(run.status) ? [] : currentTasks(events)}
+            waitingSince={waitingForRunnerSince(run)}
+            now={now}
+            onOpen={setDrawer}
+          />
+          <ContinueForm wsId={wsId} run={run} />
+        </div>
       </div>
       <RunActivityDrawer wsId={wsId} slug={slug} run={run} drawer={drawer} onClose={() => setDrawer(null)} />
     </>

@@ -7,6 +7,7 @@ import type { AgentRunSettings, CloudAgentRun, Prisma } from '../../generated/pr
 import { FAILURE_MESSAGES } from './failure-codes.js';
 import { jiraOutcomeOf, queueStatusTransition, StatusEvent } from './jira-outcome.js';
 import {
+  ACTIVE_STATUS_OF_PHASE,
   type QuestionsPolicy,
   type RunFailureCode,
   RunPhase,
@@ -80,6 +81,7 @@ export async function createRun(
       failureReason: input.failure?.reason ?? null,
       finishedAt: input.failure ? at : null,
       createdAt: at,
+      queuedAt: at,
     },
   });
   await appendRunEvents(
@@ -104,7 +106,10 @@ export async function createRun(
   return run;
 }
 
-/** Runs waiting for a person keep their slot. The caller has checked that runs may start. */
+/**
+ * Runs waiting for a person keep their slot. The caller has checked that runs may start. A
+ * continued run already has its turn and goes back to its phase; a new one starts scoping.
+ */
 export async function promoteQueuedRuns(
   tx: Tx,
   workspaceId: string,
@@ -118,16 +123,17 @@ export async function promoteQueuedRuns(
   if (free <= 0) return [];
   const queued = await tx.cloudAgentRun.findMany({
     where: { workspaceId, status: RunStatus.Queued },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    orderBy: [{ queuedAt: 'asc' }, { id: 'asc' }],
     take: free,
-    select: { id: true, jiraOutcome: true },
+    select: { id: true, jiraOutcome: true, phase: true, continuations: true, startedAt: true },
   });
-  for (const { id, jiraOutcome } of queued) {
+  for (const { id, jiraOutcome, phase, continuations, startedAt } of queued) {
+    const status = continuations > 0 ? ACTIVE_STATUS_OF_PHASE[phase]! : RunStatus.Scoping;
     await tx.cloudAgentRun.update({
       where: { id },
       data: {
-        status: RunStatus.Scoping,
-        startedAt: at,
+        status,
+        startedAt: startedAt ?? at,
         activeSince: at,
         jiraOutcome: queueStatusTransition(
           jiraOutcomeOf({ jiraOutcome }),
@@ -137,13 +143,15 @@ export async function promoteQueuedRuns(
         ) as unknown as Prisma.InputJsonObject,
       },
     });
-    await tx.cloudAgentRunTurn.create({
-      data: { workspaceId, runId: id, ordinal: 1, kind: RunPhase.Scope, createdAt: at },
-    });
+    if (continuations === 0) {
+      await tx.cloudAgentRunTurn.create({
+        data: { workspaceId, runId: id, ordinal: 1, kind: RunPhase.Scope, createdAt: at },
+      });
+    }
     await appendRunEvents(
       tx,
       { workspaceId, runId: id },
-      [{ type: ServerEventType.StatusChanged, payload: { from: RunStatus.Queued, to: RunStatus.Scoping } }],
+      [{ type: ServerEventType.StatusChanged, payload: { from: RunStatus.Queued, to: status } }],
       at,
     );
   }

@@ -132,6 +132,14 @@ export function cancelAgentRun(params: { wsId: string; runId: string }): Promise
   return request<AgentRunDetail>(`${base(params.wsId)}/${params.runId}/cancel`, { method: 'POST' });
 }
 
+export function continueAgentRun(params: { wsId: string; runId: string; text: string }): Promise<AgentRunDetail> {
+  return request<AgentRunDetail>(`${base(params.wsId)}/${params.runId}/continue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: params.text }),
+  });
+}
+
 export function rerunAgentRun(params: { wsId: string; runId: string }): Promise<AgentRun> {
   return request<AgentRun>(`${base(params.wsId)}/${params.runId}/rerun`, { method: 'POST' });
 }

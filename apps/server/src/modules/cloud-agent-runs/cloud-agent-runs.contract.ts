@@ -98,6 +98,15 @@ export const RequestScopeChangesSchema = z.object({
 });
 export type RequestScopeChangesInput = z.infer<typeof RequestScopeChangesSchema>;
 
+export const ContinueRunSchema = z.object({
+  text: z
+    .string({ error: 'text must be a string' })
+    .trim()
+    .max(20_000, { error: 'text must be at most 20000 characters' })
+    .default(''),
+});
+export type ContinueRunInput = z.infer<typeof ContinueRunSchema>;
+
 /** One answer per question, in question order. */
 export const AnswerQuestionSchema = z.object({
   answers: z

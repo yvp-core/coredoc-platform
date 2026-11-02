@@ -156,6 +156,27 @@ export class CloudAgentRunDeliveryService {
     };
   }
 
+  /** Recorded pull requests GitHub now reports merged or closed; delivery never reopens them. Throws when GitHub cannot say. */
+  async closedPullRequests(run: CloudAgentRun): Promise<RecordedPullRequest[]> {
+    const closed: RecordedPullRequest[] = [];
+    for (const recorded of recordedPullRequests(run)) {
+      const { pull } = await this.fetchPull(run, recorded.repository, recorded.number);
+      if (!pull)
+        throw new Error(
+          `GitHub's answer for pull request #${recorded.number} in ${recorded.repository} could not be read.`,
+        );
+      if (pull.merged || pull.state !== 'open') closed.push(recorded);
+    }
+    return closed;
+  }
+
+  private async fetchPull(run: CloudAgentRun, key: string, number: number) {
+    const { owner, name, gitOrigin, client } = await this.repository(run, key);
+    const raw = await withRetries(() => client.getPullMetadata(owner, name, number), transientGithub, this.retryDelay);
+    const parsed = strictPullWithHeadSchema.safeParse(raw);
+    return { owner, name, gitOrigin, pull: parsed.success ? parsed.data : null };
+  }
+
   private async repository(run: CloudAgentRun, key: string) {
     let resolved: Awaited<ReturnType<GithubRepositoryResolver['resolve']>>;
     try {
@@ -178,11 +199,8 @@ export class CloudAgentRunDeliveryService {
     openedByThisRun: boolean,
     base: string | null,
   ): Promise<RecordedPullRequest> {
-    const { owner, name, gitOrigin, client } = await this.repository(run, key);
-    const raw = await withRetries(() => client.getPullMetadata(owner, name, number), transientGithub, this.retryDelay);
-    const parsed = strictPullWithHeadSchema.safeParse(raw);
+    const { owner, name, gitOrigin, pull } = await this.fetchPull(run, key, number);
     const fullName = `${owner}/${name}`.toLowerCase();
-    const pull = parsed.success ? parsed.data : null;
     if (
       !pull ||
       pull.number !== number ||

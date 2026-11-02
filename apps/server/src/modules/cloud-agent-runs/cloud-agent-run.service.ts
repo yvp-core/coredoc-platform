@@ -4,6 +4,11 @@ import type { AgentRunSettings, CloudAgentRun, CloudAgentRunTurn } from '../../g
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
 import { normalizeJiraBaseUrl } from '../delivery/jira-client.js';
 import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
+import {
+  CloudAgentRunDeliveryService,
+  type RecordedPullRequest,
+  recordedPullRequests,
+} from './cloud-agent-run-delivery.service.js';
 import { CloudAgentRunIssueReader, JiraReadFailure, type ResolvedIssue } from './cloud-agent-run-issue-reader.js';
 import { CloudAgentRunQuestionService } from './cloud-agent-run-questions.service.js';
 import { CloudAgentRunScopeService } from './cloud-agent-run-scope.service.js';
@@ -17,15 +22,26 @@ import {
   isTerminalRunStatus,
   QuestionsPolicy,
   QuestionState,
+  RunEventCode,
   RunFailureCode,
+  RunPhase,
+  RunStatus,
   RunTrigger,
   ScopeAcceptancePolicy,
+  ServerEventType,
   TERMINAL_RUN_STATUSES,
   TurnState,
 } from './run-states.js';
 import { createRun, type NewRun, promoteQueuedRuns } from './run-queue.js';
-import { CLOUD_AGENT_RUNS_CLOCK, type Clock, lockCloudAgentRunCreation, systemClock, type Tx } from './run-store.js';
-import { cancelRun, lockRun } from './run-transitions.js';
+import {
+  CLOUD_AGENT_RUNS_CLOCK,
+  type Clock,
+  lockCloudAgentRunCreation,
+  MAX_EVENT_PAYLOAD_BYTES,
+  systemClock,
+  type Tx,
+} from './run-store.js';
+import { cancelRun, lockRun, queueTurn, setRunStatus } from './run-transitions.js';
 import { isUniqueViolation } from '../../libs/coerce.js';
 
 const PENDING_TURN_STATES = [TurnState.Queued, TurnState.Claimed];
@@ -53,6 +69,7 @@ export class CloudAgentRunService {
     private readonly availability: CloudAgentRunAvailability,
     private readonly repositories: GithubRepositoryResolver,
     private readonly questions: CloudAgentRunQuestionService,
+    private readonly delivery: CloudAgentRunDeliveryService,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
   ) {}
 
@@ -242,6 +259,115 @@ export class CloudAgentRunService {
     return this.detail(workspaceId, runId);
   }
 
+  /**
+   * A failed run goes on in the phase it failed in (a delivery failure with text goes back to
+   * implement); a done run goes back to implement with the person's review feedback. Each
+   * continuation gets a fresh allowance from the current settings.
+   */
+  async continueRun(workspaceId: string, runId: string, actorId: string, text: string) {
+    const settings = await this.startableSettings(workspaceId);
+    const seen = await this.prisma.cloudAgentRun.findFirst({ where: { id: runId, workspaceId } });
+    if (!seen) throw runNotFound();
+    if (seen.status !== RunStatus.Failed && seen.status !== RunStatus.Done) {
+      throw cloudAgentRunError(
+        CloudAgentRunErrorCode.RunNotContinuable,
+        'Only a failed or done run can be continued; re-run a cancelled one',
+      );
+    }
+    if (seen.status === RunStatus.Done && !text) {
+      throw cloudAgentRunError(
+        CloudAgentRunErrorCode.TextRequired,
+        'Say what to change in the pull requests',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    // Any run with recorded pull requests, failed ones too: work pushed after a merge would reach none.
+    // GitHub is read outside the transaction; the lock then checks the run has not moved since.
+    let closed: RecordedPullRequest[];
+    try {
+      closed = await this.delivery.closedPullRequests(seen);
+    } catch (error) {
+      throw cloudAgentRunError(
+        CloudAgentRunErrorCode.GithubUnavailable,
+        `GitHub could not confirm the run's pull requests: ${(error as Error).message}`,
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+    if (closed.length) {
+      throw cloudAgentRunError(
+        CloudAgentRunErrorCode.PullRequestClosed,
+        `${closed.map((pull) => pull.url).join(', ')} ${closed.length === 1 ? 'is' : 'are'} merged or closed; start a new run instead`,
+      );
+    }
+
+    // Under the creation lock: a reopened run counts as an open one, like a started run.
+    await this.createLocked(workspaceId, seen.issueKey, async (tx) => {
+      const run = await lockRun(tx, workspaceId, runId);
+      if (!run) throw runNotFound();
+      if (run.status !== seen.status || run.continuations !== seen.continuations) {
+        throw cloudAgentRunError(CloudAgentRunErrorCode.RunStateConflict, 'The run changed; reload it and try again');
+      }
+      await this.refuseOpenRun(tx, workspaceId, run.jiraIssueId, run.issueKey);
+      const newer = await tx.cloudAgentRun.findFirst({
+        where: { workspaceId, jiraIssueId: run.jiraIssueId, runOrdinal: { gt: run.runOrdinal } },
+        select: { id: true },
+      });
+      if (newer) {
+        throw cloudAgentRunError(
+          CloudAgentRunErrorCode.RunSuperseded,
+          `${run.issueKey} has a newer run; continue that one instead`,
+        );
+      }
+
+      const at = this.now();
+      const phase =
+        run.status === RunStatus.Done || (run.phase === RunPhase.Delivery && text)
+          ? RunPhase.Implement
+          : fromColumn(RunPhase, run.phase);
+      // Queued like a new run: promotion starts it in its phase, with the started transition.
+      const updated = await setRunStatus(
+        tx,
+        run,
+        RunStatus.Queued,
+        at,
+        {
+          phase,
+          queuedAt: at,
+          finishedAt: null,
+          failureCode: null,
+          failureReason: null,
+          continuations: run.continuations + 1,
+          maxSpendUsd: run.spendUsd + settings.maxSpendUsd,
+          maxActiveSeconds: run.activeSeconds + settings.maxActiveSeconds,
+          unknownSpendTurns: 0,
+          outcomeLessCount: 0,
+          jiraOutcome: {},
+        },
+        [
+          {
+            type: ServerEventType.RunEvent,
+            payload: continuedPayload(
+              {
+                code: RunEventCode.Continued,
+                by: actorId,
+                // The reopened run clears these; the timeline keeps how it had ended.
+                from: run.status,
+                failureCode: run.failureCode,
+                failureReason: run.failureReason && byteCut(run.failureReason, 4 * 1024),
+                finishedAt: run.finishedAt?.toISOString() ?? null,
+              },
+              text,
+            ),
+          },
+        ],
+      );
+      await queueTurn(tx, updated, phase, phase === RunPhase.Delivery ? null : continuationInput(run, phase, text), at);
+      await promoteQueuedRuns(tx, workspaceId, settings, at);
+      return run.id;
+    });
+    return this.detail(workspaceId, runId);
+  }
+
   async cancel(workspaceId: string, runId: string) {
     await this.prisma.$transaction(async (tx) => {
       const run = await lockRun(tx, workspaceId, runId);
@@ -419,6 +545,7 @@ export class CloudAgentRunService {
       seeds: run.seeds,
       failureCode: run.failureCode,
       failureReason: run.failureReason,
+      continuations: run.continuations,
       spend: { usd: run.spendUsd, maxUsd: run.maxSpendUsd, unknownTurns: run.unknownSpendTurns },
       currentTurn: turn
         ? {
@@ -436,6 +563,45 @@ export class CloudAgentRunService {
       finishedAt: run.finishedAt?.toISOString() ?? null,
     };
   }
+}
+
+/**
+ * A payload over the event cap would be replaced by a bare preview, losing the fields the timeline
+ * needs, so the text is cut until it fits. The turn input keeps the whole text.
+ */
+function continuedPayload(fields: Record<string, unknown>, text: string): Record<string, unknown> {
+  for (let budget = MAX_EVENT_PAYLOAD_BYTES; ; budget = Math.floor(budget / 2)) {
+    const payload = { ...fields, text: byteCut(text, budget) };
+    if (budget === 0 || Buffer.byteLength(JSON.stringify(payload), 'utf8') <= MAX_EVENT_PAYLOAD_BYTES) return payload;
+  }
+}
+
+/** At most `bytes` of UTF-8 on a character boundary, marked when cut. */
+function byteCut(text: string, bytes: number): string {
+  const encoded = Buffer.from(text, 'utf8');
+  if (encoded.length <= bytes) return text;
+  return `${encoded.subarray(0, bytes).toString('utf8').replace(/�+$/, '')} […]`;
+}
+
+/** Server-written: what stopped the run, the person's text, and how the phase ends. */
+function continuationInput(
+  run: Pick<CloudAgentRun, 'status' | 'failureCode' | 'failureReason' | 'pullRequests'>,
+  phase: RunPhase,
+  text: string,
+): string {
+  const stopped =
+    run.status === RunStatus.Done
+      ? 'was delivered'
+      : `failed (${run.failureCode ?? 'unknown'}): ${run.failureReason ?? 'no reason was recorded'}`;
+  const pulls = recordedPullRequests(run).map((pull) => pull.url);
+  const message = text ? `\n\nTheir message:\n\n${text}` : '\n\nContinue where you stopped.';
+  const closing =
+    phase === RunPhase.Scope
+      ? 'Finish the specification and call propose_scope.'
+      : pulls.length
+        ? `Make the changes in the run branch and call submit_result again. Its pull requests are open and are updated, not reopened: ${pulls.join(', ')}. read_pr_feedback reads the review comments on them.`
+        : 'Finish the work and call submit_result.';
+  return `A person continued this run after it ${stopped}.${message}\n\n${closing}`;
 }
 
 function activeRunExists(issueKey: string) {

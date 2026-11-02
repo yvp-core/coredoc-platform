@@ -334,6 +334,17 @@ function Item({
           <span className={item.status === 'failed' ? 'text-danger-text' : undefined}>{item.text}</span>
         </Event>
       );
+    case 'continued':
+      return (
+        <Message id={item.id} tone="you" avatar="YOU">
+          <Who label="Continued" at={item.at} />
+          {item.text ? (
+            <IntentMarkdown noRemote text={item.text} />
+          ) : (
+            <span className="text-ink-3">Continue where you stopped.</span>
+          )}
+        </Message>
+      );
   }
 }
 
