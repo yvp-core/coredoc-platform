@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { BadRequestException, HttpException, HttpStatus } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { SignJWT } from 'jose';
 import { GlobalExceptionFilter } from './global-exception.filter.js';
 import type { HttpAdapterHost } from '@nestjs/core';
 import type { ArgumentsHost } from '@nestjs/common';
@@ -46,6 +47,42 @@ describe('GlobalExceptionFilter', () => {
     adapterHost = mocked.adapterHost;
     reply = mocked.reply;
     telemetryService = { captureException: vi.fn() };
+  });
+
+  it('logs why a token refresh was refused, on one line, with the claims but never the token', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const refreshToken = await new SignJWT({ client_id: 'claudecode_abc', type: 'refresh' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject('dev@example.com')
+      .setExpirationTime(1_700_000_000)
+      .sign(new TextEncoder().encode('x'.repeat(32)));
+    const filter = new GlobalExceptionFilter(adapterHost, telemetryService as unknown as TelemetryService);
+    const { host } = createMockHost({
+      method: 'POST',
+      url: '/token',
+      body: { grant_type: 'refresh_token', client_id: 'claudecode_xyz\nFORGED', refresh_token: refreshToken },
+    });
+
+    filter.catch(new BadRequestException('Invalid or expired refresh token'), host);
+
+    expect(warn).toHaveBeenCalledWith(
+      'OAuth /token 400: Invalid or expired refresh token [grant_type=refresh_token client_id=claudecode_xyz?FORGED ' +
+        'unverified token: sub=dev@example.com client_id=claudecode_abc exp=2023-11-14T22:13:20.000Z]',
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(refreshToken);
+    warn.mockRestore();
+  });
+
+  it('logs a refused sign-in at /callback without the IdP code from the query', () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const filter = new GlobalExceptionFilter(adapterHost, telemetryService as unknown as TelemetryService);
+    const { host } = createMockHost({ url: '/callback?code=idp-secret-code&state=st1' });
+
+    filter.catch(new ForbiddenException('Signed in as dev@example.com, but this account is not a member'), host);
+
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/^OAuth \/callback 403: Signed in as dev@example\.com/));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('idp-secret-code');
+    warn.mockRestore();
   });
 
   it('passes through a string response body from an HttpException', () => {

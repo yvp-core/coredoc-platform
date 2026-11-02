@@ -44,6 +44,7 @@ import { AuthService } from '../auth/auth.service.js';
 import { isExactAgentRunnerPurpose, isExactTelemetryPurpose } from '../auth/token-permissions.js';
 import { ControlPlaneService } from '../database/control-plane.service.js';
 import { serverUrl } from '../auth/oauth/server-url.js';
+import { redactForLog, redactSensitiveQueryParams } from '../libs/redact-url.js';
 import { McpAuthKind, type AuthenticatedMcpRequest } from './mcp-auth-context.js';
 import { McpToolset, mcpToolsetContext, parseToolsetParam } from './mcp-toolset.js';
 
@@ -94,7 +95,7 @@ export class McpRewriteMiddleware implements NestMiddleware {
 
     const param = parseToolsetParam(req.originalUrl);
     if (!param.ok) {
-      res.status(400).json({ error: param.error, validToolsets: Object.values(McpToolset) });
+      this.refuse(req, res, 400, { error: param.error, validToolsets: Object.values(McpToolset) });
       return;
     }
     const { toolset } = param;
@@ -136,17 +137,17 @@ export class McpRewriteMiddleware implements NestMiddleware {
         // Service token — SHA-256 hash lookup
         const serviceToken = await this.lookupServiceToken(token);
         if (!serviceToken) {
-          this.unauthorized(res, 'Invalid or expired service token', true);
+          this.unauthorized(req, res, 'Invalid or expired service token', true);
           return;
         }
         const refusal = exactPurposeRefusal(serviceToken.permissions);
         if (refusal) {
-          res.status(403).json({ error: refusal });
+          this.refuse(req, res, 403, { error: refusal });
           return;
         }
         // Enforce workspace scope
         if (serviceToken.workspaceId !== workspaceId) {
-          res.status(403).json({ error: 'Service token is not authorized for this workspace' });
+          this.refuse(req, res, 403, { error: 'Service token is not authorized for this workspace' });
           return;
         }
         user = { id: serviceToken.createdBy, email: `service-token:${serviceToken.name}` };
@@ -157,15 +158,14 @@ export class McpRewriteMiddleware implements NestMiddleware {
         user = await this.authService.verifyAccessToken(token);
       }
     } catch (error) {
-      this.logger.warn(`MCP auth failed: ${error instanceof Error ? error.message : error}`);
-      this.unauthorized(res, 'Invalid or expired access token', true);
+      this.unauthorized(req, res, 'Invalid or expired access token', true, error);
       return;
     }
 
     // Step 3: Authorize workspace membership
     const member = await this.controlPlane.getMember(workspaceId, user.id);
     if (!member) {
-      res.status(403).json({ error: 'Workspace membership required' });
+      this.refuse(req, res, 403, { error: 'Workspace membership required' }, { user });
       return;
     }
 
@@ -199,17 +199,16 @@ export class McpRewriteMiddleware implements NestMiddleware {
       try {
         serviceToken = await this.lookupServiceToken(token);
       } catch (error) {
-        this.logger.warn(`MCP auth failed: ${error instanceof Error ? error.message : error}`);
-        this.unauthorized(res, 'Invalid or expired access token', true);
+        this.unauthorized(req, res, 'Invalid or expired access token', true, error);
         return;
       }
       if (!serviceToken) {
-        this.unauthorized(res, 'Invalid or expired service token', true);
+        this.unauthorized(req, res, 'Invalid or expired service token', true);
         return;
       }
       const refusal = exactPurposeRefusal(serviceToken.permissions);
       if (refusal) {
-        res.status(403).json({ error: refusal });
+        this.refuse(req, res, 403, { error: refusal });
         return;
       }
 
@@ -221,7 +220,7 @@ export class McpRewriteMiddleware implements NestMiddleware {
         const workspace = await this.controlPlane.getWorkspaceById(workspaceId);
         const slugMatches = workspace && requested.toLowerCase() === workspace.slug.toLowerCase();
         if (!slugMatches) {
-          res.status(403).json({ error: 'Service token is not authorized for this workspace' });
+          this.refuse(req, res, 403, { error: 'Service token is not authorized for this workspace' });
           return;
         }
       }
@@ -231,7 +230,7 @@ export class McpRewriteMiddleware implements NestMiddleware {
       // Same membership requirement as the workspace-scoped path.
       const member = await this.controlPlane.getMember(workspaceId, user.id);
       if (!member) {
-        res.status(403).json({ error: 'Workspace membership required' });
+        this.refuse(req, res, 403, { error: 'Workspace membership required' }, { user });
         return;
       }
 
@@ -248,8 +247,7 @@ export class McpRewriteMiddleware implements NestMiddleware {
     try {
       user = await this.authService.verifyAccessToken(token);
     } catch (error) {
-      this.logger.warn(`MCP auth failed: ${error instanceof Error ? error.message : error}`);
-      this.unauthorized(res, 'Invalid or expired access token', true);
+      this.unauthorized(req, res, 'Invalid or expired access token', true, error);
       return;
     }
 
@@ -258,7 +256,7 @@ export class McpRewriteMiddleware implements NestMiddleware {
     const workspaces = await this.controlPlane.listWorkspacesForUser(user.id);
 
     if (workspaces.length === 0) {
-      res.status(403).json({ error: 'No accessible workspaces for this user' });
+      this.refuse(req, res, 403, { error: 'No accessible workspaces for this user' }, { user });
       return;
     }
 
@@ -267,11 +265,11 @@ export class McpRewriteMiddleware implements NestMiddleware {
     if (requested) {
       const matches = workspaces.filter((w) => w.id === requested || w.slug.toLowerCase() === requested.toLowerCase());
       if (matches.length === 0) {
-        res.status(403).json({ error: `Not a member of workspace '${requested}'` });
+        this.refuse(req, res, 403, { error: `Not a member of workspace '${requested}'` }, { user });
         return;
       }
       if (matches.length > 1) {
-        res.status(400).json({
+        this.refuse(req, res, 400, {
           error:
             `The ${WORKSPACE_HEADER} header value '${requested}' matches more than one accessible workspace. ` +
             `Set it to a workspace id instead.`,
@@ -283,7 +281,7 @@ export class McpRewriteMiddleware implements NestMiddleware {
     } else if (workspaces.length === 1) {
       selected = workspaces[0]!;
     } else {
-      res.status(400).json({
+      this.refuse(req, res, 400, {
         error:
           `Multiple workspaces are accessible with this token. ` +
           `Set the ${WORKSPACE_HEADER} header to one of the listed workspace ids (or slugs) and reconnect.`,
@@ -317,11 +315,39 @@ export class McpRewriteMiddleware implements NestMiddleware {
    * failure is not fixable by minting a new token, so challenging would send
    * the user through login to no effect.
    */
-  private unauthorized(res: Response, error: string, credentialsPresented: boolean): void {
+  private unauthorized(
+    req: Request,
+    res: Response,
+    error: string,
+    credentialsPresented: boolean,
+    cause?: unknown,
+  ): void {
     const params = credentialsPresented ? ['error="invalid_token"'] : [];
     params.push(`resource_metadata="${serverUrl()}/.well-known/oauth-protected-resource"`);
     res.setHeader('WWW-Authenticate', `Bearer ${params.join(', ')}`);
-    res.status(401).json({ error });
+    // No credentials is every MCP client's first discovery request, not a refusal worth a line.
+    if (credentialsPresented) this.refuse(req, res, 401, { error }, { cause });
+    else res.status(401).json({ error });
+  }
+
+  /**
+   * End the request here and log why. This middleware is mounted in main.ts,
+   * ahead of RequestLoggerMiddleware (api-app.module.ts), so a request it
+   * answers leaves no other log line. `cause` is logged, never sent.
+   */
+  private refuse(
+    req: Request,
+    res: Response,
+    status: number,
+    body: { error: string } & Record<string, unknown>,
+    { user, cause }: { user?: AuthUser; cause?: unknown } = {},
+  ): void {
+    const why = cause === undefined ? '' : ` (${redactForLog(cause instanceof Error ? cause.message : cause)})`;
+    // The email is kept for now so a report can be matched without a DB lookup.
+    const who = user ? ` user=${user.id}${user.email ? ` <${user.email}>` : ''}` : '';
+    const url = redactSensitiveQueryParams(req.originalUrl);
+    this.logger.warn(`${req.method} ${url} ${status} ${redactForLog(body.error)}${why}${who}`);
+    res.status(status).json(body);
   }
 
   /**
@@ -331,7 +357,7 @@ export class McpRewriteMiddleware implements NestMiddleware {
   private extractBearer(req: Request, res: Response): string | undefined {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
-      this.unauthorized(res, 'Missing or invalid Authorization header', false);
+      this.unauthorized(req, res, 'Missing or invalid Authorization header', false);
       return undefined;
     }
     return authHeader.slice(7);

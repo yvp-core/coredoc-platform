@@ -48,3 +48,15 @@ export function redactSensitiveQueryParams(url: string): string {
 
   return `${path}?${redacted}`;
 }
+
+const MAX_LOGGED_VALUE = 300;
+
+/**
+ * A value an unauthenticated caller controls, made safe for one log line: the
+ * default ConsoleLogger prints strings raw, so newlines and ANSI escapes would
+ * forge lines, and an uncapped body field would flood the log.
+ */
+export function redactForLog(value: unknown): string {
+  const text = String(value).replace(/\p{Cc}/gu, '?');
+  return text.length > MAX_LOGGED_VALUE ? `${text.slice(0, MAX_LOGGED_VALUE)}…` : text;
+}

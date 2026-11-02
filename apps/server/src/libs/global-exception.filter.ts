@@ -3,6 +3,7 @@ import { HttpAdapterHost } from '@nestjs/core';
 import type { TelemetryService } from '../modules/telemetry/telemetry.service.js';
 import { isGraphSnapshotError } from './pipeline/graph-snapshot.errors.js';
 import { redactSensitiveQueryParams } from './redact-url.js';
+import { describeOAuthFailure } from '../auth/oauth/oauth-failure.js';
 
 /**
  * Nest's HttpException.getResponse() is either a plain string (rare, only
@@ -46,12 +47,19 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       exception instanceof HttpException
         ? exception.getStatus()
         : (graphError?.statusCode ?? HttpStatus.INTERNAL_SERVER_ERROR);
+    const safeResponse = exception instanceof HttpException ? extractSafeHttpResponse(exception) : undefined;
 
     // Log unhandled errors and server-side graph failures locally regardless
     // of whether optional telemetry is configured. Expected 4xx graph errors
     // stay quiet.
     if (!(exception instanceof HttpException) && (!graphError || httpStatus >= 500)) {
       this.logger.error(`Unhandled exception: ${exception}`, (exception as Error)?.stack);
+    }
+
+    // The one 4xx family worth a reason in the log: refused sign-ins and refreshes.
+    if (safeResponse && httpStatus < 500) {
+      const line = describeOAuthFailure(ctx.getRequest(), httpStatus, safeResponse.message);
+      if (line) this.logger.warn(line);
     }
 
     // Forward server-side errors (5xx) to PostHog. We skip 4xx because those
@@ -86,11 +94,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       // getResponse() as either a plain string or `{ message, error,
       // statusCode }`; non-HttpException errors (bugs/infra failures) never
       // leak their message here — only the generic 500 status goes out.
-      ...(exception instanceof HttpException
-        ? extractSafeHttpResponse(exception)
-        : graphError
-          ? { code: graphError.code, message: graphError.message }
-          : {}),
+      ...(safeResponse ?? (graphError ? { code: graphError.code, message: graphError.message } : {})),
     };
 
     httpAdapter.reply(ctx.getResponse(), responseBody, httpStatus);

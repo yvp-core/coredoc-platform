@@ -1,9 +1,11 @@
 import '../../config/load-env.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { ForbiddenException } from '@nestjs/common';
 import type { OAuthClient } from '@rekog/mcp-nest';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { buildPrismaAdapter } from '../../database/create-prisma-client.js';
 import { PrismaOAuthStore } from './prisma-oauth.store.js';
+import { WEB_CLIENT_ID } from '../web/web-auth.constants.js';
 
 /**
  * Integration test against an explicitly disposable control-plane Postgres. The store's value
@@ -128,6 +130,42 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaOAuthStore (integration)', () => {
 
     // The code is spent — a later read gets nothing.
     expect(await store.getAuthCode(code)).toBeUndefined();
+  });
+
+  it('refuses an MCP client sign-in for a user with no workspace, naming who to invite', async () => {
+    const email = `nomember-${RUN}@example.com`;
+    const userId = await store.upsertUserProfile({ id: `${RUN}-nomember`, username: 'nomember', email }, 'google');
+    const mcp = { ...baseClient(), client_name: `${RUN}-Claude Code (coredoc)` };
+    mcp.client_id = store.generateClientId(mcp);
+    await store.storeClient(mcp);
+    const desktop = { ...baseClient(), client_id: `${RUN}-desktop`, client_name: 'coredoc-desktop' };
+    await store.storeClient(desktop);
+    const code = (suffix: string, client_id: string) => ({
+      code: `${RUN}-gate-${suffix}`,
+      user_id: 'nomember',
+      client_id,
+      redirect_uri: 'http://localhost/cb',
+      code_challenge: 'chal',
+      code_challenge_method: 'S256',
+      expires_at: Date.now() + 600_000,
+      resource: 'http://localhost:3000',
+      user_profile_id: userId,
+    });
+
+    // An HttpException, so GlobalExceptionFilter shows its message at /callback instead of a bare 500.
+    const refused = store.storeAuthCode(code('mcp', mcp.client_id));
+    await expect(refused).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(refused).rejects.toThrow(`Ask a workspace admin to invite ${email}`);
+    expect(await prisma.authorizationCode.findUnique({ where: { code: `${RUN}-gate-mcp` } })).toBeNull();
+    // The desktop app and the web app sign in before the first workspace exists.
+    await expect(store.storeAuthCode(code('desktop', desktop.client_id))).resolves.toBeUndefined();
+    await expect(store.storeAuthCode(code('web', WEB_CLIENT_ID))).resolves.toBeUndefined();
+
+    const ws = await prisma.workspace.create({ data: { name: `${RUN}-gate-ws`, slug: `${RUN}-gate-ws` } });
+    await prisma.workspaceMember.create({ data: { workspaceId: ws.id, userId, email, role: 'member' } });
+    await expect(store.storeAuthCode(code('member', mcp.client_id))).resolves.toBeUndefined();
+
+    await prisma.oAuthClient.delete({ where: { client_id: desktop.client_id } });
   });
 
   it('expires sessions on read (delete + return undefined)', async () => {
