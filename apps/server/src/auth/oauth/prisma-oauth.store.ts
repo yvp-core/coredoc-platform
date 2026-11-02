@@ -21,13 +21,18 @@
  */
 
 import { createHash } from 'node:crypto';
+import { ForbiddenException } from '@nestjs/common';
 import type { IOAuthStore, OAuthClient, AuthorizationCode, OAuthSession, OAuthUserProfile } from '@rekog/mcp-nest';
 import type { PrismaClient } from '../../generated/prisma/client.js';
 import { createStandalonePrismaClient } from '../../database/create-prisma-client.js';
+import { WEB_CLIENT_ID } from '../web/web-auth.constants.js';
 import { linkPendingMemberships } from './link-pending-memberships.js';
 import type pg from 'pg';
 
 type StoredUserProfile = OAuthUserProfile & { profile_id: string; provider: string };
+
+/** `client_name` the desktop app and CLI register with (apps/desktop auth-manager.ts, packages/cli auth.ts). */
+const FIRST_PARTY_CLIENT_NAMES = new Set(['coredoc-desktop', 'coredoc-cli']);
 
 export class PrismaOAuthStore implements IOAuthStore {
   private readonly prisma: PrismaClient;
@@ -116,6 +121,7 @@ export class PrismaOAuthStore implements IOAuthStore {
   // ===========================================================================
 
   async storeAuthCode(code: AuthorizationCode): Promise<void> {
+    if (code.user_profile_id) await this.assertCanConnect(code.client_id, code.user_profile_id);
     await this.prisma.authorizationCode.create({
       data: {
         code: code.code,
@@ -131,6 +137,28 @@ export class PrismaOAuthStore implements IOAuthStore {
         user_profile_id: code.user_profile_id ?? null,
       },
     });
+  }
+
+  /**
+   * For a user with no workspace, every request from a third-party MCP client
+   * is a 403, which clients surface only as a failed login. Refusing during the
+   * browser callback shows the reason where the person is looking. First-party
+   * clients stay open: the desktop app creates the first workspace after login.
+   *
+   * Not an access boundary — `client_name` is self-asserted at /register; the
+   * membership check on every MCP request is.
+   */
+  private async assertCanConnect(clientId: string, userId: string): Promise<void> {
+    const member = await this.prisma.workspaceMember.findFirst({ where: { userId }, select: { userId: true } });
+    if (member || clientId === WEB_CLIENT_ID) return;
+    const client = await this.getClient(clientId);
+    if (client && FIRST_PARTY_CLIENT_NAMES.has(client.client_name)) return;
+    const profile = await this.getUserProfileById(userId);
+    const who = profile?.email ?? profile?.username ?? 'this account';
+    throw new ForbiddenException(
+      `Signed in as ${who}, but this account is not a member of any Coredoc workspace. ` +
+        `Ask a workspace admin to invite ${who}, then connect again.`,
+    );
   }
 
   async getAuthCode(code: string): Promise<AuthorizationCode | undefined> {

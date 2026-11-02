@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { SignJWT } from 'jose';
+import { Logger } from '@nestjs/common';
 import { isMcpRequestPath, McpRewriteMiddleware, WORKSPACE_HEADER } from './mcp-rewrite.middleware.js';
 import { McpAuthKind } from './mcp-auth-context.js';
 import { AuthService } from '../auth/auth.service.js';
@@ -209,6 +210,20 @@ describe('McpRewriteMiddleware — workspace-scoped path (back-compat)', () => {
     expect(req.user).toEqual(user);
     expect(req.userWorkspaceRole).toBe('admin');
     expect(controlPlane.getMember).toHaveBeenCalledWith(WS_A, user.id);
+  });
+
+  it('logs a refused non-member with who it was — the HTTP request logger never sees it', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const middleware = new McpRewriteMiddleware(makeAuthService(), makeControlPlane());
+    const res = makeRes();
+
+    await middleware.use(makeReq(`/api/v1/workspaces/${WS_A}/mcp`, bearer('jwt-token')), res, vi.fn());
+
+    expect(res.statusCode).toBe(403);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/403 Workspace membership required user=user_1 <dev@example\.com>/),
+    );
+    warn.mockRestore();
   });
 
   it('rewrites the SSE subpaths', async () => {
