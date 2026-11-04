@@ -119,6 +119,20 @@ async function findEntrypointsByPath(
   return matched.map(toEntrypointInfo);
 }
 
+// The path lookup is a substring match, so `/x/y` also returns `/devtools/x/y`
+// and `/x/y/:id`. Exact matches win; when there are none, every hit only
+// contains the path and may be an unrelated route, so it is reported as a guess.
+function preferExactPath(
+  entrypoints: EntrypointInfo[],
+  paths: string[],
+): { entrypoints: EntrypointInfo[]; exact: boolean } {
+  const wanted = new Set(paths.map(normalizeHttpPath));
+  const exact = entrypoints.filter(
+    (ep) => wanted.has(normalizeHttpPath(ep.path ?? '')) || wanted.has(normalizeHttpPath(ep.fullPath ?? '')),
+  );
+  return exact.length > 0 ? { entrypoints: exact, exact: true } : { entrypoints, exact: false };
+}
+
 /**
  * How many same-named symbols the handler-token lookup will consider. A handler
  * name like `getSuperBookingGroups` legitimately exists in several services of one
@@ -586,6 +600,7 @@ export async function handleTraceCrossRepoCall(
    * equally-supported candidates, and the answer must say so.
    */
   let ambiguousTargets: EntrypointInfo[] = [];
+  let pathGuess = false;
 
   if (callPattern) {
     const { method: patternMethod, path: patternPath } = splitHttpMethodPrefix(callPattern);
@@ -621,17 +636,11 @@ export async function handleTraceCrossRepoCall(
             if (patternMethod && c.httpMethod && c.httpMethod.toUpperCase() !== patternMethod) return false;
             const np = normalizeHttpPath(c.pathTemplate);
             if (np === normalizedPattern) return true;
-            // Segment-boundary suffix match in either direction. Requires the
-            // shorter side to be at least 2 segments long ("/x/y") to avoid the
-            // degenerate "/" matches anything bug.
-            if (!hasMinSegments(np, 2) && !hasMinSegments(normalizedPattern, 2)) return false;
-            // Both sides start with `/`, so a plain suffix test is segment-aligned.
-            // A 1-segment pattern never suffix-matches a longer call (`/users`
-            // would claim every `…/users`).
-            if (!np || !normalizedPattern) return false;
-            return (
-              normalizedPattern.endsWith(np) || (hasMinSegments(normalizedPattern, 2) && np.endsWith(normalizedPattern))
-            );
+            // Segment-boundary suffix match in either direction (both sides start
+            // with `/`). Both must be at least 2 segments: a 1-segment side
+            // (`/`, `/users`, `/orders`) would claim every longer path ending in it.
+            if (!hasMinSegments(np, 2) || !hasMinSegments(normalizedPattern, 2)) return false;
+            return normalizedPattern.endsWith(np) || np.endsWith(normalizedPattern);
           })
           // Rank: exact match first, then by descending normalized-path length
           // (longest match wins among suffix-aligned candidates), then by
@@ -706,16 +715,11 @@ export async function handleTraceCrossRepoCall(
       if (targetEntrypoints.length === 0 && widens) {
         targetEntrypoints = await findEntrypointsByPath(repository, patternPath, patternMethod, lookupHashes);
       }
-      // The path lookup is a substring match, so a query for `/users` also
-      // returns `/users/:id`. When any endpoint matches the pattern EXACTLY,
-      // the looser siblings are not the endpoint that was asked about — and
-      // must not pull their own inbound bridges into the answer.
-      const exact = targetEntrypoints.filter(
-        (ep) =>
-          normalizeHttpPath(ep.path ?? '') === normalizedPattern ||
-          normalizeHttpPath(ep.fullPath ?? '') === normalizedPattern,
-      );
-      if (exact.length > 0) targetEntrypoints = exact;
+      // Looser siblings of an exact match must not pull their own inbound
+      // bridges into the answer.
+      const narrowed = preferExactPath(targetEntrypoints, [patternPath]);
+      targetEntrypoints = narrowed.entrypoints;
+      pathGuess = !narrowed.exact;
     } else if (!looksLikePath) {
       const found = await findEntrypointsByHandlerToken(repository, patternPath.trim(), lookupHashes);
       // In-scope handlers first, same reason.
@@ -787,10 +791,15 @@ export async function handleTraceCrossRepoCall(
       // Scope first — with no bridge to follow, an endpoint in the repo the
       // agent named beats a same-path endpoint in an unrelated one — then the
       // whole graph, because the endpoint being called normally lives elsewhere.
-      targetEntrypoint = (await findEntrypointsByPath(repository, pathToSearch, patternMethod, scope.repoHashes))[0];
-      if (!targetEntrypoint && widens) {
-        targetEntrypoint = (await findEntrypointsByPath(repository, pathToSearch, patternMethod, lookupHashes))[0];
+      let found = await findEntrypointsByPath(repository, pathToSearch, patternMethod, scope.repoHashes);
+      if (found.length === 0 && widens) {
+        found = await findEntrypointsByPath(repository, pathToSearch, patternMethod, lookupHashes);
       }
+      // A suffix-matched call searches by its own shorter path; an endpoint equal
+      // to either that path or the pattern is the one asked about.
+      const narrowed = preferExactPath(found, [pathToSearch, patternPath]);
+      targetEntrypoint = narrowed.entrypoints[0];
+      pathGuess = !!targetEntrypoint && !narrowed.exact;
     }
 
     // Walk the stored multi-hop chain provenance (spec §8 D2): the resolved
@@ -929,30 +938,44 @@ export async function handleTraceCrossRepoCall(
     },
     chain,
     ...(alternativeBridges.length > 0 ? { alternatives: alternativeBridges } : {}),
-    // Ambiguity outranks the scope notes: a caveat about WHICH repo answered is
-    // useless if the reader does not first know the named target was a pick.
-    ...(ambiguousTargets.length > 1
+    // A guessed or ambiguous target outranks the scope notes: a caveat about
+    // WHICH repo answered is useless if the reader does not first know the named
+    // target was not traced.
+    ...(pathGuess
       ? {
           scopeNote:
-            `${ambiguousTargets.length} entrypoints match this pattern and no call edge resolves to any of them, ` +
-            `so the one named above is a PICK, not a trace: ${ambiguousTargets
-              .map((ep) => `${ep.handlerName ?? 'unknown'} in ${ep.filePath ?? 'unknown'}`)
-              .join('; ')}. Name the calling repo in scope, or trace from the caller, to decide between them.`,
+            `No entrypoint path equals \`${splitHttpMethodPrefix(callPattern ?? '').path}\`. The one named above ` +
+            'only contains it (a proxy, a prefixed or a longer route), so it may not be the endpoint asked about' +
+            (ambiguousTargets.length > 1
+              ? `; other candidates: ${ambiguousTargets
+                  .slice(1)
+                  .map((ep) => `${ep.handlerName ?? 'unknown'} in ${ep.filePath ?? 'unknown'}`)
+                  .join('; ')}`
+              : '') +
+            '. Check the route in source before relying on it.',
         }
-      : leftScope && scope.resolvedRepos.length > 0
+      : ambiguousTargets.length > 1
         ? {
             scopeNote:
-              `Answered outside the requested scope (${scope.resolvedRepos.join(', ')}): the caller lives in ` +
-              `${callerRepo}. A cross-repo call is normally issued from a repo other than the one it reaches.`,
+              `${ambiguousTargets.length} entrypoints match this pattern and no call edge resolves to any of them, ` +
+              `so the one named above is a PICK, not a trace: ${ambiguousTargets
+                .map((ep) => `${ep.handlerName ?? 'unknown'} in ${ep.filePath ?? 'unknown'}`)
+                .join('; ')}. Name the calling repo in scope, or trace from the caller, to decide between them.`,
           }
-        : boundedByWorkspace
+        : leftScope && scope.resolvedRepos.length > 0
           ? {
               scopeNote:
-                'No caller found among the repos connected to this workspace. That is a workspace boundary, not ' +
-                'evidence that nothing calls this endpoint — connect the calling repo to see the bridge.',
+                `Answered outside the requested scope (${scope.resolvedRepos.join(', ')}): the caller lives in ` +
+                `${callerRepo}. A cross-repo call is normally issued from a repo other than the one it reaches.`,
             }
-          : {}),
-    summary: buildCallSummary(callPattern || '', targetEntrypoint, matchingCall),
+          : boundedByWorkspace
+            ? {
+                scopeNote:
+                  'No caller found among the repos connected to this workspace. That is a workspace boundary, not ' +
+                  'evidence that nothing calls this endpoint — connect the calling repo to see the bridge.',
+              }
+            : {}),
+    summary: buildCallSummary(callPattern || '', targetEntrypoint, matchingCall, pathGuess),
   };
 
   const metadata = await createMetadata(scope, format, detailLevel, detailConfig, repository);
@@ -971,7 +994,11 @@ function buildCallSummary(
   pattern: string,
   targetEntrypoint: EntrypointInfo | undefined,
   matchingCall: ExternalCallInfo | undefined,
+  pathGuess: boolean,
 ): string {
+  if (targetEntrypoint && pathGuess) {
+    return `Call pattern \`${pattern}\` has no exact entrypoint; closest path match (unverified) is handled by \`${targetEntrypoint.handlerName}\` in ${targetEntrypoint.filePath}`;
+  }
   if (targetEntrypoint) {
     return `Call pattern \`${pattern}\` matches entrypoint handled by \`${targetEntrypoint.handlerName}\` in ${targetEntrypoint.filePath}`;
   }
