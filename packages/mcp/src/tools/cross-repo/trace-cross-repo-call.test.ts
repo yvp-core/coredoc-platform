@@ -2150,7 +2150,100 @@ describe('trace_cross_repo_call Tool Handler', () => {
         mockRepo,
       );
 
-      expect((result.data as CrossRepoCallResult).scopeNote ?? '').not.toMatch(/PICK/);
+      expect((result.data as CrossRepoCallResult).scopeNote ?? '').not.toMatch(/PICK|No entrypoint path equals/);
+    });
+
+    it('does not let a one-segment call path claim a longer pattern', async () => {
+      const mockRepo = createMockRepository({
+        listEntrypoints: vi.fn().mockResolvedValue([]),
+        getExternalCalls: vi.fn().mockResolvedValue([
+          createMockExternalCallInfo({
+            protocol: 'http',
+            httpMethod: 'POST',
+            pathTemplate: '/orders',
+            resolvedTargetId: 'admin:entrypoint:http:POST:/devtools/orders',
+          }),
+        ]),
+      });
+      (getRepository as Mock).mockResolvedValue(mockRepo);
+
+      const result = await handleTraceCrossRepoCall(
+        { callPattern: 'POST /partner/v1/orders' },
+        mockScope,
+        'raw',
+        'full',
+        defaultDetailConfig,
+        mockRepo,
+      );
+
+      expect(result.data).toMatchObject({ found: false });
+    });
+
+    it('does not hedge an exact endpoint found through a shorter suffix-matched call path', async () => {
+      const mockRepo = createMockRepository({
+        listEntrypoints: vi.fn().mockResolvedValue([
+          createMockEntrypointInfo({
+            method: 'POST',
+            path: '/partner/v1/orders',
+            fullPath: '/partner/v1/orders',
+            handlerName: 'importOrders',
+          }),
+        ]),
+        getExternalCalls: vi
+          .fn()
+          .mockResolvedValue([
+            createMockExternalCallInfo({ protocol: 'http', httpMethod: 'POST', pathTemplate: '/v1/orders' }),
+          ]),
+      });
+      (getRepository as Mock).mockResolvedValue(mockRepo);
+
+      const result = await handleTraceCrossRepoCall(
+        { callPattern: 'POST /partner/v1/orders' },
+        mockScope,
+        'raw',
+        'full',
+        defaultDetailConfig,
+        mockRepo,
+      );
+
+      const data = result.data as CrossRepoCallResult;
+      expect(data.summary).toMatch(/matches entrypoint handled by `importOrders`/);
+      expect(data.scopeNote ?? '').not.toMatch(/No entrypoint path equals/);
+    });
+
+    const devtoolsProxy = createMockEntrypointInfo({
+      id: 'admin:entrypoint:http:POST:/devtools/partner/v1/orders',
+      method: 'POST',
+      path: '/devtools/partner/v1/orders',
+      fullPath: '/devtools/partner/v1/orders',
+      handlerName: 'proxyOrders',
+      filePath: 'admin/src/devtools.ts',
+    });
+    it.each([
+      ['no call reaches the pattern', []],
+      [
+        'the matched call has no resolved target',
+        [createMockExternalCallInfo({ protocol: 'http', httpMethod: 'POST', pathTemplate: '/partner/v1/orders' })],
+      ],
+    ])('reports an endpoint that only contains the path as a guess when %s', async (_case, calls) => {
+      const mockRepo = createMockRepository({
+        listEntrypoints: vi.fn().mockResolvedValue([devtoolsProxy]),
+        getExternalCalls: vi.fn().mockResolvedValue(calls),
+      });
+      (getRepository as Mock).mockResolvedValue(mockRepo);
+
+      const result = await handleTraceCrossRepoCall(
+        { callPattern: 'POST /partner/v1/orders' },
+        mockScope,
+        'raw',
+        'full',
+        defaultDetailConfig,
+        mockRepo,
+      );
+
+      const data = result.data as CrossRepoCallResult;
+      expect(data.summary).not.toMatch(/matches entrypoint/);
+      expect(data.scopeNote).toMatch(/No entrypoint path equals `\/partner\/v1\/orders`/);
     });
   });
 
