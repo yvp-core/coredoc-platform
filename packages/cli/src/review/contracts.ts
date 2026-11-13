@@ -156,12 +156,19 @@ export const requestSchema = z
         repoName: z.string().min(1).max(200),
         // Historical admission is an explicit maintainer assertion, checked against observed graph SHA.
         locallyPreparedBase: z.boolean().default(false),
+        // Opt-in: the token must carry intent:read, and repoKey is the workspace's identity for
+        // this repository, which the graph settings do not otherwise know.
+        intent: z
+          .object({ repoKey: z.string().min(1).max(200) })
+          .strict()
+          .optional(),
       })
       .strict()
       .refine(
         (graph) => Boolean(graph.url) !== Boolean(graph.local),
         'Choose an MCP URL or a trusted local CLI installation',
       )
+      .refine((graph) => !graph.intent || Boolean(graph.url), 'Product intent is read from an MCP URL only')
       .optional(),
   })
   .strict()
@@ -215,7 +222,20 @@ export interface GraphReader {
     operation: 'search_symbols' | 'explain' | 'find_callers' | 'analyze_change_impact',
     query: string,
   ): Promise<unknown>;
+  /** Accepted product rules that apply to the changed paths; throws an INTENT_* ReviewError. */
+  intent?(paths: string[]): Promise<{ rules: IntentRule[]; truncated: boolean }>;
   close(): Promise<void>;
+}
+/** One accepted intent item as the intent lens and the verifier see it. */
+export interface IntentRule {
+  id: string;
+  kind: string;
+  title: string;
+  statement: string;
+  body?: string[];
+  /** Conditions the rule holds under, verbatim from the server; absent means unconditional. */
+  appliesWhen?: unknown;
+  inheritedConditions?: unknown;
 }
 const modelEvidenceSchema = z
   .object({

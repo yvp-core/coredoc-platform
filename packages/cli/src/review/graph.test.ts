@@ -10,7 +10,9 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(options: { changed?: boolean; otherRepo?: boolean; extraRepo?: boolean } = {}) {
+async function fixture(
+  options: { changed?: boolean; otherRepo?: boolean; extraRepo?: boolean; intentStatus?: string } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), 'review-graph-'));
   roots.push(root);
   const cliPath = join(root, 'trusted-cli.mjs');
@@ -27,7 +29,12 @@ lines.on('line', line => {
   if (request.id === undefined) return;
   let result;
   if (request.method === 'initialize') result = { protocolVersion: request.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1' } };
-  else if (request.method === 'tools/call') {
+  else if (request.method === 'tools/call' && request.params.name === 'get_intent_context') {
+    const item = (id, authority, statement) => ({ id, kind: 'business_rule', title: id, authority, statement });
+    // The accepted rule's statement echoes the arguments, so a test can see exactly what was sent.
+    const answer = options.intentStatus ? { status: options.intentStatus } : { matches: [item('br-a', 'accepted', JSON.stringify(request.params.arguments)), item('br-c', 'candidate', 'x')], truncated: false };
+    result = { content: [{ type: 'text', text: JSON.stringify(answer) }] };
+  } else if (request.method === 'tools/call') {
     const lookup = request.params.name !== 'describe_repository';
     const rows = [{ name: 'repo', parsedCommit: (options.changed && lookup ? 'b' : 'a').repeat(40), parsedAt: '2026-09-16T00:00:00Z', parserVersion: 'fixture' }];
     if (options.extraRepo) rows.push({ ...rows[0], name: 'another' });
@@ -45,6 +52,8 @@ lines.on('line', line => {
       scope: 'repo:repo',
       repoName: 'repo',
       locallyPreparedBase: true,
+      // The request schema allows intent over a URL only; the stdio fixture stands in for that server.
+      intent: { repoKey: 'repo-key' },
     },
     'owner/repo',
     '',
@@ -52,6 +61,38 @@ lines.on('line', line => {
   );
   return { graph, configPath, root };
 }
+
+describe('intent read', () => {
+  it('sends only the context arguments and returns accepted rules alone', async () => {
+    const { graph } = await fixture();
+    try {
+      const { rules, truncated } = await graph.intent(['src/a.ts', 'src/b.ts']);
+      expect(truncated).toBe(false);
+      expect(rules.map((r) => r.id)).toEqual(['br-a']);
+      // The intent tool's schema is strict: scope, format and detailLevel would refuse the call.
+      expect(JSON.parse(rules[0]!.statement)).toEqual({
+        task: 'src/a.ts src/b.ts',
+        files: [
+          { repoKey: 'repo-key', path: 'src/a.ts' },
+          { repoKey: 'repo-key', path: 'src/b.ts' },
+        ],
+        limit: 20,
+      });
+    } finally {
+      await graph.close();
+    }
+  });
+  it('treats an unconfigured workspace as no rules and a refusal as a failure', async () => {
+    const empty = await fixture({ intentStatus: 'not_configured' });
+    const denied = await fixture({ intentStatus: 'permission_denied' });
+    try {
+      expect(await empty.graph.intent(['src/a.ts'])).toEqual({ rules: [], truncated: false });
+      await expect(denied.graph.intent(['src/a.ts'])).rejects.toMatchObject({ code: 'INTENT_PERMISSION_DENIED' });
+    } finally {
+      await Promise.all([empty.graph.close(), denied.graph.close()]);
+    }
+  });
+});
 
 describe('scoped graph capability', () => {
   it('uses the installed stdio reader with fixed scope and no model credential', async () => {

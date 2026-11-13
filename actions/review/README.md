@@ -282,6 +282,26 @@ A graph treatment that cannot be admitted at the start of a run (unreachable MCP
 repository or scope mismatch, missing provenance) is recorded as `failed` with its
 code and the review continues on source alone without `graph_lookup`.
 
+### Product intent lens
+
+Add `"intent": { "repoKey": "<workspace repo key>" }` to the `graph` object to check the
+change against the workspace's accepted product intent. It needs `graph.url` (intent is
+cloud-only) and a `graph-token` that carries `intent:read`; `repoKey` is the identity the
+workspace registered for this repository.
+
+Before discovery the host makes one `get_intent_context` read for the changed paths (up to
+50 files, 20 rules, accepted items only). When rules come back it runs an `intent` lens beside
+the routed ones, outside `maxLenses`: the router is never offered this lens and cannot start
+it. A finding must start its `cause` with a listed rule id; the host drops one that does not
+(`INTENT_RULE_UNKNOWN`). Verification and the recheck of earlier findings receive the cited
+rules, and the usual evidence rules apply unchanged. The rules are accepted by a person in the
+workspace, so they count as policy; repository text still does not.
+
+A workspace with no intent content runs no lens and records nothing. A refused or failed read
+(`INTENT_PERMISSION_DENIED`, `INTENT_READ_FAILED`, `INTENT_RESPONSE_INVALID`) is a coverage
+gap and the review continues without the lens. `INTENT_TRUNCATED` means more rules matched
+than one read returns; it is reported but does not make the review incomplete.
+
 The existing MCP exposes a parse identity (repository, parsed timestamp, commit
 and parser version), not the cloud snapshot file key. Reports label that identity
 `parse:<digest>`. Every graph call must match it; changes make the treatment

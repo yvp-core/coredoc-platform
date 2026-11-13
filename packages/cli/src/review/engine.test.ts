@@ -9,6 +9,7 @@ import {
   ReviewError,
   type ChangedFile,
   type Finding,
+  type GraphReader,
   type ModelCallDiagnostic,
   type SourceReader,
   type ReviewRequest,
@@ -2078,6 +2079,107 @@ describe('review engine', () => {
     expect(result.graph?.admissibility).toBe(admissibility);
     expect(result.graph?.distance.source).toBe('api');
     expect(result.arm).toBe('B');
+  });
+});
+
+describe('intent lens', () => {
+  const rule = { id: 'br-cap', kind: 'business_rule', title: 'Divisor', statement: 'divide never divides by zero' };
+  const intentRequest = () =>
+    request({
+      arm: 'B',
+      graph: {
+        url: 'https://example.invalid/mcp',
+        scope: 'repo',
+        repoName: 'repo',
+        locallyPreparedBase: false,
+        intent: { repoKey: 'repo' },
+      },
+    });
+  const graph = (intent: NonNullable<GraphReader['intent']>): GraphReader => ({
+    snapshot: async () => ({ commit: base, snapshotId: 'parse:fixture', parsedAt: '2026-09-16', capturedAt: 'now' }),
+    query: async () => ({}),
+    intent,
+    close: async () => undefined,
+  });
+  const taskOf = (options: unknown) => JSON.parse(userMessages(options)[1]!) as Record<string, unknown>;
+
+  it('runs beside the routed lenses and publishes only a finding that cites a listed rule', async () => {
+    const tasks: Array<Record<string, unknown>> = [];
+    const result = await runReview(intentRequest(), {
+      source: source(),
+      graph: graph(async (paths) => {
+        expect(paths).toEqual(['src/a.ts']);
+        return { rules: [rule], truncated: true };
+      }),
+      model: dispatch({
+        route: { lenses: [] },
+        lens: (id, n) =>
+          n === 1
+            ? [read(`${id}-read`)]
+            : [
+                text({
+                  summary: id,
+                  findings:
+                    id === 'intent'
+                      ? [
+                          { ...finding, id: 'cap', cause: 'br-cap: divisor is now zero' },
+                          { ...finding, id: 'uncited', cause: 'divisor is now zero' },
+                        ]
+                      : [],
+                }),
+              ],
+        verify: (n) =>
+          n === 1
+            ? [read('verify')]
+            : [text({ verdicts: [{ id: 'intent-cap', decision: 'confirm', reason: 'Contradicts br-cap' }] })],
+        before: (options, kind) => {
+          if (kind !== 'router') tasks.push(taskOf(options));
+        },
+      }),
+    });
+    expect(result.coverage.lenses?.map((l) => l.id)).toEqual(['logic', 'intent']);
+    expect(tasks.find((t) => (t.lens as { id: string } | undefined)?.id === 'intent')?.rules).toEqual([rule]);
+    expect(tasks.find((t) => (t.lens as { id: string } | undefined)?.id === 'logic')).not.toHaveProperty('rules');
+    // The verifier is told which rule the surviving candidate is held against, and only that one.
+    const verify = tasks.find((t) => t.candidates)!;
+    expect(verify.intentRules).toEqual([rule]);
+    expect((verify.candidates as Finding[]).map((f) => f.id)).toEqual(['intent-cap']);
+    expect(result.findings.map((f) => f.id)).toEqual(['intent-cap']);
+    expect(result.candidates?.find((c) => c.id === 'intent-uncited')).toMatchObject({
+      outcome: 'dropped',
+      reason: 'INTENT_RULE_UNKNOWN',
+    });
+    // A bounded rule list is reported but is not an incomplete review; an uncited finding is.
+    expect(result.coverage.gaps).toEqual(expect.arrayContaining(['INTENT_TRUNCATED', 'INTENT_RULE_UNKNOWN']));
+  });
+
+  it.each([
+    ['no rule applies', async () => ({ rules: [], truncated: false }), [], 'completed'],
+    [
+      'the read is refused',
+      async () => {
+        throw new ReviewError('INTENT_PERMISSION_DENIED');
+      },
+      ['INTENT_PERMISSION_DENIED'],
+      'incomplete',
+    ],
+  ] as const)('reviews without the lens when %s', async (_name, intent, gaps, status) => {
+    const lenses: string[] = [];
+    const result = await runReview(intentRequest(), {
+      source: source(true),
+      graph: graph(intent),
+      model: dispatch({
+        // A router that names the lens itself must not be able to start it.
+        route: { lenses: [{ id: 'intent', reason: 'guess', focusFiles: [] }] },
+        lens: (id, n) => {
+          lenses.push(id);
+          return n === 1 ? [read(`${id}-read`)] : [text({ summary: id, findings: [] })];
+        },
+      }),
+    });
+    expect(new Set(lenses)).toEqual(new Set(['logic']));
+    expect(result.coverage.gaps).toEqual(gaps);
+    expect(result.status).toBe(status);
   });
 });
 
