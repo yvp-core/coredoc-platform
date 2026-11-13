@@ -933,7 +933,29 @@ describe('handleExplain', () => {
 
     const result = await handleExplain({ target: '`Calculator`' }, scope, 'raw', defaultLevel, defaultConfig, mockRepo);
 
-    expect(findCode).toHaveBeenCalledWith(expect.objectContaining({ pattern: '*Calculator*' }), scope.repoHashes);
+    expect(findCode).toHaveBeenCalledWith(expect.objectContaining({ pattern: 'Calculator' }), scope.repoHashes);
+    expect((result.data as ExplainResult).resolution).toBe('metadata');
+  });
+
+  it('resolves a short name whose substring page is full of longer names', async () => {
+    // 50 `*Order*` names that sort before `Order`: the capped substring page never holds it.
+    const nearMisses = Array.from({ length: 50 }, (_, i) =>
+      createMockCodeElement({ name: `AssignOrder${i}`, type: 'class', filePath: `src/a${i}.ts`, startLine: 1 }),
+    );
+    const order = createMockCodeElement({ name: 'Order', type: 'class', filePath: 'src/order.ts', startLine: 29 });
+    const findCode = vi
+      .fn()
+      .mockImplementation((params: { pattern: string }) =>
+        Promise.resolve(params.pattern === 'Order' ? [order] : nearMisses),
+      );
+    const mockRepo = createMockRepository({
+      findCode,
+      getTypeUsages: vi.fn().mockResolvedValue([]),
+      getClassExtensions: vi.fn().mockResolvedValue([]),
+    });
+
+    const result = await handleExplain({ target: 'Order' }, scope, 'raw', defaultLevel, defaultConfig, mockRepo);
+
     expect((result.data as ExplainResult).resolution).toBe('metadata');
   });
 
