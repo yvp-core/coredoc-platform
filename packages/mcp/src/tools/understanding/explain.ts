@@ -717,10 +717,8 @@ async function repositoriesDeclaring(repo: IGraphReadRepository, scope: ScopeCon
   if (scope.repoHashes.length === 0) return [];
   if (crossRepoLookupHashes(scope).length !== 0) return [];
 
-  const rows = await repo.findCode(
-    { pattern: `*${name}*`, types: NAME_ADDRESSABLE_KINDS, limit: SIBLING_PROBE_LIMIT },
-    [],
-  );
+  // The name itself, not a substring page: only exact rows are kept below.
+  const rows = await repo.findCode({ pattern: name, types: NAME_ADDRESSABLE_KINDS, limit: SIBLING_PROBE_LIMIT }, []);
   const lower = name.toLowerCase();
   const inScope = new Set(scope.repoHashes);
   const hashes = new Set<string>();
@@ -969,18 +967,16 @@ export async function handleExplain(
     );
   }
 
-  // --- 3) Bare name → findCode with exact post-filter ---
+  // --- 3) Bare name → exact findCode, substring only for suggestions ---
   const lookupName = parsed.lookupName;
   debug('findCode', `pattern="${lookupName}", scope=[${scope.repoHashes.join(',')}]`);
-  // Cast a slightly wider net than the post-filter requires, so an exact
-  // match buried alphabetically after near-misses still surfaces. 50 is
-  // enough for any realistic name collision.
-  const candidates = await repository.findCode(
-    { pattern: `*${lookupName}*`, types: NAME_ADDRESSABLE_KINDS, limit: 50 },
-    scope.repoHashes,
-  );
+  // Ask the store for the name itself. A substring page is alphabetical and
+  // capped, so a short common name never reached the post-filter: `Order`, behind
+  // more than 50 longer `*Order*` names of its repository, was reported missing.
   const lower = lookupName.toLowerCase();
-  let exact = candidates.filter((c) => c.name.toLowerCase() === lower);
+  let exact = (
+    await repository.findCode({ pattern: lookupName, types: NAME_ADDRESSABLE_KINDS, limit: 50 }, scope.repoHashes)
+  ).filter((c) => c.name.toLowerCase() === lower);
 
   // Honor fileHint as a narrowing filter when explicit.
   if (fileHint) {
@@ -1045,12 +1041,14 @@ export async function handleExplain(
   );
   if (epByAddress) return epByAddress;
 
-  // `candidates` already holds the
-  // substring matches from findCode above, so we just rank them for the
-  // "did you mean…?" list. Match bare-name first (handles `Class.method`
-  // typos), then alphabetical. Dedupe React FC pairs first so the fuzzy
-  // suggestion list isn't half-filled with duplicate {component,function}
-  // rows pointing at the same file+line.
+  // Substring matches feed the "did you mean…?" list. Match bare-name first
+  // (handles `Class.method` typos), then alphabetical. Dedupe React FC pairs
+  // first so the fuzzy suggestion list isn't half-filled with duplicate
+  // {component,function} rows pointing at the same file+line.
+  const candidates = await repository.findCode(
+    { pattern: `*${lookupName}*`, types: NAME_ADDRESSABLE_KINDS, limit: 50 },
+    scope.repoHashes,
+  );
   const fuzzyDeduped = dedupeParserDuplicates(candidates);
   if (fuzzyDeduped.length > 0) {
     const ranked = [...fuzzyDeduped].sort((a, b) => {
