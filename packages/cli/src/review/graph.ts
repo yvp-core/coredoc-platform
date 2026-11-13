@@ -4,7 +4,14 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { z } from 'zod';
-import { ReviewError, shaSchema, type GraphReader, type GraphSnapshot, type ReviewRequest } from './contracts.js';
+import {
+  ReviewError,
+  shaSchema,
+  type GraphReader,
+  type GraphSnapshot,
+  type IntentRule,
+  type ReviewRequest,
+} from './contracts.js';
 
 const metadataSchema = z.object({
   staleness: z.object({
@@ -23,6 +30,29 @@ const metadataSchema = z.object({
   }),
 });
 type ToolResult = Awaited<ReturnType<Client['callTool']>>;
+/** Files one context read accepts (the server's INTENT_CONTEXT_READ_LIMITS.nodeIds). */
+const INTENT_FILES = 50;
+/** The context read's answer, or one of its typed states (`status` is absent on success). */
+const intentAnswerSchema = z.object({
+  status: z.string().optional(),
+  truncated: z.boolean().optional(),
+  scanTruncated: z.boolean().optional(),
+  matches: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(64),
+        kind: z.string(),
+        title: z.string(),
+        authority: z.string(),
+        statement: z.string(),
+        body: z.array(z.string()).optional(),
+        payload: z.unknown().optional(),
+        appliesWhen: z.unknown().optional(),
+        inheritedConditions: z.unknown().optional(),
+      }),
+    )
+    .optional(),
+});
 
 export class McpGraphReader implements GraphReader {
   private readonly client = new Client({ name: 'coredoc-pr-review', version: '1.0.0' });
@@ -35,7 +65,7 @@ export class McpGraphReader implements GraphReader {
     private readonly signal: AbortSignal,
   ) {}
 
-  private async call(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+  private async call(name: string, args: Record<string, unknown>, graphArgs = true): Promise<ToolResult> {
     if (this.signal.aborted) throw new ReviewError('CANCELLED');
     if (!this.connected) {
       if (this.settings.local) {
@@ -83,12 +113,15 @@ export class McpGraphReader implements GraphReader {
     const response = await this.client.callTool(
       {
         name,
-        arguments: {
-          ...args,
-          scope: this.settings.scope,
-          format: 'raw',
-          ...(name === 'describe_repository' ? {} : { detailLevel: 'basic' }),
-        },
+        // The intent tools take a strict schema and refuse the graph tools' common arguments.
+        arguments: graphArgs
+          ? {
+              ...args,
+              scope: this.settings.scope,
+              format: 'raw',
+              ...(name === 'describe_repository' ? {} : { detailLevel: 'basic' }),
+            }
+          : args,
       },
       undefined,
       { signal: this.signal, timeout: 20_000 },
@@ -157,6 +190,47 @@ export class McpGraphReader implements GraphReader {
       evidence: response.content,
       warning: 'Graph is a discovery hint. Verify every claim against pinned source.',
     };
+  }
+  async intent(paths: string[]): Promise<{ rules: IntentRule[]; truncated: boolean }> {
+    const repoKey = this.settings.intent?.repoKey;
+    if (!repoKey) throw new ReviewError('INTENT_NOT_ENABLED');
+    const files = paths.slice(0, INTENT_FILES);
+    let response: ToolResult;
+    try {
+      response = await this.call(
+        'get_intent_context',
+        // The server needs task text beside files; the paths are the only text the host trusts.
+        { task: files.join(' ').slice(0, 2000), files: files.map((path) => ({ repoKey, path })), limit: 20 },
+        false,
+      );
+    } catch (error) {
+      if (error instanceof ReviewError && error.code === 'GRAPH_READ_FAILED')
+        throw new ReviewError('INTENT_READ_FAILED');
+      throw error;
+    }
+    const text = (response.content as Array<{ type: string; text?: string }>).find((b) => b.type === 'text')?.text;
+    let answer: z.infer<typeof intentAnswerSchema>;
+    try {
+      answer = intentAnswerSchema.parse(JSON.parse(text ?? ''));
+    } catch {
+      throw new ReviewError('INTENT_RESPONSE_INVALID');
+    }
+    // A workspace with no intent content is not a failure: there is simply nothing to check.
+    if (answer.status === 'not_configured') return { rules: [], truncated: false };
+    if (answer.status === 'permission_denied') throw new ReviewError('INTENT_PERMISSION_DENIED');
+    if (answer.status || !answer.matches) throw new ReviewError('INTENT_READ_FAILED');
+    const rules: IntentRule[] = [];
+    let bytes = 0;
+    for (const match of answer.matches) {
+      // Only accepted intent is policy; a candidate must never reach the lens.
+      if (match.authority !== 'accepted') continue;
+      const { id, kind, title, statement, body, payload, appliesWhen, inheritedConditions } = match;
+      const rule = { id, kind, title, statement, body, payload, appliesWhen, inheritedConditions };
+      bytes += Buffer.byteLength(JSON.stringify(rule));
+      if (bytes > 20_000) return { rules, truncated: true };
+      rules.push(rule);
+    }
+    return { rules, truncated: Boolean(answer.truncated || answer.scanTruncated) || paths.length > INTENT_FILES };
   }
   async close(): Promise<void> {
     // Initialization may fail after starting a local MCP process.

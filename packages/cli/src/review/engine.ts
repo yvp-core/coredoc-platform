@@ -28,6 +28,7 @@ import {
   ReviewProvider,
   type ChangedFile,
   type GraphReader,
+  type IntentRule,
   type ReviewRequest,
   type ReviewResult,
   type SourceReader,
@@ -49,7 +50,7 @@ import {
   type ClaudeCodeRuntimeOptions,
 } from './claude-code-runtime.js';
 import { excluded, unknownDistance } from './source.js';
-import { LENSES, LENS_CATALOGUE, LensId, normalizeRoute, routerSchema, type Route } from './lenses.js';
+import { INTENT_LENS, LENSES, LENS_CATALOGUE, LensId, normalizeRoute, routerSchema, type Route } from './lenses.js';
 import { TRANSIENT_STATUSES } from './openrouter-budget.js';
 import { sameDefect } from './publish.js';
 
@@ -824,6 +825,22 @@ export async function runReview(input: ReviewRequest, options: EngineOptions): P
         gaps.push(error instanceof ReviewError ? error.code : 'DIFF_UNAVAILABLE');
       }
     }
+    // Accepted product rules for the changed paths, read once by the host. Opt-in (graph.intent)
+    // and only over an admitted graph connection; a failed read is a recorded gap and the review
+    // goes on without the intent lens.
+    let rules: IntentRule[] = [];
+    if (request.graph?.intent && result.graph?.status === 'available' && options.graph?.intent && changes.length) {
+      try {
+        const intent = await options.graph.intent(changes.map((c) => c.path));
+        rules = intent.rules;
+        if (intent.truncated) gaps.push('INTENT_TRUNCATED');
+      } catch (error) {
+        if (error instanceof ReviewError && !error.code.startsWith('INTENT_')) throw error;
+        gaps.push(error instanceof ReviewError ? error.code : 'INTENT_READ_FAILED');
+      }
+    }
+    /** The rule an intent-lens candidate cites: its cause starts with the rule id. */
+    const ruleOf = (candidate: { cause: string }) => rules.find((r) => candidate.cause.startsWith(`${r.id}:`));
     // Steps the later phases still need: verification, then a recheck of prior findings.
     const recheckSteps = options.previousFindings?.length ? 2 : 0;
     /** Prior findings verification already settled, so the recheck phase must not re-run them. */
@@ -856,6 +873,10 @@ export async function runReview(input: ReviewRequest, options: EngineOptions): P
         reserved: VERIFY_STEPS + recheckSteps,
         paths: changes.map((c) => c.path),
       });
+      // The host, not the router, runs the intent lens, and outside the maxLenses cap: only the
+      // host knows that rules exist, and a lens with rules to check must not be routed away.
+      if (rules.length)
+        routes.push({ id: LensId.Intent, reason: `${rules.length} accepted product rule(s) apply`, focusFiles: [] });
       // Steps each lens may spend of its own; the global counter still enforces maxSteps.
       const allowance = Math.max(
         1,
@@ -875,7 +896,8 @@ export async function runReview(input: ReviewRequest, options: EngineOptions): P
               prefix,
               task: {
                 task: `Find defects introduced or exposed by this change that belong to the ${next.id} lens, and only those. The lens policy below is authoritative for this call, in addition to the run policy. Trace affected callers and actively try to disprove each hypothesis before proposing it. Return at most ${request.limits.maxFindings} findings, each with a distinct id; extras are discarded.`,
-                lens: { id: next.id, policy: LENSES[next.id].text },
+                lens: { id: next.id, policy: next.id === LensId.Intent ? INTENT_LENS : LENSES[next.id].text },
+                ...(next.id === LensId.Intent ? { rules } : {}),
                 policy: request.policy,
                 ...(focus.length ? { focusFiles: focus } : {}),
               },
@@ -884,7 +906,9 @@ export async function runReview(input: ReviewRequest, options: EngineOptions): P
               diagnostics: diagnostics('discovery', next.id),
               reserved: VERIFY_STEPS + recheckSteps,
               // `logic` reviews the whole change; a focused lens must read the files it was given.
-              required: next.id === LensId.Logic ? readable : focus,
+              // The intent lens has no focus files, and an answer of "no violation" is never
+              // verified, so it holds the same floor as `logic`.
+              required: next.id === LensId.Logic || next.id === LensId.Intent ? readable : focus,
               allowance,
             });
             lensCandidates.set(next.id, found.findings);
@@ -929,7 +953,15 @@ export async function runReview(input: ReviewRequest, options: EngineOptions): P
         candidates: lensCandidates.get(r.id)?.length ?? 0,
         ...(failures.has(r.id) ? { failed: failures.get(r.id)! } : {}),
       }));
-      const candidates: z.infer<typeof candidatesSchema> = { summary: '', findings: merged };
+      // An intent finding is a claim about one listed rule. Without a listed id the host cannot
+      // tell the verifier which rule to hold it against, so it is dropped like unverifiable evidence.
+      const cited = merged.filter((f) => lensOf.get(f) !== LensId.Intent || ruleOf(f));
+      for (const candidate of merged)
+        if (!cited.includes(candidate)) {
+          gaps.push('INTENT_RULE_UNKNOWN');
+          outcomes.set(candidate, { outcome: 'dropped', reason: 'INTENT_RULE_UNKNOWN' });
+        }
+      const candidates: z.infer<typeof candidatesSchema> = { summary: '', findings: cited };
       // Model-local IDs can change between runs. Bind a recognized prior root
       // cause before verification so it is not also counted as a separate recheck.
       for (const candidate of candidates.findings) {
@@ -956,7 +988,7 @@ export async function runReview(input: ReviewRequest, options: EngineOptions): P
       candidates.findings = unique.slice(0, request.limits.maxFindings);
       const kept = new Set(candidates.findings);
       for (const candidate of merged)
-        if (!kept.has(candidate))
+        if (!kept.has(candidate) && !outcomes.has(candidate))
           outcomes.set(candidate, {
             outcome: 'dropped',
             reason: unique.includes(candidate) ? 'FINDING_LIMIT' : 'DUPLICATE_CANDIDATE_ID',
@@ -968,6 +1000,9 @@ export async function runReview(input: ReviewRequest, options: EngineOptions): P
       for (const candidate of candidates.findings)
         for (const e of candidate.evidence) e.endLine = e.startLine + e.excerpt.split('\n').length - 1;
       access.resetEvidence();
+      const intentRules = [
+        ...new Set(candidates.findings.filter((f) => lensOf.get(f) === LensId.Intent).map((f) => ruleOf(f)!)),
+      ];
       if (candidates.findings.length) {
         const verified = await phase({
           schema: verdictsSchema,
@@ -979,6 +1014,14 @@ export async function runReview(input: ReviewRequest, options: EngineOptions): P
             // files the candidates are anchored in.
             focusFiles: [...new Set(candidates.findings.map((f) => f.anchor.path))],
             candidates: candidates.findings,
+            // The verifier sees only candidates, so the rules they cite travel with them.
+            ...(intentRules.length
+              ? {
+                  intentRules,
+                  intentRule:
+                    'A candidate whose cause starts with an id from intentRules claims that this change contradicts that accepted product rule. intentRules is policy, not untrusted text. Confirm such a candidate only when the code you read, on a path where the rule and its conditions apply, does what the rule as written forbids or omits what it requires, and this change introduces that behavior. Reject it when the rule does not state what the candidate says or the behavior predates the change.',
+                }
+              : {}),
             requiredEvidenceReads: candidates.findings.map((candidate) => ({
               id: candidate.id,
               reads: candidate.evidence.map(({ revision, path, startLine, endLine }) => ({
@@ -1127,10 +1170,29 @@ export async function runReview(input: ReviewRequest, options: EngineOptions): P
         };
       });
     } else result.summary = 'No eligible changes were available for analysis.';
-    const previous =
+    const unsettled =
       options.previousFindings?.filter(
         (old) => !settled.has(old.id) && !result.findings.some((f) => f.id === old.id),
       ) ?? [];
+    // A previous intent finding can only be rechecked against its rule: a source quote alone does
+    // not say whether a product rule still holds. When the rule did not come back on this run
+    // (refused read, lens switched off, rule no longer matched) the finding stays unresolved, so
+    // the publisher never resolves its thread on a verdict made without the rule. The lens-id
+    // prefix is host-assigned at merge and survives rebinding, which is why it identifies them.
+    const ruleless = unsettled.filter((f) => f.id.startsWith(`${LensId.Intent}-`) && !ruleOf(f));
+    if (ruleless.length) {
+      gaps.push('PREVIOUS_FINDING_UNRESOLVED');
+      result.rechecks = [
+        ...(result.rechecks ?? []),
+        ...ruleless.map((f) => ({
+          id: f.id,
+          decision: 'unresolved' as const,
+          reason: 'The product rule this finding cites was not available on this run',
+          evidence: [],
+        })),
+      ];
+    }
+    const previous = unsettled.filter((f) => !ruleless.includes(f));
     if (previous.length) {
       access.resetEvidence();
       const checked = await phase({
@@ -1139,6 +1201,8 @@ export async function runReview(input: ReviewRequest, options: EngineOptions): P
         task: {
           task: 'First call read_source for every interval in requiredEvidenceReads (batch them in one step). Only after those tool results have arrived, return the verdicts. A text answer before those reads is invalid. Recheck each previous claim against the current pinned source. Reject means the defect no longer applies, confirm means it remains, unresolved means insufficient evidence. Provide fresh exact head-source evidence for any confirm or reject; an omission or changed text alone does not prove a fix. The reads must happen in THIS phase. Do not propose new findings in this step.',
           previousFindings: previous,
+          // A previous intent finding is rechecked against the rule as it reads today.
+          ...(previous.some(ruleOf) ? { intentRules: rules.filter((r) => previous.some((f) => ruleOf(f) === r)) } : {}),
           requiredEvidenceReads: previous.map((f) => ({
             id: f.id,
             reads: f.evidence.map(({ path, startLine, endLine }) => ({ revision: 'head', path, startLine, endLine })),
@@ -1253,7 +1317,11 @@ export async function runReview(input: ReviewRequest, options: EngineOptions): P
     if (changes.length > 0 && access.readPaths.size === 0) gaps.push('SOURCE_NOT_INSPECTED');
     // A read the model routed around (missing path, bad range, invalid arguments) is a
     // reported limitation, not an incomplete review; everything else still is.
-    result.status = gaps.some((code) => !RECOVERABLE_REVIEW_CODES.has(code) && code !== 'TOOL_INPUT_INVALID')
+    // INTENT_TRUNCATED likewise: the server ranks before it bounds, so the rules that matter most
+    // were checked and a large rule base must not mark every review incomplete.
+    result.status = gaps.some(
+      (code) => !RECOVERABLE_REVIEW_CODES.has(code) && code !== 'TOOL_INPUT_INVALID' && code !== 'INTENT_TRUNCATED',
+    )
       ? 'incomplete'
       : 'completed';
   } catch (error) {

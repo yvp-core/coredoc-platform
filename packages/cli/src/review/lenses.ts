@@ -16,7 +16,31 @@ export enum LensId {
   Concurrency = 'concurrency',
   TrustBoundary = 'trust-boundary',
   Ui = 'ui',
+  /** Accepted product rules. Run by the host when the workspace returns rules; never routed. */
+  Intent = 'intent',
 }
+
+/**
+ * Not in LENSES: the router cannot know whether rules exist, so it is never offered this lens.
+ * The rules arrive beside this text as `rules`; they are the workspace's accepted intent, reviewed
+ * by a person, which is why they count as policy while repository text does not.
+ */
+export const INTENT_LENS = `Look only for behavior this change introduces that contradicts an accepted product rule in \`rules\`.
+
+- For each rule, find the changed code that implements or touches the behavior it describes. Read
+  that code and its callers; a rule matched to a file by location is not evidence of a violation.
+- A finding is a concrete case the changed code handles differently from what the rule states: name
+  the input or state, what the rule requires, and what the code now does instead.
+- Read the rule literally. Do not extend it to cases it does not state, and do not report a change
+  the rule is silent about. \`payload\` is part of the rule: its variants, thresholds and exceptions
+  decide what is allowed. A rule with appliesWhen or inheritedConditions holds only under those
+  conditions: report a violation only on a code path where they hold.
+- Behavior that already contradicted the rule before this change is out of scope.
+- An empty or short rule list does not establish that no other rule applies; do not say so.
+
+Start \`cause\` with the violated rule id and a colon, exactly as given in \`rules\` (for example
+"br-refund-window: ..."), and name the rule in \`title\`. One finding per violated rule and root cause.
+A finding without a listed rule id is discarded.`;
 
 const LOGIC = `Look only for broken contracts, incomplete value handling and defective error paths.
 
@@ -136,7 +160,7 @@ Name the interaction that shows the defect. Do not report spacing, colour, wordi
 choice: taste is out of scope.`;
 
 /** Declaration order is the catalogue order: lens selection and candidate merge both follow it. */
-export const LENSES: Record<LensId, { text: string; summary: string }> = {
+export const LENSES: Record<Exclude<LensId, LensId.Intent>, { text: string; summary: string }> = {
   [LensId.Logic]: {
     text: LOGIC,
     summary: 'contracts, enum/value completeness, consumers of new values, error paths, state transitions',
@@ -150,7 +174,7 @@ export const LENSES: Record<LensId, { text: string; summary: string }> = {
   [LensId.Ui]: { text: UI, summary: 'rendering states, data invalidation, accessibility basics, formatting' },
 };
 
-export const LENS_ORDER = Object.keys(LENSES) as LensId[];
+export const LENS_ORDER = Object.keys(LENSES) as Array<keyof typeof LENSES>;
 
 /** The catalogue as the router sees it: ids it may choose and what each one covers. */
 export const LENS_CATALOGUE = LENS_ORDER.map((id) => `${id}: ${LENSES[id].summary}`);
