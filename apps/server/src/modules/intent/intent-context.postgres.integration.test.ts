@@ -622,6 +622,35 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
       expect(body.unresolvedFiles).toEqual([]);
     });
 
+    it('returns the rules whose source cites a touched file, with or without a symbol', async () => {
+      const path = 'src/billing/charge-authorization.ts';
+      const refs = [
+        `code:${REPO_KEY_A}/${path}`,
+        `code:${REPO_KEY_A}/${path}#authorize`,
+        `code:${REPO_KEY_A}/${path}x`,
+      ];
+      await prisma.intentItemSource.createMany({
+        data: [
+          { workspaceId, itemId: 'cap-checkout', kind: 'manual', ref: refs[0]!, localId: 'C-1' },
+          { workspaceId, itemId: 'br-admin-only', kind: 'manual', ref: refs[1]!, localId: 'C-2' },
+          // Another file whose path merely starts with the touched one.
+          { workspaceId, itemId: 'uc-warehouse-limit', kind: 'manual', ref: refs[2]!, localId: 'C-3' },
+        ],
+      });
+      try {
+        const body = await read({
+          task: 'Rename a local variable',
+          files: JSON.stringify({ repoKey: REPO_KEY_A, path }),
+          limit: '10',
+        });
+        expect(idsOf(body)).toEqual(expect.arrayContaining(['cap-checkout', 'br-admin-only']));
+        expect(idsOf(body)).not.toContain('uc-warehouse-limit');
+        expect(reasonOf(body, 'cap-checkout')).toBe(IntentContextMatchReason.Source);
+      } finally {
+        await prisma.intentItemSource.deleteMany({ where: { workspaceId, ref: { in: refs } } });
+      }
+    });
+
     it('keeps lexical rules when the repository or graph is unavailable', async () => {
       leaseError = new WorkspaceGraphContextError('ACTIVE_VERSION_MISSING', 'no active graph version');
       const file = { repoKey: 'github.com/acme/unpublished', path: 'src/new.ts' };
