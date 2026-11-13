@@ -70,7 +70,10 @@ export enum IntentContextMatchReason {
   NodeDerived = 'node_derived',
   /** Lexical match on title, statement, or rationale. */
   Text = 'text',
-  /** An item source's `ref` equals a requested source ref (a `jira:` key compares case-insensitively). */
+  /**
+   * An item source's `ref` equals a requested source ref (a `jira:` key compares
+   * case-insensitively), or cites a requested file as `code:<repoKey>/<path>[#symbol]`.
+   */
   Source = 'source',
   /** Attached to the requested feature (or, for a domain scope, inside that domain). */
   Attached = 'attached',

@@ -686,6 +686,33 @@ export class IntentContextService {
     return request.sourceRefs.filter((ref) => !cited.has(exact.includes(ref) ? ref : ref.toLowerCase()));
   }
 
+  /**
+   * Items a touched file is cited by: a source ref `code:<repoKey>/<path>`, with
+   * or without a `#symbol` suffix. Imported rules carry their code references as
+   * sources, not anchors, so without this a `files` read finds none of them. The
+   * suffix is ignored on purpose: a rule recorded against one method is still
+   * owed to whoever edits the file.
+   */
+  private selectByCodeSource(
+    where: Prisma.Sql[],
+    files: NonNullable<IntentContextRequest['files']>,
+    take: number,
+  ): Promise<CandidateIdRow[]> {
+    const refs = files.map((file) => `code:${file.repoKey}/${file.path}`);
+    return this.selectIds(
+      [
+        ...where,
+        Prisma.sql`EXISTS (
+          SELECT 1 FROM intent_item_sources s
+          WHERE s.workspace_id = i.workspace_id AND s.item_id = i.id
+            AND split_part(s.ref, '#', 1) = ANY(${refs}::text[])
+        )`,
+      ],
+      Prisma.sql`"authorityRank", i.id`,
+      take,
+    );
+  }
+
   private unknownIntentIds(request: EffectiveContextRequest, exact: readonly SelectedMatch[]): string[] {
     const found = new Set(exact.map((match) => match.id));
     return (request.intentIds ?? []).filter((id) => !found.has(id));
@@ -1156,6 +1183,23 @@ export class IntentContextService {
       const rows = await this.selectIds(where, Prisma.sql`"authorityRank", i.id`, scan + 1);
       scanTruncated = rows.length > scan;
       discovered = rows.slice(0, scan).map((row) => ({ ...row, reason: IntentContextMatchReason.Default }));
+    }
+
+    if (request.files?.length) {
+      const cited = await this.selectByCodeSource(
+        this.discoveredWhere(workspaceId, request, undefined, excludeIds),
+        request.files,
+        scan + 1,
+      );
+      scanTruncated ||= cited.length > scan;
+      // An anchor on the file says more than a citation of it, so it keeps its reason.
+      const found = new Set(discovered.map((match) => match.id));
+      discovered.push(
+        ...cited
+          .slice(0, scan)
+          .filter((row) => !found.has(row.id))
+          .map((row) => ({ ...row, reason: IntentContextMatchReason.Source })),
+      );
     }
 
     if (request.task) {
