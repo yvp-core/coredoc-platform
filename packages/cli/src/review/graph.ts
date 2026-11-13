@@ -46,6 +46,7 @@ const intentAnswerSchema = z.object({
         authority: z.string(),
         statement: z.string(),
         body: z.array(z.string()).optional(),
+        payload: z.unknown().optional(),
         appliesWhen: z.unknown().optional(),
         inheritedConditions: z.unknown().optional(),
       }),
@@ -223,8 +224,8 @@ export class McpGraphReader implements GraphReader {
     for (const match of answer.matches) {
       // Only accepted intent is policy; a candidate must never reach the lens.
       if (match.authority !== 'accepted') continue;
-      const { id, kind, title, statement, body, appliesWhen, inheritedConditions } = match;
-      const rule = { id, kind, title, statement, body, appliesWhen, inheritedConditions };
+      const { id, kind, title, statement, body, payload, appliesWhen, inheritedConditions } = match;
+      const rule = { id, kind, title, statement, body, payload, appliesWhen, inheritedConditions };
       bytes += Buffer.byteLength(JSON.stringify(rule));
       if (bytes > 20_000) return { rules, truncated: true };
       rules.push(rule);

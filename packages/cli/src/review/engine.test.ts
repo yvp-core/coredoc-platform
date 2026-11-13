@@ -2153,6 +2153,49 @@ describe('intent lens', () => {
     expect(result.coverage.gaps).toEqual(expect.arrayContaining(['INTENT_TRUNCATED', 'INTENT_RULE_UNKNOWN']));
   });
 
+  it('holds the lens to reading the changed files before it may answer', async () => {
+    const result = await runReview(intentRequest(), {
+      source: source(true),
+      graph: graph(async () => ({ rules: [rule], truncated: false })),
+      model: dispatch({
+        route: { lenses: [] },
+        lens: (id, n) =>
+          // The intent lens answers "no violation" unread first; logic reads as usual.
+          id === 'intent' && n === 1
+            ? [text({ summary: id, findings: [] })]
+            : n === (id === 'intent' ? 2 : 1)
+              ? [read(`${id}-read`)]
+              : [text({ summary: id, findings: [] })],
+      }),
+    });
+    expect(result.status).toBe('completed');
+    // Unread answer, the read it was sent back for, then the answer: without the floor, one step.
+    expect(result.coverage.lenses?.find((l) => l.id === 'intent')?.steps).toBe(3);
+  });
+
+  it('leaves a previous intent finding unresolved when its rule cannot be read', async () => {
+    const kinds: string[] = [];
+    const result = await runReview(intentRequest(), {
+      source: source(true),
+      graph: graph(async () => {
+        throw new ReviewError('INTENT_PERMISSION_DENIED');
+      }),
+      previousFindings: [{ ...finding, id: 'intent-cap', cause: 'br-cap: divisor is now zero' }],
+      model: dispatch({
+        route: { lenses: [] },
+        lens: (id, n) => (n === 1 ? [read(`${id}-read`)] : [text({ summary: id, findings: [] })]),
+        // A verdict here would let the publisher resolve the thread without the rule.
+        recheck: () => [text({ verdicts: [{ id: 'intent-cap', decision: 'reject', reason: 'Fixed' }] })],
+        before: (_options, kind) => {
+          kinds.push(kind);
+        },
+      }),
+    });
+    expect(kinds).not.toContain('recheck');
+    expect(result.rechecks).toEqual([expect.objectContaining({ id: 'intent-cap', decision: 'unresolved' })]);
+    expect(result.status).toBe('incomplete');
+  });
+
   it.each([
     ['no rule applies', async () => ({ rules: [], truncated: false }), [], 'completed'],
     [

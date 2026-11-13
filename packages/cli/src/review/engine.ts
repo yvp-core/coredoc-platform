@@ -906,7 +906,9 @@ export async function runReview(input: ReviewRequest, options: EngineOptions): P
               diagnostics: diagnostics('discovery', next.id),
               reserved: VERIFY_STEPS + recheckSteps,
               // `logic` reviews the whole change; a focused lens must read the files it was given.
-              required: next.id === LensId.Logic ? readable : focus,
+              // The intent lens has no focus files, and an answer of "no violation" is never
+              // verified, so it holds the same floor as `logic`.
+              required: next.id === LensId.Logic || next.id === LensId.Intent ? readable : focus,
               allowance,
             });
             lensCandidates.set(next.id, found.findings);
@@ -1168,10 +1170,29 @@ export async function runReview(input: ReviewRequest, options: EngineOptions): P
         };
       });
     } else result.summary = 'No eligible changes were available for analysis.';
-    const previous =
+    const unsettled =
       options.previousFindings?.filter(
         (old) => !settled.has(old.id) && !result.findings.some((f) => f.id === old.id),
       ) ?? [];
+    // A previous intent finding can only be rechecked against its rule: a source quote alone does
+    // not say whether a product rule still holds. When the rule did not come back on this run
+    // (refused read, lens switched off, rule no longer matched) the finding stays unresolved, so
+    // the publisher never resolves its thread on a verdict made without the rule. The lens-id
+    // prefix is host-assigned at merge and survives rebinding, which is why it identifies them.
+    const ruleless = unsettled.filter((f) => f.id.startsWith(`${LensId.Intent}-`) && !ruleOf(f));
+    if (ruleless.length) {
+      gaps.push('PREVIOUS_FINDING_UNRESOLVED');
+      result.rechecks = [
+        ...(result.rechecks ?? []),
+        ...ruleless.map((f) => ({
+          id: f.id,
+          decision: 'unresolved' as const,
+          reason: 'The product rule this finding cites was not available on this run',
+          evidence: [],
+        })),
+      ];
+    }
+    const previous = unsettled.filter((f) => !ruleless.includes(f));
     if (previous.length) {
       access.resetEvidence();
       const checked = await phase({

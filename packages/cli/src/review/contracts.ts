@@ -233,6 +233,8 @@ export interface IntentRule {
   title: string;
   statement: string;
   body?: string[];
+  /** Kind-specific detail, verbatim: a business rule keeps its variants and thresholds here. */
+  payload?: unknown;
   /** Conditions the rule holds under, verbatim from the server; absent means unconditional. */
   appliesWhen?: unknown;
   inheritedConditions?: unknown;

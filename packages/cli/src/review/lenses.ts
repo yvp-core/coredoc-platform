@@ -32,7 +32,8 @@ export const INTENT_LENS = `Look only for behavior this change introduces that c
 - A finding is a concrete case the changed code handles differently from what the rule states: name
   the input or state, what the rule requires, and what the code now does instead.
 - Read the rule literally. Do not extend it to cases it does not state, and do not report a change
-  the rule is silent about. A rule with appliesWhen or inheritedConditions holds only under those
+  the rule is silent about. \`payload\` is part of the rule: its variants, thresholds and exceptions
+  decide what is allowed. A rule with appliesWhen or inheritedConditions holds only under those
   conditions: report a violation only on a code path where they hold.
 - Behavior that already contradicted the rule before this change is out of scope.
 - An empty or short rule list does not establish that no other rule applies; do not say so.

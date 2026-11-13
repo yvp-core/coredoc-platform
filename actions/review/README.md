@@ -293,8 +293,10 @@ Before discovery the host makes one `get_intent_context` read for the changed pa
 50 files, 20 rules, accepted items only). When rules come back it runs an `intent` lens beside
 the routed ones, outside `maxLenses`: the router is never offered this lens and cannot start
 it. A finding must start its `cause` with a listed rule id; the host drops one that does not
-(`INTENT_RULE_UNKNOWN`). Verification and the recheck of earlier findings receive the cited
-rules, and the usual evidence rules apply unchanged. The rules are accepted by a person in the
+(`INTENT_RULE_UNKNOWN`). The lens must read every changed file before it may answer, like
+`logic`. Verification and the recheck of earlier findings receive the cited rules, payload
+included, and the usual evidence rules apply unchanged. An earlier intent finding whose rule
+does not come back on a later run stays unresolved instead of being rechecked without it. The rules are accepted by a person in the
 workspace, so they count as policy; repository text still does not.
 
 A workspace with no intent content runs no lens and records nothing. A refused or failed read

@@ -30,7 +30,7 @@ lines.on('line', line => {
   let result;
   if (request.method === 'initialize') result = { protocolVersion: request.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1' } };
   else if (request.method === 'tools/call' && request.params.name === 'get_intent_context') {
-    const item = (id, authority, statement) => ({ id, kind: 'business_rule', title: id, authority, statement });
+    const item = (id, authority, statement) => ({ id, kind: 'business_rule', title: id, authority, statement, payload: { variants: [id] } });
     // The accepted rule's statement echoes the arguments, so a test can see exactly what was sent.
     const answer = options.intentStatus ? { status: options.intentStatus } : { matches: [item('br-a', 'accepted', JSON.stringify(request.params.arguments)), item('br-c', 'candidate', 'x')], truncated: false };
     result = { content: [{ type: 'text', text: JSON.stringify(answer) }] };
@@ -69,6 +69,8 @@ describe('intent read', () => {
       const { rules, truncated } = await graph.intent(['src/a.ts', 'src/b.ts']);
       expect(truncated).toBe(false);
       expect(rules.map((r) => r.id)).toEqual(['br-a']);
+      // Variants and thresholds live in the payload, so it must reach the lens.
+      expect(rules[0]!.payload).toEqual({ variants: ['br-a'] });
       // The intent tool's schema is strict: scope, format and detailLevel would refuse the call.
       expect(JSON.parse(rules[0]!.statement)).toEqual({
         task: 'src/a.ts src/b.ts',
