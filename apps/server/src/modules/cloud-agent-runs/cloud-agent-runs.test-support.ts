@@ -1,4 +1,6 @@
+import { randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
+import { RUNNER_PROTOCOL_VERSION, type WorkflowShape } from '@coredoc/core/agent-runner';
 import type { JiraClient, JiraComment, JiraTransition } from '../delivery/jira-client.js';
 import { JiraAuthError, JiraNotFoundError, JiraRateLimitError } from '../delivery/jira-client.js';
 import { GithubApiError, type GithubClient } from '../../libs/github/github-client.js';
@@ -297,5 +299,50 @@ export async function setAgentRunsEnabled(prisma: PrismaClient, workspaceId: str
     where: { workspaceId },
     create: { workspaceId, enabled },
     update: { enabled },
+  });
+}
+
+/** The workflow a runner without a version 2 manifest advertises. */
+export const DEFAULT_WORKFLOW = {
+  id: 'default',
+  title: 'Default',
+  repositories: 'write',
+  delivery: 'pull-request',
+  phases: [
+    { id: 'scope', gate: 'acceptance' },
+    { id: 'implement', gate: 'none' },
+  ],
+} as WorkflowShape;
+
+/** A runner's reported versions with the workflows its manifest holds. */
+export function advertising<T extends object>(versions: T, workflows: WorkflowShape[] = [DEFAULT_WORKFLOW]) {
+  return { ...versions, manifest: { plugins: [], workflows } };
+}
+
+/**
+ * A run starts only in a workflow some runner token advertised. This stands in for a runner that
+ * claimed once, under a token of its own that settings do not list.
+ */
+export async function advertiseWorkflows(
+  prisma: PrismaClient,
+  workspaceId: string,
+  workflows: WorkflowShape[] = [DEFAULT_WORKFLOW],
+): Promise<void> {
+  const name = 'advertising-runner';
+  const token = await prisma.serviceToken.upsert({
+    where: { workspaceId_name: { workspaceId, name } },
+    create: { workspaceId, name, tokenHash: randomBytes(32).toString('hex'), permissions: [], createdBy: name },
+    update: {},
+  });
+  const seen = {
+    lastSeenAt: new Date(),
+    lastAction: 'claim',
+    protocolVersion: RUNNER_PROTOCOL_VERSION,
+    versions: advertising({ runner: '0.0.1-test', sdk: '0.3.285' }, workflows),
+  };
+  await prisma.agentRunnerSeen.upsert({
+    where: { serviceTokenId: token.id },
+    create: { serviceTokenId: token.id, workspaceId, ...seen },
+    update: seen,
   });
 }

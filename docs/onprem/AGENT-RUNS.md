@@ -245,6 +245,71 @@ Claude Code does not list is a start-up problem (§6): the runner claims nothing
 until it is fixed. Settings show the manifest the runner reported with its
 versions.
 
+### 3.2 Workflows (manifest version 2)
+
+A version 1 manifest, and no manifest, give the workspace one workflow,
+`default`: scope, a person's acceptance, implement, pull requests. A version 2
+manifest declares the workflows itself, and a person starting a run picks one:
+
+```json
+{
+  "version": 2,
+  "workflows": {
+    "default": {
+      "title": "Story to pull request",
+      "repositories": "write",
+      "delivery": "pull-request",
+      "plugins": [{ "path": "/opt/acme/plugins/acme-agent-run" }],
+      "tools": { "jira": ["read"] },
+      "phases": [
+        { "id": "scope", "gate": "acceptance", "entrySkill": "acme-agent-run:scope" },
+        { "id": "implement", "gate": "none", "entrySkill": "acme-agent-run:implement" }
+      ]
+    },
+    "document-review": {
+      "title": "Document review",
+      "repositories": "none",
+      "delivery": "none",
+      "plugins": [{ "path": "/opt/acme/plugins/acme-review" }],
+      "phases": [
+        { "id": "review", "gate": "acceptance", "entrySkill": "acme-review:review" },
+        { "id": "record", "gate": "none", "entrySkill": "acme-review:record", "model": "claude-sonnet-5-5" }
+      ]
+    }
+  }
+}
+```
+
+| Key | Effect |
+|---|---|
+| workflow id | Lowercase letters, digits and hyphens, at most 32 characters. The Jira trigger label starts the workflow named `default`; a manifest without one leaves the label without effect. |
+| `title` | Shown where a person picks the workflow. |
+| `repositories` | `write`: the run clones repositories and pushes `coredoc/**` branches. `none`: nothing is cloned and the agent gets no repository tools. |
+| `delivery` | `pull-request`: draft pull requests after the last phase; needs `repositories: write`. `none`: the run ends with its result on the run page and the done comment in Jira. |
+| `plugins`, `tools` | As in §3.1, for this workflow's sessions only. |
+| `phases` | One to eight, run in order, each in its own Claude Code session. Every phase needs an `entrySkill`; `model` is optional. A phase with gate `acceptance` ends with `propose_scope` and waits for a person to accept or send it back (or is accepted automatically under that policy). The last phase has gate `none` and ends with `submit_result`; every earlier phase has gate `acceptance`. Phase ids are at most 16 characters; `delivery` is reserved. |
+
+The server learns a workspace's workflows from what its runner tokens report,
+so a new workflow appears after the first claim of a runner whose image has it.
+Until a runner has reported, the workspace has `default` only. With runners
+scaled to zero, start one runner once after rolling out an image with a new
+workflow: nothing is queued for a workflow the server has not heard of yet.
+A runner is handed only turns of workflows in its own manifest. Two runner
+tokens that report different definitions under one id make that workflow
+unstartable until every runner runs one image.
+
+A run keeps the workflow definition it started with. Rolling out an image that
+renames or removes a phase of a workflow fails that workflow's open runs on
+their next turn (`workflow_mismatch`); finish or cancel them first.
+
+In agent run settings an admin sets who may start each workflow: every member,
+admins only, or named members. A named list admits exactly those members.
+Answering questions, accepting and cancelling stay open to every member.
+
+Every run still starts from a Jira issue, whichever workflow it runs. A
+workflow with repositories gets them from its accepted proposal, so one with a
+single phase starts with none and its agent asks for each with `request_repo`.
+
 ## 4. Runner token and Secret
 
 1. In the web app, open **Settings → Agent runs → Runner tokens** and create a
@@ -511,6 +576,12 @@ The server side has one setting of its own, `AGENT_RUN_RETENTION_ENABLED`
 - **Upgrade the server first, then the runner.** Every claim carries the
   runner's protocol version; a server that does not support it refuses the
   runner, and settings show *Refused: this runner version is not supported*.
+- **The release that adds workflows (§3.2) changes the runner protocol.** A
+  runner from before it is refused by the upgraded server, so no turn is
+  claimed, and runs wait in the queue, until the runner image is upgraded too.
+  Its migration rewrites run statuses and session columns: rolling the server
+  back needs that migration reversed by hand, and runs of any workflow other than
+  `default` must be cancelled first, because the older server cannot hold them.
 - **Rollouts checkpoint in-flight turns.** On SIGTERM the runner tells the
   session to stop, pushes the work, archives its state and completes the turn
   as a checkpoint that the next turn continues. If that takes longer than

@@ -9,7 +9,7 @@ import {
 } from './cloud-agent-run-repository-requests.service.js';
 import type { QuestionAnswer } from './cloud-agent-runs.contract.js';
 import {
-  ACTIVE_STATUS_OF_PHASE,
+  activeStatusOf,
   cloudAgentRunError,
   CloudAgentRunErrorCode,
   fromColumn,
@@ -17,12 +17,12 @@ import {
   QuestionKind,
   QuestionsPolicy,
   QuestionState,
-  RunPhase,
   RunStatus,
   ServerEventType,
 } from './run-states.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
 import { lockRun, queueTurn, setRunStatus } from './run-transitions.js';
+import { isFinalPhase } from './run-workflow.js';
 
 export const ASSUME_ANSWER =
   'No one is available to answer. Choose the option you judge best, continue, and list this decision in the assumptions of your next propose_scope or submit_result call.';
@@ -60,14 +60,17 @@ function questionEvent(row: CloudAgentRunQuestion) {
   };
 }
 
-/** Delivery has no agent session; it takes the scope policy. */
+/**
+ * The workflow's final phase takes the implement policy; every phase before it, which ends with a
+ * proposal, takes the scope policy. Delivery has no agent session; it takes the scope policy too.
+ */
 export function phaseQuestionsPolicy(
-  run: Pick<CloudAgentRun, 'scopeQuestionsPolicy' | 'implementQuestionsPolicy'>,
+  run: Pick<CloudAgentRun, 'scopeQuestionsPolicy' | 'implementQuestionsPolicy' | 'workflowShape'>,
   phase: string,
 ): QuestionsPolicy {
   return fromColumn(
     QuestionsPolicy,
-    phase === RunPhase.Implement ? run.implementQuestionsPolicy : run.scopeQuestionsPolicy,
+    isFinalPhase(run, phase) ? run.implementQuestionsPolicy : run.scopeQuestionsPolicy,
   );
 }
 
@@ -102,7 +105,7 @@ export async function recordQuestion(
     return { state: 'auto_answered', requestId: row.requestId, answers: sdkAnswers(row), stop: false };
   }
 
-  if (!ACTIVE_STATUS_OF_PHASE[run.phase] || run.status !== ACTIVE_STATUS_OF_PHASE[run.phase]) {
+  if (run.status !== activeStatusOf(run.phase)) {
     return { state: 'refused', reason: 'A question is already waiting for a person; end your turn.', stop: false };
   }
   const row = await tx.cloudAgentRunQuestion.create({ data: { ...base, state: QuestionState.Open } });
@@ -132,7 +135,7 @@ export async function settleTurnQuestions(tx: Tx, run: CloudAgentRun, turnId: st
 }
 
 async function queueResumeTurn(tx: Tx, run: CloudAgentRun, row: CloudAgentRunQuestion, at: Date): Promise<void> {
-  const turnId = await queueTurn(tx, run, fromColumn(RunPhase, row.phase), resumeText(row), at);
+  const turnId = await queueTurn(tx, run, row.phase, resumeText(row), at);
   if (turnId) await tx.cloudAgentRunQuestion.update({ where: { id: row.id }, data: { resumeTurnId: turnId } });
 }
 
@@ -216,7 +219,7 @@ export class CloudAgentRunQuestionService {
       if (claimed.count !== 1) throw alreadyAnswered();
       const answered = await tx.cloudAgentRunQuestion.findUniqueOrThrow({ where: { id: row.id } });
 
-      const resumed = await setRunStatus(tx, run, ACTIVE_STATUS_OF_PHASE[row.phase] ?? run.status, at, {}, [
+      const resumed = await setRunStatus(tx, run, activeStatusOf(row.phase), at, {}, [
         {
           type: ServerEventType.QuestionResolved,
           payload: { requestId, state: QuestionState.Answered, answeredBy: actorId },

@@ -12,11 +12,33 @@ function me(agentRunsEnabled: boolean) {
   };
 }
 
+const DEFAULT_WORKFLOW = {
+  id: 'default',
+  title: 'Jira issue to pull requests',
+  repositories: 'write',
+  delivery: 'pull-request',
+  phases: [
+    { id: 'scope', gate: 'acceptance' },
+    { id: 'implement', gate: 'none' },
+  ],
+};
+
+function listed(overrides: Record<string, unknown> = {}) {
+  return {
+    ...DEFAULT_WORKFLOW,
+    access: { minRole: 'member' },
+    startable: true,
+    reason: null,
+    ...overrides,
+  };
+}
+
 function run(overrides: Record<string, unknown> = {}) {
   return {
     id: RUN_ID,
     issueKey: 'PROJ-7',
-    status: 'scoping',
+    workflow: DEFAULT_WORKFLOW,
+    status: 'running',
     phase: 'scope',
     trigger: 'manual',
     startedBy: 'u1',
@@ -49,7 +71,7 @@ function run(overrides: Record<string, unknown> = {}) {
 }
 
 const EVENTS = [
-  { seq: 2, type: 'status_changed', payload: { from: 'queued', to: 'scoping' } },
+  { seq: 2, type: 'status_changed', payload: { from: 'queued', to: 'running' } },
   { seq: 1, type: 'status_changed', payload: { from: null, to: 'queued' } },
   { seq: 3, type: 'turn_started', payload: { kind: 'scope', attempt: 1 } },
   { seq: 4, type: 'raw', payload: { text: '[runner] no agent configured' } },
@@ -154,6 +176,7 @@ let runnerTokens: Record<string, unknown>[] = [];
 let listNextOffset: number | null = null;
 const NO_ACTIVITY = { turns: [], skills: [], tools: [] };
 let activity: Record<string, unknown> = NO_ACTIVITY;
+let workflows: ReturnType<typeof listed>[] = [];
 
 beforeEach(() => {
   agentRunsEnabled = true;
@@ -168,6 +191,7 @@ beforeEach(() => {
   runnerTokens = [];
   listNextOffset = null;
   activity = NO_ACTIVITY;
+  workflows = [listed()];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -215,7 +239,14 @@ beforeEach(() => {
               { status: 409 },
             );
           }
-          detail = { ...detail, status: 'implementing', failureCode: null, failureReason: null, continuations: 1 };
+          detail = {
+            ...detail,
+            status: 'running',
+            phase: 'implement',
+            failureCode: null,
+            failureReason: null,
+            continuations: 1,
+          };
           return new Response(JSON.stringify(detail));
         }
         if (path.endsWith('/rerun')) {
@@ -228,6 +259,8 @@ beforeEach(() => {
       if (path === '/api/v1/me') return new Response(JSON.stringify(me(agentRunsEnabled)));
       if (path === '/api/v1/workspaces/ws1/cloud-agent-runs')
         return new Response(JSON.stringify({ runs: [run()], nextOffset: listNextOffset }));
+      if (path === '/api/v1/workspaces/ws1/cloud-agent-runs/workflows')
+        return new Response(JSON.stringify({ workflows }));
       if (path === '/api/v1/workspaces/ws1/cloud-agent-runs/settings')
         return new Response(JSON.stringify({ availability, runnerTokens }));
       if (path === `/api/v1/workspaces/ws1/cloud-agent-runs/${RUN_ID}`) return new Response(JSON.stringify(detail));
@@ -281,10 +314,42 @@ describe('agent runs routes', () => {
     expect(await screen.findByRole('link', { name: 'PROJ-7' })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Jira issue key'), { target: { value: 'proj-9' } });
+    // The only startable workflow is preselected once the list loads.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start run' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
 
     await waitFor(() =>
-      expect(posts).toEqual([{ path: '/api/v1/workspaces/ws1/cloud-agent-runs', body: { issueKey: 'PROJ-9' } }]),
+      expect(posts).toEqual([
+        { path: '/api/v1/workspaces/ws1/cloud-agent-runs', body: { workflow: 'default', issueKey: 'PROJ-9' } },
+      ]),
+    );
+  });
+
+  it('starts only a workflow the member may start, without repositories for one that uses none', async () => {
+    workflows = [
+      listed({ startable: false, reason: 'Your workspace access does not allow starting this workflow.' }),
+      listed({ id: 'contract-review', title: 'Contract review', repositories: 'none', delivery: 'none' }),
+      listed({ id: 'translations', title: 'Translations' }),
+    ];
+    mount('/w/acme/agent-runs');
+    const select = await screen.findByLabelText('Workflow');
+    const refused = await within(select).findByRole('option', { name: /Jira issue to pull requests/ });
+    expect(refused).toBeDisabled();
+    expect(refused).toHaveTextContent('Your workspace access does not allow starting this workflow.');
+
+    fireEvent.change(screen.getByLabelText('Jira issue key'), { target: { value: 'PROJ-9' } });
+    fireEvent.change(screen.getByLabelText(/Repository keys/), { target: { value: 'orders-api' } });
+    // Two workflows are startable, so none is chosen for the member.
+    expect(screen.getByRole('button', { name: 'Start run' })).toBeDisabled();
+
+    fireEvent.change(select, { target: { value: 'contract-review' } });
+    expect(screen.queryByLabelText(/Repository keys/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+
+    await waitFor(() =>
+      expect(posts).toEqual([
+        { path: '/api/v1/workspaces/ws1/cloud-agent-runs', body: { workflow: 'contract-review', issueKey: 'PROJ-9' } },
+      ]),
     );
   });
 
@@ -408,13 +473,14 @@ describe('agent runs routes', () => {
     fireEvent.change(screen.getByLabelText('Repository keys (optional)'), {
       target: { value: 'orders-api, billing-api' },
     });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start run' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
 
     await waitFor(() =>
       expect(posts).toEqual([
         {
           path: '/api/v1/workspaces/ws1/cloud-agent-runs',
-          body: { issueKey: 'PROJ-9', repositoryKeys: ['orders-api', 'billing-api'] },
+          body: { workflow: 'default', issueKey: 'PROJ-9', repositoryKeys: ['orders-api', 'billing-api'] },
         },
       ]),
     );
@@ -437,13 +503,14 @@ describe('agent runs routes', () => {
     fireEvent.change(screen.getByLabelText('Notes for the agent (optional)'), {
       target: { value: 'Build on feat/PROJ-1-exports.' },
     });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start run' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
 
     await waitFor(() =>
       expect(posts).toEqual([
         {
           path: '/api/v1/workspaces/ws1/cloud-agent-runs',
-          body: { issueKey: 'PROJ-9', notes: 'Build on feat/PROJ-1-exports.' },
+          body: { workflow: 'default', issueKey: 'PROJ-9', notes: 'Build on feat/PROJ-1-exports.' },
         },
       ]),
     );
@@ -645,7 +712,7 @@ describe('agent runs routes', () => {
         answeredAt: '2026-10-10T09:05:00.000Z',
         answeredBy: 'u1',
       };
-      detail = run({ status: 'scoping', currentTurn: null, openQuestion: null, questions: [answered] });
+      detail = run({ status: 'running', currentTurn: null, openQuestion: null, questions: [answered] });
       mount(`/w/acme/agent-runs/${RUN_ID}`);
 
       const colour = await screen.findByRole('list', { name: 'Options: Colour' });
@@ -963,7 +1030,7 @@ describe('agent runs routes', () => {
 
     it('shows a question the turn asked, with the options the person chose', async () => {
       detail = run({
-        status: 'scoping',
+        status: 'running',
         currentTurn: null,
         questions: [
           {
@@ -1068,7 +1135,7 @@ describe('agent runs routes', () => {
       specs = [
         spec(1, 'changes_requested', { reviewText: 'Cover billing too.', reviewedAt: '2026-10-10T09:20:00.000Z' }),
       ];
-      detail = run({ status: 'scoping', latestSpec: specs[0], currentTurn: null });
+      detail = run({ status: 'running', latestSpec: specs[0], currentTurn: null });
       timelineEvents = [
         { seq: 1, type: 'status_changed', payload: { to: 'scoping' }, createdAt: '2026-10-10T09:00:00.000Z' },
         {

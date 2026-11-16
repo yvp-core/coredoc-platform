@@ -19,7 +19,7 @@ import { CloudAgentRunTriggerCron } from './cloud-agent-run-trigger.cron.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE } from './cloud-agent-run-archive.store.js';
 import { cloudAgentRunsCoreProviders, CLOUD_AGENT_RUNS_CLOCK } from './cloud-agent-runs.module.js';
-import { InMemoryArchiveStore, setAgentRunsEnabled } from './cloud-agent-runs.test-support.js';
+import { advertiseWorkflows, InMemoryArchiveStore, setAgentRunsEnabled } from './cloud-agent-runs.test-support.js';
 
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
@@ -193,6 +193,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     });
     for (const key of ['orders-api', 'billing-api']) await repository(id, key);
     await setAgentRunsEnabled(prisma, id);
+    await advertiseWorkflows(prisma, id);
     await api()
       .put(`${runsBase(id)}/settings`)
       .set('Authorization', human(OWNER))
@@ -231,7 +232,10 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
   }
 
   function start(workspaceId: string, body: Record<string, unknown>, user = MEMBER) {
-    return api().post(runsBase(workspaceId)).set('Authorization', human(user)).send(body);
+    return api()
+      .post(runsBase(workspaceId))
+      .set('Authorization', human(user))
+      .send({ workflow: 'default', ...body });
   }
 
   /** Ends a run the way a member does: cancelling it frees its slot. */
@@ -260,7 +264,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     expect(started).toMatchObject({
       notes: null,
       trigger: 'jira_label',
-      status: 'scoping',
+      status: 'running',
       runOwner: { userId: OWNER.id },
       seeds: ['orders-api'],
       branch: 'coredoc/ORD-1',
@@ -330,7 +334,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     expect(byKey.get('ORD-12')).toMatchObject({ status: 'failed', failureCode: 'invalid_repository_label' });
     expect(byKey.get('ORD-12')?.failureReason).toContain('repository_remote_missing');
     expect(byKey.get('ORD-13')).toMatchObject({ status: 'failed', failureCode: 'too_many_repositories' });
-    expect(byKey.get('ORD-14')).toMatchObject({ status: 'scoping', seeds: ['orders-api', 'billing-api'] });
+    expect(byKey.get('ORD-14')).toMatchObject({ status: 'running', seeds: ['orders-api', 'billing-api'] });
   });
 
   it('a manual start validates its repository keys and stores them as seeds', async () => {
@@ -380,7 +384,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     const results = await Promise.all(['ORD-41', 'ORD-42', 'ORD-43'].map((issueKey) => start(id, { issueKey })));
     expect(results.map((res) => res.status)).toEqual([201, 201, 201]);
     const first = await runs(id);
-    const startedFirst = first.filter((run) => run.status === 'scoping');
+    const startedFirst = first.filter((run) => run.status === 'running');
     expect(startedFirst).toHaveLength(1);
     const queued = first
       .filter((run) => run.status === 'queued')
@@ -394,7 +398,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
 
     const after = new Map((await runs(id)).map((run) => [run.id, run]));
     expect(after.get(queued[0]!.id)).toMatchObject({
-      status: 'scoping',
+      status: 'running',
       currentTurn: { kind: 'scope', state: 'queued' },
     });
     expect(after.get(queued[1]!.id)).toMatchObject({ status: 'queued', currentTurn: null });
@@ -419,7 +423,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     const refused = await start(id, { issueKey: 'ORD-53' }).expect(400);
     expect(refused.body.code).toBe('AGENT_RUNS_UNAVAILABLE');
 
-    const started = (await runs(id)).find((run) => run.status === 'scoping')!;
+    const started = (await runs(id)).find((run) => run.status === 'running')!;
     await finish(started.id);
     await trigger();
     expect((await runs(id)).find((run) => run.id === waiting.id)).toMatchObject({ status: 'queued' });
@@ -445,7 +449,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
 
     await trigger();
     const after = await runs(id);
-    expect(after.find((run) => run.id === waiting.id)).toMatchObject({ status: 'scoping' });
+    expect(after.find((run) => run.id === waiting.id)).toMatchObject({ status: 'running' });
     expect(after.find((run) => run.issueKey === 'ORD-73')).toMatchObject({ status: 'queued' });
   });
 
@@ -481,7 +485,7 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
       trigger: 'rerun',
       previousRunId: first.id,
       branch: 'coredoc/ORD-61-2',
-      status: 'scoping',
+      status: 'running',
       runOwner: { userId: OTHER_MEMBER.id },
       scopeQuestionsPolicy: 'assume',
       implementQuestionsPolicy: 'pause',

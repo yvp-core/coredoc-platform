@@ -1688,8 +1688,12 @@ model CloudAgentRun {
   droppedSeeds           Json      @default("[]") @map("dropped_seeds") @db.JsonB
   runOrdinal             Int       @map("run_ordinal")
   branch                 String    @db.VarChar(255)
-  scopeSessionId         String    @map("scope_session_id") @db.Uuid
-  implementSessionId     String    @map("implement_session_id") @db.Uuid
+  /// The id of the workflow the run started with; never changes.
+  workflow               String    @default("default") @db.VarChar(32)
+  /// That workflow's shape at start (phases, gates, repository mode, delivery).
+  workflowShape          Json      @map("workflow_shape") @db.JsonB
+  /// Phase id to its Claude Code session id.
+  sessionIds             Json      @map("session_ids") @db.JsonB
   stateArchiveKey        String?   @map("state_archive_key") @db.VarChar(1024)
   spendUsd               Float     @default(0) @map("spend_usd") @db.DoublePrecision
   agentTurns             Int       @default(0) @map("agent_turns")
@@ -1739,7 +1743,7 @@ model CloudAgentRunTurn {
   workspaceId      String    @map("workspace_id") @db.Uuid
   runId            String    @map("run_id") @db.Uuid
   ordinal          Int
-  /// `scope`, `implement` or `delivery`.
+  /// A phase id of the run's workflow, or `delivery`.
   kind             String    @db.VarChar(16)
   inputText        String?   @map("input_text") @db.Text
   /// `queued`, `claimed`, `completed` or `abandoned`.
@@ -1805,6 +1809,8 @@ model CloudAgentRunSpecVersion {
   runId        String    @map("run_id") @db.Uuid
   version      Int
   status       String    @db.VarChar(32)
+  /// The phase that proposed it.
+  phase        String    @default("scope") @db.VarChar(16)
   /// The turn whose `propose_scope` call wrote it; plain column, turns are pruned.
   turnId       String?   @map("turn_id") @db.Uuid
   title        String    @db.VarChar(200)
@@ -1885,6 +1891,8 @@ model AgentRunSettings {
   waitingLimitSeconds    Int      @default(604800) @map("waiting_limit_seconds")
   maxStartedRuns         Int      @default(2) @map("max_started_runs")
   maxRepositories        Int      @default(5) @map("max_repositories")
+  /// Workflow id to who may start it: `{ minRole }` or `{ members }`. An absent id means any member.
+  workflowAccess         Json     @default("{}") @map("workflow_access") @db.JsonB
   model                  String?  @db.VarChar(128)
   updatedBy              String?  @map("updated_by") @db.VarChar(256)
   updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz

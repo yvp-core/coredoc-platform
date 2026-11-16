@@ -3,11 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import {
   type AssignedRepository,
+  PhaseGate,
   ProposeScopeRequestSchema,
   ReadRepoRequestSchema,
   RequestRepoRequestSchema,
   SubmitResultRequestSchema,
-  TurnKind,
 } from '@coredoc/core/agent-runner';
 import type { TurnIO } from '../runner.js';
 
@@ -18,15 +18,15 @@ export interface RunControlState {
   submitted: boolean;
   repositoryRequested?: boolean;
   entrySkillInvoked?: boolean;
-  /** Scope turns: the file the agent writes the specification to; its content is what is proposed. */
+  /** Gated phases: the file the agent writes the specification to; its content is what is proposed. */
   specPath?: string;
-  /** Scope turns with a branch scan: repositories with an epic branch, each to be included or dropped. */
+  /** Gated phases with a branch scan: repositories with an epic branch, each to be included or dropped. */
   candidateKeys?: string[];
-  /** Turns with a branch scan (scope and implement); throws with the reason the agent should see. */
+  /** Turns with a branch scan; throws with the reason the agent should see. */
   readRepository?: (key: string, branch?: string) => Promise<string>;
-  /** Implement turns only; throws with the reason the agent should see. */
+  /** The last phase of a workflow with repositories; throws with the reason the agent should see. */
   readPullFeedback?: () => Promise<string>;
-  /** Implement turns only; throws when the repository cannot be used, which fails the turn. */
+  /** The last phase of a workflow with repositories; throws when the repository cannot be used, which fails the turn. */
   cloneRepository?: (repository: AssignedRepository) => Promise<string>;
   /** Further tool calls are refused with the reason; a session that does not end itself within `graceMs` is stopped. */
   endTurn?: (reason: string, graceMs?: number) => void;
@@ -34,6 +34,9 @@ export interface RunControlState {
 
 export const TURN_OVER_AFTER_RESULT =
   'Your result is recorded and your turn is over: the runner now commits and pushes your changes. Do not call any more tools; end your turn now.';
+
+const TURN_OVER_WITHOUT_REPOSITORIES =
+  'Your result is recorded and your turn is over. Do not call any more tools; end your turn now.';
 
 export const TURN_OVER_AFTER_REQUEST =
   'Your repository request is recorded and a person decides whether to add it; your turn is over. The runner now commits and pushes your changes, and the decision arrives when your session resumes. Do not call any more tools; end your turn now.';
@@ -53,7 +56,7 @@ function rejected(name: string, errors: string[]) {
 export function runControlServer(
   io: TurnIO,
   state: RunControlState,
-  kind: TurnKind = TurnKind.Scope,
+  gate: PhaseGate = PhaseGate.Acceptance,
   entrySkill?: string,
 ) {
   const skipped = (name: string) =>
@@ -105,8 +108,9 @@ export function runControlServer(
       const answer = await io.submitResult(args);
       if (!answer.accepted) return rejected('submit_result', answer.errors);
       state.submitted = true;
-      state.endTurn?.(TURN_OVER_AFTER_RESULT);
-      return { content: [{ type: 'text', text: TURN_OVER_AFTER_RESULT }] };
+      const over = state.cloneRepository ? TURN_OVER_AFTER_RESULT : TURN_OVER_WITHOUT_REPOSITORIES;
+      state.endTurn?.(over);
+      return { content: [{ type: 'text', text: over }] };
     },
   );
   const requestRepo = tool(
@@ -172,12 +176,13 @@ export function runControlServer(
   );
   const reading = state.readRepository ? [readRepo] : [];
   const feedback = state.readPullFeedback ? [readPrFeedback] : [];
+  const requesting = state.cloneRepository ? [requestRepo] : [];
   return createSdkMcpServer({
     name: RUN_CONTROL_SERVER,
     version: '1.0.0',
     alwaysLoad: true,
     tools:
-      kind === TurnKind.Implement ? [...reading, ...feedback, requestRepo, submitResult] : [...reading, proposeScope],
+      gate === PhaseGate.None ? [...reading, ...feedback, ...requesting, submitResult] : [...reading, proposeScope],
   });
 }
 

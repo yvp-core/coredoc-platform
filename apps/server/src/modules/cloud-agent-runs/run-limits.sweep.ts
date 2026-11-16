@@ -95,7 +95,7 @@ async function expireLease(deps: SweepDeps, workspaceId: string, runId: string, 
   });
 }
 
-const ACTIVE_STATUSES = [RunStatus.Scoping, RunStatus.Implementing, RunStatus.Delivering];
+const ACTIVE_STATUSES = [RunStatus.Running, RunStatus.Delivering];
 
 /** Active time excludes waiting for a person and includes waiting for a runner. */
 export async function expireActiveTime(deps: SweepDeps): Promise<void> {

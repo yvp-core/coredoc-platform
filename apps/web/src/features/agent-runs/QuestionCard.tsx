@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { IntentMarkdown } from '@/features/intent/intent-markdown';
 import { formatRelativeTime } from '@/lib/time';
 
+import { phaseActivity } from './agent-run-presentation';
 import type { AgentRunDetail, AgentRunQuestion, AskedQuestion, QuestionAnswer } from './types';
 
 /** One question's draft: chosen labels, free text, and (single choice) whether "Other" is the choice. */
@@ -140,8 +141,8 @@ function OpenQuestion({ wsId, run, open }: { wsId: string; run: AgentRunDetail; 
         title={repositoryRequest ? 'The agent asks to add a repository' : 'The agent is waiting for an answer'}
         sub={
           repositoryRequest
-            ? `Asked ${formatRelativeTime(open.askedAt)}, while implementing. Adding it widens the accepted scope; your decision resumes the same session.`
-            : `Asked ${formatRelativeTime(open.askedAt)}, while ${open.phase === 'scope' ? 'scoping' : 'implementing'}. Your answer resumes the same session.`
+            ? `Asked ${formatRelativeTime(open.askedAt)}, while ${phaseActivity(open.phase)}. Adding it widens the accepted scope; your decision resumes the same session.`
+            : `Asked ${formatRelativeTime(open.askedAt)}, while ${phaseActivity(open.phase)}. Your answer resumes the same session.`
         }
       />
       <CardBody>

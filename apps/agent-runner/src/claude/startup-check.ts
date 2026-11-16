@@ -11,6 +11,8 @@ import {
   type ResolvedManifest,
   RunnerStartupProblemCode,
   type RunnerVersions,
+  manifestPlugins,
+  workflowShape,
 } from '@coredoc/core/agent-runner';
 import type { GithubApi } from '../github/github-api.js';
 import { readPluginManifest, sdkPlugins } from '../manifest.js';
@@ -51,8 +53,8 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
       problem: { code: RunnerStartupProblemCode.PluginMissing, detail: `No executable secret scanner at ${launcher}.` },
     };
   }
-  const plugins: Array<{ name: string; version?: string }> = [];
-  for (const { path } of manifest.plugins) {
+  const pluginAt = new Map<string, { name: string; version?: string }>();
+  for (const { path } of manifestPlugins(manifest)) {
     const plugin = await readPluginManifest(path);
     if (!plugin) {
       return {
@@ -60,11 +62,16 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
         problem: { code: RunnerStartupProblemCode.PluginMissing, detail: `No plugin manifest at ${path}.` },
       };
     }
-    plugins.push(plugin);
+    pluginAt.set(path, plugin);
   }
-  const { scope, implement } = manifest.phases;
+  const plugins = [...pluginAt.values()];
   // A phase without an entry skill follows the default prompts, which run coredoc-workflows routes.
-  if (!plugins.some((plugin) => plugin.name === CORE_PLUGIN_NAME) && !(scope.entrySkill && implement.entrySkill)) {
+  const withoutMethod = manifest.workflows.some(
+    (workflow) =>
+      !workflow.plugins.some(({ path }) => pluginAt.get(path)?.name === CORE_PLUGIN_NAME) &&
+      workflow.phases.some((phase) => !phase.entrySkill),
+  );
+  if (withoutMethod) {
     return {
       versions: options.versions,
       problem: {
@@ -76,16 +83,12 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
   const versions: RunnerVersions = {
     ...options.versions,
     ...(scanner.version ? { plugin: scanner.version } : {}),
-    // Only a manifest file is reported: the defaults are what the other versions already say.
-    ...(options.manifestDigest
-      ? {
-          manifest: {
-            digest: options.manifestDigest,
-            models: { scope: scope.model, implement: implement.model },
-            plugins: plugins.map(({ name, version }) => ({ name, version })),
-          },
-        }
-      : {}),
+    // Always reported: the server hands a runner only turns of the workflows it advertises.
+    manifest: {
+      ...(options.manifestDigest ? { digest: options.manifestDigest } : {}),
+      plugins: plugins.map(({ name, version }) => ({ name, version })),
+      workflows: manifest.workflows.map(workflowShape),
+    },
   };
   const timeoutMs = options.timeoutMs ?? 60_000;
   const abort = new AbortController();
@@ -109,7 +112,7 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
       options: {
         cwd: dir,
         settingSources: [],
-        plugins: sdkPlugins(manifest),
+        plugins: sdkPlugins(manifestPlugins(manifest)),
         tools: [],
         canUseTool: async () => ({ behavior: 'deny', message: 'The start-up check runs no tools.' }),
         abortController: abort,
@@ -131,7 +134,7 @@ export async function checkClaudeStartup(options: StartupCheckOptions): Promise<
     problem = skillsProblem(
       (init.commands ?? []).map((command) => command.name),
       plugins,
-      [scope.entrySkill, implement.entrySkill].filter((skill) => skill !== undefined),
+      manifest.workflows.flatMap((workflow) => workflow.phases.flatMap((phase) => phase.entrySkill ?? [])),
     );
   } catch (error) {
     problem = {

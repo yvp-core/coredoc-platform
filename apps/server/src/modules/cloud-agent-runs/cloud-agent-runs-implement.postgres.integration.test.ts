@@ -27,13 +27,20 @@ import { CLOUD_AGENT_RUN_ARCHIVE_STORE } from './cloud-agent-run-archive.store.j
 import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CLOUD_AGENT_RUNS_CLOCK, cloudAgentRunsCoreProviders } from './cloud-agent-runs.module.js';
-import { FakeJira, InMemoryArchiveStore, paragraphDoc, setAgentRunsEnabled } from './cloud-agent-runs.test-support.js';
+import {
+  advertiseWorkflows,
+  advertising,
+  FakeJira,
+  InMemoryArchiveStore,
+  paragraphDoc,
+  setAgentRunsEnabled,
+} from './cloud-agent-runs.test-support.js';
 
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 const ADMIN = { id: `${RUN}-admin`, email: 'admin@example.com' };
 const MEMBER = { id: `${RUN}-member`, email: 'member@example.com' };
-const VERSIONS = { runner: '0.0.1-test', sdk: '0.3.285' };
+const VERSIONS = advertising({ runner: '0.0.1-test', sdk: '0.3.285' });
 const HEAD_A = 'a'.repeat(40);
 const HEAD_B = 'b'.repeat(40);
 
@@ -154,6 +161,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     await app.listen(0, '127.0.0.1');
 
     await setAgentRunsEnabled(prisma, workspaceId);
+    await advertiseWorkflows(prisma, workspaceId);
 
     await api()
       .put(`${runsBase()}/settings`)
@@ -241,7 +249,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     const started = await api()
       .post(runsBase())
       .set('Authorization', human(MEMBER))
-      .send({ issueKey: issue.key, repositoryKeys: ['orders-api'] })
+      .send({ workflow: 'default', issueKey: issue.key, repositoryKeys: ['orders-api'] })
       .expect(201);
     const runId = started.body.id as string;
     const scope = await claimTurn();
@@ -257,7 +265,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     await api()
       .post(runsBase())
       .set('Authorization', human(MEMBER))
-      .send({ issueKey: issue.key, repositoryKeys: ['orders-api'], notes: 'Orders only.' })
+      .send({ workflow: 'default', issueKey: issue.key, repositoryKeys: ['orders-api'], notes: 'Orders only.' })
       .expect(201);
     const scope = await claimTurn();
     expect(scope.body.repositories).toEqual([
@@ -464,7 +472,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     await turnCall(turn, 'branches', { repository: 'orders-api' }).expect(200);
     await complete(turn, { kind: 'checkpoint' }, [report('orders-api', { pushedHead: HEAD_A })]).expect(200);
     expect(await detail(runId)).toMatchObject({
-      status: 'implementing',
+      status: 'running',
       currentTurn: { kind: 'implement', state: 'queued' },
     });
 
@@ -486,7 +494,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
 
     // Counting it would fail the run here; resetting it would let the next outcome-less turn be nudged again.
     await complete(nudged, { kind: 'checkpoint' }).expect(200);
-    expect((await detail(runId)).status).toBe('implementing');
+    expect((await detail(runId)).status).toBe('running');
     const continued = await claimTurn();
     expect(continued.body.turn.inputText).toBe('Continue where you stopped.');
 
@@ -501,7 +509,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: implement phase (PostgreS
     );
     expect(unreserved.body.message).toMatch(/orders-api/);
     await complete(turn, { kind: 'ended' }, [report('nope-api')]).expect(400);
-    expect(await detail(runId)).toMatchObject({ status: 'implementing', currentTurn: { state: 'claimed' } });
+    expect(await detail(runId)).toMatchObject({ status: 'running', currentTurn: { state: 'claimed' } });
   });
 
   it.each([

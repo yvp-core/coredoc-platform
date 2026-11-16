@@ -8,7 +8,7 @@ import {
   type AssignedRepository,
   RunFailureCode,
   type TurnAssignment,
-  TurnKind,
+  PhaseGate,
 } from '@coredoc/core/agent-runner';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -208,9 +208,9 @@ describe('request_repo in implement turns', () => {
   });
 
   it('read_pr_feedback is not offered on scope turns', async () => {
-    const names = async (kind: TurnKind) => {
+    const names = async (gate: PhaseGate) => {
       const state = { proposedVersion: null, submitted: false, readPullFeedback: async () => '' };
-      const server = runControlServer({} as TurnIO, state, kind);
+      const server = runControlServer({} as TurnIO, state, gate);
       const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
       await server.instance.connect(serverTransport);
       const client = new Client({ name: 'fake-claude-code', version: '0' });
@@ -219,8 +219,8 @@ describe('request_repo in implement turns', () => {
       await client.close();
       return tools.map(({ name }) => name);
     };
-    expect(await names(TurnKind.Implement)).toContain('read_pr_feedback');
-    expect(await names(TurnKind.Scope)).not.toContain('read_pr_feedback');
+    expect(await names(PhaseGate.None)).toContain('read_pr_feedback');
+    expect(await names(PhaseGate.Acceptance)).not.toContain('read_pr_feedback');
   });
 
   describe('under automatic acceptance', () => {

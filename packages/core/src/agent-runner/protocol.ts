@@ -2,7 +2,7 @@
 import { z } from 'zod';
 
 /** Bumped on any incompatible change to the schemas below. */
-export const RUNNER_PROTOCOL_VERSION = 1;
+export const RUNNER_PROTOCOL_VERSION = 2;
 
 /** Every request about a turn carries the claim's lease token in this header (reads included). */
 export const RUNNER_LEASE_HEADER = 'x-coredoc-lease-token';
@@ -15,12 +15,73 @@ export enum RunnerErrorCode {
   ArchiveTooLarge = 'ARCHIVE_TOO_LARGE',
 }
 
-/** Also the run's phase. */
+/**
+ * A turn's kind is the id of the workflow phase it runs, or `delivery`: the turn that opens the
+ * run's pull requests without an agent. `scope` and `implement` are the default workflow's phases.
+ */
 export enum TurnKind {
   Scope = 'scope',
   Implement = 'implement',
   Delivery = 'delivery',
 }
+
+/** The workflow a version 1 manifest, or no manifest, resolves to: scope, acceptance, implement, pull requests. */
+export const DEFAULT_WORKFLOW_ID = 'default';
+
+export enum RepositoryMode {
+  Write = 'write',
+  None = 'none',
+}
+
+export enum DeliveryKind {
+  PullRequest = 'pull-request',
+  None = 'none',
+}
+
+/** `acceptance`: the phase ends with a proposal a person accepts or sends back. `none`: it ends with a result. */
+export enum PhaseGate {
+  Acceptance = 'acceptance',
+  None = 'none',
+}
+
+export const MAX_WORKFLOWS = 20;
+/** The width of `cloud_agent_run_turns.kind` and `cloud_agent_runs.phase`. */
+export const PHASE_ID_PATTERN = /^[a-z][a-z0-9-]{0,15}$/;
+export const WORKFLOW_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+
+/**
+ * What the server needs to know of a workflow: a runner advertises it with every claim, and a run
+ * keeps the one it started with. Plugins, tools and entry skills stay in the runner's manifest.
+ */
+export const WorkflowShapeSchema = z.object({
+  id: z.string().regex(WORKFLOW_ID_PATTERN),
+  title: z.string().trim().min(1).max(80),
+  repositories: z.enum(RepositoryMode),
+  delivery: z.enum(DeliveryKind),
+  phases: z
+    .array(
+      z.object({
+        id: z.string().regex(PHASE_ID_PATTERN),
+        gate: z.enum(PhaseGate),
+        model: z.string().max(100).optional(),
+      }),
+    )
+    .min(1)
+    .max(8),
+});
+export type WorkflowShape = z.infer<typeof WorkflowShapeSchema>;
+
+/** The default workflow as a runner without models in its manifest advertises it. */
+export const DEFAULT_WORKFLOW_SHAPE: WorkflowShape = {
+  id: DEFAULT_WORKFLOW_ID,
+  title: 'Story to pull request',
+  repositories: RepositoryMode.Write,
+  delivery: DeliveryKind.PullRequest,
+  phases: [
+    { id: TurnKind.Scope, gate: PhaseGate.Acceptance },
+    { id: TurnKind.Implement, gate: PhaseGate.None },
+  ],
+};
 
 export enum QuestionsPolicy {
   Pause = 'pause',
@@ -66,6 +127,8 @@ export enum RunFailureCode {
   RunnerLost = 'runner_lost',
   /** The agent submitted a partial or blocked result; its pull requests are still delivered. */
   IncompleteResult = 'incomplete_result',
+  /** The runner's manifest no longer has the run's workflow or the turn's phase. */
+  WorkflowMismatch = 'workflow_mismatch',
 }
 
 /** The failure codes a runner may report; its reason stays on the run page, never in Jira. */
@@ -81,6 +144,7 @@ export const RUNNER_FAILURE_CODES = [
   RunFailureCode.SecretScanBlocked,
   RunFailureCode.GithubError,
   RunFailureCode.DeliveryFailed,
+  RunFailureCode.WorkflowMismatch,
 ] as const;
 export type RunnerFailureCode = (typeof RUNNER_FAILURE_CODES)[number];
 
@@ -108,9 +172,11 @@ export const RunnerVersionsSchema = z.object({
   /** The effective runner manifest: what actually ran, for the run page. */
   manifest: z
     .object({
-      digest: z.string().max(100),
-      models: z.object({ scope: z.string().max(100).optional(), implement: z.string().max(100).optional() }),
-      plugins: z.array(z.object({ name: z.string().max(100), version: versionString.optional() })).max(10),
+      /** Absent when no manifest file is baked in and the platform defaults apply. */
+      digest: z.string().max(100).optional(),
+      plugins: z.array(z.object({ name: z.string().max(100), version: versionString.optional() })).max(50),
+      /** The workflows this runner can run; it is handed turns of these only. */
+      workflows: z.array(WorkflowShapeSchema).max(MAX_WORKFLOWS).default([]),
     })
     .optional(),
 });
@@ -153,7 +219,7 @@ export type RunnerStartupProblemResponse = z.infer<typeof RunnerStartupProblemRe
 export const TurnAssignmentSchema = z.object({
   turn: z.object({
     id: z.uuid(),
-    kind: z.enum(TurnKind),
+    kind: z.string().min(1).max(16),
     ordinal: z.number().int().positive(),
     /** 1 on the first claim; raised each time an expired lease re-queues the turn. */
     attempt: z.number().int().positive(),
@@ -180,6 +246,8 @@ export const TurnAssignmentSchema = z.object({
     seeds: z.array(z.string()),
     branch: z.string().min(1),
   }),
+  /** The workflow the run started with; the turn's kind is one of its phases, or `delivery`. */
+  workflow: WorkflowShapeSchema,
   prd: z.object({ markdown: z.string() }).nullable(),
   acceptedSpec: z
     .object({

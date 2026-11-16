@@ -13,10 +13,10 @@ import {
 
 export enum RunStatus {
   Queued = 'queued',
-  Scoping = 'scoping',
+  /** An agent phase of the workflow is running; `phase` names it. */
+  Running = 'running',
   AwaitingAnswer = 'awaiting_answer',
   AwaitingScopeAcceptance = 'awaiting_scope_acceptance',
-  Implementing = 'implementing',
   Delivering = 'delivering',
   Done = 'done',
   Failed = 'failed',
@@ -29,15 +29,13 @@ export function isTerminalRunStatus(status: string): boolean {
   return (TERMINAL_RUN_STATUSES as readonly string[]).includes(status);
 }
 
-/** A run's phase is the kind of turn it runs. */
+/** A run's phase is the kind of turn it runs: a phase id of its workflow, or `delivery`. */
 export { TurnKind as RunPhase };
 
 /** The status of a run working in a phase. */
-export const ACTIVE_STATUS_OF_PHASE: Partial<Record<string, RunStatus>> = {
-  [TurnKind.Scope]: RunStatus.Scoping,
-  [TurnKind.Implement]: RunStatus.Implementing,
-  [TurnKind.Delivery]: RunStatus.Delivering,
-};
+export function activeStatusOf(phase: string): RunStatus {
+  return phase === TurnKind.Delivery ? RunStatus.Delivering : RunStatus.Running;
+}
 
 export enum RunTrigger {
   JiraLabel = 'jira_label',
@@ -147,10 +145,13 @@ export enum CloudAgentRunErrorCode {
   TextRequired = 'TEXT_REQUIRED',
   PullRequestClosed = 'PULL_REQUEST_CLOSED',
   GithubUnavailable = 'GITHUB_UNAVAILABLE',
+  UnknownWorkflow = 'UNKNOWN_WORKFLOW',
+  WorkflowNotAllowed = 'WORKFLOW_NOT_ALLOWED',
 }
 
 const ERROR_NAMES: Partial<Record<number, string>> = {
   400: 'Bad Request',
+  403: 'Forbidden',
   404: 'Not Found',
   409: 'Conflict',
   413: 'Payload Too Large',

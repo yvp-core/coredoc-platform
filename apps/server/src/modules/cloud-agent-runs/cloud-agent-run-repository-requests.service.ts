@@ -8,13 +8,13 @@ import {
   QuestionKind,
   QuestionState,
   RunEventCode,
-  RunPhase,
   RunStatus,
   ScopeAcceptancePolicy,
   ServerEventType,
 } from './run-states.js';
 import { appendRunEvents, type NewRunEvent, type Tx } from './run-store.js';
 import { setRunStatus } from './run-transitions.js';
+import { usesRepositories } from './run-workflow.js';
 
 export const ADD_REPOSITORY = 'Add';
 export const DECLINE_REPOSITORY = "Don't add";
@@ -116,7 +116,7 @@ export async function openRepositoryRequest(tx: Tx, run: CloudAgentRun, turnId: 
       workspaceId: run.workspaceId,
       runId: run.id,
       kind: QuestionKind.RepositoryRequest,
-      phase: RunPhase.Implement,
+      phase: run.phase,
       state: QuestionState.Open,
       repositoryKey: request.key,
       questions: [question] as unknown as Prisma.InputJsonArray,
@@ -202,7 +202,8 @@ export class CloudAgentRunRepositoryRequestService {
     eligibility: Map<string, string | null>,
     at: Date,
   ): Promise<RequestRepoResponse> {
-    if (run.status !== RunStatus.Implementing) {
+    if (!usesRepositories(run)) return rejected(['This workflow uses no repositories.']);
+    if (run.status !== RunStatus.Running) {
       return rejected(['A question is waiting for a person; end your turn.']);
     }
     const repositories = runRepositories(run);

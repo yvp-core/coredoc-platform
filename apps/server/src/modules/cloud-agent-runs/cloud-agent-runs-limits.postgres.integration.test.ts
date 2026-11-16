@@ -23,13 +23,20 @@ import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CLOUD_AGENT_RUNS_CLOCK, cloudAgentRunsCoreProviders } from './cloud-agent-runs.module.js';
 import { CLOUD_AGENT_RUN_REPORT_CAPS } from './report-limits.js';
-import { FakeJira, InMemoryArchiveStore, paragraphDoc, setAgentRunsEnabled } from './cloud-agent-runs.test-support.js';
+import {
+  advertiseWorkflows,
+  advertising,
+  FakeJira,
+  InMemoryArchiveStore,
+  paragraphDoc,
+  setAgentRunsEnabled,
+} from './cloud-agent-runs.test-support.js';
 
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 const ADMIN = { id: `${RUN}-admin`, email: 'admin@example.com' };
 const MEMBER = { id: `${RUN}-member`, email: 'member@example.com' };
-const VERSIONS = { runner: '0.0.1-test', sdk: '0.3.285' };
+const VERSIONS = advertising({ runner: '0.0.1-test', sdk: '0.3.285' });
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
@@ -133,6 +140,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
     await app.listen(0, '127.0.0.1');
 
     await setAgentRunsEnabled(prisma, workspaceId);
+    await advertiseWorkflows(prisma, workspaceId);
 
     await api()
       .put(`${runsBase()}/settings`)
@@ -187,7 +195,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
     const res = await api()
       .post(runsBase())
       .set('Authorization', human(MEMBER))
-      .send({ issueKey: issue.key, ...body })
+      .send({ workflow: 'default', issueKey: issue.key, ...body })
       .expect(201);
     return res.body as { id: string };
   }
@@ -327,7 +335,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
       // Waiting for a runner counts.
       now = new Date(now.getTime() + 23 * HOUR + 58 * MINUTE);
       await sweep.tick();
-      expect((await detail(run.id)).status).toBe('scoping');
+      expect((await detail(run.id)).status).toBe('running');
 
       now = new Date(now.getTime() + MINUTE);
       await sweep.tick();
@@ -361,7 +369,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
       const run = await startRun();
       for (let ordinal = 1; ordinal <= 2; ordinal += 1) {
         await complete(await claimTurn()).expect(200);
-        expect((await detail(run.id)).status).toBe('scoping');
+        expect((await detail(run.id)).status).toBe('running');
       }
       await complete(await claimTurn()).expect(200);
 
@@ -621,7 +629,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
         .expect(409);
       expect(download.body.code).toBe('LEASE_LOST');
       expect((await heartbeat(second).expect(200)).body.stop).toBe(false);
-      expect((await detail(run.id)).status).toBe('scoping');
+      expect((await detail(run.id)).status).toBe('running');
     });
 
     it('the third expiry fails the run with runner_lost and deletes the MCP token', async () => {
@@ -666,7 +674,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
       expect((await turnRow(first.id)).leaseToken).not.toBe(first.lease);
       expect(await prisma.serviceToken.count({ where: { owningTurnId: first.id } })).toBe(0);
       expect(archives.objects.has(uploaded)).toBe(false);
-      expect(await detail(run.id)).toMatchObject({ status: 'scoping', spend: { usd: 0.75, unknownTurns: 0 } });
+      expect(await detail(run.id)).toMatchObject({ status: 'running', spend: { usd: 0.75, unknownTurns: 0 } });
       expect((await heartbeat(first).expect(409)).body.code).toBe('LEASE_LOST');
 
       const second = await claimTurn();
@@ -717,7 +725,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
       expect(archives.objects.has(uploaded)).toBe(false);
       expect((await turnRow(turn.id)).stateArchiveKey).toBeNull();
       expect((await claimTurn()).body.hasStateArchive).toBe(false);
-      expect((await detail(run.id)).status).toBe('scoping');
+      expect((await detail(run.id)).status).toBe('running');
     });
   });
 });

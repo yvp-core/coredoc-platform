@@ -5,8 +5,10 @@ import { ApiError } from '@/api/client';
 import {
   agentRunJiraStatusesQueryOptions,
   agentRunSettingsQueryOptions,
+  agentRunWorkflowsQueryOptions,
   updateAgentRunSettings,
 } from '@/api/queries/agent-runs';
+import { membersQueryOptions } from '@/api/queries/members';
 import { createToken, revokeToken } from '@/api/queries/tokens';
 import type { CreateTokenResult } from '@/api/types';
 import { EmptyNote } from '@/components/empty-note';
@@ -32,6 +34,7 @@ import type {
   QuestionsPolicy,
   RepositoryEligibility,
   RunnerTokenStatus,
+  WorkflowAccess,
 } from '@/features/agent-runs/types';
 import { CopyBlock } from '@/features/teams/copy-block';
 import { Table, Td, Th, Tr } from '@/features/teams/table';
@@ -349,9 +352,104 @@ function NumberField({
   );
 }
 
+type AccessMode = 'member' | 'admin' | 'members';
+
+function accessMode(access: WorkflowAccess | undefined): AccessMode {
+  if (!access) return 'member';
+  return 'members' in access ? 'members' : access.minRole;
+}
+
+function WorkflowAccessField({
+  wsId,
+  value,
+  onChange,
+}: {
+  wsId: string;
+  value: Record<string, WorkflowAccess>;
+  onChange: (value: Record<string, WorkflowAccess>) => void;
+}) {
+  const workflows = useQuery(agentRunWorkflowsQueryOptions(wsId));
+  const members = useQuery(membersQueryOptions(wsId));
+  const people = (members.data ?? []).filter((member) => !member.pending);
+
+  function set(id: string, access: WorkflowAccess | undefined) {
+    const { [id]: _, ...rest } = value;
+    onChange(access ? { ...rest, [id]: access } : rest);
+  }
+
+  return (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="text-[13px] text-ink-3">Who may start, re-run or continue each workflow</legend>
+      {workflows.isError && <p className={ERROR_CLASS}>{message(workflows.error, 'Failed to load the workflows')}</p>}
+      {workflows.data?.length === 0 && <p className="text-[13px] text-ink-4">No runner advertises a workflow yet.</p>}
+      {(workflows.data ?? []).map((workflow) => {
+        const access = value[workflow.id];
+        const named = access && 'members' in access ? access.members : null;
+        // A named member who left stays listed so the save that drops them is a visible choice.
+        const gone = (named ?? []).filter((id) => !people.some((member) => member.userId === id));
+        return (
+          <div key={workflow.id} className="flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="min-w-[160px] text-[13px] font-medium text-ink-2">{workflow.title}</span>
+              <Select
+                className="w-auto min-w-[180px]"
+                aria-label={`Access to ${workflow.title}`}
+                value={accessMode(access)}
+                onValueChange={(mode) =>
+                  set(
+                    workflow.id,
+                    mode === 'members' ? { members: [] } : mode === 'admin' ? { minRole: 'admin' } : undefined,
+                  )
+                }
+              >
+                <option value="member">Every member</option>
+                <option value="admin">Admins only</option>
+                <option value="members">Named members</option>
+              </Select>
+            </div>
+            {named && (
+              <fieldset
+                aria-label={`Members who may start ${workflow.title}`}
+                className="flex flex-col gap-1 pl-1 text-[13px] text-ink-2"
+              >
+                <p className="text-[12.5px] text-ink-4">
+                  Only the people ticked can start it; an admin who is not ticked cannot.
+                </p>
+                {members.isError && (
+                  <p className={ERROR_CLASS}>{message(members.error, 'Failed to load the members')}</p>
+                )}
+                {[
+                  ...people.map((member) => ({ id: member.userId, label: member.displayName ?? member.email })),
+                  ...gone.map((id) => ({ id, label: `${id} (no longer a member)` })),
+                ].map(({ id, label }) => (
+                  <label key={id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={named.includes(id)}
+                      onChange={(event) =>
+                        set(workflow.id, {
+                          members: event.target.checked ? [...named, id] : named.filter((other) => other !== id),
+                        })
+                      }
+                    />
+                    {label}
+                  </label>
+                ))}
+              </fieldset>
+            )}
+          </div>
+        );
+      })}
+    </fieldset>
+  );
+}
+
 function SettingsForm({ wsId, settings }: { wsId: string; settings: AgentRunSettings }) {
   const queryClient = useQueryClient();
   const known = useQuery(agentRunJiraStatusesQueryOptions(wsId));
+  const [workflowAccess, setWorkflowAccess] = useState(settings.workflowAccess ?? {});
+  const accessChanged = JSON.stringify(workflowAccess) !== JSON.stringify(settings.workflowAccess ?? {});
+  const emptyList = Object.values(workflowAccess).some((access) => 'members' in access && access.members.length === 0);
   const [triggerLabel, setTriggerLabel] = useState(settings.triggerLabel);
   const [statuses, setStatuses] = useState<StatusValues>({
     startedStatus: settings.startedStatus,
@@ -393,6 +491,8 @@ function SettingsForm({ wsId, settings }: { wsId: string; settings: AgentRunSett
           maxStartedRuns: Number(startedRuns),
           maxRepositories: Number(repositories),
           model: model.trim() || null,
+          // The server refuses a named member who has left, so an untouched map is not resent.
+          ...(accessChanged ? { workflowAccess } : {}),
         });
       }}
     >
@@ -483,9 +583,11 @@ function SettingsForm({ wsId, settings }: { wsId: string; settings: AgentRunSett
           onChange={(e) => setModel(e.target.value)}
         />
       </div>
+      <WorkflowAccessField wsId={wsId} value={workflowAccess} onChange={setWorkflowAccess} />
+      {emptyList && <p className={ERROR_CLASS}>Tick at least one member for each workflow limited to named members.</p>}
       {save.error && <p className={ERROR_CLASS}>{message(save.error, 'Failed to save the settings')}</p>}
       <div>
-        <Button type="submit" size="sm" disabled={save.isPending}>
+        <Button type="submit" size="sm" disabled={save.isPending || emptyList}>
           {save.isPending ? 'Saving…' : 'Save settings'}
         </Button>
       </div>

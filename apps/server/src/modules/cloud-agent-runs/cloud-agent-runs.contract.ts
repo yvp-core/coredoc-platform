@@ -1,10 +1,20 @@
-import { QuestionsPolicy, ScopeAcceptancePolicy, TurnKind } from '@coredoc/core/agent-runner';
+import {
+  PHASE_ID_PATTERN,
+  QuestionsPolicy,
+  ScopeAcceptancePolicy,
+  WORKFLOW_ID_PATTERN,
+} from '@coredoc/core/agent-runner';
 import { z } from 'zod';
+import { WorkflowAccessSchema } from './cloud-agent-run-workflows.service.js';
 
 /** Upper-cased before matching. */
 export const ISSUE_KEY_RE = /^[A-Z][A-Z0-9_]{0,63}-[1-9][0-9]{0,17}$/;
 
 export const StartRunSchema = z.object({
+  /** One of the workflows the workspace's runners advertise. */
+  workflow: z
+    .string({ error: 'workflow must name a workflow' })
+    .regex(WORKFLOW_ID_PATTERN, { error: 'workflow must name a workflow' }),
   issueKey: z
     .string({ error: 'issueKey must be a string' })
     .trim()
@@ -72,6 +82,8 @@ export const UpdateSettingsSchema = z
       .regex(/^[A-Za-z0-9._:@[\]-]{1,128}$/, { error: 'model must be a model id' })
       .nullable()
       .optional(),
+    /** Replaces the whole map; a workflow left out is open to every member. */
+    workflowAccess: WorkflowAccessSchema.optional(),
   })
   .strict();
 export type UpdateSettingsInput = z.infer<typeof UpdateSettingsSchema>;
@@ -130,7 +142,7 @@ export type QuestionAnswer = AnswerQuestionInput['answers'][number];
 
 export const TranscriptQuerySchema = z.object({
   /** Defaults to the run's latest agent phase. */
-  phase: z.enum([TurnKind.Scope, TurnKind.Implement], { error: 'phase must be scope or implement' }).optional(),
+  phase: z.string().regex(PHASE_ID_PATTERN, { error: 'phase must be a phase of the run’s workflow' }).optional(),
 });
 export type TranscriptQuery = z.infer<typeof TranscriptQuerySchema>;
 

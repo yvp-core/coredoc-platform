@@ -1,4 +1,5 @@
 import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import { DEFAULT_WORKFLOW_ID, RepositoryMode } from '@coredoc/core/agent-runner';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { AgentRunSettings, CloudAgentRun, CloudAgentRunTurn } from '../../generated/prisma/client.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
@@ -14,6 +15,7 @@ import { CloudAgentRunQuestionService } from './cloud-agent-run-questions.servic
 import { CloudAgentRunScopeService } from './cloud-agent-run-scope.service.js';
 import { REPOSITORY_LABEL_PREFIX, resolveSeeds, seedKeysFromLabels } from './cloud-agent-run-seeds.js';
 import { CloudAgentRunSettingsService } from './cloud-agent-run-settings.service.js';
+import { CloudAgentRunWorkflows, type WorkflowActor } from './cloud-agent-run-workflows.service.js';
 import type { StartRunInput } from './cloud-agent-runs.contract.js';
 import {
   cloudAgentRunError,
@@ -42,6 +44,7 @@ import {
   type Tx,
 } from './run-store.js';
 import { cancelRun, lockRun, queueTurn, setRunStatus } from './run-transitions.js';
+import { finalPhase, isGatedPhase, workflowOf } from './run-workflow.js';
 import { isUniqueViolation } from '../../libs/coerce.js';
 
 const PENDING_TURN_STATES = [TurnState.Queued, TurnState.Claimed];
@@ -70,11 +73,21 @@ export class CloudAgentRunService {
     private readonly repositories: GithubRepositoryResolver,
     private readonly questions: CloudAgentRunQuestionService,
     private readonly delivery: CloudAgentRunDeliveryService,
+    private readonly workflows: CloudAgentRunWorkflows,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
   ) {}
 
-  async start(workspaceId: string, actorId: string, input: StartRunInput) {
+  async start(workspaceId: string, actor: WorkflowActor, input: StartRunInput) {
+    const actorId = actor.id;
     const settings = await this.startableSettings(workspaceId);
+    const workflow = await this.workflows.startable(workspaceId, input.workflow, actor);
+    if (workflow.repositories === RepositoryMode.None && input.repositoryKeys?.length) {
+      throw cloudAgentRunError(
+        CloudAgentRunErrorCode.UnknownRepository,
+        `Workflow "${workflow.id}" uses no repositories; start it without any`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
     const issue = await this.resolveIssue(workspaceId, input.issueKey);
     const seeds = await this.manualSeeds(workspaceId, input.repositoryKeys ?? [], settings.maxRepositories);
 
@@ -87,6 +100,7 @@ export class CloudAgentRunService {
         trigger: RunTrigger.Manual,
         startedBy: actorId,
         runOwnerId: actorId,
+        workflow,
         scopeQuestionsPolicy: input.questionsPolicy ?? fromColumn(QuestionsPolicy, settings.scopeQuestionsPolicy),
         implementQuestionsPolicy:
           input.questionsPolicy ?? fromColumn(QuestionsPolicy, settings.implementQuestionsPolicy),
@@ -100,10 +114,13 @@ export class CloudAgentRunService {
   }
 
   /** Policies and seeds come from the previous run; budgets and the model from current settings. */
-  async rerun(workspaceId: string, actorId: string, previousRunId: string) {
+  async rerun(workspaceId: string, actor: WorkflowActor, previousRunId: string) {
+    const actorId = actor.id;
     const settings = await this.startableSettings(workspaceId);
     const previous = await this.prisma.cloudAgentRun.findFirst({ where: { id: previousRunId, workspaceId } });
     if (!previous) throw runNotFound();
+    // The workflow as the runners define it now, not the previous run's copy.
+    const workflow = await this.workflows.startable(workspaceId, previous.workflow, actor);
 
     const runId = await this.createLocked(workspaceId, previous.issueKey, async (tx) => {
       const current = await tx.cloudAgentRun.findUniqueOrThrow({
@@ -125,6 +142,7 @@ export class CloudAgentRunService {
         startedBy: actorId,
         runOwnerId: actorId,
         previousRunId: previous.id,
+        workflow,
         scopeQuestionsPolicy: fromColumn(QuestionsPolicy, previous.scopeQuestionsPolicy),
         implementQuestionsPolicy: fromColumn(QuestionsPolicy, previous.implementQuestionsPolicy),
         scopeAcceptancePolicy: fromColumn(ScopeAcceptancePolicy, previous.scopeAcceptancePolicy),
@@ -136,8 +154,8 @@ export class CloudAgentRunService {
   }
 
   /**
-   * Only when the issue never had a run in this workspace. Invalid seed labels
-   * create the run `failed`, so the label never retries it.
+   * Only when the issue never had a run of the default workflow in this workspace. Invalid
+   * seed labels create the run `failed`, so the label never retries it.
    */
   async createFromJira(
     workspaceId: string,
@@ -145,12 +163,15 @@ export class CloudAgentRunService {
     jiraConnectorId: string,
     issue: TriggeredIssue,
   ): Promise<boolean> {
+    // The label starts the default workflow; without a runner that has it, the next tick tries again.
+    const workflow = await this.workflows.shape(workspaceId, DEFAULT_WORKFLOW_ID);
+    if (!workflow) return false;
     const outcome = await this.labelSeeds(workspaceId, seedKeysFromLabels(issue.labels), settings.maxRepositories);
     try {
       return await this.prisma.$transaction(async (tx) => {
         await lockCloudAgentRunCreation(tx, workspaceId);
         const existing = await tx.cloudAgentRun.findFirst({
-          where: { workspaceId, jiraIssueId: issue.id },
+          where: { workspaceId, jiraIssueId: issue.id, workflow: DEFAULT_WORKFLOW_ID },
           select: { id: true },
         });
         if (existing) return false;
@@ -161,6 +182,7 @@ export class CloudAgentRunService {
           trigger: RunTrigger.JiraLabel,
           startedBy: null,
           runOwnerId: settings.runOwnerId,
+          workflow,
           scopeQuestionsPolicy: fromColumn(QuestionsPolicy, settings.scopeQuestionsPolicy),
           implementQuestionsPolicy: fromColumn(QuestionsPolicy, settings.implementQuestionsPolicy),
           scopeAcceptancePolicy: fromColumn(ScopeAcceptancePolicy, settings.scopeAcceptancePolicy),
@@ -260,14 +282,16 @@ export class CloudAgentRunService {
   }
 
   /**
-   * A failed run goes on in the phase it failed in (a delivery failure with text goes back to
-   * implement); a done run goes back to implement with the person's review feedback. Each
-   * continuation gets a fresh allowance from the current settings.
+   * A failed run goes on in the phase it failed in (a delivery failure with text goes back to the
+   * workflow's final phase); a done run goes back to the final phase with the person's review
+   * feedback. Each continuation gets a fresh allowance from the current settings.
    */
-  async continueRun(workspaceId: string, runId: string, actorId: string, text: string) {
+  async continueRun(workspaceId: string, runId: string, actor: WorkflowActor, text: string) {
+    const actorId = actor.id;
     const settings = await this.startableSettings(workspaceId);
     const seen = await this.prisma.cloudAgentRun.findFirst({ where: { id: runId, workspaceId } });
     if (!seen) throw runNotFound();
+    await this.workflows.assertAllowed(workspaceId, seen.workflow, actor);
     if (seen.status !== RunStatus.Failed && seen.status !== RunStatus.Done) {
       throw cloudAgentRunError(
         CloudAgentRunErrorCode.RunNotContinuable,
@@ -322,8 +346,8 @@ export class CloudAgentRunService {
       const at = this.now();
       const phase =
         run.status === RunStatus.Done || (run.phase === RunPhase.Delivery && text)
-          ? RunPhase.Implement
-          : fromColumn(RunPhase, run.phase);
+          ? finalPhase(workflowOf(run))
+          : run.phase;
       // Queued like a new run: promotion starts it in its phase, with the started transition.
       const updated = await setRunStatus(
         tx,
@@ -361,7 +385,13 @@ export class CloudAgentRunService {
           },
         ],
       );
-      await queueTurn(tx, updated, phase, phase === RunPhase.Delivery ? null : continuationInput(run, phase, text), at);
+      await queueTurn(
+        tx,
+        updated,
+        phase,
+        phase === RunPhase.Delivery ? null : continuationInput(run, isGatedPhase(run, phase), text),
+        at,
+      );
       await promoteQueuedRuns(tx, workspaceId, settings, at);
       return run.id;
     });
@@ -529,6 +559,7 @@ export class CloudAgentRunService {
     const turn = run.turns[0];
     return {
       id: run.id,
+      workflow: workflowOf(run),
       notes: run.notes,
       issueKey: run.issueKey,
       status: run.status,
@@ -586,7 +617,7 @@ function byteCut(text: string, bytes: number): string {
 /** Server-written: what stopped the run, the person's text, and how the phase ends. */
 function continuationInput(
   run: Pick<CloudAgentRun, 'status' | 'failureCode' | 'failureReason' | 'pullRequests'>,
-  phase: RunPhase,
+  gated: boolean,
   text: string,
 ): string {
   const stopped =
@@ -595,12 +626,11 @@ function continuationInput(
       : `failed (${run.failureCode ?? 'unknown'}): ${run.failureReason ?? 'no reason was recorded'}`;
   const pulls = recordedPullRequests(run).map((pull) => pull.url);
   const message = text ? `\n\nTheir message:\n\n${text}` : '\n\nContinue where you stopped.';
-  const closing =
-    phase === RunPhase.Scope
-      ? 'Finish the specification and call propose_scope.'
-      : pulls.length
-        ? `Make the changes in the run branch and call submit_result again. Its pull requests are open and are updated, not reopened: ${pulls.join(', ')}. read_pr_feedback reads the review comments on them.`
-        : 'Finish the work and call submit_result.';
+  const closing = gated
+    ? 'Finish the specification and call propose_scope.'
+    : pulls.length
+      ? `Make the changes in the run branch and call submit_result again. Its pull requests are open and are updated, not reopened: ${pulls.join(', ')}. read_pr_feedback reads the review comments on them.`
+      : 'Finish the work and call submit_result.';
   return `A person continued this run after it ${stopped}.${message}\n\n${closing}`;
 }
 

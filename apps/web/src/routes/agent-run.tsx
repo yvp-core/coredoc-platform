@@ -113,9 +113,11 @@ function ContinueForm({ wsId, run }: { wsId: string; run: AgentRun }) {
         value={text}
         onChange={(event) => setText(event.target.value)}
         placeholder={
-          done
-            ? 'What should change in the pull requests? "Read the PR comments and fix them" works too.'
-            : 'Leave empty to continue where it stopped.'
+          !done
+            ? 'Leave empty to continue where it stopped.'
+            : run.workflow.delivery === 'none'
+              ? 'What should change in the result?'
+              : 'What should change in the pull requests? "Read the PR comments and fix them" works too.'
         }
       />
       <div className="flex flex-wrap items-center gap-2">
@@ -182,15 +184,20 @@ function RunDetails({ run }: { run: AgentRunDetail }) {
       aria-label="Run details"
       className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-surface px-3 py-3 shadow-card"
     >
+      <Field label="Workflow" wide>
+        {run.workflow.title}
+      </Field>
       <Field label="Acts as">{run.runOwner.email ?? run.runOwner.userId}</Field>
       <Field label="Trigger">{TRIGGER_LABELS[run.trigger] ?? run.trigger}</Field>
       <Field label="Scope questions">{run.scopeQuestionsPolicy}</Field>
       <Field label="Implement questions">{run.implementQuestionsPolicy}</Field>
       <Field label="Scope acceptance">{run.scopeAcceptancePolicy}</Field>
       <Field label="Model">{run.model ?? 'Claude Code default'}</Field>
-      <Field label="Branch">
-        <span className="break-all font-mono text-[12px]">{run.branch}</span>
-      </Field>
+      {run.workflow.repositories !== 'none' && (
+        <Field label="Branch">
+          <span className="break-all font-mono text-[12px]">{run.branch}</span>
+        </Field>
+      )}
       {run.seeds.length > 0 && (
         <Field label="Seed repositories">
           <span className="font-mono text-[12px]">{run.seeds.join(', ')}</span>
@@ -235,7 +242,7 @@ function RunPage({ wsId, slug, run }: { wsId: string; slug: string; run: AgentRu
         title={run.issueKey}
         sub={
           <>
-            <Badge variant={statusTone(run.status)}>{statusLabel(run.status)}</Badge>
+            <Badge variant={statusTone(run.status)}>{statusLabel(run.status, run.phase)}</Badge>
             <Badge variant="neutral">{phaseLabel(run.phase)}</Badge>
             <span className="tabular-nums">{spendText(run.spend)}</span>
             {run.previousRunId && (

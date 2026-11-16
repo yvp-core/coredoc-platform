@@ -36,6 +36,8 @@ import {
   cloudAgentRunsCoreProviders,
 } from './cloud-agent-runs.module.js';
 import {
+  advertiseWorkflows,
+  advertising,
   DONE_STATUS,
   FakeGithubPulls,
   FakeJira,
@@ -51,7 +53,7 @@ const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 const ADMIN = { id: `${RUN}-admin`, email: 'admin@example.com' };
 const MEMBER = { id: `${RUN}-member`, email: 'member@example.com' };
-const VERSIONS = { runner: '0.0.1-test', sdk: '0.3.285' };
+const VERSIONS = advertising({ runner: '0.0.1-test', sdk: '0.3.285' });
 const HEAD = 'a'.repeat(40);
 const NB = '‑';
 
@@ -187,6 +189,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
     runs = moduleRef.get(CloudAgentRunService);
 
     await setAgentRunsEnabled(prisma, workspaceId);
+    await advertiseWorkflows(prisma, workspaceId);
 
     await api()
       .put(`${runsBase()}/settings`)
@@ -282,7 +285,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
     const started = await api()
       .post(runsBase())
       .set('Authorization', human(MEMBER))
-      .send({ issueKey: issue.key, repositoryKeys: ['orders-api'] })
+      .send({ workflow: 'default', issueKey: issue.key, repositoryKeys: ['orders-api'] })
       .expect(201);
     const runId = started.body.id as string;
     const scopeTurn = await claimTurn();
@@ -777,7 +780,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       const res = await api()
         .post(runsBase())
         .set('Authorization', human(MEMBER))
-        .send({ issueKey: issue.key, repositoryKeys: ['orders-api'] })
+        .send({ workflow: 'default', issueKey: issue.key, repositoryKeys: ['orders-api'] })
         .expect(201);
       return { runId: res.body.id as string, issue };
     }
@@ -825,7 +828,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       expect(jira.issues.get(issue.key)!.statusId).toBe(STATUSES.inProgress.id);
       expect(jira.appliedOn(issue.key)).toEqual(['41']);
       expect(await detail(runId)).toMatchObject({
-        status: 'scoping',
+        status: 'running',
         jiraOutcome: { transitions: { started: { status: 'in progress', state: 'transitioned' } } },
       });
 
@@ -897,7 +900,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       await sweep.tick();
       expect(jira.appliedOn(issue.key)).toEqual([]);
       expect(await detail(runId)).toMatchObject({
-        status: 'scoping',
+        status: 'running',
         jiraOutcome: { transitions: { started: { state: 'warning' } } },
       });
       expect(await warnings(runId)).toEqual([expect.stringMatching(/No transition to Archived/)]);
@@ -993,7 +996,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       const started = await api()
         .post(runsBase())
         .set('Authorization', human(MEMBER))
-        .send({ issueKey: issue.key, repositoryKeys: ['orders-api'] })
+        .send({ workflow: 'default', issueKey: issue.key, repositoryKeys: ['orders-api'] })
         .expect(201);
       const runId = started.body.id as string;
       const scopeTurn = await claimTurn();
@@ -1025,7 +1028,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
 
       const res = await continueRun(runId, 'The push hit a GitHub outage; push again.').expect(200);
       expect(res.body).toMatchObject({
-        status: 'implementing',
+        status: 'running',
         phase: 'implement',
         failureCode: null,
         failureReason: null,
@@ -1087,7 +1090,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       const started = await api()
         .post(runsBase())
         .set('Authorization', human(MEMBER))
-        .send({ issueKey: issue.key, repositoryKeys: ['orders-api'] })
+        .send({ workflow: 'default', issueKey: issue.key, repositoryKeys: ['orders-api'] })
         .expect(201);
       await complete(await claimTurn(), {
         outcome: { kind: 'failed', code: 'agent_error', reason: 'The model was unavailable.' },
@@ -1113,7 +1116,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
 
       await continueRun(runId, 'Read the PR comments and fix them.').expect(200);
       expect(await detail(runId)).toMatchObject({
-        status: 'implementing',
+        status: 'running',
         jiraOutcome: { transitions: { started: { state: 'pending' } } },
       });
       const implement = await claimTurn();
@@ -1174,7 +1177,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       await api()
         .post(runsBase())
         .set('Authorization', human(MEMBER))
-        .send({ issueKey: other.key, repositoryKeys: ['orders-api'] })
+        .send({ workflow: 'default', issueKey: other.key, repositoryKeys: ['orders-api'] })
         .expect(201);
 
       expect((await continueRun(runId, 'Push again.').expect(200)).body.status).toBe('queued');
@@ -1189,7 +1192,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
         .expect(204);
 
       await runs.promote(workspaceId, await prisma.agentRunSettings.findUniqueOrThrow({ where: { workspaceId } }));
-      expect((await detail(runId)).status).toBe('implementing');
+      expect((await detail(runId)).status).toBe('running');
       const turn = await claimTurn();
       expect(turn.body.turn).toMatchObject({ kind: 'implement', inputText: expect.stringContaining('Push again.') });
     });
@@ -1207,7 +1210,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       await sweep.tick();
       expect(jira.commentsOn(issue.key)).toHaveLength(1);
       const reopened = await detail(runId);
-      expect(reopened.status).toBe('implementing');
+      expect(reopened.status).toBe('running');
       expect(reopened.jiraOutcome.failure).toBeUndefined();
       expect(reopened.jiraOutcome.transitions.failed).toBeUndefined();
 
@@ -1234,11 +1237,11 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
       const running = await api()
         .post(runsBase())
         .set('Authorization', human(MEMBER))
-        .send({ issueKey: issue.key, repositoryKeys: ['orders-api'] })
+        .send({ workflow: 'default', issueKey: issue.key, repositoryKeys: ['orders-api'] })
         .expect(201);
       const runningId = running.body.id as string;
       expect((await continueRun(runningId, 'go').expect(409)).body.code).toBe('RUN_NOT_CONTINUABLE');
-      expect(await detail(runningId)).toMatchObject({ status: 'scoping', continuations: 0 });
+      expect(await detail(runningId)).toMatchObject({ status: 'running', continuations: 0 });
       await api().post(`${runsBase()}/${runningId}/cancel`).set('Authorization', human(MEMBER)).expect(200);
       expect((await continueRun(runningId, 'go').expect(409)).body.code).toBe('RUN_NOT_CONTINUABLE');
       expect(await detail(runningId)).toMatchObject({ status: 'cancelled', continuations: 0 });

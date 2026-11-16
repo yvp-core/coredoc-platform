@@ -2,7 +2,7 @@
  * Kept free of React so polling and merging are table-tested without timers. Payloads are
  * free-form on the wire, so nothing here may throw on a shape it does not recognise.
  */
-import type { AgentRun, AgentRunEvent, RunnerTokenStatus, RunStatus, TurnKind } from './types.js';
+import type { AgentRun, AgentRunEvent, RunnerTokenStatus, RunStatus, RunWorkflow } from './types.js';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -25,18 +25,33 @@ export function mergeTimeline(existing: readonly AgentRunEvent[], incoming: read
 
 const STATUS_LABELS: Record<RunStatus, string> = {
   queued: 'Queued',
-  scoping: 'Scoping',
+  running: 'Running',
   awaiting_answer: 'Awaiting an answer',
   awaiting_scope_acceptance: 'Awaiting scope acceptance',
-  implementing: 'Implementing',
   delivering: 'Delivering',
   done: 'Done',
   failed: 'Failed',
   cancelled: 'Cancelled',
 };
 
-export function statusLabel(status: string): string {
+const RUNNING_LABELS: Record<string, string> = { scope: 'Scoping', implement: 'Implementing' };
+
+/** A running run reads by its phase: the default workflow's own words, any other phase by its id. */
+export function statusLabel(status: string, phase?: string): string {
+  if (status === 'running' && phase) return RUNNING_LABELS[phase] ?? `Running ${phase}`;
   return STATUS_LABELS[status as RunStatus] ?? status;
+}
+
+/** True for a phase that ends with a proposal a person accepts or sends back. */
+export function isGatedPhase(workflow: RunWorkflow | undefined, phase: string): boolean {
+  return workflow?.phases.find((candidate) => candidate.id === phase)?.gate === 'acceptance';
+}
+
+const PHASE_ACTIVITY: Record<string, string> = { scope: 'scoping', implement: 'implementing' };
+
+/** Reads after "while": "scoping", "in the review phase". */
+export function phaseActivity(phase: string): string {
+  return PHASE_ACTIVITY[phase] ?? `in the ${phase} phase`;
 }
 
 type StatusTone = 'ok' | 'warn' | 'err' | 'info' | 'neutral';
@@ -67,14 +82,14 @@ export function waitingForRunnerSince(run: Pick<AgentRun, 'currentTurn'>): strin
   return run.currentTurn?.state === 'queued' ? run.currentTurn.queuedAt : null;
 }
 
-const PHASE_LABELS: Record<TurnKind, string> = {
+const PHASE_LABELS: Record<string, string> = {
   scope: 'Scope phase',
   implement: 'Implement phase',
   delivery: 'Delivery phase',
 };
 
 export function phaseLabel(phase: string): string {
-  return PHASE_LABELS[phase as TurnKind] ?? phase;
+  return PHASE_LABELS[phase] ?? `${phase} phase`;
 }
 
 type AgentTaskStatus = 'pending' | 'in_progress' | 'completed';
@@ -125,9 +140,13 @@ export function runnerVersionsText(versions: RunnerTokenStatus['versions']): str
     .filter(([, value]) => Boolean(value))
     .map(([name, value]) => `${name === 'claudeCode' ? 'claude code' : name} ${value}`);
   if (manifest) {
-    const models = Object.entries(manifest.models).map(([phase, model]) => `${phase} ${model}`);
+    const workflows = (manifest.workflows ?? []).map(({ id, phases }) => {
+      const models = phases.filter((phase) => phase.model).map((phase) => `${phase.id} ${phase.model}`);
+      return models.length > 0 ? `${id} (${models.join(', ')})` : id;
+    });
     const plugins = manifest.plugins.map(({ name, version }) => (version ? `${name} ${version}` : name));
-    parts.push(`manifest: ${[...models, ...plugins].join(', ')}`);
+    if (workflows.length > 0) parts.push(`workflows: ${workflows.join(', ')}`);
+    if (plugins.length > 0) parts.push(`plugins: ${plugins.join(', ')}`);
   }
   return parts.length > 0 ? parts.join(' · ') : null;
 }

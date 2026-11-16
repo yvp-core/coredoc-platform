@@ -27,6 +27,7 @@ import { CloudAgentRunActivityService } from './cloud-agent-run-activity.service
 import { CloudAgentRunSettingsService } from './cloud-agent-run-settings.service.js';
 import { CloudAgentRunQuestionService } from './cloud-agent-run-questions.service.js';
 import { CloudAgentRunService } from './cloud-agent-run.service.js';
+import { CloudAgentRunWorkflows } from './cloud-agent-run-workflows.service.js';
 import {
   type AnswerQuestionInput,
   AnswerQuestionSchema,
@@ -58,6 +59,7 @@ export class CloudAgentRunsController {
     private readonly settings: CloudAgentRunSettingsService,
     private readonly questions: CloudAgentRunQuestionService,
     private readonly activity: CloudAgentRunActivityService,
+    private readonly workflows: CloudAgentRunWorkflows,
   ) {}
 
   // Declared before `/:runId`, so `settings` is never taken for a run id.
@@ -84,6 +86,16 @@ export class CloudAgentRunsController {
     return this.settings.update(workspaceId, user.id, body);
   }
 
+  @Get('workflows')
+  @WorkspaceRole('member')
+  listWorkflows(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: AuthUser,
+    @WorkspaceRoleValue() role: string | undefined,
+  ) {
+    return this.workflows.list(workspaceId, { id: user.id, role });
+  }
+
   @Get()
   @WorkspaceRole('member')
   list(
@@ -99,8 +111,9 @@ export class CloudAgentRunsController {
     @Param('workspaceId') workspaceId: string,
     @Body(new ZodValidationPipe(StartRunSchema)) body: StartRunInput,
     @CurrentUser() user: AuthUser,
+    @WorkspaceRoleValue() role: string | undefined,
   ) {
-    return this.runs.start(workspaceId, user.id, body);
+    return this.runs.start(workspaceId, { id: user.id, role }, body);
   }
 
   @Get(':runId')
@@ -170,8 +183,9 @@ export class CloudAgentRunsController {
     @Param('runId', ParseUUIDPipe) runId: string,
     @Body(new ZodValidationPipe(ContinueRunSchema)) body: ContinueRunInput,
     @CurrentUser() user: AuthUser,
+    @WorkspaceRoleValue() role: string | undefined,
   ) {
-    return this.runs.continueRun(workspaceId, runId, user.id, body.text);
+    return this.runs.continueRun(workspaceId, runId, { id: user.id, role }, body.text);
   }
 
   @Post(':runId/rerun')
@@ -180,8 +194,9 @@ export class CloudAgentRunsController {
     @Param('workspaceId') workspaceId: string,
     @Param('runId', ParseUUIDPipe) runId: string,
     @CurrentUser() user: AuthUser,
+    @WorkspaceRoleValue() role: string | undefined,
   ) {
-    return this.runs.rerun(workspaceId, user.id, runId);
+    return this.runs.rerun(workspaceId, { id: user.id, role }, runId);
   }
 
   @Get(':runId/activity')

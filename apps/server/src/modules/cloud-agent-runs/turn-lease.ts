@@ -3,7 +3,6 @@ import {
   CloudAgentRunErrorCode,
   cloudAgentRunError,
   isTerminalRunStatus,
-  type RunPhase,
   type RunStatus,
   TurnState,
 } from './run-states.js';
@@ -26,7 +25,7 @@ export interface FencedTurn {
   id: string;
   run_id: string;
   workspace_id: string;
-  kind: RunPhase;
+  kind: string;
   state: TurnState;
   lease_token: string | null;
   lease_expires_at: Date | null;

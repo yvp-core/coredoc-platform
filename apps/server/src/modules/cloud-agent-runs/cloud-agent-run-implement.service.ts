@@ -24,7 +24,9 @@ import {
   TurnOutcome,
 } from './run-states.js';
 import { appendRunEvents, type NewRunEvent, type Tx } from './run-store.js';
+import { type JiraCommentOutcome, jiraOutcomeOf } from './jira-outcome.js';
 import { failRun, queueTurn, setRunStatus } from './run-transitions.js';
+import { deliversPullRequests, isFinalPhase, isGatedPhase } from './run-workflow.js';
 
 /** The run fails with the code instead of getting the turn. */
 export class RunCheckFailure extends Error {
@@ -63,9 +65,9 @@ export class CloudAgentRunImplementService {
     private readonly resolver: GithubRepositoryResolver,
   ) {}
 
-  /** Scope turns get the seeds, for the runner's bot permission check. */
-  async repositoriesFor(run: CloudAgentRun, kind: RunPhase): Promise<AssignedRepository[]> {
-    if (kind === RunPhase.Implement) {
+  /** The final phase gets the run's repositories; an earlier phase the seeds, for the runner's bot permission check. */
+  async repositoriesFor(run: CloudAgentRun, kind: string): Promise<AssignedRepository[]> {
+    if (isFinalPhase(run, kind)) {
       const repositories = [...runRepositories(run)].sort((a, b) => a.mergeOrder - b.mergeOrder);
       const assigned: AssignedRepository[] = [];
       for (const repository of repositories) {
@@ -88,7 +90,7 @@ export class CloudAgentRunImplementService {
       }
       return assigned;
     }
-    if (kind !== RunPhase.Scope) return [];
+    if (!isGatedPhase(run, kind)) return [];
     const seeds: AssignedRepository[] = [];
     for (const [index, key] of run.seeds.entries()) {
       // Seeds were validated at creation; one that stopped resolving is the proposal's problem.
@@ -262,7 +264,7 @@ export class CloudAgentRunImplementService {
     }));
     const assumptions = [
       ...((Array.isArray(run.assumptions) ? run.assumptions : []) as unknown as RunAssumption[]),
-      ...result.assumptions.map((text) => ({ phase: RunPhase.Implement, text })),
+      ...result.assumptions.map((text) => ({ phase: run.phase, text })),
     ];
     const adopted: RunResult = {
       summary: result.summary,
@@ -280,6 +282,19 @@ export class CloudAgentRunImplementService {
         outcomeLessCount: 0,
       },
     });
+    if (!deliversPullRequests(run)) {
+      if (result.status && result.status !== ResultStatus.Complete) {
+        await failRun(tx, updated, RunFailureCode.IncompleteResult, (result.unmetCriteria ?? []).join('; '), at);
+        return RunFailureCode.IncompleteResult;
+      }
+      // Nothing to deliver: the run ends through the same done comment and transition as a delivered one.
+      const done: JiraCommentOutcome = { state: 'pending', attempts: 0, nextAttemptAt: at.toISOString() };
+      await setRunStatus(tx, updated, RunStatus.Delivering, at, {
+        phase: RunPhase.Delivery,
+        jiraOutcome: { ...jiraOutcomeOf(updated), done } as unknown as Prisma.InputJsonObject,
+      });
+      return TurnOutcome.ResultSubmitted;
+    }
     if (!repositories.some((repository) => repository.touched)) {
       // A partial or blocked result keeps its unmet criteria as the reason, even with nothing to deliver.
       // A result saved before `status` existed has none: it is complete.

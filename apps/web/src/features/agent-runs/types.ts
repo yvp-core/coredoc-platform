@@ -2,16 +2,41 @@
 
 export type RunStatus =
   | 'queued'
-  | 'scoping'
+  | 'running'
   | 'awaiting_answer'
   | 'awaiting_scope_acceptance'
-  | 'implementing'
   | 'delivering'
   | 'done'
   | 'failed'
   | 'cancelled';
 
-export type TurnKind = 'scope' | 'implement' | 'delivery';
+/** A phase id of the run's workflow, or `delivery`. */
+export type TurnKind = string;
+
+export interface WorkflowPhase {
+  id: string;
+  /** `acceptance`: the phase ends with a proposal a person accepts or sends back. */
+  gate: 'acceptance' | 'none';
+  model?: string;
+}
+
+/** The workflow a run started with. */
+export interface RunWorkflow {
+  id: string;
+  title: string;
+  repositories: 'write' | 'none';
+  delivery: 'pull-request' | 'none';
+  phases: WorkflowPhase[];
+}
+
+export type WorkflowAccess = { minRole: 'member' | 'admin' } | { members: string[] };
+
+/** A workflow the workspace's runners advertise; `startable` and `reason` are for the calling member. */
+export interface AgentRunWorkflow extends RunWorkflow {
+  access: WorkflowAccess;
+  startable: boolean;
+  reason: string | null;
+}
 
 /** A failed turn records its failure code instead. */
 export type TurnOutcome =
@@ -41,6 +66,7 @@ export type QuestionsPolicy = 'pause' | 'assume';
 export interface AgentRun {
   id: string;
   issueKey: string;
+  workflow: RunWorkflow;
   status: RunStatus;
   phase: TurnKind;
   trigger: 'jira_label' | 'manual' | 'rerun';
@@ -263,9 +289,10 @@ export interface RunnerTokenStatus {
     claudeCode?: string;
     plugin?: string;
     manifest?: {
-      digest: string;
-      models: { scope?: string; implement?: string };
+      digest?: string;
       plugins: Array<{ name: string; version?: string }>;
+      /** Absent from rows a runner reported before workflows. */
+      workflows?: Array<Pick<AgentRunWorkflow, 'id' | 'title' | 'phases'>>;
     };
   } | null;
   refusal: RunnerRefusal | null;
@@ -304,6 +331,8 @@ export interface AgentRunSettings {
   maxStartedRuns: number;
   maxRepositories: number;
   model: string | null;
+  /** A workflow left out is open to every member. */
+  workflowAccess: Record<string, WorkflowAccess>;
   /** Start, re-run and promotion need this. */
   availability: { available: boolean; reasons: AvailabilityReason[] };
   /** The Jira trigger additionally needs a valid run owner and a project key. */
@@ -330,6 +359,7 @@ export type AgentRunSettingsUpdate = Partial<
     | 'maxStartedRuns'
     | 'maxRepositories'
     | 'model'
+    | 'workflowAccess'
   >
 > & { takeOverOwnership?: true };
 

@@ -27,6 +27,8 @@ import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CLOUD_AGENT_RUNS_CLOCK, cloudAgentRunsCoreProviders } from './cloud-agent-runs.module.js';
 import {
+  advertiseWorkflows,
+  advertising,
   FakeGithubPulls,
   FakeJira,
   InMemoryArchiveStore,
@@ -40,7 +42,7 @@ const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 const ADMIN = { id: `${RUN}-admin`, email: 'admin@example.com' };
 const MEMBER = { id: `${RUN}-member`, email: 'member@example.com' };
 const OUTSIDER = { id: `${RUN}-outsider`, email: 'outsider@example.com' };
-const VERSIONS = { runner: '0.0.1-test', sdk: '0.3.285' };
+const VERSIONS = advertising({ runner: '0.0.1-test', sdk: '0.3.285' });
 
 const proposal = (overrides: Partial<ProposeScopeRequest> = {}): ProposeScopeRequest => ({
   title: 'Order exports',
@@ -168,6 +170,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
 
     // Scenarios leave runs open; the concurrency queue has its own suite.
     await setAgentRunsEnabled(prisma, workspaceId);
+    await advertiseWorkflows(prisma, workspaceId);
     await api()
       .put(`${runsBase()}/settings`)
       .set('Authorization', human(ADMIN))
@@ -233,7 +236,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
     const res = await api()
       .post(runsBase())
       .set('Authorization', human(MEMBER))
-      .send({ issueKey: issue.key, ...body })
+      .send({ workflow: 'default', issueKey: issue.key, ...body })
       .expect(201);
     return res.body as { id: string; issueKey: string };
   }
@@ -313,7 +316,11 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
       parent: epic.key,
       description: paragraphDoc('Foreign text.'),
     });
-    await api().post(runsBase()).set('Authorization', human(MEMBER)).send({ issueKey: epic.key }).expect(201);
+    await api()
+      .post(runsBase())
+      .set('Authorization', human(MEMBER))
+      .send({ workflow: 'default', issueKey: epic.key })
+      .expect(201);
 
     const turn = await claimTurn();
     expect(turn.body.prd.markdown).toContain('### PROJ-900: Request an export');
@@ -325,7 +332,11 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
   it('a story under an epic is scanned for branches named after the epic', async () => {
     const epic = newIssue('Shared decisions for exports.', { issueType: 'Epic' });
     const story = newIssue('Export the invoices.', { parent: epic.key });
-    await api().post(runsBase()).set('Authorization', human(MEMBER)).send({ issueKey: story.key }).expect(201);
+    await api()
+      .post(runsBase())
+      .set('Authorization', human(MEMBER))
+      .send({ workflow: 'default', issueKey: story.key })
+      .expect(201);
     const turn = await claimTurn();
     expect(turn.body.branchScan.epicKey).toBe(epic.key);
   });
@@ -370,7 +381,11 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
     jira.add({ key: 'PROJ-403', summary: 'Hidden', project: 'PROJ' });
     jira.forbidden.add('PROJ-403');
     for (const issueKey of ['OTHER-7', 'PROJ-404404', 'PROJ-403']) {
-      const res = await api().post(runsBase()).set('Authorization', human(MEMBER)).send({ issueKey }).expect(400);
+      const res = await api()
+        .post(runsBase())
+        .set('Authorization', human(MEMBER))
+        .send({ workflow: 'default', issueKey })
+        .expect(400);
       expect(res.body.code).toBe('ISSUE_NOT_READABLE');
     }
   });
@@ -381,7 +396,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
     const res = await api()
       .post(runsBase())
       .set('Authorization', human(MEMBER))
-      .send({ issueKey: issue.key })
+      .send({ workflow: 'default', issueKey: issue.key })
       .expect(503);
     jira.rateLimitedReads = 0;
     expect(res.body.code).toBe('JIRA_UNAVAILABLE');
@@ -465,7 +480,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
       .set('Authorization', human(MEMBER))
       .send({ text: 'Also cover billing exports.' })
       .expect(200);
-    expect((await detail(run.id)).status).toBe('scoping');
+    expect((await detail(run.id)).status).toBe('running');
 
     const second = await claimTurn();
     expect(second.body.turn.inputText).toContain('Also cover billing exports.');
@@ -500,7 +515,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
     await api().post(`${runsBase()}/${run.id}/specs/2/accept`).set('Authorization', human(MEMBER)).expect(200);
     const accepted = await detail(run.id);
     expect(accepted).toMatchObject({
-      status: 'implementing',
+      status: 'running',
       phase: 'implement',
       latestSpec: { version: 2, status: 'accepted', reviewedBy: MEMBER.id },
       currentTurn: { kind: 'implement', state: 'queued' },
@@ -524,7 +539,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
       await turnCall(turn, 'propose-scope', proposal()).expect(200);
       await complete(turn).expect(200);
       expect(await detail(run.id)).toMatchObject({
-        status: 'implementing',
+        status: 'running',
         latestSpec: { status: 'accepted', autoAccepted: true, reviewedBy: null },
       });
     });
@@ -642,7 +657,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: scope phase (PostgreSQL i
         .expect(403);
 
       expect(await prisma.cloudAgentRunSpecVersion.count({ where: { runId: run.id } })).toBe(0);
-      expect(await detail(run.id)).toMatchObject({ status: 'scoping', failureCode: null });
+      expect(await detail(run.id)).toMatchObject({ status: 'running', failureCode: null });
       await turnCall(turn, 'propose-scope', proposal()).expect(200);
       await complete(turn).expect(200);
       expect((await detail(run.id)).latestSpec).toMatchObject({ version: 1, status: 'proposed' });

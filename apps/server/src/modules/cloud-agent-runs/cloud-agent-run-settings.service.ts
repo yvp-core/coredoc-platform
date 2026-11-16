@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { AgentRunSettings } from '../../generated/prisma/client.js';
 import { AGENT_RUNNER_TOKEN_PERMISSIONS } from '../../auth/token-permissions.js';
@@ -32,6 +32,7 @@ function defaultSettings(workspaceId: string): AgentRunSettings {
     maxStartedRuns: 2,
     maxRepositories: 5,
     model: null,
+    workflowAccess: {},
     updatedBy: null,
     updatedAt: new Date(0),
   };
@@ -57,6 +58,7 @@ export class CloudAgentRunSettingsService {
    */
   async update(workspaceId: string, actorId: string, input: UpdateSettingsInput) {
     const { takeOverOwnership, ...values } = input;
+    await this.refuseUnknownMembers(workspaceId, values.workflowAccess);
     await this.prisma.$transaction(async (tx) => {
       const current = await tx.agentRunSettings.findUnique({ where: { workspaceId } });
       const data = {
@@ -68,6 +70,20 @@ export class CloudAgentRunSettingsService {
       await tx.agentRunSettings.upsert({ where: { workspaceId }, create: { workspaceId, ...data }, update: data });
     });
     return this.view(workspaceId);
+  }
+
+  private async refuseUnknownMembers(workspaceId: string, access: UpdateSettingsInput['workflowAccess']) {
+    const named = [...new Set(Object.values(access ?? {}).flatMap((rule) => ('members' in rule ? rule.members : [])))];
+    if (named.length === 0) return;
+    const members = await this.prisma.workspaceMember.findMany({
+      where: { workspaceId, userId: { in: named }, pending: false },
+      select: { userId: true },
+    });
+    const known = new Set(members.map((member) => member.userId));
+    const unknown = named.filter((id) => !known.has(id));
+    if (unknown.length) {
+      throw new BadRequestException(`workflowAccess names users who are not workspace members: ${unknown.join(', ')}`);
+    }
   }
 
   /** From the connector's Delivery analytics status map. */
@@ -131,6 +147,7 @@ export class CloudAgentRunSettingsService {
       maxStartedRuns: settings.maxStartedRuns,
       maxRepositories: settings.maxRepositories,
       model: settings.model,
+      workflowAccess: settings.workflowAccess,
       availability: { available: availability.available, reasons: availability.reasons },
       trigger: availability.trigger,
       repositories: repositories

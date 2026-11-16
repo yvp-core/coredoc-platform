@@ -26,13 +26,20 @@ import { CLOUD_AGENT_RUN_ARCHIVE_STORE } from './cloud-agent-run-archive.store.j
 import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CLOUD_AGENT_RUNS_CLOCK, cloudAgentRunsCoreProviders } from './cloud-agent-runs.module.js';
-import { FakeJira, InMemoryArchiveStore, paragraphDoc, setAgentRunsEnabled } from './cloud-agent-runs.test-support.js';
+import {
+  advertiseWorkflows,
+  advertising,
+  FakeJira,
+  InMemoryArchiveStore,
+  paragraphDoc,
+  setAgentRunsEnabled,
+} from './cloud-agent-runs.test-support.js';
 
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 const ADMIN = { id: `${RUN}-admin`, email: 'admin@example.com' };
 const MEMBER = { id: `${RUN}-member`, email: 'member@example.com' };
-const VERSIONS = { runner: '0.0.1-test', sdk: '0.3.285' };
+const VERSIONS = advertising({ runner: '0.0.1-test', sdk: '0.3.285' });
 
 const proposal: ProposeScopeRequest = {
   title: 'Order exports',
@@ -151,6 +158,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: request_repo (PostgreSQL 
     await app.listen(0, '127.0.0.1');
 
     await setAgentRunsEnabled(prisma, workspaceId);
+    await advertiseWorkflows(prisma, workspaceId);
 
     await api()
       .put(`${runsBase()}/settings`)
@@ -236,7 +244,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: request_repo (PostgreSQL 
     const started = await api()
       .post(runsBase())
       .set('Authorization', human(MEMBER))
-      .send({ issueKey: issue.key, questionsPolicy: 'pause', ...policies })
+      .send({ workflow: 'default', issueKey: issue.key, questionsPolicy: 'pause', ...policies })
       .expect(201);
     const runId = started.body.id as string;
     const scope = await claimTurn();
@@ -267,7 +275,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: request_repo (PostgreSQL 
       expect(added.body).toEqual({ state: 'added', repository: expected, stop: false });
 
       const run = await detail(runId);
-      expect(run).toMatchObject({ status: 'implementing', currentTurn: { state: 'claimed' } });
+      expect(run).toMatchObject({ status: 'running', currentTurn: { state: 'claimed' } });
       expect(run.repositories).toContainEqual(
         expect.objectContaining({ key: 'search-api', origin: 'request', reason: 'Owns the search index' }),
       );
@@ -319,13 +327,13 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: request_repo (PostgreSQL 
       const started = await api()
         .post(runsBase())
         .set('Authorization', human(MEMBER))
-        .send({ issueKey: issue.key, scopeAcceptancePolicy: 'automatic' })
+        .send({ workflow: 'default', issueKey: issue.key, scopeAcceptancePolicy: 'automatic' })
         .expect(201);
       const scope = await claimTurn();
       const scoping = await turnCall(scope, 'request-repo', { key: 'search-api', reason: 'Search' }).expect(200);
       expect(scoping.body).toEqual({
         state: 'rejected',
-        errors: ['request_repo is available only while implementing.'],
+        errors: [expect.any(String)],
         stop: false,
       });
 
@@ -345,7 +353,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: request_repo (PostgreSQL 
       );
       expect(asked.body).toEqual({ state: 'requested', stop: false });
       // Nothing changes until the turn ends.
-      expect(await detail(runId)).toMatchObject({ status: 'implementing', openQuestion: null });
+      expect(await detail(runId)).toMatchObject({ status: 'running', openQuestion: null });
       await complete(turn).expect(200);
       const run = await detail(runId);
       return { runId, turn, run, requestId: run.openQuestion?.requestId as string };
@@ -380,7 +388,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: request_repo (PostgreSQL 
       const { runId, turn, requestId } = await requested();
       await answer(runId, requestId, [{ labels: ['Add'] }]).expect(200);
       const run = await detail(runId);
-      expect(run.status).toBe('implementing');
+      expect(run.status).toBe('running');
       expect(run.repositories).toContainEqual(
         expect.objectContaining({
           key: 'search-api',
@@ -412,7 +420,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: request_repo (PostgreSQL 
       const { runId, requestId } = await requested();
       await answer(runId, requestId, [{ labels: ["Don't add"] }]).expect(200);
       const run = await detail(runId);
-      expect(run.status).toBe('implementing');
+      expect(run.status).toBe('running');
       expect(run.repositories.map((r: { key: string }) => r.key)).toEqual(['billing-api', 'orders-api']);
       expect(await events(runId)).toContainEqual(
         expect.objectContaining({
