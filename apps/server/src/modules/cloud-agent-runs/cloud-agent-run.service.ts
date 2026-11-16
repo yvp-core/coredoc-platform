@@ -44,7 +44,7 @@ import {
   type Tx,
 } from './run-store.js';
 import { cancelRun, lockRun, queueTurn, setRunStatus } from './run-transitions.js';
-import { finalPhase, isGatedPhase, workflowOf } from './run-workflow.js';
+import { deliversPullRequests, finalPhase, isGatedPhase, workflowOf } from './run-workflow.js';
 import { isUniqueViolation } from '../../libs/coerce.js';
 
 const PENDING_TURN_STATES = [TurnState.Queued, TurnState.Claimed];
@@ -282,9 +282,10 @@ export class CloudAgentRunService {
   }
 
   /**
-   * A failed run goes on in the phase it failed in (a delivery failure with text goes back to the
-   * workflow's final phase); a done run goes back to the final phase with the person's review
-   * feedback. Each continuation gets a fresh allowance from the current settings.
+   * A failed run goes on in the phase it failed in; a done run goes back to the workflow's final
+   * phase with the person's review feedback. So does a delivery failure with text, and any
+   * delivery failure of a workflow that delivers no pull requests: a delivery turn would open them.
+   * Each continuation gets a fresh allowance from the current settings.
    */
   async continueRun(workspaceId: string, runId: string, actor: WorkflowActor, text: string) {
     const actorId = actor.id;
@@ -345,7 +346,7 @@ export class CloudAgentRunService {
 
       const at = this.now();
       const phase =
-        run.status === RunStatus.Done || (run.phase === RunPhase.Delivery && text)
+        run.status === RunStatus.Done || (run.phase === RunPhase.Delivery && (text || !deliversPullRequests(run)))
           ? finalPhase(workflowOf(run))
           : run.phase;
       // Queued like a new run: promotion starts it in its phase, with the started transition.

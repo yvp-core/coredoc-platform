@@ -528,6 +528,22 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: workflows (PostgreSQL int
       expect(await detail(runId)).toMatchObject({ ...ends, currentTurn: null });
       expect(await turnsOf(runId, 'delivery')).toBe(0);
     });
+
+    it('continuing a run that failed after its result goes back to the final phase, never to a delivery turn', async () => {
+      const { runId, report } = await reporting();
+      await turnCall(report, 'submit-result', { summary: 'Reviewed.' }).expect(200);
+      await complete(report).expect(200);
+      expect(await detail(runId)).toMatchObject({ status: 'delivering', phase: 'delivery' });
+      await prisma.cloudAgentRun.update({
+        where: { id: runId },
+        data: { status: 'failed', failureCode: 'delivery_failed', finishedAt: new Date(), jiraOutcome: {} },
+      });
+
+      await act(runId, 'continue').expect(200);
+
+      expect(await detail(runId)).toMatchObject({ phase: 'report', currentTurn: { kind: 'report' } });
+      expect(await turnsOf(runId, 'delivery')).toBe(0);
+    });
   });
 
   describe('workflow access', () => {
