@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { ClaudeExecutor } from './claude/claude-executor.js';
+import { ClaudeExecutor, heldOpen } from './claude/claude-executor.js';
 import { checkClaudeStartup, checkRunnerStartup } from './claude/startup-check.js';
 import { GithubApi } from './github/github-api.js';
 import { type LoadedManifest, loadManifest } from './manifest.js';
@@ -132,7 +132,7 @@ const runner = new Runner({
   ...(Number.isFinite(pollSeconds) && pollSeconds >= 1 ? { idlePollMs: pollSeconds * 1000 } : {}),
   once: process.env.COREDOC_RUNNER_ONCE === '1',
   executor: new ClaudeExecutor({
-    query,
+    query: ({ prompt, open, options }) => query({ prompt: heldOpen(prompt, open), options }),
     api,
     scratchRoot,
     manifest: loaded.manifest,
