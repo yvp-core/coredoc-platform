@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import type { HookCallback, Options, SDKAssistantMessageError, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import type {
+  HookCallback,
+  Options,
+  SDKAssistantMessageError,
+  SDKMessage,
+  SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk';
 import {
   JiraAccess,
   MAX_STATE_ARCHIVE_BYTES,
@@ -36,7 +42,18 @@ import { extractStateArchive, packStateArchive } from './state-archive.js';
 import { DENIED_TOOLS, evaluateToolUse } from './tool-policy.js';
 import { createTurnDirectories, sessionExists, type TurnPaths, turnPaths, wipeScratch } from './turn-paths.js';
 
-export type QueryFn = (params: { prompt: string; options: Options }) => AsyncIterable<SDKMessage>;
+/** The session's input stays open until `open` settles; until then the session can reach the runner. */
+export type QueryFn = (params: { prompt: string; open: Promise<void>; options: Options }) => AsyncIterable<SDKMessage>;
+
+/**
+ * The prompt as an input stream that closes when `open` settles. Given a plain string the SDK closes the
+ * session's stdin at the first result, and a session that wakes afterwards for a background task finds every
+ * hook, permission and run-control call cancelled, worded as if a person had declined it.
+ */
+export async function* heldOpen(prompt: string, open: Promise<void>): AsyncGenerator<SDKUserMessage> {
+  yield { type: 'user', session_id: '', parent_tool_use_id: null, message: { role: 'user', content: prompt } };
+  await open;
+}
 
 /** A high fixed runaway guard, not a setting. */
 const SDK_MAX_TURNS = 500;
@@ -410,9 +427,17 @@ export class ClaudeExecutor implements TurnExecutor {
     // A model API failure arrives as a synthetic assistant message naming its kind, then the result.
     let apiError: SDKAssistantMessageError | null = null;
     const activity = new SessionEvents();
+    // A result with background work still running is not the session's end: it wakes when the work finishes,
+    // so its input stays open. The turn's duration limit ends a wait that never finishes.
+    let closeInput = (): void => undefined;
+    const open = new Promise<void>((resolve) => {
+      closeInput = resolve;
+    });
+    let backgroundTasks = 0;
     try {
       for await (const message of this.options.query({
         prompt,
+        open,
         options: this.sessionOptions(
           turn,
           io,
@@ -433,6 +458,9 @@ export class ClaudeExecutor implements TurnExecutor {
           }
         }
         if (message.type === 'assistant' && message.error) apiError = message.error;
+        if (message.type === 'system' && message.subtype === 'background_tasks_changed') {
+          backgroundTasks = message.tasks.length;
+        }
         if (message.type === 'result') {
           outcome.result = message;
           // A parked question ends the session by design, whatever subtype the SDK gives it.
@@ -456,6 +484,13 @@ export class ClaudeExecutor implements TurnExecutor {
         }
         const events = activity.eventsFor(message);
         if (message.type === 'result') {
+          const waking =
+            backgroundTasks > 0 &&
+            windDown === null &&
+            questions.state.parkedQuestion === null &&
+            !outcome.failure &&
+            !outcome.checkpoint;
+          if (!waking) closeInput();
           // Calls the session ended without answering are reported before the session's end.
           events.push(...activity.flush());
           events.push({
@@ -474,6 +509,7 @@ export class ClaudeExecutor implements TurnExecutor {
         fail({ code: RunFailureCode.AgentError, reason: error instanceof Error ? error.message : String(error) });
       }
     } finally {
+      closeInput();
       clearTimeout(deadline);
       clearTimeout(grace);
       control.endTurn = undefined;

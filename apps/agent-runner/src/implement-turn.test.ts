@@ -13,7 +13,7 @@ import {
   TurnKind,
 } from '@coredoc/core/agent-runner';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ClaudeExecutor } from './claude/claude-executor.js';
+import { ClaudeExecutor, type QueryFn } from './claude/claude-executor.js';
 import { FakeCoredocApi, TOKEN, WORKSPACE } from './fake-coredoc-api.test-support.js';
 import {
   BOT_TOKEN,
@@ -76,6 +76,7 @@ describe('implement turns in the runner loop', () => {
     heartbeatIntervalMs = 60_000,
     shutdown?: AbortSignal,
     manifest: ResolvedManifest = resolveManifest(undefined, plugin.path),
+    wrap: (query: QueryFn) => QueryFn = (query) => query,
   ) {
     const seen: SeenSession[] = [];
     api.queue.push(turn);
@@ -85,7 +86,7 @@ describe('implement turns in the runner loop', () => {
       versions: VERSIONS,
       heartbeatIntervalMs,
       executor: new ClaudeExecutor({
-        query: fakeImplementQuery(steps, seen),
+        query: wrap(fakeImplementQuery(steps, seen)),
         api: client,
         scratchRoot: scratch,
         manifest,
@@ -118,6 +119,82 @@ describe('implement turns in the runner loop', () => {
       .map((line) => JSON.parse(line) as { args: string[] })
       .find((scan) => scan.args.includes('push'));
     expect(pushScan!.args[pushScan!.args.indexOf('--base') + 1]).toBe('feat/PROJ-1-exports');
+  });
+
+  it('keeps the session input open after a result while background work is still running', async () => {
+    const { repo } = await orders();
+    const closedAt: boolean[] = [];
+    const tasks = (ids: string[]) =>
+      ({
+        type: 'system',
+        subtype: 'background_tasks_changed',
+        tasks: ids.map((task_id) => ({ task_id, task_type: 'local_bash', description: 'tests' })),
+      }) as never;
+    // The session ends its turn waiting for a background command, then wakes and submits.
+    const withBackgroundWait = (inner: QueryFn): QueryFn =>
+      async function* (params) {
+        let closed = false;
+        void params.open.then(() => {
+          closed = true;
+        });
+        const settle = () => new Promise((resolve) => setImmediate(resolve));
+        const session = inner(params)[Symbol.asyncIterator]();
+        yield (await session.next()).value;
+        yield tasks(['b1']);
+        yield { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 1, num_turns: 2 } as never;
+        await settle();
+        closedAt.push(closed);
+        yield tasks([]);
+        for (let next = await session.next(); !next.done; next = await session.next()) yield next.value;
+        await settle();
+        closedAt.push(closed);
+      };
+    const { done } = runTurn(
+      implementAssignment([repo]),
+      [{ act: async (cwd) => writeFile(join(cwd, 'orders-api', 'src', 'export.ts'), 'export {};\n'), submit: RESULT }],
+      undefined,
+      undefined,
+      undefined,
+      withBackgroundWait,
+    );
+    await expect(done).resolves.toBe('completed');
+    expect(closedAt).toEqual([false, true]);
+  });
+
+  it('closes the session input at the SDK turn cap even with background work running', async () => {
+    const { repo } = await orders();
+    let closed = false;
+    const capWithBackgroundTask = (inner: QueryFn): QueryFn =>
+      async function* (params) {
+        void params.open.then(() => {
+          closed = true;
+        });
+        const session = inner(params)[Symbol.asyncIterator]();
+        yield (await session.next()).value;
+        yield {
+          type: 'system',
+          subtype: 'background_tasks_changed',
+          tasks: [{ task_id: 'b1', task_type: 'local_bash', description: 'tests' }],
+        } as never;
+        for (let next = await session.next(); !next.done; next = await session.next()) yield next.value;
+        // What the SDK does with input that is still open: the session does not end.
+        await params.open;
+      };
+    const { done } = runTurn(
+      implementAssignment([repo]),
+      [
+        {
+          act: async (cwd) => writeFile(join(cwd, 'orders-api', 'src', 'export.ts'), 'export {};\n'),
+          resultSubtype: 'error_max_turns',
+        },
+      ],
+      undefined,
+      undefined,
+      undefined,
+      capWithBackgroundTask,
+    );
+    await expect(done).resolves.toBe('completed');
+    expect(closed).toBe(true);
   });
 
   it('writes the PRD beside the accepted spec and names both in the first prompt', async () => {
