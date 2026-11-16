@@ -1,5 +1,5 @@
 /** Payloads are free-form on the wire, so nothing here throws on a shape it does not recognise. */
-import { isTerminalStatus } from './agent-run-presentation.js';
+import { isGatedPhase, isTerminalStatus } from './agent-run-presentation.js';
 import type {
   AgentRunDetail,
   AgentRunEvent,
@@ -10,14 +10,15 @@ import type {
   AgentRunResult,
   AgentRunSpec,
   AgentRunTurnActivity,
-  RunStatus,
 } from './types.js';
 
-type StageKind = 'scope' | 'review' | 'implement' | 'delivery';
+type StageKind = 'phase' | 'review' | 'delivery';
 
 export interface RunStage {
   key: string;
   kind: StageKind;
+  /** The workflow phase the stage is, or the one a review follows; null for delivery. */
+  phase: string | null;
   name: string;
   startedAt: string;
   /** Null while the stage is under way. */
@@ -27,19 +28,10 @@ export interface RunStage {
   waitingSeconds: number;
 }
 
-const STAGE_OF: Partial<Record<RunStatus, StageKind>> = {
-  scoping: 'scope',
-  awaiting_scope_acceptance: 'review',
-  implementing: 'implement',
-  delivering: 'delivery',
-};
+/** What `running` was called before workflows; old timelines still carry them. */
+const LEGACY_PHASE: Record<string, string> = { scoping: 'scope', implementing: 'implement' };
 
-const STAGE_NAMES: Record<StageKind, string> = {
-  scope: 'Scope',
-  review: 'Review',
-  implement: 'Implement',
-  delivery: 'Delivery',
-};
+const PHASE_NAMES: Record<string, string> = { scope: 'Scope', implement: 'Implement' };
 
 function seconds(from: string, to: string): number {
   const ms = new Date(to).getTime() - new Date(from).getTime();
@@ -52,23 +44,27 @@ function text(value: unknown): string | null {
 
 /**
  * Time queued counts towards the stage it leads to, a question's wait towards the stage it
- * interrupts; repeated scope and review stages are numbered by the spec version.
+ * interrupts; repeated proposing phases and their reviews are numbered by the spec version.
+ * A `running` change does not name its phase: it is the phase of the turn claimed next.
  */
 export function runStages(
-  run: Pick<AgentRunDetail, 'status' | 'createdAt' | 'finishedAt'>,
+  run: Pick<AgentRunDetail, 'status' | 'phase' | 'workflow' | 'createdAt' | 'finishedAt'>,
   events: readonly AgentRunEvent[],
   now: Date,
 ): RunStage[] {
   const changes = events
     .filter((event) => event.type === 'status_changed' && text(event.payload?.to))
     .sort((a, b) => a.seq - b.seq);
+  const claims = events
+    .filter((event) => event.type === 'turn_started' && text(event.payload?.kind))
+    .sort((a, b) => a.seq - b.seq);
   const end = run.finishedAt ?? (isTerminalStatus(run.status) ? null : now.toISOString());
   const stages: RunStage[] = [];
-  const counts: Partial<Record<StageKind, number>> = {};
+  const counts: Record<string, number> = {};
   let pendingStart: string | null = null;
 
   changes.forEach((change, index) => {
-    const status = String(change.payload.to) as RunStatus;
+    const status = String(change.payload.to);
     const from = change.createdAt;
     const to = changes[index + 1]?.createdAt ?? end ?? from;
     const current = stages.at(-1);
@@ -80,17 +76,31 @@ export function runStages(
       current.waitingSeconds += seconds(from, to);
       return;
     }
-    const kind = STAGE_OF[status];
-    if (!kind) return;
+    let kind: StageKind;
+    let phase: string | null;
+    if (status === 'running' || LEGACY_PHASE[status]) {
+      kind = 'phase';
+      phase = LEGACY_PHASE[status] ?? String(claims.find((claim) => claim.seq > change.seq)?.payload.kind ?? run.phase);
+    } else if (status === 'awaiting_scope_acceptance') {
+      kind = 'review';
+      phase = current?.phase ?? null;
+    } else if (status === 'delivering') {
+      kind = 'delivery';
+      phase = null;
+    } else return;
     const startedAt = pendingStart ?? from;
     pendingStart = null;
-    if (current?.kind === kind) return;
-    const count = (counts[kind] ?? 0) + 1;
-    counts[kind] = count;
+    if (current?.kind === kind && current.phase === phase) return;
+    const key = `${kind}:${phase ?? ''}`;
+    const count = (counts[key] ?? 0) + 1;
+    counts[key] = count;
+    const name = kind === 'phase' ? (PHASE_NAMES[phase!] ?? phase!) : kind === 'review' ? 'Review' : 'Delivery';
+    const numbered = kind === 'review' || (kind === 'phase' && isGatedPhase(run.workflow, phase!));
     stages.push({
-      key: `${kind}-${count}`,
+      key: `${key}-${count}`,
       kind,
-      name: (kind === 'scope' || kind === 'review') && count > 1 ? `${STAGE_NAMES[kind]} v${count}` : STAGE_NAMES[kind],
+      phase,
+      name: numbered && count > 1 ? `${name} v${count}` : name,
       startedAt,
       endedAt: null,
       durationSeconds: 0,
@@ -292,11 +302,11 @@ export function conversationItems(
   const pulls = run.pullRequests ?? [];
   if (run.result) {
     const resultEvent = [...events].reverse().find((event) => event.type === 'result');
-    const lastImplement = [...turns].reverse().find((turn) => turn.kind === 'implement');
+    const lastAgentTurn = [...turns].reverse().find((turn) => turn.kind !== 'delivery');
     items.push({
       kind: 'result',
       id: 'result',
-      at: resultEvent?.createdAt ?? lastImplement?.endedAt ?? run.finishedAt ?? startedAt,
+      at: resultEvent?.createdAt ?? lastAgentTurn?.endedAt ?? run.finishedAt ?? startedAt,
       result: run.result,
       points: resultPoints(run, resultEvent),
       pulls,

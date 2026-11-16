@@ -11,6 +11,7 @@ import {
   ProposeScopeRequestSchema,
   QuestionsPolicy,
   type ReportQuestion,
+  resolveManifest,
   ReportQuestionRequestSchema,
   type RequestRepo,
   RequestRepoRequestSchema,
@@ -25,6 +26,7 @@ import {
   SubmitResultRequestSchema,
   type TurnAssignment,
   TurnKind,
+  workflowShape,
 } from '@coredoc/core/agent-runner';
 
 export const WORKSPACE = '6f1c2b0e-8a4d-4c55-9a39-1f4f0c1d2e3a';
@@ -47,6 +49,7 @@ export function assignment(overrides: Partial<TurnAssignment> = {}): TurnAssignm
       seeds: [],
       branch: 'coredoc/PROJ-1',
     },
+    workflow: workflowShape(resolveManifest(undefined, '/opt/unused').workflows[0]!),
     acceptedSpec: null,
     prd: { markdown: '# PROJ-1: Export orders\n\nCustomers need order exports.\n' },
     repositories: [],

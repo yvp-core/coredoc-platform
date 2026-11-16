@@ -7,10 +7,7 @@ import { isIntentEnabled } from '../intent/intent-enabled.guard.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE, type CloudAgentRunArchiveStore } from './cloud-agent-run-archive.store.js';
 import { CloudAgentRunErrorCode, cloudAgentRunError, RunPhase } from './run-states.js';
 import { findTranscript, MAX_TRANSCRIPT_BYTES, redactTranscript } from './run-transcript.js';
-
-/** The agent phases with a Claude Code session; delivery runs none. */
-export const TRANSCRIPT_PHASES = [RunPhase.Scope, RunPhase.Implement] as const;
-export type TranscriptPhase = (typeof TRANSCRIPT_PHASES)[number];
+import { firstPhase, sessionIdOf, workflowOf } from './run-workflow.js';
 
 interface ActivityRow {
   turn_id: string | null;
@@ -170,21 +167,25 @@ export class CloudAgentRunActivityService {
   }
 
   /**
-   * Without a phase: the implement session once the run has implement turns.
+   * `phase` is one of the workflow's phases; without it, the latest one an agent ran. Delivery has no session.
    * Archives are stored unredacted, so every line is masked on the way out.
    */
-  async transcript(workspaceId: string, runId: string, phase?: TranscriptPhase): Promise<TranscriptDownload> {
+  async transcript(workspaceId: string, runId: string, phase?: string): Promise<TranscriptDownload> {
     const run = await this.prisma.cloudAgentRun.findFirst({
       where: { id: runId, workspaceId },
-      select: { issueKey: true, stateArchiveKey: true, scopeSessionId: true, implementSessionId: true },
+      select: { issueKey: true, stateArchiveKey: true, sessionIds: true, workflowShape: true },
     });
     if (!run) throw runNotFound();
-    const chosen =
-      phase ??
-      ((await this.prisma.cloudAgentRunTurn.count({ where: { runId, workspaceId, kind: RunPhase.Implement } }))
-        ? RunPhase.Implement
-        : RunPhase.Scope);
-    const sessionId = chosen === RunPhase.Implement ? run.implementSessionId : run.scopeSessionId;
+    const latest = phase
+      ? null
+      : await this.prisma.cloudAgentRunTurn.findFirst({
+          where: { runId, workspaceId, kind: { not: RunPhase.Delivery } },
+          orderBy: { ordinal: 'desc' },
+          select: { kind: true },
+        });
+    const chosen = phase ?? latest?.kind ?? firstPhase(workflowOf(run));
+    const sessionId = sessionIdOf(run, chosen);
+    if (!sessionId) throw transcriptNotFound(chosen);
     const abort = new AbortController();
     const body = run.stateArchiveKey ? await this.archives.getStream(run.stateArchiveKey, abort.signal) : null;
     if (!body) throw transcriptNotFound(chosen);
@@ -212,7 +213,7 @@ function runNotFound() {
   return cloudAgentRunError(CloudAgentRunErrorCode.RunNotFound, 'Agent run not found', HttpStatus.NOT_FOUND);
 }
 
-function transcriptNotFound(phase: TranscriptPhase) {
+function transcriptNotFound(phase: string) {
   return cloudAgentRunError(
     CloudAgentRunErrorCode.TranscriptNotFound,
     `This run has no saved ${phase} transcript`,

@@ -36,6 +36,6 @@ export async function readPluginManifest(pluginPath: string): Promise<{ name: st
   }
 }
 
-export function sdkPlugins(manifest: ResolvedManifest) {
-  return manifest.plugins.map(({ path }) => ({ type: 'local' as const, path }));
+export function sdkPlugins(plugins: Array<{ path: string }>) {
+  return plugins.map(({ path }) => ({ type: 'local' as const, path }));
 }

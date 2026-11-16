@@ -17,6 +17,7 @@ import {
   type RunnerStartupProblem,
   RUNNER_PROTOCOL_VERSION,
   type RunnerVersions,
+  RunnerVersionsSchema,
   type SubmitResult,
   type SubmitResultResponse,
   type TurnAssignment,
@@ -67,6 +68,7 @@ import {
 import { checkRunOwnerAndConnectors } from './run-checks.js';
 import { failIfBudgetSpent, spendBudgetFailure } from './run-budget.js';
 import { deleteTurnTokens, failRun, lockRun, queueTurn } from './run-transitions.js';
+import { firstPhase, isFinalPhase, isGatedPhase, sessionIdOf, usesRepositories, workflowOf } from './run-workflow.js';
 import { recordRunnerSeen, startupProblemText } from './runner-seen.js';
 import {
   type FencedTurn,
@@ -85,7 +87,7 @@ const MAX_CLAIM_ATTEMPTS = 5;
 interface ClaimedRow {
   id: string;
   run_id: string;
-  kind: RunPhase;
+  kind: string;
   ordinal: number;
   attempts: number;
   input_text: string | null;
@@ -117,8 +119,8 @@ export class CloudAgentTurnService {
   ) {}
 
   /**
-   * Oldest queued turn of a non-terminal run in the runner's workspace, or
-   * null. Before a scope turn is handed out its run is re-checked by reading
+   * Oldest queued turn of a non-terminal run in the runner's workspace whose
+   * workflow the runner advertises, or null. Before an agent turn is handed out its run is re-checked by reading
    * the PRD from Jira; a run that fails the re-check is failed, and the next
    * queued turn is tried instead.
    */
@@ -142,13 +144,28 @@ export class CloudAgentTurnService {
     return assignment;
   }
 
-  /** Turns a runner of this workspace could claim now: a scaler starts one runner per queued turn. */
-  queuedTurns(runner: RunnerPrincipal): Promise<number> {
+  /**
+   * Turns this runner could claim now: a scaler starts one runner per queued turn. A token that
+   * never claimed, or last reported before runners advertised workflows, counts every queued
+   * turn: its runner has to start once to say what it runs.
+   */
+  async queuedTurns(runner: RunnerPrincipal): Promise<number> {
+    const seen = await this.prisma.agentRunnerSeen.findUnique({
+      where: { serviceTokenId: runner.tokenId },
+      select: { versions: true },
+    });
+    const manifest = (seen?.versions as { manifest?: { workflows?: unknown } } | null | undefined)?.manifest;
+    const workflows = Array.isArray(manifest?.workflows)
+      ? RunnerVersionsSchema.safeParse(seen?.versions).data?.manifest?.workflows
+      : undefined;
     return this.prisma.cloudAgentRunTurn.count({
       where: {
         workspaceId: runner.workspaceId,
         state: TurnState.Queued,
-        run: { status: { notIn: [...TERMINAL_RUN_STATUSES] } },
+        run: {
+          status: { notIn: [...TERMINAL_RUN_STATUSES] },
+          ...(workflows ? { workflow: { in: workflows.map((workflow) => workflow.id) } } : {}),
+        },
       },
     });
   }
@@ -191,23 +208,27 @@ export class CloudAgentTurnService {
       if (assignment.turn.kind === RunPhase.Delivery)
         return { ...assignment, ...(await this.delivery.assignment(run)) };
       await checkRunOwnerAndConnectors(this.prisma, run);
-      // The PRD is read fresh every turn: the implement turn checks its acceptance criteria against it.
+      const withRepositories = usesRepositories(run);
+      // The PRD is read fresh every turn: the final phase checks its acceptance criteria against it.
       const [repositories, prd, eligible] = await Promise.all([
-        this.implement.repositoriesFor(run, assignment.turn.kind),
+        withRepositories ? this.implement.repositoriesFor(run, assignment.turn.kind) : [],
         this.jira.readPrd(run.workspaceId, run.jiraIssueId),
-        this.scope.eligibleRepositories(run.workspaceId),
+        withRepositories ? this.scope.eligibleRepositories(run.workspaceId) : null,
       ]);
-      const readable = [...eligible.resolved]
+      const readable = [...(eligible?.resolved ?? [])]
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([key, { cloneUrl }]) => ({ key, cloneUrl }));
-      if (assignment.turn.kind === RunPhase.Implement) {
+      const acceptedSpec = await this.implement.acceptedSpec(run);
+      if (isFinalPhase(run, assignment.turn.kind)) {
         return {
           ...assignment,
           prd: { markdown: prd.markdown },
           repositories,
-          acceptedSpec: await this.implement.acceptedSpec(run),
-          // For read_repo only: the implement phase never lists base-branch candidates.
-          branchScan: { epicKey: null, repositories: readable, maxReads: run.maxRepositories },
+          acceptedSpec,
+          // For read_repo only: the final phase never lists base-branch candidates.
+          branchScan: withRepositories
+            ? { epicKey: null, repositories: readable, maxReads: run.maxRepositories }
+            : null,
         };
       }
       if (prd.issueKey !== assignment.run.issueKey) {
@@ -222,7 +243,11 @@ export class CloudAgentTurnService {
         run: { ...assignment.run, issueKey: prd.issueKey },
         prd: { markdown: prd.markdown },
         repositories,
-        branchScan: { epicKey: prd.epicKey, repositories: readable, maxReads: run.maxRepositories },
+        // What an earlier phase's reviewer accepted; null in a workflow's first phase.
+        acceptedSpec,
+        branchScan: withRepositories
+          ? { epicKey: prd.epicKey, repositories: readable, maxReads: run.maxRepositories }
+          : null,
       };
     } catch (error) {
       if (!(error instanceof JiraReadFailure) && !(error instanceof RunCheckFailure)) throw error;
@@ -239,6 +264,7 @@ export class CloudAgentTurnService {
   /** The next claimable turn; `refused` when its run failed a check under the claim and another may be tried. */
   private async claimNext(runner: RunnerPrincipal, request: ClaimRequest): Promise<ClaimedTurn | 'refused' | null> {
     const at = this.now();
+    const workflows = (request.versions.manifest?.workflows ?? []).map((workflow) => workflow.id);
     return this.prisma.$transaction(async (tx) => {
       // One statement: a skip-locked pick plus the lease, so two runners never
       // claim the same turn and neither waits on the other's row.
@@ -250,6 +276,7 @@ export class CloudAgentTurnService {
           WHERE t.workspace_id = ${runner.workspaceId}::uuid
             AND t.state = ${TurnState.Queued}
             AND r.status <> ALL(${[...TERMINAL_RUN_STATUSES, RunStatus.Queued]}::text[])
+            AND r.workflow = ANY(${workflows}::text[])
           ORDER BY t.created_at, t.id
           LIMIT 1
           FOR UPDATE OF t SKIP LOCKED
@@ -311,13 +338,15 @@ export class CloudAgentTurnService {
           scopeAcceptancePolicy: fromColumn(ScopeAcceptancePolicy, run.scopeAcceptancePolicy),
           model: run.model,
           notes: run.notes,
-          sessionId: run.phase === RunPhase.Implement ? run.implementSessionId : run.scopeSessionId,
+          // A delivery turn runs no session; the field is required, so it carries the first phase's.
+          sessionId: (sessionIdOf(run, claimed.kind) ?? sessionIdOf(run, firstPhase(workflowOf(run))))!,
           remainingSpendUsd: Math.max(0, run.maxSpendUsd - run.spendUsd),
           priorSessionSpendUsd: prior._sum.spendUsd ?? 0,
           maxTurnDurationSeconds: run.maxTurnDurationSeconds,
           seeds: run.seeds,
           branch: run.branch,
         },
+        workflow: workflowOf(run),
         prd: null,
         // Repositories and the accepted spec are resolved after the claim commits (withRunChecks).
         acceptedSpec: null,
@@ -335,10 +364,10 @@ export class CloudAgentTurnService {
 
   /**
    * The turn's MCP-only credential, acting as the run owner: intent read in
-   * scope turns (proposing could overwrite the PRD tooling's candidates),
-   * read and propose in implement turns. Hash-only; returned once.
+   * a phase that ends with a proposal (proposing intent could overwrite the PRD tooling's
+   * candidates), read and propose in the final phase. Hash-only; returned once.
    */
-  private async mintMcpToken(tx: Tx, run: CloudAgentRun, turnId: string, kind: RunPhase, at: Date): Promise<string> {
+  private async mintMcpToken(tx: Tx, run: CloudAgentRun, turnId: string, kind: string, at: Date): Promise<string> {
     // A re-claimed turn replaces the token its lost attempt held.
     await deleteTurnTokens(tx, [turnId]);
     const plaintext = `cdt_${randomBytes(32).toString('hex')}`;
@@ -349,11 +378,11 @@ export class CloudAgentTurnService {
         tokenHash: createHash('sha256').update(plaintext).digest('hex'),
         tokenPrefix: plaintext.slice(0, 12),
         tokenEncrypted: null,
-        // The run checks an active Jira connector before every scope and implement turn.
+        // The run checks an active Jira connector before every agent turn.
         permissions: [
           TokenPermission.IntentRead,
           TokenPermission.JiraRead,
-          ...(kind === RunPhase.Implement ? [TokenPermission.IntentPropose] : []),
+          ...(isFinalPhase(run, kind) ? [TokenPermission.IntentPropose] : []),
         ],
         expiresAt: new Date(at.getTime() + run.maxTurnDurationSeconds * 1000 + MCP_TOKEN_GRACE_MS),
         createdBy: run.runOwnerId,
@@ -404,18 +433,20 @@ export class CloudAgentTurnService {
   /** A valid proposal becomes this turn's draft, published only when the turn completes. */
   async proposeScope(lease: TurnLease, proposal: ProposeScope): Promise<ProposeScopeResponse> {
     const { eligibility, resolved } = await this.scope.eligibleRepositories(lease.runner.workspaceId);
-    // GitHub is asked only for a scope turn that names a base; toolCall refuses every other case anyway.
-    const scoping =
-      proposal.repositories.some((repository) => repository.baseBranch) &&
-      (await this.prisma.cloudAgentRunTurn.count({
-        where: { id: lease.turnId, workspaceId: lease.runner.workspaceId, kind: RunPhase.Scope },
-      })) > 0;
-    const baseErrors = scoping ? await this.scope.baseBranchErrors(proposal, resolved) : [];
+    // GitHub is asked only for a proposing turn that names a base; toolCall refuses every other case anyway.
+    const turn = proposal.repositories.some((repository) => repository.baseBranch)
+      ? await this.prisma.cloudAgentRunTurn.findFirst({
+          where: { id: lease.turnId, workspaceId: lease.runner.workspaceId },
+          select: { kind: true, run: { select: { workflowShape: true } } },
+        })
+      : null;
+    const baseErrors =
+      turn && isGatedPhase(turn.run, turn.kind) ? await this.scope.baseBranchErrors(proposal, resolved) : [];
     return this.toolCall<ProposeScopeResponse>(
       lease,
       {
-        phases: [RunPhase.Scope],
-        wrongPhase: 'propose_scope is available only while scoping.',
+        when: 'gated',
+        wrongPhase: 'propose_scope is available only in a phase that ends with a proposal.',
         charge: { report: { proposals: 1 }, overCap: 'This turn sent too many proposals; the run has ended.' },
       },
       (error, stop) => ({ accepted: false, errors: [error], stop }),
@@ -430,6 +461,7 @@ export class CloudAgentTurnService {
             seeds: run.seeds,
             maxRepositories: run.maxRepositories,
             branch: run.branch,
+            usesRepositories: usesRepositories(run),
           }),
           ...baseErrors,
         ];
@@ -443,7 +475,7 @@ export class CloudAgentTurnService {
   async submitResult(lease: TurnLease, result: SubmitResult): Promise<SubmitResultResponse> {
     return this.toolCall<SubmitResultResponse>(
       lease,
-      { phases: [RunPhase.Implement], wrongPhase: 'submit_result is available only while implementing.' },
+      { when: 'final', wrongPhase: 'submit_result is available only in the final phase.' },
       (error, stop) => ({ accepted: false, errors: [error], stop }),
       async (tx, turn) => {
         const run = await tx.cloudAgentRun.findFirstOrThrow({
@@ -462,7 +494,7 @@ export class CloudAgentTurnService {
     const eligibility = await this.scope.eligibility(lease.runner.workspaceId);
     return this.toolCall<RequestRepoResponse>(
       lease,
-      { phases: [RunPhase.Implement], wrongPhase: 'request_repo is available only while implementing.' },
+      { when: 'final', wrongPhase: 'request_repo is available only in the final phase.' },
       (error, stop) => ({ state: 'rejected', errors: [error], stop }),
       async (tx, turn) => {
         const run = (await lockRun(tx, lease.runner.workspaceId, turn.run_id))!;
@@ -479,14 +511,14 @@ export class CloudAgentTurnService {
   async reserveBranch(lease: TurnLease, repository: string): Promise<ReserveBranchResponse> {
     return this.prisma.$transaction(async (tx) => {
       const turn = await fenceLiveTurn(tx, lease, this.now());
-      if (turn.kind !== RunPhase.Implement) {
+      const run = (await lockRun(tx, lease.runner.workspaceId, turn.run_id))!;
+      if (!isFinalPhase(run, turn.kind) || !usesRepositories(run)) {
         throw cloudAgentRunError(
           CloudAgentRunErrorCode.RunStateConflict,
-          'Run branches are reserved only in implement turns',
+          'Run branches are reserved only in the final phase of a workflow with repositories',
           HttpStatus.CONFLICT,
         );
       }
-      const run = (await lockRun(tx, lease.runner.workspaceId, turn.run_id))!;
       await this.implement.reserveBranch(tx, run, repository);
       return { reserved: true, branch: run.branch };
     });
@@ -501,8 +533,8 @@ export class CloudAgentTurnService {
     return this.toolCall<ReportQuestionResponse>(
       lease,
       {
-        phases: [RunPhase.Scope, RunPhase.Implement],
-        wrongPhase: 'Questions are asked only while scoping or implementing.',
+        when: 'agent',
+        wrongPhase: 'Questions are asked only in an agent phase.',
         charge: { report: { questions: 1 }, overCap: 'This turn asked too many questions; the run has ended.' },
       },
       (reason, stop) => ({ state: 'refused', reason, stop }),
@@ -515,18 +547,26 @@ export class CloudAgentTurnService {
 
   /**
    * An agent tool call made during the turn: refused when the run has ended,
-   * outside the tool's phases, or over the turn's report caps.
+   * outside the tool's phases, or over the turn's report caps. `gated` is a phase that
+   * ends with a proposal, `final` the one that ends with the result, `agent` either.
    */
   private toolCall<T>(
     lease: TurnLease,
-    rules: { phases: readonly string[]; wrongPhase: string; charge?: { report: Report; overCap: string } },
+    rules: { when: 'gated' | 'final' | 'agent'; wrongPhase: string; charge?: { report: Report; overCap: string } },
     refuse: (message: string, stop: boolean) => T,
     call: (tx: Tx, turn: FencedTurn) => Promise<T>,
   ): Promise<T> {
     return this.prisma.$transaction(async (tx) => {
       const { turn, stopped } = await this.fenceOpen(tx, lease);
       if (stopped) return refuse('The run has ended; stop.', true);
-      if (!rules.phases.includes(turn.kind)) return refuse(rules.wrongPhase, false);
+      const run = await tx.cloudAgentRun.findUniqueOrThrow({
+        where: { id: turn.run_id },
+        select: { workflowShape: true },
+      });
+      const final = isFinalPhase(run, turn.kind);
+      const gated = isGatedPhase(run, turn.kind);
+      const inPhase = rules.when === 'gated' ? gated : rules.when === 'final' ? final : gated || final;
+      if (!inPhase) return refuse(rules.wrongPhase, false);
       if (rules.charge && (await chargeReport(tx, turn, rules.charge.report, this.caps, this.now()))) {
         return refuse(rules.charge.overCap, true);
       }
@@ -549,7 +589,8 @@ export class CloudAgentTurnService {
       const run = (await lockRun(tx, lease.runner.workspaceId, turn.run_id))!;
       const live = standing === 'live';
       // Untrusted: refused before anything is written, so the runner can correct and complete again.
-      if (turn.kind === RunPhase.Implement) this.implement.validateReports(run, request.repositories);
+      const final = isFinalPhase(run, turn.kind);
+      if (final) this.implement.validateReports(run, request.repositories);
 
       // The model was unavailable: like a lost lease, the turn goes back to the queue unless this was its last attempt.
       const requeue = live && request.outcome.kind === 'transient' && row.attempts < MAX_TURN_ATTEMPTS;
@@ -598,18 +639,17 @@ export class CloudAgentTurnService {
       });
       // Pushes are facts of the turn: recorded even when it failed or was stopped.
       // So are verified pull requests, including those a cancelled delivery already opened.
-      const updated =
-        turn.kind === RunPhase.Implement
-          ? await this.implement.recordReports(tx, charged, turn.id, request.repositories, at)
-          : turn.kind === RunPhase.Delivery
-            ? await this.delivery.record(tx, charged, turn.id, delivered, at)
-            : charged;
+      const updated = final
+        ? await this.implement.recordReports(tx, charged, turn.id, request.repositories, at)
+        : turn.kind === RunPhase.Delivery
+          ? await this.delivery.record(tx, charged, turn.id, delivered, at)
+          : charged;
 
       if (live && request.outcome.kind === 'failed') {
         await failRun(tx, updated, request.outcome.code, request.outcome.reason || null, at);
       } else if (live && request.outcome.kind === 'transient') {
         if (!requeue) await failRun(tx, updated, RunFailureCode.AgentError, request.outcome.reason || null, at);
-      } else if (live && (turn.kind === RunPhase.Scope || turn.kind === RunPhase.Implement)) {
+      } else if (live && turn.kind !== RunPhase.Delivery) {
         outcome = await this.advanceAfterAgentTurn(tx, updated, turn.kind, turn.id, request, eligibility, at);
         await failIfBudgetSpent(tx, await tx.cloudAgentRun.findUniqueOrThrow({ where: { id: run.id } }), at);
       } else if (live && turn.kind === RunPhase.Delivery) {
@@ -650,20 +690,21 @@ export class CloudAgentTurnService {
   private async advanceAfterAgentTurn(
     tx: Tx,
     run: CloudAgentRun,
-    kind: RunPhase,
+    kind: string,
     turnId: string,
     request: CompleteTurn,
     eligibility: Map<string, string | null>,
     at: Date,
   ): Promise<TurnOutcome | RunFailureCode> {
     if (await settleTurnQuestions(tx, run, turnId, at)) return TurnOutcome.QuestionAsked;
-    if (kind === RunPhase.Scope && (await this.scope.publishDraft(tx, run, turnId, eligibility, at))) {
+    const gated = isGatedPhase(run, kind);
+    if (gated && (await this.scope.publishDraft(tx, run, turnId, eligibility, at))) {
       return TurnOutcome.ScopeProposed;
     }
-    if (kind === RunPhase.Implement && (await openRepositoryRequest(tx, run, turnId, at))) {
+    if (!gated && (await openRepositoryRequest(tx, run, turnId, at))) {
       return TurnOutcome.RepositoryRequested;
     }
-    if (kind === RunPhase.Implement) {
+    if (!gated) {
       const settled = await this.implement.settleResult(tx, run, turnId, at);
       if (settled) return settled;
     }
@@ -677,7 +718,7 @@ export class CloudAgentTurnService {
       await failRun(tx, run, RunFailureCode.NoOutcome, request.lastMessage?.trim() || null, at);
     } else {
       const nudged = await tx.cloudAgentRun.update({ where: { id: run.id }, data: { outcomeLessCount: count } });
-      await queueTurn(tx, nudged, kind, nudge(phaseQuestionsPolicy(run, kind), kind), at);
+      await queueTurn(tx, nudged, kind, nudge(phaseQuestionsPolicy(run, kind), gated), at);
     }
     return TurnOutcome.NoOutcome;
   }
@@ -695,8 +736,8 @@ export class CloudAgentTurnService {
 
 const MAX_OUTCOME_LESS_TURNS = 2;
 
-function nudge(questionsPolicy: string, kind: RunPhase): string {
-  const tool = kind === RunPhase.Scope ? 'propose_scope' : 'submit_result';
+function nudge(questionsPolicy: string, gated: boolean): string {
+  const tool = gated ? 'propose_scope' : 'submit_result';
   return questionsPolicy === QuestionsPolicy.Assume
     ? `Your last turn ended without an outcome. Finish on stated assumptions: call ${tool} and list every assumption you made in it.`
     : `Your last turn ended without an outcome. Finish with ${tool}, or ask a person through AskUserQuestion.`;

@@ -13,7 +13,6 @@ import {
   CloudAgentRunErrorCode,
   isTerminalRunStatus,
   RunEventCode,
-  RunPhase,
   RunStatus,
   RunTrigger,
   ScopeAcceptancePolicy,
@@ -22,6 +21,7 @@ import {
 } from './run-states.js';
 import { CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
 import { lockRun, queueTurn, setRunStatus } from './run-transitions.js';
+import { phaseAfter } from './run-workflow.js';
 
 /** In bytes; the contract caps characters. */
 const MAX_SPEC_MARKDOWN_BYTES = 256 * 1024;
@@ -47,7 +47,7 @@ export interface SpecContent {
 }
 
 export interface RunAssumption {
-  phase: RunPhase;
+  phase: string;
   text: string;
 }
 
@@ -130,11 +130,19 @@ export class CloudAgentRunScopeService {
 
   validate(
     proposal: ProposeScope,
-    context: { eligibility: Map<string, string | null>; seeds: string[]; maxRepositories: number; branch: string },
+    context: {
+      eligibility: Map<string, string | null>;
+      seeds: string[];
+      maxRepositories: number;
+      branch: string;
+      /** False for a workflow that works on no repository: the proposal then names none. */
+      usesRepositories: boolean;
+    },
   ): string[] {
     const errors: string[] = [];
     const keys = proposal.repositories.map((repository) => repository.key);
-    if (keys.length === 0) errors.push('Propose at least one repository.');
+    if (!context.usesRepositories && keys.length) errors.push('This workflow uses no repositories; propose none.');
+    if (context.usesRepositories && keys.length === 0) errors.push('Propose at least one repository.');
     const duplicates = [...new Set(keys.filter((key, index) => keys.indexOf(key) !== index))];
     if (duplicates.length) errors.push(`List each repository once: ${duplicates.join(', ')}.`);
     if (new Set(keys).size > context.maxRepositories) {
@@ -211,7 +219,15 @@ export class CloudAgentRunScopeService {
     });
     const version = (last._max.version ?? 0) + 1;
     await tx.cloudAgentRunSpecVersion.create({
-      data: { workspaceId: run.workspaceId, runId: run.id, turnId, version, status: SpecStatus.Draft, ...data },
+      data: {
+        workspaceId: run.workspaceId,
+        runId: run.id,
+        turnId,
+        version,
+        phase: run.phase,
+        status: SpecStatus.Draft,
+        ...data,
+      },
     });
     return version;
   }
@@ -249,11 +265,11 @@ export class CloudAgentRunScopeService {
         version: draft.version,
       },
     };
-    // The run keeps the latest proposal's assumptions; implement-phase ones come from submit_result.
+    // The run keeps the phase's latest proposal's assumptions; the final phase's come from submit_result.
     const kept = ((Array.isArray(run.assumptions) ? run.assumptions : []) as unknown as RunAssumption[]).filter(
-      (assumption) => assumption.phase !== RunPhase.Scope,
+      (assumption) => assumption.phase !== run.phase,
     );
-    const assumptions = [...kept, ...content.assumptions.map((text) => ({ phase: RunPhase.Scope, text }))];
+    const assumptions = [...kept, ...content.assumptions.map((text) => ({ phase: run.phase, text }))];
     await tx.cloudAgentRun.update({
       where: { id: run.id },
       data: { assumptions: assumptions as unknown as Prisma.InputJsonArray },
@@ -285,7 +301,7 @@ export class CloudAgentRunScopeService {
         where: { id: spec.id },
         data: { status: SpecStatus.ChangesRequested, reviewedBy: actorId, reviewedAt: at, reviewText: text },
       });
-      const updated = await setRunStatus(tx, run, RunStatus.Scoping, at, { phase: RunPhase.Scope }, [
+      const updated = await setRunStatus(tx, run, RunStatus.Running, at, {}, [
         {
           type: ServerEventType.RunEvent,
           payload: {
@@ -298,7 +314,7 @@ export class CloudAgentRunScopeService {
       await queueTurn(
         tx,
         updated,
-        RunPhase.Scope,
+        run.phase,
         `A reviewer requested changes to scope version ${version}:\n\n${text}\n\nRevise the specification and the scope, then call propose_scope again.`,
         at,
       );
@@ -373,13 +389,14 @@ export class CloudAgentRunScopeService {
       notBuiltOrTested: null,
       baseBranch: repository.baseBranch ?? null,
     }));
+    const next = phaseAfter(run, run.phase);
     const updated = await setRunStatus(
       tx,
       run,
-      RunStatus.Implementing,
+      RunStatus.Running,
       at,
       {
-        phase: RunPhase.Implement,
+        phase: next,
         outcomeLessCount: 0,
         repositories: repositories as unknown as Prisma.InputJsonArray,
         droppedSeeds: content.droppedSeeds as unknown as Prisma.InputJsonArray,
@@ -398,7 +415,7 @@ export class CloudAgentRunScopeService {
         },
       ],
     );
-    await queueTurn(tx, updated, RunPhase.Implement, null, at);
+    await queueTurn(tx, updated, next, null, at);
   }
 }
 

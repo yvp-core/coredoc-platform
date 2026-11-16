@@ -8,7 +8,12 @@ import { Runner, type TurnExecutor } from '../runner.js';
 import { GithubApi } from '../github/github-api.js';
 import { BOT_TOKEN, FakeGithub } from '../implement.test-support.js';
 import { checkClaudeStartup, checkRunnerStartup, type StartupQueryFn } from './startup-check.js';
-import { RunnerStartupProblemCode, resolveManifest, type ResolvedManifest } from '@coredoc/core/agent-runner';
+import {
+  RunnerStartupProblemCode,
+  resolveManifest,
+  type ResolvedManifest,
+  workflowShape,
+} from '@coredoc/core/agent-runner';
 
 /** Claude Code's initialize answer listing these commands; the plugin's skills are prefixed with its name. */
 function initResult(commands: string[]): StartupQueryFn {
@@ -225,11 +230,11 @@ describe('runner start-up check', () => {
           plugin: '0.14.0',
           manifest: {
             digest: 'sha256:abc',
-            models: { scope: 'claude-opus-5-5', implement: 'claude-sonnet-5-5' },
             plugins: [
               { name: 'coredoc-workflows', version: '0.14.0' },
               { name: 'acme-agent-run', version: '0.1.0' },
             ],
+            workflows: acmeManifest().workflows.map(workflowShape),
           },
         },
       });

@@ -27,14 +27,21 @@ import { CloudAgentRunSweep } from './cloud-agent-run-sweep.service.js';
 import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CLOUD_AGENT_RUNS_CLOCK, cloudAgentRunsCoreProviders } from './cloud-agent-runs.module.js';
-import { FakeJira, InMemoryArchiveStore, paragraphDoc, setAgentRunsEnabled } from './cloud-agent-runs.test-support.js';
+import {
+  advertiseWorkflows,
+  advertising,
+  FakeJira,
+  InMemoryArchiveStore,
+  paragraphDoc,
+  setAgentRunsEnabled,
+} from './cloud-agent-runs.test-support.js';
 
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 const ADMIN = { id: `${RUN}-admin`, email: 'admin@example.com' };
 const MEMBER = { id: `${RUN}-member`, email: 'member@example.com' };
 const OUTSIDER = { id: `${RUN}-outsider`, email: 'outsider@example.com' };
-const VERSIONS = { runner: '0.0.1-test', sdk: '0.3.285' };
+const VERSIONS = advertising({ runner: '0.0.1-test', sdk: '0.3.285' });
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 
@@ -175,6 +182,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: questions and policies (P
     await app.listen(0, '127.0.0.1');
 
     await setAgentRunsEnabled(prisma, workspaceId);
+    await advertiseWorkflows(prisma, workspaceId);
 
     await api()
       .put(`${runsBase()}/settings`)
@@ -231,7 +239,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: questions and policies (P
     const res = await api()
       .post(runsBase())
       .set('Authorization', human(MEMBER))
-      .send({ issueKey: issue.key, ...body })
+      .send({ workflow: 'default', issueKey: issue.key, ...body })
       .expect(201);
     return res.body as { id: string };
   }
@@ -301,7 +309,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: questions and policies (P
 
       await answer(run.id, reported.body.requestId, goodAnswers).expect(200);
       const resumed = await detail(run.id);
-      expect(resumed).toMatchObject({ status: 'scoping', openQuestion: null, currentTurn: { state: 'queued' } });
+      expect(resumed).toMatchObject({ status: 'running', openQuestion: null, currentTurn: { state: 'queued' } });
       expect(resumed.questions).toEqual([
         expect.objectContaining({
           state: 'answered',
@@ -426,7 +434,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: questions and policies (P
       expect(reported.body.answers[FORMATS]).toMatch(/assumptions/);
 
       const during = await detail(run.id);
-      expect(during).toMatchObject({ status: 'scoping', openQuestion: null });
+      expect(during).toMatchObject({ status: 'running', openQuestion: null });
       expect(during.questions).toEqual([expect.objectContaining({ state: 'auto_answered', answeredBy: null })]);
 
       await turnCall(turn, 'propose-scope', proposal({ assumptions: ['The button is blue'] })).expect(200);
@@ -503,7 +511,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: questions and policies (P
       await answer(run.id, reported.body.requestId, goodAnswers).expect(200);
 
       await complete(await claimTurn()).expect(200);
-      expect(await detail(run.id)).toMatchObject({ status: 'scoping', currentTurn: { state: 'queued' } });
+      expect(await detail(run.id)).toMatchObject({ status: 'running', currentTurn: { state: 'queued' } });
     });
   });
 

@@ -7,6 +7,7 @@ import {
   AGENT_RUN_LIST_LIMIT,
   agentRunSettingsQueryOptions,
   agentRunsQueryOptions,
+  agentRunWorkflowsQueryOptions,
   startAgentRun,
 } from '@/api/queries/agent-runs';
 import { meQueryOptions } from '@/api/queries/me';
@@ -17,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import {
@@ -40,6 +42,11 @@ function StartRunCard({ wsId, slug }: { wsId: string; slug: string }) {
   const [issueKey, setIssueKey] = useState('');
   const [repositories, setRepositories] = useState('');
   const [notes, setNotes] = useState('');
+  const workflows = useQuery(agentRunWorkflowsQueryOptions(wsId));
+  const [chosen, setChosen] = useState('');
+  const startable = (workflows.data ?? []).filter((workflow) => workflow.startable);
+  const workflow = startable.find(({ id }) => id === chosen) ?? (startable.length === 1 ? startable[0] : undefined);
+  const usesRepositories = workflow?.repositories !== 'none';
   const mutation = useMutation({
     mutationFn: startAgentRun,
     onSuccess: (run) => {
@@ -62,15 +69,33 @@ function StartRunCard({ wsId, slug }: { wsId: string; slug: string }) {
               .map((value) => value.trim())
               .filter(Boolean);
             const trimmedNotes = notes.trim();
-            if (key)
+            if (key && workflow)
               mutation.mutate({
                 wsId,
+                workflow: workflow.id,
                 issueKey: key,
-                ...(repositoryKeys.length ? { repositoryKeys } : {}),
+                ...(usesRepositories && repositoryKeys.length ? { repositoryKeys } : {}),
                 ...(trimmedNotes ? { notes: trimmedNotes } : {}),
               });
           }}
         >
+          <div className="flex min-w-[200px] flex-col gap-1.5">
+            <Label htmlFor="agent-run-workflow">Workflow</Label>
+            <Select id="agent-run-workflow" value={workflow?.id ?? ''} onValueChange={setChosen}>
+              <option value="" disabled>
+                {workflows.isPending
+                  ? 'Loading…'
+                  : workflows.data?.length
+                    ? 'Choose a workflow'
+                    : 'No runner advertises a workflow'}
+              </option>
+              {(workflows.data ?? []).map((item) => (
+                <option key={item.id} value={item.id} disabled={!item.startable}>
+                  {item.startable || !item.reason ? item.title : `${item.title} — ${item.reason}`}
+                </option>
+              ))}
+            </Select>
+          </div>
           <div className="flex min-w-[200px] flex-col gap-1.5">
             <Label htmlFor="agent-run-issue">Jira issue key</Label>
             <Input
@@ -80,15 +105,17 @@ function StartRunCard({ wsId, slug }: { wsId: string; slug: string }) {
               onChange={(event) => setIssueKey(event.target.value)}
             />
           </div>
-          <div className="flex min-w-[240px] flex-col gap-1.5">
-            <Label htmlFor="agent-run-repositories">Repository keys (optional)</Label>
-            <Input
-              id="agent-run-repositories"
-              value={repositories}
-              placeholder="orders-api, billing-api"
-              onChange={(event) => setRepositories(event.target.value)}
-            />
-          </div>
+          {usesRepositories && (
+            <div className="flex min-w-[240px] flex-col gap-1.5">
+              <Label htmlFor="agent-run-repositories">Repository keys (optional)</Label>
+              <Input
+                id="agent-run-repositories"
+                value={repositories}
+                placeholder="orders-api, billing-api"
+                onChange={(event) => setRepositories(event.target.value)}
+              />
+            </div>
+          )}
           <div className="flex w-full flex-col gap-1.5">
             <Label htmlFor="agent-run-notes">Notes for the agent (optional)</Label>
             <Textarea
@@ -100,10 +127,15 @@ function StartRunCard({ wsId, slug }: { wsId: string; slug: string }) {
               onChange={(event) => setNotes(event.target.value)}
             />
           </div>
-          <Button type="submit" disabled={mutation.isPending || issueKey.trim() === ''}>
+          <Button type="submit" disabled={mutation.isPending || issueKey.trim() === '' || !workflow}>
             {mutation.isPending ? 'Starting…' : 'Start run'}
           </Button>
         </form>
+        {workflows.isError && (
+          <p className={`mt-2 ${ERROR_CLASS}`}>
+            {workflows.error instanceof ApiError ? workflows.error.message : 'Failed to load the workflows'}
+          </p>
+        )}
         {mutation.error && (
           <p className={`mt-2 ${ERROR_CLASS}`}>
             {mutation.error instanceof ApiError ? mutation.error.message : 'Failed to start the run'}
@@ -185,6 +217,7 @@ export function WorkspaceAgentRuns() {
                     <thead>
                       <tr>
                         <Th>Issue</Th>
+                        <Th>Workflow</Th>
                         <Th>Status</Th>
                         <Th>Trigger</Th>
                         <Th>Acts as</Th>
@@ -205,9 +238,10 @@ export function WorkspaceAgentRuns() {
                                 {run.issueKey}
                               </Link>
                             </Td>
+                            <Td>{run.workflow.title}</Td>
                             <Td>
                               <span className="inline-flex items-center gap-1.5">
-                                <Badge variant={statusTone(run.status)}>{statusLabel(run.status)}</Badge>
+                                <Badge variant={statusTone(run.status)}>{statusLabel(run.status, run.phase)}</Badge>
                                 {waiting && <span className="text-[12px] text-ink-4">waiting for a runner</span>}
                               </span>
                             </Td>

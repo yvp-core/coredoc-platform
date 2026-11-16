@@ -13,6 +13,16 @@ function run(overrides: Partial<AgentRunDetail> = {}): AgentRunDetail {
   return {
     id: 'r1',
     issueKey: 'PROJ-7',
+    workflow: {
+      id: 'default',
+      title: 'Jira issue to pull requests',
+      repositories: 'write',
+      delivery: 'pull-request',
+      phases: [
+        { id: 'scope', gate: 'acceptance' },
+        { id: 'implement', gate: 'none' },
+      ],
+    },
     status: 'done',
     phase: 'delivery',
     trigger: 'manual',
@@ -58,7 +68,57 @@ const LIFE = [
   status(10, 'done', at(15, 23)),
 ];
 
+const claimed = (seq: number, kind: string, time: string): AgentRunEvent => ({
+  seq,
+  type: 'turn_started',
+  payload: { kind },
+  truncated: false,
+  createdAt: time,
+});
+
 describe('runStages', () => {
+  it('names each `running` stretch by the phase of the turn claimed next, in a workflow with its own phase ids', () => {
+    const review = run({
+      status: 'running',
+      phase: 'report',
+      finishedAt: null,
+      workflow: {
+        id: 'contract-review',
+        title: 'Contract review',
+        repositories: 'none',
+        delivery: 'none',
+        phases: [
+          { id: 'questions', gate: 'acceptance' },
+          { id: 'review', gate: 'acceptance' },
+          { id: 'report', gate: 'none' },
+        ],
+      },
+    });
+    const events = [
+      status(1, 'queued', at(9, 0)),
+      status(2, 'running', at(9, 0)),
+      claimed(3, 'questions', at(9, 1)),
+      status(4, 'awaiting_scope_acceptance', at(9, 10)),
+      status(5, 'running', at(9, 20)),
+      claimed(6, 'questions', at(9, 21)),
+      status(7, 'awaiting_scope_acceptance', at(9, 30)),
+      status(8, 'running', at(9, 35)),
+      claimed(9, 'review', at(9, 36)),
+      status(10, 'awaiting_scope_acceptance', at(9, 40)),
+      // The turn of the last phase is still queued: the run's own phase names it.
+      status(11, 'running', at(9, 45)),
+    ];
+    expect(runStages(review, events, new Date(at(10, 0))).map((stage) => [stage.kind, stage.name])).toEqual([
+      ['phase', 'questions'],
+      ['review', 'Review'],
+      ['phase', 'questions v2'],
+      ['review', 'Review v2'],
+      ['phase', 'review'],
+      ['review', 'Review'],
+      ['phase', 'report'],
+    ]);
+  });
+
   it('folds the queue into the next stage and a question’s wait into the stage it interrupts, numbering repeats', () => {
     const stages = runStages(run(), LIFE, new Date(at(16, 0)));
     expect(
@@ -236,7 +296,7 @@ describe('conversationItems', () => {
       truncated: false,
       createdAt: at(15, 30),
     };
-    const reopened = run({ status: 'implementing', finishedAt: null });
+    const reopened = run({ status: 'running', phase: 'implement', finishedAt: null });
     const items = conversationItems(reopened, [], [], [continued]);
     expect(items.map((item) => item.id)).toEqual(['started', 'ended-20', 'continued-20']);
     expect(items[1]).toMatchObject({ status: 'failed', text: 'Failed (github_error): Push refused' });

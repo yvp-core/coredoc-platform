@@ -74,7 +74,7 @@ describe('waitingForRunnerSince', () => {
 });
 
 describe('runnerVersionsText', () => {
-  it('names the manifest’s models and plugins after the tool versions', () => {
+  it('names the manifest’s workflows, their models and the plugins after the tool versions', () => {
     expect(
       runnerVersionsText({
         runner: '1.9.0',
@@ -82,12 +82,28 @@ describe('runnerVersionsText', () => {
         plugin: '0.14.0',
         manifest: {
           digest: 'sha256:abc',
-          models: { scope: 'claude-opus-5-5', implement: 'claude-sonnet-5-5' },
           plugins: [{ name: 'coredoc-workflows', version: '0.14.0' }, { name: 'day-agent-run' }],
+          workflows: [
+            {
+              id: 'default',
+              title: 'Jira issue to pull requests',
+              phases: [
+                { id: 'scope', gate: 'acceptance', model: 'claude-opus-5-5' },
+                { id: 'implement', gate: 'none' },
+              ],
+            },
+            { id: 'contract-review', title: 'Contract review', phases: [{ id: 'report', gate: 'none' }] },
+          ],
         },
       }),
     ).toBe(
-      'runner 1.9.0 · claude code 2.1.285 · plugin 0.14.0 · manifest: scope claude-opus-5-5, implement claude-sonnet-5-5, coredoc-workflows 0.14.0, day-agent-run',
+      'runner 1.9.0 · claude code 2.1.285 · plugin 0.14.0 · workflows: default (scope claude-opus-5-5), contract-review · plugins: coredoc-workflows 0.14.0, day-agent-run',
+    );
+  });
+
+  it('still reads a row a runner reported before workflows', () => {
+    expect(runnerVersionsText({ runner: '1.8.0', manifest: { plugins: [{ name: 'day-agent-run' }] } })).toBe(
+      'runner 1.8.0 · plugins: day-agent-run',
     );
   });
 });

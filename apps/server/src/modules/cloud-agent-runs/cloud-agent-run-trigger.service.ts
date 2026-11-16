@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { DEFAULT_WORKFLOW_ID } from '@coredoc/core/agent-runner';
 import { PrismaService } from '../../database/prisma.service.js';
 import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
 import { jqlString } from './cloud-agent-run-issue-reader.js';
@@ -62,7 +63,7 @@ export class CloudAgentRunTrigger {
     const known = new Set(
       (
         await this.prisma.cloudAgentRun.findMany({
-          where: { workspaceId, jiraIssueId: { in: issues.map((issue) => issue.id) } },
+          where: { workspaceId, workflow: DEFAULT_WORKFLOW_ID, jiraIssueId: { in: issues.map((issue) => issue.id) } },
           select: { jiraIssueId: true },
         })
       ).map((run) => run.jiraIssueId),

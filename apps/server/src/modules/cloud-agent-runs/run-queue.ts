@@ -2,15 +2,14 @@
  * Every caller holds `lockCloudAgentRunCreation` for the workspace, so creation
  * and promotion see one consistent order across all processes.
  */
-import { randomUUID } from 'node:crypto';
+import type { WorkflowShape } from '@coredoc/core/agent-runner';
 import type { AgentRunSettings, CloudAgentRun, Prisma } from '../../generated/prisma/client.js';
 import { FAILURE_MESSAGES } from './failure-codes.js';
 import { jiraOutcomeOf, queueStatusTransition, StatusEvent } from './jira-outcome.js';
 import {
-  ACTIVE_STATUS_OF_PHASE,
+  activeStatusOf,
   type QuestionsPolicy,
   type RunFailureCode,
-  RunPhase,
   RunStatus,
   type RunTrigger,
   type ScopeAcceptancePolicy,
@@ -18,6 +17,7 @@ import {
   TERMINAL_RUN_STATUSES,
 } from './run-states.js';
 import { appendRunEvents, type Tx } from './run-store.js';
+import { firstPhase, newSessionIds } from './run-workflow.js';
 
 export interface NewRun {
   jiraIssueId: string;
@@ -27,6 +27,7 @@ export interface NewRun {
   startedBy: string | null;
   runOwnerId: string;
   previousRunId?: string;
+  workflow: WorkflowShape;
   scopeQuestionsPolicy: QuestionsPolicy;
   implementQuestionsPolicy: QuestionsPolicy;
   scopeAcceptancePolicy: ScopeAcceptancePolicy;
@@ -61,7 +62,10 @@ export async function createRun(
       runOwnerId: input.runOwnerId,
       previousRunId: input.previousRunId ?? null,
       status,
-      phase: RunPhase.Scope,
+      phase: firstPhase(input.workflow),
+      workflow: input.workflow.id,
+      workflowShape: input.workflow as unknown as Prisma.InputJsonObject,
+      sessionIds: newSessionIds(input.workflow),
       scopeQuestionsPolicy: input.scopeQuestionsPolicy,
       implementQuestionsPolicy: input.implementQuestionsPolicy,
       scopeAcceptancePolicy: input.scopeAcceptancePolicy,
@@ -70,8 +74,6 @@ export async function createRun(
       notes: input.notes ?? null,
       runOrdinal: ordinal,
       branch: runBranch(input.issueKey, ordinal),
-      scopeSessionId: randomUUID(),
-      implementSessionId: randomUUID(),
       maxSpendUsd: settings.maxSpendUsd,
       maxActiveSeconds: settings.maxActiveSeconds,
       waitingLimitSeconds: settings.waitingLimitSeconds,
@@ -108,7 +110,7 @@ export async function createRun(
 
 /**
  * Runs waiting for a person keep their slot. The caller has checked that runs may start. A
- * continued run already has its turn and goes back to its phase; a new one starts scoping.
+ * continued run already has its turn and goes back to its phase; a new one starts its first phase.
  */
 export async function promoteQueuedRuns(
   tx: Tx,
@@ -128,7 +130,7 @@ export async function promoteQueuedRuns(
     select: { id: true, jiraOutcome: true, phase: true, continuations: true, startedAt: true },
   });
   for (const { id, jiraOutcome, phase, continuations, startedAt } of queued) {
-    const status = continuations > 0 ? ACTIVE_STATUS_OF_PHASE[phase]! : RunStatus.Scoping;
+    const status = activeStatusOf(phase);
     await tx.cloudAgentRun.update({
       where: { id },
       data: {
@@ -145,7 +147,7 @@ export async function promoteQueuedRuns(
     });
     if (continuations === 0) {
       await tx.cloudAgentRunTurn.create({
-        data: { workspaceId, runId: id, ordinal: 1, kind: RunPhase.Scope, createdAt: at },
+        data: { workspaceId, runId: id, ordinal: 1, kind: phase, createdAt: at },
       });
     }
     await appendRunEvents(

@@ -19,6 +19,7 @@ import { assemblePullRequest } from './pull-request-body.js';
 import { CLOUD_AGENT_RUNS_RETRY_DELAY, withRetries } from './retry.js';
 import { runPageUrl } from './run-links.js';
 import { RunEventCode, RunFailureCode, RunPhase, ServerEventType, SpecStatus, TurnOutcome } from './run-states.js';
+import { finalPhase, workflowOf } from './run-workflow.js';
 import { appendRunEvents, CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock, type Tx } from './run-store.js';
 import { type JiraCommentOutcome, jiraOutcomeOf } from './jira-outcome.js';
 import { failRun } from './run-transitions.js';
@@ -65,7 +66,7 @@ export class CloudAgentRunDeliveryService {
 
   async assignment(run: CloudAgentRun): Promise<Pick<TurnAssignment, 'repositories' | 'delivery'>> {
     const stored = new Map(runRepositories(run).map((repository) => [repository.key, repository]));
-    const repositories = (await this.implement.repositoriesFor(run, RunPhase.Implement)).filter(
+    const repositories = (await this.implement.repositoriesFor(run, finalPhase(workflowOf(run)))).filter(
       (repository) => stored.get(repository.key)?.touched,
     );
     const spec = await this.prisma.cloudAgentRunSpecVersion.findFirst({

@@ -6,7 +6,7 @@ import { formatRelativeTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
 
 import { type ConversationItem, durationText } from './agent-run-page';
-import { type AgentTask, TASK_STATUS_LABELS } from './agent-run-presentation';
+import { type AgentTask, isGatedPhase, TASK_STATUS_LABELS } from './agent-run-presentation';
 import { clockTime } from './agent-run-trace';
 import { AnsweredQuestion, QuestionCard } from './QuestionCard';
 import type { ActivityDrawer } from './RunActivityDrawers';
@@ -190,14 +190,20 @@ function Item({
           <Who label={`Scope v${spec.version}`} at={item.at} />
           <div className="font-semibold text-ink-1">{spec.title}</div>
           <IntentMarkdown noRemote text={spec.summary} className="mt-1" />
-          <p className="mt-1.5 text-[12.5px] text-ink-3">
-            {plural(spec.repositories.length, 'repository', 'repositories')}:{' '}
-            <span className="font-mono text-[12px]">
-              {spec.repositories.map((repository) => repository.key).join(', ')}
-            </span>
-            {spec.candidates.length > 0 &&
-              ` · ${plural(spec.candidates.length, 'candidate', 'candidates')} for the PRD`}
-          </p>
+          {(spec.repositories.length > 0 || spec.candidates.length > 0) && (
+            <p className="mt-1.5 text-[12.5px] text-ink-3">
+              {spec.repositories.length > 0 && (
+                <>
+                  {plural(spec.repositories.length, 'repository', 'repositories')}:{' '}
+                  <span className="font-mono text-[12px]">
+                    {spec.repositories.map((repository) => repository.key).join(', ')}
+                  </span>
+                </>
+              )}
+              {spec.repositories.length > 0 && spec.candidates.length > 0 && ' · '}
+              {spec.candidates.length > 0 && `${plural(spec.candidates.length, 'candidate', 'candidates')} for the PRD`}
+            </p>
+          )}
           <button
             type="button"
             onClick={() => onOpen({ kind: 'spec', version: spec.version })}
@@ -263,7 +269,8 @@ function Item({
         </Event>
       );
     case 'result': {
-      const assumptions = (run.assumptions ?? []).filter((assumption) => assumption.phase !== 'scope');
+      // A proposing phase's assumptions are shown with its proposal.
+      const assumptions = (run.assumptions ?? []).filter((assumption) => !isGatedPhase(run.workflow, assumption.phase));
       return (
         <Message id={item.id} tone="agent" avatar="AI" className="border-brand">
           <Who label="Result" at={item.at} />

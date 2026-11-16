@@ -3,7 +3,7 @@
  * Runners that predate structured events reported `[tool]`, `[result]` and `[text]` lines;
  * those are read back into the same rows.
  */
-import type { AgentRunActivity, AgentRunEvent, AgentRunQuestion, AgentRunTurnActivity, TurnKind } from './types.js';
+import type { AgentRunActivity, AgentRunEvent, AgentRunQuestion, AgentRunTurnActivity } from './types.js';
 
 export type TraceTone = 'edit' | 'bash' | 'mcp' | 'run' | 'plain';
 
@@ -294,8 +294,8 @@ export function traceTurns(
   return [...byId.values()];
 }
 
-export function transcriptPhases(activity: AgentRunActivity | undefined): Array<Exclude<TurnKind, 'delivery'>> {
-  const phases: Array<Exclude<TurnKind, 'delivery'>> = [];
+export function transcriptPhases(activity: AgentRunActivity | undefined): string[] {
+  const phases: string[] = [];
   for (const turn of activity?.turns ?? []) {
     if (turn.kind !== 'delivery' && !phases.includes(turn.kind)) phases.push(turn.kind);
   }

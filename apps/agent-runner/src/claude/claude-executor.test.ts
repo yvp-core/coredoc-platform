@@ -9,7 +9,9 @@ import {
   type ProposeScopeRequest,
   QuestionsPolicy,
   RunFailureCode,
+  type SubmitResultRequest,
   type TurnAssignment,
+  workflowShape,
 } from '@coredoc/core/agent-runner';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -63,6 +65,9 @@ interface SessionScript {
   readRepo?: Array<{ key: string; branch?: string }>;
   pluginErrors?: Array<{ plugin: string; type: string; message: string }>;
   propose?: ProposeScopeRequest[];
+  /** Lists the run-control tools the session is offered into the record's `tools`. */
+  listTools?: boolean;
+  submit?: SubmitResultRequest;
   /** What the agent writes to spec.md before each proposal: the proposal's markdown by default, nothing when null. */
   specFile?: string | null;
   /** Run-control tool names a subagent calls before the proposals; each hook decision lands in `subagentDenials`. */
@@ -88,6 +93,7 @@ function fakeQuery(
     prompt: string;
     options: Options;
     prd?: string;
+    accepted?: string;
     npmrc?: string;
     workNpmrc?: boolean;
     toolErrors: string[];
@@ -98,6 +104,7 @@ function fakeQuery(
     readPathsAlive: boolean[];
     asks: AskRecord[];
     subagentDenials: Array<string | undefined>;
+    tools: string[];
   }>,
 ): QueryFn {
   return ({ prompt, options }) =>
@@ -112,10 +119,12 @@ function fakeQuery(
         readPathsAlive: [] as boolean[],
         cloneDepth: undefined as string | undefined,
         prd: undefined as string | undefined,
+        accepted: undefined as string | undefined,
         npmrc: undefined as string | undefined,
         workNpmrc: existsSync(join(options.cwd!, '.npmrc')),
         asks: [] as AskRecord[],
         subagentDenials: [] as Array<string | undefined>,
+        tools: [] as string[],
       };
       // What a package manager in the session would read as the user-level registry configuration.
       const userNpmrc = join(options.env!.HOME!, '.npmrc');
@@ -137,6 +146,8 @@ function fakeQuery(
 
       const prdPath = join(options.cwd!, 'PRD.md');
       if (existsSync(prdPath)) record.prd = await readFile(prdPath, 'utf8');
+      const acceptedPath = join(options.cwd!, 'ACCEPTED.md');
+      if (existsSync(acceptedPath)) record.accepted = await readFile(acceptedPath, 'utf8');
       // Claude Code writes its transcript under its config directory.
       const configDir = options.env!.CLAUDE_CONFIG_DIR!;
       await mkdir(join(configDir, 'projects', 'work'), { recursive: true });
@@ -215,6 +226,20 @@ function fakeQuery(
             name: 'propose_scope',
             arguments: call as unknown as Record<string, unknown>,
           });
+          if (answer.isError) record.toolErrors.push(JSON.stringify(answer.content));
+        }
+        await client.close();
+      }
+
+      if (script.listTools || script.submit) {
+        const server = options.mcpServers!.agent_run as { instance: { connect(transport: unknown): Promise<void> } };
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await server.instance.connect(serverTransport);
+        const client = new Client({ name: 'fake-claude-code', version: '0' });
+        await client.connect(clientTransport);
+        if (script.listTools) record.tools = (await client.listTools()).tools.map(({ name }) => name).sort();
+        if (script.submit) {
+          const answer = await client.callTool({ name: 'submit_result', arguments: { ...script.submit } });
           if (answer.isError) record.toolErrors.push(JSON.stringify(answer.content));
         }
         await client.close();
@@ -467,7 +492,7 @@ describe('Claude executor in the runner loop', () => {
         version: 1,
         plugins: [{ path: PLUGIN }, { path: ACME_PLUGIN }],
         tools: { jira: ['read'] },
-        phases: { scope: { model: 'claude-opus-5-5', entrySkill: 'acme-agent-run:scope' } },
+        phases: { scope: { model: 'claude-opus-5-5', effort: 'high', entrySkill: 'acme-agent-run:scope' } },
       }),
       PLUGIN,
     );
@@ -484,10 +509,11 @@ describe('Claude executor in the runner loop', () => {
       const { done, seen } = runTurn(turn, { propose: [proposal] });
       await expect(done).resolves.toBe('completed');
       expect(seen[0]!.options).toMatchObject({ model: 'claude-workspace', plugins: [{ type: 'local', path: PLUGIN }] });
+      expect(seen[0]!.options).not.toHaveProperty('effort');
       expect(Object.keys(seen[0]!.options.mcpServers!).sort()).toEqual(['agent_run', 'coredoc']);
     });
 
-    it('with a manifest, uses its phase model and plugins and adds the Jira toolset over the turn token', async () => {
+    it('with a manifest, uses its phase model, effort and plugins and adds the Jira toolset over the turn token', async () => {
       const turn = assignment({ run: { ...assignment().run, model: 'claude-workspace' } });
       const { done, seen } = runTurn(
         turn,
@@ -497,6 +523,7 @@ describe('Claude executor in the runner loop', () => {
       await expect(done).resolves.toBe('completed');
       expect(seen[0]!.options).toMatchObject({
         model: 'claude-opus-5-5',
+        effort: 'high',
         plugins: [
           { type: 'local', path: PLUGIN },
           { type: 'local', path: ACME_PLUGIN },
@@ -562,6 +589,135 @@ describe('Claude executor in the runner loop', () => {
       await expect(done).resolves.toBe('completed');
       expect(api.proposals).toEqual([]);
       expect(seen[0]!.toolErrors.join()).toContain('Invoke the skill acme-agent-run:scope');
+    });
+  });
+
+  describe('a deployment’s own workflows', () => {
+    const ACME_PLUGIN = '/opt/acme/plugins/acme-agent-run';
+    const phases = [
+      { id: 'questions', gate: 'acceptance', entrySkill: 'acme-agent-run:questions' },
+      { id: 'draft', gate: 'acceptance', entrySkill: 'acme-agent-run:draft' },
+      { id: 'apply', gate: 'none', entrySkill: 'acme-agent-run:apply' },
+    ];
+    const manifest = resolveManifest(
+      JSON.stringify({
+        version: 2,
+        workflows: {
+          rollout: {
+            title: 'Rollout',
+            repositories: 'write',
+            delivery: 'pull-request',
+            plugins: [{ path: ACME_PLUGIN }],
+            phases,
+          },
+          'contract-review': {
+            title: 'Contract review',
+            repositories: 'none',
+            delivery: 'none',
+            plugins: [{ path: ACME_PLUGIN }],
+            phases: [phases[0], phases[2]],
+          },
+        },
+      }),
+      PLUGIN,
+    );
+    const [rollout, contractReview] = manifest.workflows.map(workflowShape);
+    const acmeSession = {
+      plugins: [{ name: 'acme-agent-run', path: ACME_PLUGIN }],
+      initSkills: phases.map((phase) => phase.entrySkill),
+      listTools: true,
+    };
+    const phaseTurn = (workflow: TurnAssignment['workflow'], kind: string, overrides: Partial<TurnAssignment> = {}) =>
+      assignment({ turn: { ...assignment().turn, kind }, workflow, ...overrides });
+    const bot = { token: 'ghp_bot-token-0123456789', name: 'Coredoc Bot', email: 'bot@users.noreply.example.com' };
+
+    it.each([
+      ['questions', 'propose_scope', 'submit_result'],
+      ['draft', 'propose_scope', 'submit_result'],
+      ['apply', 'submit_result', 'propose_scope'],
+    ])('phase %s of a three-phase workflow asks for its own entry skill and closes with %s', async (kind, closing, other) => {
+      const { done, seen } = runTurn(phaseTurn(rollout!, kind), acmeSession, { manifest, bot });
+      await expect(done).resolves.toBe('completed');
+      expect(api.completions[0]!.body.outcome).toEqual({ kind: 'ended' });
+      const { append } = seen[0]!.options.systemPrompt as { append: string };
+      for (const phase of phases) {
+        if (phase.id === kind) expect(append).toContain(phase.entrySkill);
+        else expect(append).not.toContain(phase.entrySkill);
+      }
+      expect(seen[0]!.tools).toContain(closing);
+      expect(seen[0]!.tools).not.toContain(other);
+    });
+
+    it.each([
+      ['the proposal accepted in the phase before it', '# Answers\n\nExports are CSV.\n'],
+      ['no accepted proposal and no file promised', null],
+    ])('the second gated phase is given %s', async (_case, markdown) => {
+      const acceptedSpec = markdown && {
+        version: 1,
+        title: 'Answers',
+        markdown,
+        acceptedBy: 'member@example.com',
+        acceptedAt: '2026-10-10T09:00:00.000Z',
+        digest: 'a'.repeat(64),
+      };
+      const { done, seen } = runTurn(phaseTurn(rollout!, 'draft', { acceptedSpec }), acmeSession, { manifest, bot });
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.accepted).toBe(markdown ?? undefined);
+      const promised = seen[0]!.prompt.includes(join(seen[0]!.options.cwd!, 'ACCEPTED.md'));
+      expect(promised).toBe(markdown !== null);
+    });
+
+    describe('without repositories', () => {
+      let root: string;
+      let gitLog: string;
+
+      beforeEach(async () => {
+        root = await mkdtemp(join(tmpdir(), 'runner-no-repositories-'));
+        gitLog = join(root, 'git.log');
+        await writeFile(join(root, 'git'), `#!/bin/sh\necho "$@" >> ${gitLog}\n`, { mode: 0o755 });
+      });
+
+      afterEach(async () => {
+        await rm(root, { recursive: true, force: true });
+      });
+
+      it.each([
+        ['questions', { propose: [{ ...proposal, repositories: [] }] }, ['propose_scope']],
+        ['apply', { submit: { summary: 'Reviewed the contract.' } }, ['submit_result']],
+      ])('phase %s runs no git and offers no repository tool, with no bot configured', async (kind, close, tools) => {
+        // A server that still sent a branch scan must not make the runner reach for a repository.
+        const turn = phaseTurn(contractReview!, kind, {
+          branchScan: {
+            epicKey: 'PROJ-1',
+            maxReads: 5,
+            repositories: [{ key: 'orders-api', cloneUrl: `file://${join(root, 'orders-api.git')}` }],
+          },
+        });
+        const { done, seen } = runTurn(
+          turn,
+          { ...acmeSession, skills: [`acme-agent-run:${kind}`], ...close },
+          { manifest, hostEnv: { PATH: `${root}:/usr/bin` } },
+        );
+        await expect(done).resolves.toBe('completed');
+        expect(api.completions[0]!.body.outcome).toEqual({ kind: 'ended' });
+        expect(seen[0]!.toolErrors).toEqual([]);
+        expect(seen[0]!.tools).toEqual(tools);
+        expect(api.proposals.length + api.results.length).toBe(1);
+        expect(existsSync(gitLog)).toBe(false);
+      });
+    });
+
+    it.each([
+      ['a workflow the manifest lacks', { ...rollout!, id: 'translations' }, 'questions'],
+      ['a phase the workflow lacks', rollout!, 'summary'],
+    ])('an assignment for %s fails with workflow_mismatch before any session', async (_case, workflow, kind) => {
+      const { done, seen } = runTurn(phaseTurn(workflow, kind), acmeSession, { manifest, bot });
+      await expect(done).resolves.toBe('completed');
+      expect(seen).toEqual([]);
+      const outcome = api.completions[0]!.body.outcome as { kind: string; code: string; reason: string };
+      expect(outcome).toMatchObject({ kind: 'failed', code: RunFailureCode.WorkflowMismatch });
+      expect(outcome.reason).toContain(workflow.id);
+      expect(outcome.reason).toContain(kind);
     });
   });
 

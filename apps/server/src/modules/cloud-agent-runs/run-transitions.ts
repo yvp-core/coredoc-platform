@@ -12,7 +12,6 @@ import {
   isTerminalRunStatus,
   QuestionState,
   type RunFailureCode,
-  type RunPhase,
   RunStatus,
   ServerEventType,
   TurnState,
@@ -155,7 +154,7 @@ export async function cancelOpenQuestions(tx: Tx, run: CloudAgentRun, at: Date):
 export async function queueTurn(
   tx: Tx,
   run: CloudAgentRun,
-  kind: RunPhase,
+  kind: string,
   inputText: string | null,
   at: Date,
 ): Promise<string | null> {

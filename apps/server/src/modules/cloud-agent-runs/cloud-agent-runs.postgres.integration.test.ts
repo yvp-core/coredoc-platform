@@ -31,7 +31,14 @@ import { CLOUD_AGENT_RUN_ARCHIVE_STORE } from './cloud-agent-run-archive.store.j
 import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { cloudAgentRunsCoreProviders, CLOUD_AGENT_RUNS_CLOCK } from './cloud-agent-runs.module.js';
-import { FakeJira, InMemoryArchiveStore, paragraphDoc, setAgentRunsEnabled } from './cloud-agent-runs.test-support.js';
+import {
+  advertiseWorkflows,
+  advertising,
+  FakeJira,
+  InMemoryArchiveStore,
+  paragraphDoc,
+  setAgentRunsEnabled,
+} from './cloud-agent-runs.test-support.js';
 import { MAX_TRANSCRIPT_BYTES } from './run-transcript.js';
 
 // Every guard is real, AuthGuard included; only human JWT verification is
@@ -42,7 +49,7 @@ const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
 const ADMIN = { id: `${RUN}-admin`, email: 'admin@example.com' };
 const MEMBER = { id: `${RUN}-member`, email: 'member@example.com' };
 const DEMOTED = { id: `${RUN}-demoted`, email: 'demoted@example.com' };
-const VERSIONS = { runner: '0.0.1-test', sdk: '0.3.285', claudeCode: '2.1.285', plugin: 'abc123' };
+const VERSIONS = advertising({ runner: '0.0.1-test', sdk: '0.3.285', claudeCode: '2.1.285', plugin: 'abc123' });
 
 const jira = new FakeJira();
 let issueSeed = 0;
@@ -190,6 +197,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
   /** Runs never finish in this suite, so the concurrency limit is set high enough that every start starts. */
   async function enable(): Promise<void> {
     await setAgentRunsEnabled(prisma, workspaceId);
+    await advertiseWorkflows(prisma, workspaceId);
     await api()
       .put(`${runsBase()}/settings`)
       .set('Authorization', human(ADMIN))
@@ -198,7 +206,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
   }
 
   function start(issueKey: string, user = MEMBER) {
-    return api().post(runsBase()).set('Authorization', human(user)).send({ issueKey });
+    return api().post(runsBase()).set('Authorization', human(user)).send({ workflow: 'default', issueKey });
   }
 
   function claim(token: string, protocolVersion = RUNNER_PROTOCOL_VERSION) {
@@ -282,7 +290,10 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     const token = await mintRunnerToken('runner-notes');
     await drainQueue(token);
     const send = (body: Record<string, unknown>) =>
-      api().post(runsBase()).set('Authorization', human(MEMBER)).send(body);
+      api()
+        .post(runsBase())
+        .set('Authorization', human(MEMBER))
+        .send({ workflow: 'default', ...body });
 
     await send({ issueKey: nextIssueKey(), notes: 'x'.repeat(4_001) }).expect(400);
     const { body: blank } = await send({ issueKey: nextIssueKey(), notes: '   ' }).expect(201);
@@ -362,7 +373,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     const detail = await api().get(`${runsBase()}/${run.id}`).set('Authorization', human(MEMBER)).expect(200);
     // The turn ended without an outcome, so the nudge turn is queued.
     expect(detail.body).toMatchObject({
-      status: 'scoping',
+      status: 'running',
       spend: { usd: 0.25, unknownTurns: 0 },
       currentTurn: { kind: 'scope', ordinal: 2, state: 'queued' },
     });
@@ -381,7 +392,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
       'turn_ended',
     ]);
     expect(events.map((event) => event.seq)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(events[1]?.payload).toMatchObject({ from: 'queued', to: 'scoping' });
+    expect(events[1]?.payload).toMatchObject({ from: 'queued', to: 'running' });
 
     const page = await api()
       .get(`${runsBase()}/${run.id}/events?after=4`)
@@ -803,7 +814,11 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
       const ci = await insertToken(workspaceId, [TokenPermission.ParserRead]);
       for (const token of [runner, ci]) {
         await api().get(runsBase()).set('Authorization', `Bearer ${token}`).expect(403);
-        await api().post(runsBase()).set('Authorization', `Bearer ${token}`).send({ issueKey: 'PROJ-1' }).expect(403);
+        await api()
+          .post(runsBase())
+          .set('Authorization', `Bearer ${token}`)
+          .send({ workflow: 'default', issueKey: 'PROJ-1' })
+          .expect(403);
       }
     });
 

@@ -10,6 +10,7 @@ import type {
   AgentRunSettings,
   AgentRunSettingsUpdate,
   AgentRunSpec,
+  AgentRunWorkflow,
   JiraStatusChoices,
   QuestionAnswer,
 } from '../../features/agent-runs/types.js';
@@ -70,12 +71,20 @@ export const agentRunActivityQueryOptions = (wsId: string, runId: string, status
   });
 
 /** A plain link: the session cookie authenticates the download, which the browser streams to disk. */
-export function agentRunTranscriptUrl(wsId: string, runId: string, phase: 'scope' | 'implement'): string {
-  return `${base(wsId)}/${runId}/transcript?phase=${phase}`;
+export function agentRunTranscriptUrl(wsId: string, runId: string, phase: string): string {
+  return `${base(wsId)}/${runId}/transcript?phase=${encodeURIComponent(phase)}`;
 }
+
+export const agentRunWorkflowsQueryOptions = (wsId: string) =>
+  queryOptions({
+    queryKey: ['ws', wsId, 'agent-runs-workflows'] as const,
+    queryFn: async () => (await request<{ workflows: AgentRunWorkflow[] }>(`${base(wsId)}/workflows`)).workflows,
+    staleTime: 0,
+  });
 
 export function startAgentRun(params: {
   wsId: string;
+  workflow: string;
   issueKey: string;
   repositoryKeys?: string[];
   notes?: string;

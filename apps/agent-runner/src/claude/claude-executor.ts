@@ -11,13 +11,17 @@ import type {
 import {
   JiraAccess,
   MAX_STATE_ARCHIVE_BYTES,
+  PhaseGate,
+  RepositoryMode,
   type ResolvedManifest,
+  type ResolvedWorkflow,
   RunFailureCode,
   RunnerStartupProblemCode,
   defaultRetryDelay,
   type TurnAssignment,
   TurnKind,
   type TurnOutcome,
+  type WorkflowPhase,
 } from '@coredoc/core/agent-runner';
 import { Git, gitEnvironment } from '../git/git.js';
 import { SecretScanner } from '../git/secret-scan.js';
@@ -122,9 +126,18 @@ export class ClaudeExecutor implements TurnExecutor {
     this.log = options.log ?? (() => undefined);
   }
 
-  private phase(turn: TurnAssignment) {
-    const { phases } = this.options.manifest;
-    return turn.turn.kind === TurnKind.Implement ? phases.implement : phases.scope;
+  /** The manifest's side of the turn's phase; its gate and repository mode are the ones the run started with. */
+  private phase(turn: TurnAssignment): { workflow: ResolvedWorkflow; phase: WorkflowPhase } {
+    const workflow = this.options.manifest.workflows.find((candidate) => candidate.id === turn.workflow.id);
+    const phase = workflow?.phases.find((candidate) => candidate.id === turn.turn.kind);
+    const started = turn.workflow.phases.find((candidate) => candidate.id === turn.turn.kind);
+    if (!workflow || !phase || phase.gate !== started?.gate || workflow.repositories !== turn.workflow.repositories) {
+      throw new TurnFailure(
+        RunFailureCode.WorkflowMismatch,
+        `This runner's manifest has no phase "${turn.turn.kind}" of workflow "${turn.workflow.id}" as the run started it: the runner image changed the workflow since.`,
+      );
+    }
+    return { workflow, phase };
   }
 
   async run(turn: TurnAssignment, io: TurnIO): Promise<TurnResult> {
@@ -141,13 +154,16 @@ export class ClaudeExecutor implements TurnExecutor {
     const paths = turnPaths(this.options.scratchRoot, turn.run.id, turn.turn.id);
     try {
       return await reportingFailures(async () => {
+        const { workflow, phase } = this.phase(turn);
         // Before any session, in every turn: the bot must be neither admin nor maintainer where the run may work.
         await checkBotPermissions(this.options, turn.repositories);
         await createTurnDirectories(paths);
         await writeUserRegistryConfig(paths.home, this.options.packageRegistries ?? []);
         if (turn.hasStateArchive) await extractStateArchive(await io.downloadArchive(), paths.state);
-        if (turn.turn.kind === TurnKind.Implement) return this.implementTurn(turn, io, paths);
-        return this.scopeTurn(turn, io, paths);
+        if (phase.gate === PhaseGate.None && workflow.repositories === RepositoryMode.Write) {
+          return this.implementTurn(turn, io, paths);
+        }
+        return this.unpushedTurn(turn, io, paths);
       });
     } finally {
       await wipeScratch(this.options.scratchRoot);
@@ -181,7 +197,7 @@ export class ClaudeExecutor implements TurnExecutor {
       specPath,
       prdPath,
       clones.map(promptClone),
-      this.phase(turn).entrySkill !== undefined,
+      this.phase(turn).phase.entrySkill !== undefined,
     );
     const prompt = resume
       ? resumeInput(turn, clones)
@@ -327,32 +343,51 @@ export class ClaudeExecutor implements TurnExecutor {
     return outcome;
   }
 
-  private async scopeTurn(turn: TurnAssignment, io: TurnIO, paths: TurnPaths): Promise<TurnResult> {
+  /** A gated phase, or the last phase of a workflow without repositories: nothing is committed or pushed. */
+  private async unpushedTurn(turn: TurnAssignment, io: TurnIO, paths: TurnPaths): Promise<TurnResult> {
+    const { workflow, phase } = this.phase(turn);
+    const final = phase.gate === PhaseGate.None;
     const prdPath = join(paths.work, 'PRD.md');
     await writeFile(prdPath, turn.prd?.markdown ?? '(The server sent no PRD.)\n', 'utf8');
 
-    // Read-only: the scope phase never commits or pushes, so the git identity carries no author.
+    // Read-only, so the git identity carries no author.
     const git = new Git(
       gitEnvironment({ hostEnv: this.options.hostEnv, home: paths.home }),
       this.options.bot?.token ?? null,
     );
     const resume = sessionExists(paths, turn.run.sessionId);
-    const candidates = turn.branchScan && !resume ? await listBaseCandidates(git, turn.branchScan, paths.work) : null;
-    const specPath = join(paths.work, 'spec.md');
-    const firstPrompt = scopePrompt(turn, prdPath, specPath, candidates, this.phase(turn).entrySkill !== undefined);
+    const branchScan = workflow.repositories === RepositoryMode.Write ? turn.branchScan : null;
+    const candidates = branchScan && !resume ? await listBaseCandidates(git, branchScan, paths.work) : null;
+    const specPath = join(paths.work, final ? 'SPEC.md' : 'spec.md');
+    // Not SPEC.md: on a case-insensitive filesystem that is the spec.md the phase writes its own proposal to.
+    const acceptedPath = final ? specPath : join(paths.work, 'ACCEPTED.md');
+    if (turn.acceptedSpec) await writeFile(acceptedPath, turn.acceptedSpec.markdown, 'utf8');
+    const methodOwnedBySkill = phase.entrySkill !== undefined;
+    const firstPrompt = final
+      ? implementPrompt(turn, specPath, prdPath, [], methodOwnedBySkill)
+      : scopePrompt(
+          turn,
+          prdPath,
+          specPath,
+          candidates,
+          methodOwnedBySkill,
+          turn.acceptedSpec ? acceptedPath : undefined,
+        );
     const prompt = resume
       ? (turn.turn.inputText ?? 'Continue where you stopped.')
       : turn.turn.inputText
         ? `${firstPrompt}\n\n${turn.turn.inputText}`
         : firstPrompt;
 
-    const control: RunControlState = {
-      proposedVersion: null,
-      submitted: false,
-      specPath,
-      candidateKeys: candidates?.listings.map(({ key }) => key) ?? [],
-    };
-    if (turn.branchScan) control.readRepository = repositoryReader(git, turn.branchScan, paths.work);
+    const control: RunControlState = final
+      ? { proposedVersion: null, submitted: false }
+      : {
+          proposedVersion: null,
+          submitted: false,
+          specPath,
+          candidateKeys: candidates?.listings.map(({ key }) => key) ?? [],
+        };
+    if (branchScan) control.readRepository = repositoryReader(git, branchScan, paths.work);
     const questions = new QuestionBridge(turn, io);
     if (io.checkpoint.aborted) throw new TurnAbandoned();
     const session = await this.runSession(turn, io, paths, prompt, resume, control, questions);
@@ -360,17 +395,17 @@ export class ClaudeExecutor implements TurnExecutor {
     if (io.signal.aborted) return { spend };
     const lastMessage = lastMessageOf(session.result);
 
-    if (session.failure && (session.failure.code !== RunFailureCode.AgentError || control.proposedVersion === null)) {
-      // Classified from the runner's own state: a recorded proposal outlives a late SDK error.
+    const closed = control.proposedVersion !== null || control.submitted;
+    if (session.failure && (session.failure.code !== RunFailureCode.AgentError || !closed)) {
+      // Classified from the runner's own state: a recorded proposal or result outlives a late SDK error.
       return {
         spend,
         outcome: await this.keepFailedState(paths, io, sessionFailureOutcome(session.failure)),
         lastMessage,
       };
     }
-    // Like an implement turn, a limit hit before any proposal or question continues the session.
-    const checkpoint =
-      session.checkpoint && control.proposedVersion === null && questions.state.parkedQuestion === null;
+    // Like an implement turn, a limit hit before any proposal, result or question continues the session.
+    const checkpoint = session.checkpoint && !closed && questions.state.parkedQuestion === null;
     const archived = await this.uploadState(paths, io);
     return { spend, outcome: archived ?? { kind: checkpoint ? 'checkpoint' : 'ended' }, lastMessage };
   }
@@ -451,7 +486,7 @@ export class ClaudeExecutor implements TurnExecutor {
         ),
       })) {
         if (message.type === 'system' && message.subtype === 'init') {
-          const problem = this.initProblem(message, turn.run.sessionId);
+          const problem = this.initProblem(message, turn.run.sessionId, this.phase(turn).workflow);
           if (problem) {
             fail(problem);
             break;
@@ -522,6 +557,7 @@ export class ClaudeExecutor implements TurnExecutor {
   private initProblem(
     init: Extract<SDKMessage, { type: 'system'; subtype: 'init' }>,
     sessionId: string,
+    workflow: ResolvedWorkflow,
   ): SessionOutcome['failure'] {
     if (init.session_id !== sessionId) {
       return {
@@ -531,7 +567,7 @@ export class ClaudeExecutor implements TurnExecutor {
     }
     const problem = pluginProblem(
       init,
-      this.options.manifest.plugins.map(({ path }) => path),
+      workflow.plugins.map(({ path }) => path),
     );
     return problem ? { code: RunFailureCode.PluginMissing, reason: problem.detail } : null;
   }
@@ -547,8 +583,7 @@ export class ClaudeExecutor implements TurnExecutor {
     windDown: () => string | null,
     budgetUsd: number,
   ): Options {
-    const { manifest } = this.options;
-    const phase = this.phase(turn);
+    const { workflow, phase } = this.phase(turn);
     const model = phase.model ?? turn.run.model;
     // The run state records the entry skill once invoked; a resumed session that did is not asked again.
     const invokedMarker = join(paths.state, 'entry-skill-invoked');
@@ -597,7 +632,7 @@ export class ClaudeExecutor implements TurnExecutor {
       };
     };
     const mcpServers: Options['mcpServers'] = {
-      [RUN_CONTROL_SERVER]: runControlServer(io, control, turn.turn.kind, entrySkill),
+      [RUN_CONTROL_SERVER]: runControlServer(io, control, phase.gate, entrySkill),
     };
     if (turn.mcp) {
       const server = {
@@ -609,7 +644,7 @@ export class ClaudeExecutor implements TurnExecutor {
       // Under the key `coredoc`: the plugin recognises Coredoc tools by that name segment.
       mcpServers.coredoc = server;
       // No `coredoc` segment: Jira reads must not count as Coredoc reads.
-      if (manifest.tools.jira.includes(JiraAccess.Read)) {
+      if (workflow.tools.jira.includes(JiraAccess.Read)) {
         mcpServers.jira = { ...server, url: `${server.url}?toolset=agent-jira` };
       }
     }
@@ -617,6 +652,7 @@ export class ClaudeExecutor implements TurnExecutor {
       cwd: paths.work,
       ...(resume ? { resume: turn.run.sessionId } : { sessionId: turn.run.sessionId }),
       ...(model ? { model } : {}),
+      ...(phase.effort ? { effort: phase.effort } : {}),
       env: sessionEnvironment({
         hostEnv: this.options.hostEnv,
         paths,
@@ -628,7 +664,7 @@ export class ClaudeExecutor implements TurnExecutor {
       }),
       // The target repositories' own Claude settings and hooks are never loaded.
       settingSources: [],
-      plugins: sdkPlugins(manifest),
+      plugins: sdkPlugins(workflow.plugins),
       mcpServers,
       strictMcpConfig: true,
       systemPrompt: {

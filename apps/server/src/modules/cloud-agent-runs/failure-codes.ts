@@ -27,4 +27,5 @@ export const FAILURE_MESSAGES: Record<RunFailureCode, string> = {
   delivery_failed: 'Opening or verifying the pull requests, or posting the Jira done comment, failed.',
   runner_lost: 'The agent runner stopped responding during the same turn three times.',
   incomplete_result: 'The agent delivered a partial result; some acceptance criteria are not met.',
+  workflow_mismatch: 'The runner image no longer has this run’s workflow or one of its phases.',
 };

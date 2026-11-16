@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { resolveManifest } from '@coredoc/core/agent-runner';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadManifest } from './manifest.js';
 
@@ -18,11 +19,7 @@ describe('loadManifest', () => {
   it('without a manifest file uses the platform defaults and reports no digest', async () => {
     const loaded = await loadManifest({ COREDOC_RUNNER_MANIFEST: join(dir, 'missing.json') }, '/opt/coredoc-workflows');
     expect(loaded).toEqual({
-      manifest: {
-        plugins: [{ path: '/opt/coredoc-workflows' }],
-        tools: { jira: [] },
-        phases: { scope: {}, implement: {} },
-      },
+      manifest: resolveManifest(undefined, '/opt/coredoc-workflows'),
       digest: null,
     });
   });

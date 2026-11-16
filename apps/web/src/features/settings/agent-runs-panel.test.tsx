@@ -9,6 +9,8 @@ const STATUSES_PATH = '/api/v1/workspaces/ws1/cloud-agent-runs/settings/jira-sta
 
 let settings: Record<string, unknown>;
 let writes: { method: string; path: string; body: unknown }[];
+let workflows: Record<string, unknown>[];
+let members: Record<string, unknown>[];
 
 function runnerToken(overrides: Record<string, unknown> = {}) {
   return {
@@ -30,7 +32,10 @@ function runnerToken(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   writes = [];
+  workflows = [];
+  members = [];
   settings = {
+    workflowAccess: {},
     enabled: false,
     runOwner: null,
     triggerLabel: 'coredoc-agent',
@@ -77,6 +82,9 @@ beforeEach(() => {
       }
       if (path === SETTINGS_PATH) return new Response(JSON.stringify(settings));
       if (path === STATUSES_PATH) return new Response(JSON.stringify({ statuses: ['Done', 'In Progress', 'To Do'] }));
+      if (path === '/api/v1/workspaces/ws1/cloud-agent-runs/workflows')
+        return new Response(JSON.stringify({ workflows }));
+      if (path === '/api/v1/workspaces/ws1/members') return new Response(JSON.stringify(members));
       return new Promise<Response>(() => undefined);
     }),
   );
@@ -247,6 +255,43 @@ describe('AgentRunsPanel', () => {
         },
       ]),
     );
+  });
+
+  it('limits one workflow to named members and saves the whole access map, other workflows included', async () => {
+    const workflow = (id: string, title: string) => ({
+      id,
+      title,
+      repositories: 'write',
+      delivery: 'pull-request',
+      phases: [{ id: 'run', gate: 'none' }],
+      access: { minRole: 'member' },
+      startable: true,
+      reason: null,
+    });
+    workflows = [workflow('default', 'Jira issue to pull requests'), workflow('translations', 'Translations')];
+    members = [
+      { workspaceId: 'ws1', userId: 'u1', email: 'admin@x.test', displayName: null, role: 'admin', pending: false },
+      { workspaceId: 'ws1', userId: 'u2', email: 'pm@x.test', displayName: 'Pat', role: 'member', pending: false },
+      { workspaceId: 'ws1', userId: 'u3', email: 'new@x.test', displayName: null, role: 'member', pending: true },
+    ];
+    settings = { ...settings, enabled: true, workflowAccess: { default: { minRole: 'admin' } } };
+    mount();
+
+    expect(await screen.findByRole('combobox', { name: 'Access to Jira issue to pull requests' })).toHaveDisplayValue(
+      'Admins only',
+    );
+    await choose('Access to Translations', 'Named members');
+    // The server refuses an empty list, so the form does not send one.
+    expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+    const people = screen.getByRole('group', { name: 'Members who may start Translations' });
+    expect(within(people).queryByLabelText('new@x.test')).toBeNull();
+    fireEvent.click(await within(people).findByLabelText('Pat'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.body).toMatchObject({
+      workflowAccess: { default: { minRole: 'admin' }, translations: { members: ['u2'] } },
+    });
   });
 
   it('offers the Jira connector’s known statuses for each event and saves the chosen ones', async () => {
