@@ -485,7 +485,11 @@ export class ClaudeExecutor implements TurnExecutor {
         const events = activity.eventsFor(message);
         if (message.type === 'result') {
           const waking =
-            backgroundTasks > 0 && windDown === null && questions.state.parkedQuestion === null && !outcome.failure;
+            backgroundTasks > 0 &&
+            windDown === null &&
+            questions.state.parkedQuestion === null &&
+            !outcome.failure &&
+            !outcome.checkpoint;
           if (!waking) closeInput();
           // Calls the session ended without answering are reported before the session's end.
           events.push(...activity.flush());

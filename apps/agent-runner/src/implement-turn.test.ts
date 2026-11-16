@@ -161,6 +161,42 @@ describe('implement turns in the runner loop', () => {
     expect(closedAt).toEqual([false, true]);
   });
 
+  it('closes the session input at the SDK turn cap even with background work running', async () => {
+    const { repo } = await orders();
+    let closed = false;
+    const capWithBackgroundTask = (inner: QueryFn): QueryFn =>
+      async function* (params) {
+        void params.open.then(() => {
+          closed = true;
+        });
+        const session = inner(params)[Symbol.asyncIterator]();
+        yield (await session.next()).value;
+        yield {
+          type: 'system',
+          subtype: 'background_tasks_changed',
+          tasks: [{ task_id: 'b1', task_type: 'local_bash', description: 'tests' }],
+        } as never;
+        for (let next = await session.next(); !next.done; next = await session.next()) yield next.value;
+        // What the SDK does with input that is still open: the session does not end.
+        await params.open;
+      };
+    const { done } = runTurn(
+      implementAssignment([repo]),
+      [
+        {
+          act: async (cwd) => writeFile(join(cwd, 'orders-api', 'src', 'export.ts'), 'export {};\n'),
+          resultSubtype: 'error_max_turns',
+        },
+      ],
+      undefined,
+      undefined,
+      undefined,
+      capWithBackgroundTask,
+    );
+    await expect(done).resolves.toBe('completed');
+    expect(closed).toBe(true);
+  });
+
   it('writes the PRD beside the accepted spec and names both in the first prompt', async () => {
     const { repo } = await orders();
     const base = implementAssignment([repo], { prd: { markdown: '# PROJ-1\n\n| 1 | Exports are CSV |\n' } });
