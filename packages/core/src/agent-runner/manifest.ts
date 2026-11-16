@@ -4,6 +4,8 @@ import {
   DEFAULT_WORKFLOW_SHAPE,
   DeliveryKind,
   MAX_WORKFLOWS,
+  PHASE_EFFORTS,
+  type PhaseEffort,
   PHASE_ID_PATTERN,
   PhaseGate,
   RepositoryMode,
@@ -20,6 +22,7 @@ export enum JiraAccess {
 }
 
 const model = z.string().trim().min(1).max(100);
+const effort = z.enum(PHASE_EFFORTS);
 /** `<plugin>:<skill>`; the run-control tools are refused until the session has invoked it. */
 const entrySkill = z.string().regex(/^[^:\s]+:[^:\s]+$/);
 const plugins = z
@@ -28,7 +31,11 @@ const plugins = z
   .max(10);
 const tools = z.strictObject({ jira: z.array(z.enum(JiraAccess)).default([]) }).default({ jira: [] });
 
-const V1PhaseSchema = z.strictObject({ model: model.optional(), entrySkill: entrySkill.optional() });
+const V1PhaseSchema = z.strictObject({
+  model: model.optional(),
+  effort: effort.optional(),
+  entrySkill: entrySkill.optional(),
+});
 
 const ManifestV1Schema = z.strictObject({
   version: z.literal(1),
@@ -51,6 +58,7 @@ const WorkflowSchema = z.strictObject({
         id: z.string().regex(PHASE_ID_PATTERN),
         gate: z.enum(PhaseGate),
         model: model.optional(),
+        effort: effort.optional(),
         entrySkill,
       }),
     )
@@ -69,6 +77,7 @@ export interface WorkflowPhase {
   id: string;
   gate: PhaseGate;
   model?: string;
+  effort?: PhaseEffort;
   /** Absent only in the default workflow, whose phases then run the built-in prompts. */
   entrySkill?: string;
 }
@@ -169,10 +178,11 @@ export function workflowShape(workflow: ResolvedWorkflow): WorkflowShape {
     title: workflow.title,
     repositories: workflow.repositories,
     delivery: workflow.delivery,
-    phases: workflow.phases.map(({ id, gate, model: phaseModel }) => ({
+    phases: workflow.phases.map(({ id, gate, model: phaseModel, effort: phaseEffort }) => ({
       id,
       gate,
       ...(phaseModel ? { model: phaseModel } : {}),
+      ...(phaseEffort ? { effort: phaseEffort } : {}),
     })),
   };
 }

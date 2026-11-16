@@ -24,7 +24,7 @@ const review = {
   plugins: [{ path: '/opt/acme/plugins/review' }],
   phases: [
     { id: 'review', gate: 'acceptance', entrySkill: 'review:review' },
-    { id: 'record', gate: 'none', entrySkill: 'review:record', model: 'claude-sonnet-5-5' },
+    { id: 'record', gate: 'none', entrySkill: 'review:record', model: 'claude-sonnet-5-5', effort: 'low' },
   ],
 };
 
@@ -40,7 +40,7 @@ describe('resolveManifest', () => {
       version: 1,
       plugins: [{ path: '/opt/acme/plugins/acme-agent-run' }],
       tools: { jira: ['read'] },
-      phases: { scope: { model: 'claude-opus-5-5', entrySkill: 'acme-agent-run:scope' } },
+      phases: { scope: { model: 'claude-opus-5-5', effort: 'high', entrySkill: 'acme-agent-run:scope' } },
     });
     expect(resolveManifest(manifest, DEFAULT_PLUGIN)).toEqual({
       workflows: [
@@ -48,7 +48,13 @@ describe('resolveManifest', () => {
           plugins: [{ path: '/opt/acme/plugins/acme-agent-run' }],
           tools: { jira: ['read'] },
           phases: [
-            { id: 'scope', gate: 'acceptance', model: 'claude-opus-5-5', entrySkill: 'acme-agent-run:scope' },
+            {
+              id: 'scope',
+              gate: 'acceptance',
+              model: 'claude-opus-5-5',
+              effort: 'high',
+              entrySkill: 'acme-agent-run:scope',
+            },
             { id: 'implement', gate: 'none' },
           ],
         }),
@@ -79,6 +85,7 @@ describe('resolveManifest', () => {
     ['a phase without an entry skill', v2({ x: { ...review, phases: [{ id: 'record', gate: 'none' }] } })],
     ['pull requests without repositories', v2({ x: { ...review, delivery: 'pull-request' } })],
     ['a workflow id with capitals', v2({ Review: review })],
+    ['an unknown effort', v2({ x: { ...review, phases: [{ ...review.phases[1], effort: 'extreme' }] } })],
   ])('rejects %s', (_case, text) => {
     expect(() => resolveManifest(text, DEFAULT_PLUGIN)).toThrow(/manifest/i);
   });

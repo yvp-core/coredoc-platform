@@ -141,7 +141,9 @@ export function runnerVersionsText(versions: RunnerTokenStatus['versions']): str
     .map(([name, value]) => `${name === 'claudeCode' ? 'claude code' : name} ${value}`);
   if (manifest) {
     const workflows = (manifest.workflows ?? []).map(({ id, phases }) => {
-      const models = phases.filter((phase) => phase.model).map((phase) => `${phase.id} ${phase.model}`);
+      const models = phases
+        .filter((phase) => phase.model || phase.effort)
+        .map((phase) => [phase.id, phase.model, phase.effort].filter(Boolean).join(' '));
       return models.length > 0 ? `${id} (${models.join(', ')})` : id;
     });
     const plugins = manifest.plugins.map(({ name, version }) => (version ? `${name} ${version}` : name));

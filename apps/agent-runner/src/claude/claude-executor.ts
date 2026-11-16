@@ -652,6 +652,7 @@ export class ClaudeExecutor implements TurnExecutor {
       cwd: paths.work,
       ...(resume ? { resume: turn.run.sessionId } : { sessionId: turn.run.sessionId }),
       ...(model ? { model } : {}),
+      ...(phase.effort ? { effort: phase.effort } : {}),
       env: sessionEnvironment({
         hostEnv: this.options.hostEnv,
         paths,
