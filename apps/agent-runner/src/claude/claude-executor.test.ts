@@ -492,7 +492,7 @@ describe('Claude executor in the runner loop', () => {
         version: 1,
         plugins: [{ path: PLUGIN }, { path: ACME_PLUGIN }],
         tools: { jira: ['read'] },
-        phases: { scope: { model: 'claude-opus-5-5', entrySkill: 'acme-agent-run:scope' } },
+        phases: { scope: { model: 'claude-opus-5-5', effort: 'high', entrySkill: 'acme-agent-run:scope' } },
       }),
       PLUGIN,
     );
@@ -509,10 +509,11 @@ describe('Claude executor in the runner loop', () => {
       const { done, seen } = runTurn(turn, { propose: [proposal] });
       await expect(done).resolves.toBe('completed');
       expect(seen[0]!.options).toMatchObject({ model: 'claude-workspace', plugins: [{ type: 'local', path: PLUGIN }] });
+      expect(seen[0]!.options).not.toHaveProperty('effort');
       expect(Object.keys(seen[0]!.options.mcpServers!).sort()).toEqual(['agent_run', 'coredoc']);
     });
 
-    it('with a manifest, uses its phase model and plugins and adds the Jira toolset over the turn token', async () => {
+    it('with a manifest, uses its phase model, effort and plugins and adds the Jira toolset over the turn token', async () => {
       const turn = assignment({ run: { ...assignment().run, model: 'claude-workspace' } });
       const { done, seen } = runTurn(
         turn,
@@ -522,6 +523,7 @@ describe('Claude executor in the runner loop', () => {
       await expect(done).resolves.toBe('completed');
       expect(seen[0]!.options).toMatchObject({
         model: 'claude-opus-5-5',
+        effort: 'high',
         plugins: [
           { type: 'local', path: PLUGIN },
           { type: 'local', path: ACME_PLUGIN },

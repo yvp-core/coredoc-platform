@@ -18,6 +18,7 @@ export interface WorkflowPhase {
   /** `acceptance`: the phase ends with a proposal a person accepts or sends back. */
   gate: 'acceptance' | 'none';
   model?: string;
+  effort?: string;
 }
 
 /** The workflow a run started with. */

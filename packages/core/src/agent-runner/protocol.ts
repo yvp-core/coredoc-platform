@@ -45,6 +45,10 @@ export enum PhaseGate {
 }
 
 export const MAX_WORKFLOWS = 20;
+
+/** How much reasoning a phase's session spends; absent means Claude Code's default for the model. */
+export const PHASE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type PhaseEffort = (typeof PHASE_EFFORTS)[number];
 /** The width of `cloud_agent_run_turns.kind` and `cloud_agent_runs.phase`. */
 export const PHASE_ID_PATTERN = /^[a-z][a-z0-9-]{0,15}$/;
 export const WORKFLOW_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
@@ -64,6 +68,7 @@ export const WorkflowShapeSchema = z.object({
         id: z.string().regex(PHASE_ID_PATTERN),
         gate: z.enum(PhaseGate),
         model: z.string().max(100).optional(),
+        effort: z.enum(PHASE_EFFORTS).optional(),
       }),
     )
     .min(1)
