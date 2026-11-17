@@ -27,7 +27,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Segmented } from '@/components/ui/segmented';
 import { Select } from '@/components/ui/select';
-import { runnerRefusalText, runnerVersionsText } from '@/features/agent-runs/agent-run-presentation';
+import {
+  runnerRefusalText,
+  runnerVersionsText,
+  subscriptionKeyText,
+} from '@/features/agent-runs/agent-run-presentation';
 import type {
   AgentRunSettings,
   AvailabilityReason,
@@ -73,6 +77,14 @@ function RunnerTokenRow({
           <span>
             {token.lastAction} {formatRelativeTime(token.lastSeenAt)}
             {versions && <span className="block text-[12px] text-ink-4">{versions}</span>}
+            {token.versions?.subscriptionKeys?.map((key) => (
+              <span
+                key={key.label}
+                className={`block text-[12px] ${key.exhaustedUntil ? 'text-danger-text' : key.active ? 'text-ink-1' : 'text-ink-4'}`}
+              >
+                {subscriptionKeyText(key)}
+              </span>
+            ))}
           </span>
         ) : (
           <span className="text-ink-4">Never connected</span>

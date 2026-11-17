@@ -274,6 +274,22 @@ export interface AgentRunEventPage {
 
 type RunnerRefusal = 'creator_not_admin' | 'runner_incompatible' | 'startup_check_failed';
 
+interface UsageWindow {
+  /** Percent of the window used. */
+  utilization: number | null;
+  resetsAt: string | null;
+}
+
+/** A development runner's Claude subscription key, by label. */
+export interface SubscriptionKeyStatus {
+  label: string;
+  active: boolean;
+  exhaustedUntil: string | null;
+  fiveHour: UsageWindow | null;
+  sevenDay: UsageWindow | null;
+  checkedAt: string | null;
+}
+
 export interface RunnerTokenStatus {
   id: string;
   name: string;
@@ -289,6 +305,7 @@ export interface RunnerTokenStatus {
     sdk?: string;
     claudeCode?: string;
     plugin?: string;
+    subscriptionKeys?: SubscriptionKeyStatus[];
     manifest?: {
       digest?: string;
       plugins: Array<{ name: string; version?: string }>;

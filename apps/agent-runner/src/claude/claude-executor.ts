@@ -43,11 +43,25 @@ import { RUN_CONTROL_SERVER, type RunControlState, runControlServer } from './ru
 import { sessionEnvironment } from './session-environment.js';
 import { SessionEvents } from './session-events.js';
 import { extractStateArchive, packStateArchive } from './state-archive.js';
+import {
+  epochMs,
+  type PlanUsage,
+  type SubscriptionKey,
+  type SubscriptionKeys,
+  usageLimitReached,
+} from './subscription-keys.js';
 import { DENIED_TOOLS, evaluateToolUse } from './tool-policy.js';
 import { createTurnDirectories, sessionExists, type TurnPaths, turnPaths, wipeScratch } from './turn-paths.js';
 
 /** The session's input stays open until `open` settles; until then the session can reach the runner. */
-export type QueryFn = (params: { prompt: string; open: Promise<void>; options: Options }) => AsyncIterable<SDKMessage>;
+export type QueryFn = (params: {
+  prompt: string;
+  open: Promise<void>;
+  options: Options;
+}) => AsyncIterable<SDKMessage> & {
+  /** The plan's usage windows, read while the session is open; null when the credential has none. */
+  planUsage?: () => Promise<PlanUsage | null>;
+};
 
 /**
  * The prompt as an input stream that closes when `open` settles. Given a plain string the SDK closes the
@@ -87,6 +101,8 @@ export interface ClaudeExecutorOptions extends BotGithubOptions {
   scannerPluginPath: string;
   modelApiKey: string;
   modelCredentialKind?: 'api_key' | 'subscription';
+  /** Development only: the subscription tokens to rotate through; `modelApiKey` is then unused. */
+  subscriptionKeys?: SubscriptionKeys;
   modelBaseUrl?: string;
   hostEnv: NodeJS.ProcessEnv;
   packageRegistries?: PackageRegistry[];
@@ -106,7 +122,12 @@ interface SessionOutcome {
   failure: SessionFailure | null;
   result: Extract<SDKMessage, { type: 'result' }> | null;
   checkpoint: boolean;
+  /** The subscription key reached its limit and another one is free: continue the session with it. */
+  rotate?: boolean;
 }
+
+const PLAN_USAGE_TIMEOUT_MS = 5_000;
+const KEY_ROTATED = 'Continue where you stopped.';
 
 /** Shared by every session invocation in the same turn. */
 interface SessionLimits {
@@ -410,6 +431,7 @@ export class ClaudeExecutor implements TurnExecutor {
     return { spend, outcome: archived ?? { kind: checkpoint ? 'checkpoint' : 'ended' }, lastMessage };
   }
 
+  /** One session, continued under the next subscription key each time the current one reaches its limit. */
   private async runSession(
     turn: TurnAssignment,
     io: TurnIO,
@@ -423,6 +445,44 @@ export class ClaudeExecutor implements TurnExecutor {
       budgetUsd: turn.run.remainingSpendUsd,
     },
   ): Promise<SessionOutcome> {
+    const keys = this.options.subscriptionKeys;
+    let previous: SessionOutcome | null = null;
+    for (;;) {
+      const key = keys?.current() ?? null;
+      if (keys && !key) {
+        return { failure: allKeysExhausted(keys), result: previous?.result ?? null, checkpoint: false };
+      }
+      const continuing = previous !== null && sessionExists(paths, turn.run.sessionId);
+      const outcome = await this.runSessionOnce(
+        turn,
+        io,
+        paths,
+        continuing ? KEY_ROTATED : prompt,
+        resume || continuing,
+        control,
+        questions,
+        limits,
+        key,
+      );
+      outcome.result ??= previous?.result ?? null;
+      if (!outcome.rotate) return outcome;
+      this.log(`subscription key ${key?.label} reached its limit; continuing with ${keys?.current()?.label}`);
+      previous = outcome;
+    }
+  }
+
+  private async runSessionOnce(
+    turn: TurnAssignment,
+    io: TurnIO,
+    paths: TurnPaths,
+    prompt: string,
+    resume: boolean,
+    control: RunControlState,
+    questions: QuestionBridge,
+    limits: SessionLimits,
+    key: SubscriptionKey | null,
+  ): Promise<SessionOutcome> {
+    const keys = this.options.subscriptionKeys;
     const abort = new AbortController();
     const stop = () => abort.abort();
     io.signal.addEventListener('abort', stop, { once: true });
@@ -469,8 +529,10 @@ export class ClaudeExecutor implements TurnExecutor {
       closeInput = resolve;
     });
     let backgroundTasks = 0;
+    // A rejected window alone is not a failure: extra usage may still carry the session.
+    let rejectedResetsAt: number | null | undefined;
     try {
-      for await (const message of this.options.query({
+      const stream = this.options.query({
         prompt,
         open,
         options: this.sessionOptions(
@@ -483,8 +545,16 @@ export class ClaudeExecutor implements TurnExecutor {
           abort,
           () => windDown,
           limits.budgetUsd,
+          key?.token ?? this.options.modelApiKey,
         ),
-      })) {
+      });
+      for await (const message of stream) {
+        if (keys && key && message.type === 'rate_limit_event') {
+          const info = message.rate_limit_info;
+          keys.recordRateLimit(key.label, info);
+          if (info.status === 'rejected')
+            rejectedResetsAt = info.resetsAt === undefined ? null : epochMs(info.resetsAt);
+        }
         if (message.type === 'system' && message.subtype === 'init') {
           const problem = this.initProblem(message, turn.run.sessionId, this.phase(turn).workflow);
           if (problem) {
@@ -503,12 +573,21 @@ export class ClaudeExecutor implements TurnExecutor {
           // The SDK turn cap is a runaway guard, not a failure: a checkpoint like the duration limit.
           if (message.subtype === 'error_max_turns') outcome.checkpoint = true;
           else if (!parked && message.terminal_reason === 'api_error') {
-            const failure = classifyModelFailure({
-              error: apiError,
-              status: message.subtype === 'success' ? message.api_error_status : undefined,
-              text: message.subtype === 'success' ? message.result : (message.errors ?? []).join('; '),
-            });
-            fail({ code: RunFailureCode.AgentError, ...failure });
+            const text = message.subtype === 'success' ? message.result : (message.errors ?? []).join('; ');
+            if (keys && key && (rejectedResetsAt !== undefined || usageLimitReached(text))) {
+              // Read before the key is set aside: the windows say when it resets if the stream did not.
+              await recordPlanUsage(keys, key.label, stream.planUsage);
+              keys.markExhausted(key.label, rejectedResetsAt ?? null);
+              if (keys.current()) outcome.rotate = true;
+              else fail(allKeysExhausted(keys));
+            } else {
+              const failure = classifyModelFailure({
+                error: apiError,
+                status: message.subtype === 'success' ? message.api_error_status : undefined,
+                text,
+              });
+              fail({ code: RunFailureCode.AgentError, ...failure });
+            }
           } else if (!parked && (message.subtype !== 'success' || message.is_error)) {
             const errors = 'errors' in message ? message.errors : [];
             fail({
@@ -519,22 +598,29 @@ export class ClaudeExecutor implements TurnExecutor {
         }
         const events = activity.eventsFor(message);
         if (message.type === 'result') {
+          if (keys && key && !outcome.rotate && !outcome.failure) {
+            await recordPlanUsage(keys, key.label, stream.planUsage);
+          }
           const waking =
             backgroundTasks > 0 &&
             windDown === null &&
             questions.state.parkedQuestion === null &&
             !outcome.failure &&
-            !outcome.checkpoint;
+            !outcome.checkpoint &&
+            !outcome.rotate;
           if (!waking) closeInput();
           // Calls the session ended without answering are reported before the session's end.
           events.push(...activity.flush());
-          events.push({
-            type: 'done',
-            ok: outcome.failure === null,
-            costUsd: spendOf(message, turn)?.costUsd,
-            numTurns: message.num_turns,
-            durationMs: message.duration_ms,
-          });
+          // A session continuing under another key is not done.
+          if (!outcome.rotate) {
+            events.push({
+              type: 'done',
+              ok: outcome.failure === null,
+              costUsd: spendOf(message, turn)?.costUsd,
+              numTurns: message.num_turns,
+              durationMs: message.duration_ms,
+            });
+          }
         }
         await io.emit(events);
       }
@@ -582,6 +668,7 @@ export class ClaudeExecutor implements TurnExecutor {
     abortController: AbortController,
     windDown: () => string | null,
     budgetUsd: number,
+    modelApiKey: string,
   ): Options {
     const { workflow, phase } = this.phase(turn);
     const model = phase.model ?? turn.run.model;
@@ -660,7 +747,7 @@ export class ClaudeExecutor implements TurnExecutor {
         hostEnv: this.options.hostEnv,
         paths,
         sessionId: turn.run.sessionId,
-        modelApiKey: this.options.modelApiKey,
+        modelApiKey,
         modelCredentialKind: this.options.modelCredentialKind,
         modelBaseUrl: this.options.modelBaseUrl,
         sessionEndHookTimeoutMs: SESSION_END_HOOK_TIMEOUT_MS,
@@ -746,6 +833,37 @@ function missingLimit(turn: TurnAssignment): TurnOutcome | null {
     };
   }
   return null;
+}
+
+function allKeysExhausted(keys: SubscriptionKeys): SessionFailure {
+  const resetsAt = keys.nextResetAt()?.toISOString();
+  return {
+    code: RunFailureCode.AgentError,
+    reason: `Every subscription key is at its usage limit${resetsAt ? `; the first resets at ${resetsAt}` : ''}.`,
+  };
+}
+
+/** Best effort: the SDK marks the call experimental, and a session at its limit may not answer it. */
+async function recordPlanUsage(
+  keys: SubscriptionKeys,
+  label: string,
+  planUsage: (() => Promise<PlanUsage | null>) | undefined,
+): Promise<void> {
+  if (!planUsage) return;
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const usage = await Promise.race([
+      planUsage(),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), PLAN_USAGE_TIMEOUT_MS);
+      }),
+    ]);
+    if (usage) keys.recordUsage(label, usage);
+  } catch {
+    // The stream's rate-limit events remain.
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function sessionFailureOutcome(failure: SessionFailure): TurnOutcome {

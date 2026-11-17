@@ -13,6 +13,7 @@ import {
   type RunnerEvent,
   RunnerStartupProblemCode,
   type RunnerVersions,
+  type SubscriptionKeyStatus,
   type SubmitResultRequest,
   type SubmitResultResponse,
   type TurnAssignment,
@@ -73,6 +74,8 @@ export interface RunnerOptions {
   api: RunnerApiClient;
   executor: TurnExecutor;
   versions: RunnerVersions;
+  /** A development runner's subscription keys as they stand now, sent with the versions. */
+  subscriptionKeys?: () => SubscriptionKeyStatus[];
   /** Every 20 s by default, well inside the 2-minute lease. */
   heartbeatIntervalMs?: number;
   idlePollMs?: number;
@@ -130,13 +133,19 @@ export class Runner {
   async runOnce(shutdown?: AbortSignal): Promise<TurnEnd> {
     const turn = await this.options.api.claim({
       protocolVersion: RUNNER_PROTOCOL_VERSION,
-      versions: this.versions,
+      versions: this.reportedVersions(),
     });
     if (!turn) return 'idle';
     this.log(
       `claimed ${turn.turn.kind} turn ${turn.turn.ordinal} of ${turn.run.issueKey} (attempt ${turn.turn.attempt})`,
     );
     return this.execute(turn, shutdown);
+  }
+
+  /** Claims and heartbeats are what settings show, so they carry the keys; a turn's own record does not. */
+  private reportedVersions(): RunnerVersions {
+    const subscriptionKeys = this.options.subscriptionKeys?.();
+    return subscriptionKeys ? { ...this.versions, subscriptionKeys } : this.versions;
   }
 
   async checkStartup(): Promise<boolean> {
@@ -224,7 +233,7 @@ export class Runner {
     shutdown?.addEventListener('abort', onShutdown, { once: true });
 
     const heartbeat = setInterval(() => {
-      this.options.api.heartbeat(ref, this.versions).then(
+      this.options.api.heartbeat(ref, this.reportedVersions()).then(
         (answer) => {
           ref.leaseExpiresAt = Date.parse(answer.leaseExpiresAt);
           if (answer.stop) stop('stopped');

@@ -21,6 +21,7 @@ import { bareRemote, pushAsPerson } from '../implement.test-support.js';
 import { RunnerApiClient } from '../runner-api.js';
 import { Runner } from '../runner.js';
 import { ClaudeExecutor, type QueryFn } from './claude-executor.js';
+import { SubscriptionKeys } from './subscription-keys.js';
 
 const PLUGIN = '/opt/coredoc-workflows';
 const VERSIONS = { runner: '1.1.0-test' };
@@ -1013,6 +1014,77 @@ describe('Claude executor in the runner loop', () => {
       expect(api.completions[0]!.body).toMatchObject({
         outcome: { kind: 'transient', reason: expect.stringContaining(failure.text) },
         spend: { costUsd: 0.3 },
+      });
+    });
+
+    describe('subscription keys on a development runner', () => {
+      const resetsAt = Math.floor(Date.now() / 1000) + 3600;
+      /** A key at its plan limit: the stream reports the rejected window, then the request fails. */
+      const atLimit = (sessionId: string) =>
+        (async function* () {
+          yield {
+            type: 'rate_limit_event',
+            rate_limit_info: { status: 'rejected', rateLimitType: 'five_hour', utilization: 1, resetsAt },
+            session_id: sessionId,
+          } as unknown as SDKMessage;
+          yield* apiFailure(
+            { error: 'rate_limit', status: 429, text: "You've hit your session limit · resets 3pm" },
+            sessionId,
+          );
+        })();
+      const runWithKeys = (keys: SubscriptionKeys) => {
+        const tokens: string[] = [];
+        const scripted = fakeQuery({ propose: [proposal] }, []);
+        const { done } = runTurn(
+          assignment(),
+          {},
+          {
+            modelCredentialKind: 'subscription',
+            subscriptionKeys: keys,
+            query: (params) => {
+              const token = params.options.env!.CLAUDE_CODE_OAUTH_TOKEN!;
+              tokens.push(token);
+              return token === 'tok-a' ? atLimit(params.options.sessionId ?? params.options.resume!) : scripted(params);
+            },
+          },
+        );
+        return { done, tokens };
+      };
+
+      it('a key at its limit is set aside and the session continues under the next key', async () => {
+        const keys = new SubscriptionKeys([
+          { label: 'a', token: 'tok-a' },
+          { label: 'b', token: 'tok-b' },
+        ]);
+        const { done, tokens } = runWithKeys(keys);
+
+        await expect(done).resolves.toBe('completed');
+        expect(tokens).toEqual(['tok-a', 'tok-b']);
+        expect(api.proposals).toEqual([expect.objectContaining({ title: 'Order exports' })]);
+        expect(api.completions[0]!.body).toMatchObject({ outcome: { kind: 'ended' } });
+        expect(keys.report()).toMatchObject([
+          {
+            label: 'a',
+            active: false,
+            exhaustedUntil: new Date(resetsAt * 1000).toISOString(),
+            fiveHour: { utilization: 100 },
+          },
+          { label: 'b', active: true, exhaustedUntil: null },
+        ]);
+      });
+
+      it('with every key at its limit the run fails and says when the first key resets', async () => {
+        const { done, tokens } = runWithKeys(new SubscriptionKeys([{ label: 'a', token: 'tok-a' }]));
+
+        await expect(done).resolves.toBe('completed');
+        expect(tokens).toEqual(['tok-a']);
+        expect(api.completions[0]!.body).toMatchObject({
+          outcome: {
+            kind: 'failed',
+            code: RunFailureCode.AgentError,
+            reason: `Every subscription key is at its usage limit; the first resets at ${new Date(resetsAt * 1000).toISOString()}.`,
+          },
+        });
       });
     });
 

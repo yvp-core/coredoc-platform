@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { ClaudeExecutor, heldOpen } from './claude/claude-executor.js';
 import { checkClaudeStartup, checkRunnerStartup } from './claude/startup-check.js';
+import { parseSubscriptionKeys, planUsageOf, SubscriptionKeys } from './claude/subscription-keys.js';
 import { GithubApi } from './github/github-api.js';
 import { type LoadedManifest, loadManifest } from './manifest.js';
 import { type PackageRegistry, packageRegistries } from './package-registries.js';
@@ -14,16 +15,18 @@ import { RunnerApiClient } from './runner-api.js';
 import { Runner, type StartupProblem, type StartupReport } from './runner.js';
 import { RunnerStartupProblemCode, resolveManifest } from '@coredoc/core/agent-runner';
 
-// Local development only (set by the dev compose service): a Claude subscription token instead of an API key.
-const DEV_SUBSCRIPTION =
-  process.env.COREDOC_RUNNER_DEV_SUBSCRIPTION === '1' && Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim());
+// Local development only (set by the dev compose service): Claude subscription tokens instead of an API key,
+// one token or several as `label:token,label:token`.
+const SUBSCRIPTION_TOKENS =
+  process.env.CLAUDE_CODE_OAUTH_TOKENS?.trim() || process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim() || '';
+const DEV_SUBSCRIPTION = process.env.COREDOC_RUNNER_DEV_SUBSCRIPTION === '1' && SUBSCRIPTION_TOKENS !== '';
 const REQUIRED = [
   'COREDOC_API_URL',
   'COREDOC_WORKSPACE_ID',
   'COREDOC_RUNNER_TOKEN',
-  DEV_SUBSCRIPTION ? 'CLAUDE_CODE_OAUTH_TOKEN' : 'ANTHROPIC_API_KEY',
   'COREDOC_GITHUB_TOKEN',
   'COREDOC_GIT_AUTHOR_EMAIL',
+  ...(DEV_SUBSCRIPTION ? [] : (['ANTHROPIC_API_KEY'] as const)),
 ] as const;
 const NOT_CONFIGURED_REMINDER_MS = 5 * 60_000;
 
@@ -87,11 +90,11 @@ if (missing.length > 0) {
   const { versions: checked, problem }: StartupReport = manifestProblem
     ? { versions, problem: manifestProblem }
     : await checkClaudeStartup(claudeCheck);
-  const mask = secretMasker(
-    ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'COREDOC_GITHUB_TOKEN', 'COREDOC_RUNNER_TOKEN'].map((name) =>
-      process.env[name]?.trim(),
-    ),
-  );
+  const mask = secretMasker([
+    ...['ANTHROPIC_API_KEY', 'COREDOC_GITHUB_TOKEN', 'COREDOC_RUNNER_TOKEN'].map((name) => process.env[name]?.trim()),
+    // Each entry's token, with or without a label before it.
+    ...SUBSCRIPTION_TOKENS.split(',').map((entry) => entry.slice(entry.indexOf(':') + 1).trim()),
+  ]);
   log(
     problem
       ? `Claude Code check failed (${problem.code})${problem.detail ? `: ${mask(problem.detail.trim())}` : ''}`
@@ -108,10 +111,12 @@ const botToken = required('COREDOC_GITHUB_TOKEN');
 // A GitHub Enterprise Server's is `https://<host>/api/v3`.
 const githubApiUrl = process.env.COREDOC_GITHUB_API_URL?.trim() || 'https://api.github.com';
 const runnerToken = required('COREDOC_RUNNER_TOKEN');
-const modelApiKey = required(DEV_SUBSCRIPTION ? 'CLAUDE_CODE_OAUTH_TOKEN' : 'ANTHROPIC_API_KEY');
+const subscriptionTokens = DEV_SUBSCRIPTION ? parseSubscriptionKeys(SUBSCRIPTION_TOKENS) : [];
+const subscriptionKeys = DEV_SUBSCRIPTION ? new SubscriptionKeys(subscriptionTokens) : undefined;
+const modelApiKey = DEV_SUBSCRIPTION ? '' : required('ANTHROPIC_API_KEY');
 if (DEV_SUBSCRIPTION)
   log(
-    'development mode: using a Claude subscription token instead of an API key; never use this outside local testing',
+    `development mode: using ${subscriptionTokens.length} Claude subscription token(s) (${subscriptionTokens.map((key) => key.label).join(', ')}) instead of an API key; never use this outside local testing`,
   );
 let registries: PackageRegistry[] = [];
 // Reported through the start-up check, so settings show it; the runner claims nothing until it is fixed.
@@ -132,13 +137,20 @@ const runner = new Runner({
   ...(Number.isFinite(pollSeconds) && pollSeconds >= 1 ? { idlePollMs: pollSeconds * 1000 } : {}),
   once: process.env.COREDOC_RUNNER_ONCE === '1',
   executor: new ClaudeExecutor({
-    query: ({ prompt, open, options }) => query({ prompt: heldOpen(prompt, open), options }),
+    query: ({ prompt, open, options }) => {
+      const session = query({ prompt: heldOpen(prompt, open), options });
+      return Object.assign(session, {
+        planUsage: async () =>
+          planUsageOf(await session.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true })),
+      });
+    },
     api,
     scratchRoot,
     manifest: loaded.manifest,
     scannerPluginPath: pluginPath,
     modelApiKey,
     modelCredentialKind: DEV_SUBSCRIPTION ? 'subscription' : 'api_key',
+    subscriptionKeys,
     modelBaseUrl: process.env.ANTHROPIC_BASE_URL?.trim() || undefined,
     // A fine-grained token with the Write role only; commits use the bot's no-reply address.
     bot: {
@@ -151,7 +163,14 @@ const runner = new Runner({
     log,
   }),
   versions,
-  secrets: [modelApiKey, botToken, runnerToken, ...registries.map((registry) => registry.token ?? '')],
+  subscriptionKeys: subscriptionKeys && (() => subscriptionKeys.report()),
+  secrets: [
+    modelApiKey,
+    ...subscriptionTokens.map((key) => key.token),
+    botToken,
+    runnerToken,
+    ...registries.map((registry) => registry.token ?? ''),
+  ],
   startupCheck: async () =>
     manifestProblem
       ? { versions, problem: manifestProblem }

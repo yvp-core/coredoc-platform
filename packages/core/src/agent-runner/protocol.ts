@@ -190,11 +190,30 @@ export const AssignedRepositorySchema = z.object({
 });
 export type AssignedRepository = z.infer<typeof AssignedRepositorySchema>;
 
+const UsageWindowSchema = z
+  .object({ utilization: z.number().min(0).max(100).nullable(), resetsAt: z.iso.datetime().nullable() })
+  .nullable();
+
+/** A development runner's Claude subscription keys by label, never the tokens. */
+export const SubscriptionKeyStatusSchema = z.object({
+  label: z.string().min(1).max(40),
+  active: z.boolean(),
+  /** Set while the key is at a limit: the runner uses another key until then. */
+  exhaustedUntil: z.iso.datetime().nullable(),
+  fiveHour: UsageWindowSchema,
+  sevenDay: UsageWindowSchema,
+  checkedAt: z.iso.datetime().nullable(),
+});
+export type SubscriptionKeyStatus = z.infer<typeof SubscriptionKeyStatusSchema>;
+export const MAX_SUBSCRIPTION_KEYS = 20;
+
 export const RunnerVersionsSchema = z.object({
   runner: versionString,
   sdk: versionString.optional(),
   claudeCode: versionString.optional(),
   plugin: versionString.optional(),
+  /** Carried here because the server already keeps and shows this object per runner token. */
+  subscriptionKeys: z.array(SubscriptionKeyStatusSchema).max(MAX_SUBSCRIPTION_KEYS).optional(),
   /** The effective runner manifest: what actually ran, for the run page. */
   manifest: z
     .object({
