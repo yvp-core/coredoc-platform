@@ -21,6 +21,7 @@ import { bareRemote, pushAsPerson } from '../implement.test-support.js';
 import { RunnerApiClient } from '../runner-api.js';
 import { Runner } from '../runner.js';
 import { ClaudeExecutor, type QueryFn } from './claude-executor.js';
+import { SubscriptionKeys } from './subscription-keys.js';
 
 const PLUGIN = '/opt/coredoc-workflows';
 const VERSIONS = { runner: '1.1.0-test' };
@@ -1013,6 +1014,86 @@ describe('Claude executor in the runner loop', () => {
       expect(api.completions[0]!.body).toMatchObject({
         outcome: { kind: 'transient', reason: expect.stringContaining(failure.text) },
         spend: { costUsd: 0.3 },
+      });
+    });
+
+    describe('subscription keys on a development runner', () => {
+      const resetsAt = Math.floor(Date.now() / 1000) + 3600;
+      /** A key at its plan limit: the session starts its transcript, the stream reports the rejected window, then the request fails. */
+      const atLimit = ({ prompt, options }: Parameters<QueryFn>[0]) =>
+        (async function* () {
+          const sessionId = options.sessionId ?? options.resume!;
+          const project = join(options.env!.CLAUDE_CONFIG_DIR!, 'projects', 'work');
+          await mkdir(project, { recursive: true });
+          await writeFile(join(project, `${sessionId}.jsonl`), `{"prompt":${JSON.stringify(prompt)}}\n`);
+          yield {
+            type: 'rate_limit_event',
+            rate_limit_info: { status: 'rejected', rateLimitType: 'five_hour', utilization: 1, resetsAt },
+            session_id: sessionId,
+          } as unknown as SDKMessage;
+          yield* apiFailure(
+            { error: 'rate_limit', status: 429, text: "You've hit your session limit · resets 3pm" },
+            sessionId,
+          );
+        })();
+      const runWithKeys = (keys: SubscriptionKeys) => {
+        const sessions: Array<{ token: string; prompt: string; sessionId?: string; resume?: string }> = [];
+        const scripted = fakeQuery({ propose: [proposal] }, []);
+        const { done } = runTurn(
+          assignment(),
+          {},
+          {
+            modelCredentialKind: 'subscription',
+            subscriptionKeys: keys,
+            query: (params) => {
+              const token = params.options.env!.CLAUDE_CODE_OAUTH_TOKEN!;
+              const { sessionId, resume } = params.options;
+              sessions.push({ token, prompt: params.prompt, sessionId, resume });
+              return token === 'tok-a' ? atLimit(params) : scripted(params);
+            },
+          },
+        );
+        return { done, sessions };
+      };
+
+      it('a key at its limit is set aside and the session continues under the next key', async () => {
+        const keys = new SubscriptionKeys([
+          { label: 'a', token: 'tok-a' },
+          { label: 'b', token: 'tok-b' },
+        ]);
+        const { done, sessions } = runWithKeys(keys);
+
+        await expect(done).resolves.toBe('completed');
+        expect(sessions).toMatchObject([
+          { token: 'tok-a', resume: undefined },
+          { token: 'tok-b', prompt: 'Continue where you stopped.', resume: sessions[0]!.sessionId },
+        ]);
+        expect(sessions[0]!.sessionId).toBeTruthy();
+        expect(api.proposals).toEqual([expect.objectContaining({ title: 'Order exports' })]);
+        expect(api.completions[0]!.body).toMatchObject({ outcome: { kind: 'ended' } });
+        expect(keys.report()).toMatchObject([
+          {
+            label: 'a',
+            active: false,
+            exhaustedUntil: new Date(resetsAt * 1000).toISOString(),
+            fiveHour: { utilization: 100 },
+          },
+          { label: 'b', active: true, exhaustedUntil: null },
+        ]);
+      });
+
+      it('with every key at its limit the run fails and says when the first key resets', async () => {
+        const { done, sessions } = runWithKeys(new SubscriptionKeys([{ label: 'a', token: 'tok-a' }]));
+
+        await expect(done).resolves.toBe('completed');
+        expect(sessions.map(({ token }) => token)).toEqual(['tok-a']);
+        expect(api.completions[0]!.body).toMatchObject({
+          outcome: {
+            kind: 'failed',
+            code: RunFailureCode.AgentError,
+            reason: `Every subscription key is at its usage limit; the first resets at ${new Date(resetsAt * 1000).toISOString()}.`,
+          },
+        });
       });
     });
 

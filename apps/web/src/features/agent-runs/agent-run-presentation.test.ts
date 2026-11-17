@@ -4,6 +4,7 @@ import {
   pollInterval,
   runnerVersionsText,
   spendText,
+  subscriptionKeyText,
   waitingForRunnerSince,
 } from './agent-run-presentation.js';
 import type { AgentRun, AgentRunEvent } from './types.js';
@@ -105,5 +106,46 @@ describe('runnerVersionsText', () => {
     expect(runnerVersionsText({ runner: '1.8.0', manifest: { plugins: [{ name: 'day-agent-run' }] } })).toBe(
       'runner 1.8.0 · plugins: day-agent-run',
     );
+  });
+
+  it('leaves the subscription keys to their own lines', () => {
+    const key = { label: 'a', active: true, exhaustedUntil: null, fiveHour: null, sevenDay: null, checkedAt: null };
+    expect(runnerVersionsText({ runner: '1.9.0', subscriptionKeys: [key] })).toBe('runner 1.9.0');
+  });
+});
+
+describe('subscriptionKeyText', () => {
+  const now = new Date('2026-11-17T12:00:00.000Z');
+
+  it('shows the key in use with both windows and when each resets', () => {
+    expect(
+      subscriptionKeyText(
+        {
+          label: 'alice',
+          active: true,
+          exhaustedUntil: null,
+          fiveHour: { utilization: 41.6, resetsAt: '2026-11-17T14:00:00.000Z' },
+          sevenDay: { utilization: 17, resetsAt: '2026-11-20T12:00:00.000Z' },
+          checkedAt: '2026-11-17T11:55:00.000Z',
+        },
+        now,
+      ),
+    ).toBe('alice · in use · 5 h 42% (resets in 2 hours) · week 17% (resets in 3 days) · read 5 minutes ago');
+  });
+
+  it('shows a key at its limit with the time it comes back, and windows the runner has not read', () => {
+    expect(
+      subscriptionKeyText(
+        {
+          label: 'bob',
+          active: false,
+          exhaustedUntil: '2026-11-17T15:00:00.000Z',
+          fiveHour: { utilization: 100, resetsAt: '2026-11-17T15:00:00.000Z' },
+          sevenDay: null,
+          checkedAt: null,
+        },
+        now,
+      ),
+    ).toBe('bob · at its limit, back in 3 hours · 5 h 100% (resets in 3 hours) · week — · not read yet');
   });
 });

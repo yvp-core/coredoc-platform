@@ -2,7 +2,15 @@
  * Kept free of React so polling and merging are table-tested without timers. Payloads are
  * free-form on the wire, so nothing here may throw on a shape it does not recognise.
  */
-import type { AgentRun, AgentRunEvent, RunnerTokenStatus, RunStatus, RunWorkflow } from './types.js';
+import { formatRelativeTime } from '@/lib/time';
+import type {
+  AgentRun,
+  AgentRunEvent,
+  RunnerTokenStatus,
+  RunStatus,
+  RunWorkflow,
+  SubscriptionKeyStatus,
+} from './types.js';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -135,7 +143,7 @@ export function runnerRefusalText(token: Pick<RunnerTokenStatus, 'refusal' | 're
 
 export function runnerVersionsText(versions: RunnerTokenStatus['versions']): string | null {
   if (!versions) return null;
-  const { manifest, ...tools } = versions;
+  const { manifest, subscriptionKeys: _keys, ...tools } = versions;
   const parts = Object.entries(tools)
     .filter(([, value]) => Boolean(value))
     .map(([name, value]) => `${name === 'claudeCode' ? 'claude code' : name} ${value}`);
@@ -151,4 +159,30 @@ export function runnerVersionsText(versions: RunnerTokenStatus['versions']): str
     if (plugins.length > 0) parts.push(`plugins: ${plugins.join(', ')}`);
   }
   return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+function usageWindowText(name: string, window: SubscriptionKeyStatus['fiveHour'], now: Date): string {
+  if (!window || window.utilization === null) return `${name} —`;
+  const used = `${name} ${Math.round(window.utilization)}%`;
+  // A window whose reset has passed has started over; the runner has not read it since.
+  return window.resetsAt && new Date(window.resetsAt) > now
+    ? `${used} (resets ${formatRelativeTime(window.resetsAt, now)})`
+    : used;
+}
+
+/** One line per subscription key: its state, then the 5-hour and weekly windows as last read by the runner. */
+export function subscriptionKeyText(key: SubscriptionKeyStatus, now: Date = new Date()): string {
+  const exhausted = key.exhaustedUntil !== null && new Date(key.exhaustedUntil) > now;
+  const state = exhausted
+    ? `at its limit, back ${formatRelativeTime(key.exhaustedUntil, now)}`
+    : key.active
+      ? 'in use'
+      : 'standby';
+  return [
+    key.label,
+    state,
+    usageWindowText('5 h', key.fiveHour, now),
+    usageWindowText('week', key.sevenDay, now),
+    key.checkedAt ? `read ${formatRelativeTime(key.checkedAt, now)}` : 'not read yet',
+  ].join(' · ');
 }
