@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DEFAULT_WORKFLOW_SHAPE,
   WORKFLOW_ID_PATTERN,
@@ -6,7 +6,9 @@ import {
   WorkflowShapeSchema,
 } from '@coredoc/core/agent-runner';
 import { z } from 'zod';
+import { CONNECTORS_CONFIG, type ConnectorsConfig, configFromEnv } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { agentGoogleFor } from '../../libs/google/agent-google.js';
 import { cloudAgentRunError, CloudAgentRunErrorCode } from './run-states.js';
 
 const ADMIN_ROLES = new Set(['admin', 'owner']);
@@ -47,7 +49,19 @@ function allowed(access: WorkflowAccess, actor: WorkflowActor): boolean {
 
 @Injectable()
 export class CloudAgentRunWorkflows {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional()
+    @Inject(CONNECTORS_CONFIG)
+    private readonly connectors: ConnectorsConfig = configFromEnv().connectors,
+  ) {}
+
+  /** Why the workflow cannot run in this workspace whoever starts it, or null. */
+  private unavailable(workspaceId: string, shape: WorkflowShape): string | null {
+    return shape.tools.google.length > 0 && !agentGoogleFor(this.connectors, workspaceId)
+      ? 'This workflow uses Google tools, and this server has no Google configuration for this workspace.'
+      : null;
+  }
 
   /**
    * What the workspace's runner tokens last advertised. Not limited to runners seen recently:
@@ -86,9 +100,9 @@ export class CloudAgentRunWorkflows {
         const access = accessOf(settings?.workflowAccess, shape.id);
         const reason = conflict
           ? 'Runners advertise different definitions of this workflow; roll every runner to one image.'
-          : allowed(access, actor)
-            ? null
-            : 'Your workspace access does not allow starting this workflow.';
+          : !allowed(access, actor)
+            ? 'Your workspace access does not allow starting this workflow.'
+            : this.unavailable(workspaceId, shape);
         return { ...shape, access, startable: reason === null, reason };
       }),
     };
@@ -112,6 +126,10 @@ export class CloudAgentRunWorkflows {
       );
     }
     await this.assertAllowed(workspaceId, workflowId, actor);
+    const unavailable = this.unavailable(workspaceId, advertised.shape);
+    if (unavailable) {
+      throw cloudAgentRunError(CloudAgentRunErrorCode.AgentRunsUnavailable, unavailable, HttpStatus.BAD_REQUEST);
+    }
     return advertised.shape;
   }
 
@@ -129,9 +147,10 @@ export class CloudAgentRunWorkflows {
     }
   }
 
-  /** For runs no person starts: the advertised shape, or null while it is unknown or conflicting. */
+  /** For runs no person starts: the advertised shape, or null while it is unknown, conflicting or unavailable here. */
   async shape(workspaceId: string, workflowId: string): Promise<WorkflowShape | null> {
     const advertised = (await this.advertised(workspaceId)).find(({ shape }) => shape.id === workflowId);
-    return advertised && !advertised.conflict ? advertised.shape : null;
+    if (!advertised || advertised.conflict || this.unavailable(workspaceId, advertised.shape)) return null;
+    return advertised.shape;
   }
 }

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { RetryDelay } from '@coredoc/core/agent-runner';
 import {
+  JiraApiError,
   JiraAuthError,
   type JiraClient,
   JiraNotFoundError,
@@ -158,6 +159,29 @@ export class CloudAgentRunIssueReader {
         const { key, summary, issueType, status } = toPrdIssue(issue);
         return { key, summary, issueType, status };
       });
+  }
+
+  /** Not retried: the calling agent sees the failure and may call again. */
+  async updateIssue(
+    workspaceId: string,
+    jiraIssueId: string,
+    change: { description?: unknown; addLabels?: string[] },
+  ): Promise<void> {
+    const connector = await this.connector(workspaceId);
+    try {
+      await connector.client.updateIssue(jiraIssueId, change);
+    } catch (error) {
+      if (isPermanent(error)) {
+        throw new JiraReadFailure(
+          RunFailureCode.IssueNotReadable,
+          'Jira refused the update: the issue is missing, the Jira connector may not edit it, or a value is not valid',
+        );
+      }
+      if (error instanceof JiraApiError || error instanceof JiraRateLimitError) {
+        throw new JiraReadFailure(RunFailureCode.JiraError, `Jira failed while the issue was being updated`);
+      }
+      throw error;
+    }
   }
 
   private async readIssue(connector: Connector, idOrKey: string, fields: string[]) {

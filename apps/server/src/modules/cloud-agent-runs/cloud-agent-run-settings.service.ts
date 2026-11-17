@@ -1,6 +1,8 @@
 import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/common';
+import { CONNECTORS_CONFIG, type ConnectorsConfig, configFromEnv } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { AgentRunSettings } from '../../generated/prisma/client.js';
+import { agentGoogleFor } from '../../libs/google/agent-google.js';
 import { AGENT_RUNNER_TOKEN_PERMISSIONS } from '../../auth/token-permissions.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
 import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
@@ -46,6 +48,9 @@ export class CloudAgentRunSettingsService {
     private readonly repositories: GithubRepositoryResolver,
     private readonly jira: CloudAgentRunJiraConnector,
     @Optional() @Inject(CLOUD_AGENT_RUNS_CLOCK) private readonly now: Clock = systemClock,
+    @Optional()
+    @Inject(CONNECTORS_CONFIG)
+    private readonly connectors: ConnectorsConfig = configFromEnv().connectors,
   ) {}
 
   async get(workspaceId: string): Promise<AgentRunSettings> {
@@ -121,6 +126,7 @@ export class CloudAgentRunSettingsService {
       ).map((member) => [member.userId, member]),
     );
     const owner = settings.runOwnerId ? members.get(settings.runOwnerId) : undefined;
+    const google = agentGoogleFor(this.connectors, workspaceId);
 
     return {
       enabled: settings.enabled,
@@ -148,6 +154,7 @@ export class CloudAgentRunSettingsService {
       maxRepositories: settings.maxRepositories,
       model: settings.model,
       workflowAccess: settings.workflowAccess,
+      google: { configured: google !== null, sharedDriveId: google?.sharedDriveId ?? null },
       availability: { available: availability.available, reasons: availability.reasons },
       trigger: availability.trigger,
       repositories: repositories

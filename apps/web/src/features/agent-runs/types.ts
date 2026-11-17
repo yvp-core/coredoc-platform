@@ -332,6 +332,7 @@ export interface AgentRunSettings {
   maxStartedRuns: number;
   maxRepositories: number;
   model: string | null;
+  google: { configured: boolean; sharedDriveId: string | null };
   /** A workflow left out is open to every member. */
   workflowAccess: Record<string, WorkflowAccess>;
   /** Start, re-run and promotion need this. */

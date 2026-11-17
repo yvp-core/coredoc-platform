@@ -199,8 +199,8 @@ describe('?toolset= on the MCP transports', () => {
 
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error: string; validToolsets: string[] };
-    expect(body.error).toMatch(/^Unknown toolset '.*'\. Valid values: intent, agent-jira\./);
-    expect(body.validToolsets).toEqual(['intent', 'agent-jira']);
+    expect(body.error).toMatch(/^Unknown toolset '.*'\. Valid values: /);
+    expect(body.validToolsets).toEqual(['intent', 'agent-jira', 'agent-google']);
   });
 });
 

@@ -490,6 +490,29 @@ describe('JiraClient reads for agent runs', () => {
 describe('JiraClient writes for agent runs', () => {
   const adf = { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }] };
 
+  it.each([
+    [
+      'a description and labels',
+      { description: adf, addLabels: ['contract', 'ready'] },
+      { fields: { description: adf }, update: { labels: [{ add: 'contract' }, { add: 'ready' }] } },
+    ],
+    [
+      'labels only, leaving the description alone',
+      { addLabels: ['ready'] },
+      { update: { labels: [{ add: 'ready' }] } },
+    ],
+    ['a description only, leaving the labels alone', { description: adf }, { fields: { description: adf } }],
+  ])('updates an issue with %s, adding labels rather than replacing them', async (_case, change, sent) => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(makeClient().updateIssue('10001', change)).resolves.toBeUndefined();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://acme.atlassian.net/rest/api/3/issue/10001');
+    expect(init.method).toBe('PUT');
+    expect(JSON.parse(init.body as string)).toEqual(sent);
+  });
+
   it('adds a comment with an ADF body and returns the id from the 201 body', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ id: '10500', body: adf }, { status: 201 }));
     vi.stubGlobal('fetch', fetchMock);

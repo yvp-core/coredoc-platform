@@ -4,6 +4,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ToolAccess } from '@coredoc/core/agent-runner';
 import { AuthService } from '../../auth/auth.service.js';
 import { STORAGE_CONFIG, configFromEnv } from '../../config/app-config.js';
 import { ControlPlaneService } from '../../database/control-plane.service.js';
@@ -19,7 +20,12 @@ import { CloudAgentRunTriggerCron } from './cloud-agent-run-trigger.cron.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE } from './cloud-agent-run-archive.store.js';
 import { cloudAgentRunsCoreProviders, CLOUD_AGENT_RUNS_CLOCK } from './cloud-agent-runs.module.js';
-import { advertiseWorkflows, InMemoryArchiveStore, setAgentRunsEnabled } from './cloud-agent-runs.test-support.js';
+import {
+  advertiseWorkflows,
+  DEFAULT_WORKFLOW,
+  InMemoryArchiveStore,
+  setAgentRunsEnabled,
+} from './cloud-agent-runs.test-support.js';
 
 const TEST_DATABASE_URL = process.env.CLOUD_AGENT_RUNS_TEST_DATABASE_URL ?? '';
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6)}`;
@@ -284,6 +290,20 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     await finish(started.id);
     await trigger();
     expect((await runs(id)).map((run) => run.issueKey).sort()).toEqual(['ORD-1', 'ORD-2']);
+  });
+
+  it('the label creates no run while the default workflow grants Google and the server has no Google for the workspace', async () => {
+    const { id, jira } = await workspace();
+    jira.issues = [{ id: '10001', key: 'ORD-1', labels: ['coredoc-agent'] }];
+    const granting = { ...DEFAULT_WORKFLOW, tools: { jira: [], google: [ToolAccess.Read, ToolAccess.Write] } };
+    await advertiseWorkflows(prisma, id, [granting]);
+
+    await trigger();
+    expect(await runs(id)).toEqual([]);
+
+    await advertiseWorkflows(prisma, id);
+    await trigger();
+    expect((await runs(id)).map((run) => run.issueKey)).toEqual(['ORD-1']);
   });
 
   it('no project keys means no search, the reason is in settings, and every manual start is refused', async () => {

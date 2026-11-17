@@ -84,7 +84,7 @@ function tools() {
     }),
     client: () => client,
   } as unknown as CloudAgentRunJiraConnector;
-  return { tools: new AgentJiraTools(new CloudAgentRunIssueReader(connector)), searches };
+  return { tools: new AgentJiraTools(new CloudAgentRunIssueReader(connector), {} as never), searches };
 }
 
 const agentTurn = (permissions = ['intent:read', 'jira:read']) =>

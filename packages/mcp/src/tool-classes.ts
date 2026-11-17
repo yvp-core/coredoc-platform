@@ -61,6 +61,21 @@ export const COREDOC_TOOL_CLASSES: Readonly<Record<string, ToolClass>> = {
   // Agent-run Jira reads, served only on the agent-jira toolset.
   jira_get_issue: ToolAccess.Read,
   jira_search: ToolAccess.Read,
+  // Agent-run Google reads, served only on the agent-google toolset.
+  get_file_metadata: ToolAccess.Read,
+  get_spreadsheet: ToolAccess.Read,
+  get_values: ToolAccess.Read,
+  read_doc: ToolAccess.Read,
+  read_file_content: ToolAccess.Read,
+  search_files: ToolAccess.Read,
+
+  // Agent-run writes to Google and to the run's own Jira issue.
+  append_values: ToolAccess.Write,
+  create_file: ToolAccess.Write,
+  jira_update_issue: ToolAccess.Write,
+  trash_file: ToolAccess.Write,
+  update_doc: ToolAccess.Write,
+  update_values: ToolAccess.Write,
 
   // State-changing.
   intent_propose: ToolAccess.Write,

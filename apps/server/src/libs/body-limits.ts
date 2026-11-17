@@ -49,8 +49,16 @@ export const INTENT_IMPORT_BODY_LIMIT = 24 * OneMB;
  */
 export const AGENT_STATE_ARCHIVE_BODY_LIMIT = MAX_STATE_ARCHIVE_BYTES + OneMB;
 
+/** The agent-google MCP toolset — `create_file` carries up to 1 MiB of text, which JSON escaping enlarges. */
+export const AGENT_GOOGLE_MCP_BODY_LIMIT = 3 * OneMB;
+
 // First match wins; unmatched routes get DEFAULT_BODY_LIMIT.
 const BODY_LIMITS: ReadonlyArray<{ re: RegExp; limit: number; method?: string }> = [
+  {
+    re: /^\/api\/v1\/workspaces\/[^/]+\/mcp\/?\?(?:[^#]*&)?toolset=agent-google(?:&|$)/,
+    limit: AGENT_GOOGLE_MCP_BODY_LIMIT,
+    method: 'POST',
+  },
   {
     re: /^\/api\/v1\/workspaces\/[^/]+\/agent-runner\/turns\/[^/]+\/archive\/?(?:\?.*)?$/,
     limit: AGENT_STATE_ARCHIVE_BODY_LIMIT,

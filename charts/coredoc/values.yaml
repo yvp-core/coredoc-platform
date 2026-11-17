@@ -72,6 +72,9 @@ auth:
   #   WORKOS_AUTHKIT_CLIENT_ID / WORKOS_API_KEY (workos invitation completion + workspace orgs)
   # Optional extra keys (loaded too, since envFrom loads every key):
   #   SERVER_ENCRYPTION_KEY                   (encrypts CI/service tokens)
+  #   AGENT_GOOGLE_SERVICE_ACCOUNT_KEY        (agent runs' Google tools: the service account's JSON key, one line)
+  #   AGENT_GOOGLE_SHARED_DRIVE_ID            (the one shared drive those tools are confined to)
+  #   AGENT_GOOGLE_WORKSPACE_ID               (the one workspace whose runs may use them; set all three or none)
   existingSecret: ""
   workos:
     # AuthKit domain, e.g. https://yourco.authkit.app. Required when

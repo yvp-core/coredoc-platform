@@ -245,6 +245,16 @@ function AvailabilitySection({ settings }: { settings: AgentRunSettings }) {
           <ReasonList reasons={availability.reasons} />
         </>
       )}
+      <p>
+        {settings.google.configured ? (
+          <>
+            Google documents are connected; shared drive{' '}
+            <span className="font-mono">{settings.google.sharedDriveId}</span>.
+          </>
+        ) : (
+          'Google documents are not configured on this server.'
+        )}
+      </p>
       {trigger.reasons.length > 0 ? (
         <>
           <p className="text-ink-2">The Jira trigger is idle:</p>

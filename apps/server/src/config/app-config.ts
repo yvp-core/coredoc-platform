@@ -129,6 +129,9 @@ const RawEnvSchema = z.object({
   // delivery connectors
   GITHUB_TOKEN: optionalString,
   GITLAB_TOKEN: optionalString,
+  AGENT_GOOGLE_SERVICE_ACCOUNT_KEY: optionalString,
+  AGENT_GOOGLE_SHARED_DRIVE_ID: optionalString,
+  AGENT_GOOGLE_WORKSPACE_ID: optionalString,
 
   // telemetry
   COREDOC_POSTHOG_KEY: optionalString,
@@ -302,9 +305,18 @@ export interface WorkersConfig {
   retention: RetentionConfig;
 }
 
+/** The service account agent runs reach Google with, the shared drive it is confined to and the workspace it serves. */
+export interface AgentGoogleConfig {
+  serviceAccount: { clientEmail: string; privateKey: string };
+  sharedDriveId: string;
+  workspaceId: string;
+}
+
 export interface ConnectorsConfig {
   githubToken?: string;
   gitlabToken?: string;
+  /** Unset unless all three `AGENT_GOOGLE_*` variables are set. */
+  agentGoogle?: AgentGoogleConfig;
 }
 
 export interface TelemetryConfig {
@@ -431,6 +443,38 @@ function toStorage(raw: z.infer<typeof RawEnvSchema>): StorageConfig {
   };
 }
 
+const AGENT_GOOGLE_VARIABLES = [
+  'AGENT_GOOGLE_SERVICE_ACCOUNT_KEY',
+  'AGENT_GOOGLE_SHARED_DRIVE_ID',
+  'AGENT_GOOGLE_WORKSPACE_ID',
+] as const;
+
+/** All three variables or none; a blank value counts as unset. The key's content never reaches an error line. */
+function toAgentGoogle(raw: z.infer<typeof RawEnvSchema>): { config?: AgentGoogleConfig; problems: string[] } {
+  const values = AGENT_GOOGLE_VARIABLES.map((name) => raw[name]?.trim() ?? '');
+  const [key, sharedDriveId, workspaceId] = values as [string, string, string];
+  const unset = AGENT_GOOGLE_VARIABLES.filter((_name, index) => !values[index]);
+  if (unset.length === AGENT_GOOGLE_VARIABLES.length) return { problems: [] };
+  if (unset.length > 0) {
+    return { problems: unset.map((name) => `${name}: required when another AGENT_GOOGLE_* variable is set`) };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(key);
+  } catch {
+    parsed = null;
+  }
+  const { client_email: clientEmail, private_key: privateKey } = (parsed ?? {}) as Record<string, unknown>;
+  if (typeof clientEmail !== 'string' || !clientEmail || typeof privateKey !== 'string' || !privateKey) {
+    return {
+      problems: [
+        'AGENT_GOOGLE_SERVICE_ACCOUNT_KEY: must be a service account JSON key with client_email and private_key',
+      ],
+    };
+  }
+  return { config: { serviceAccount: { clientEmail, privateKey }, sharedDriveId, workspaceId }, problems: [] };
+}
+
 /** Vars the API graph refuses to boot without. The worker graph needs none of them. */
 function apiRequirements(raw: z.infer<typeof RawEnvSchema>): string[] {
   const secret = raw.OAUTH_JWT_SECRET ?? '';
@@ -454,15 +498,16 @@ export function loadAppConfig(
     throw new AppConfigError(parsed.error.issues.map((issue) => `${issue.path.join('.') || 'env'}: ${issue.message}`));
   }
   const raw = parsed.data;
-  const missing = role === 'worker' ? [] : apiRequirements(raw);
-  if (missing.length > 0) throw new AppConfigError(missing);
+  const agentGoogle = toAgentGoogle(raw);
+  const problems = [...(role === 'worker' ? [] : apiRequirements(raw)), ...agentGoogle.problems];
+  if (problems.length > 0) throw new AppConfigError(problems);
 
   return {
     role,
     storage: toStorage(raw),
     auth: toAuth(raw),
     workers: toWorkers(raw),
-    connectors: { githubToken: raw.GITHUB_TOKEN, gitlabToken: raw.GITLAB_TOKEN },
+    connectors: { githubToken: raw.GITHUB_TOKEN, gitlabToken: raw.GITLAB_TOKEN, agentGoogle: agentGoogle.config },
     telemetry: { posthogKey: raw.COREDOC_POSTHOG_KEY, posthogHost: raw.COREDOC_POSTHOG_HOST },
     turso: { org: raw.TURSO_ORG, orgToken: raw.TURSO_ORG_TOKEN },
     misc: toMisc(raw),

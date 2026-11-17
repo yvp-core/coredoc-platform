@@ -44,6 +44,15 @@ describe('bodyLimitFor', () => {
     expect(bodyLimitFor('/api/v1/workspaces/ws_1/results/upload')).toBe(DEFAULT_BODY_LIMIT);
   });
 
+  it('lets an agent-google MCP call carry a 1 MiB file, and no other MCP connection', () => {
+    const mcp = '/api/v1/workspaces/ws_1/mcp';
+    const escapedMebibyte = Buffer.byteLength(JSON.stringify({ content: '"\n'.repeat(512 * 1024) }));
+    expect(bodyLimitFor(`${mcp}?toolset=agent-google`, 'POST')).toBeGreaterThan(escapedMebibyte);
+    expect(bodyLimitFor(mcp, 'POST')).toBe(DEFAULT_BODY_LIMIT);
+    expect(bodyLimitFor(`${mcp}?toolset=agent-jira`, 'POST')).toBe(DEFAULT_BODY_LIMIT);
+    expect(bodyLimitFor(`${mcp}-config?toolset=agent-google`, 'POST')).toBe(DEFAULT_BODY_LIMIT);
+  });
+
   it('keeps the small default ordered below the large limit', () => {
     expect(DEFAULT_BODY_LIMIT).toBeLessThan(MAPPER_BODY_LIMIT);
     expect(MAPPER_BODY_LIMIT).toBeLessThan(LARGE_UPLOAD_LIMIT);
