@@ -96,7 +96,7 @@ export class SubscriptionKeys {
   markExhausted(label: string, resetsAt: number | null): void {
     const state = this.states.get(label);
     if (!state) return;
-    const known = (resetsAt === null ? windowsAtLimit(state) : [resetsAt]).filter((at) => at > this.now());
+    const known = [...windowsAtLimit(state), ...(resetsAt === null ? [] : [resetsAt])].filter((at) => at > this.now());
     state.exhaustedUntil = known.length > 0 ? Math.max(...known) : this.now() + UNKNOWN_RESET_MS;
   }
 

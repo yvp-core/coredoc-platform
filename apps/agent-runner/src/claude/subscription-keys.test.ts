@@ -54,6 +54,16 @@ describe('SubscriptionKeys', () => {
     expect(pool.report()[0]).toMatchObject({ label: 'a', active: true, exhaustedUntil: null });
   });
 
+  it('keeps a key aside until its other full window resets too', () => {
+    const now = 1_000_000;
+    const pool = keys(() => now);
+    const weekly = new Date(now + 30 * HOUR).toISOString();
+    pool.recordUsage('a', { sevenDay: { utilization: 100, resetsAt: weekly } });
+    pool.markExhausted('a', now + HOUR);
+
+    expect(pool.report()[0]).toMatchObject({ label: 'a', exhaustedUntil: weekly });
+  });
+
   it('takes the reset time from the full window when the stream gave none, else waits an hour', () => {
     const now = 1_000_000;
     const pool = keys(() => now);

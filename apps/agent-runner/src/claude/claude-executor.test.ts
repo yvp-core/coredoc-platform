@@ -1019,9 +1019,13 @@ describe('Claude executor in the runner loop', () => {
 
     describe('subscription keys on a development runner', () => {
       const resetsAt = Math.floor(Date.now() / 1000) + 3600;
-      /** A key at its plan limit: the stream reports the rejected window, then the request fails. */
-      const atLimit = (sessionId: string) =>
+      /** A key at its plan limit: the session starts its transcript, the stream reports the rejected window, then the request fails. */
+      const atLimit = ({ prompt, options }: Parameters<QueryFn>[0]) =>
         (async function* () {
+          const sessionId = options.sessionId ?? options.resume!;
+          const project = join(options.env!.CLAUDE_CONFIG_DIR!, 'projects', 'work');
+          await mkdir(project, { recursive: true });
+          await writeFile(join(project, `${sessionId}.jsonl`), `{"prompt":${JSON.stringify(prompt)}}\n`);
           yield {
             type: 'rate_limit_event',
             rate_limit_info: { status: 'rejected', rateLimitType: 'five_hour', utilization: 1, resetsAt },
@@ -1033,7 +1037,7 @@ describe('Claude executor in the runner loop', () => {
           );
         })();
       const runWithKeys = (keys: SubscriptionKeys) => {
-        const tokens: string[] = [];
+        const sessions: Array<{ token: string; prompt: string; sessionId?: string; resume?: string }> = [];
         const scripted = fakeQuery({ propose: [proposal] }, []);
         const { done } = runTurn(
           assignment(),
@@ -1043,12 +1047,13 @@ describe('Claude executor in the runner loop', () => {
             subscriptionKeys: keys,
             query: (params) => {
               const token = params.options.env!.CLAUDE_CODE_OAUTH_TOKEN!;
-              tokens.push(token);
-              return token === 'tok-a' ? atLimit(params.options.sessionId ?? params.options.resume!) : scripted(params);
+              const { sessionId, resume } = params.options;
+              sessions.push({ token, prompt: params.prompt, sessionId, resume });
+              return token === 'tok-a' ? atLimit(params) : scripted(params);
             },
           },
         );
-        return { done, tokens };
+        return { done, sessions };
       };
 
       it('a key at its limit is set aside and the session continues under the next key', async () => {
@@ -1056,10 +1061,14 @@ describe('Claude executor in the runner loop', () => {
           { label: 'a', token: 'tok-a' },
           { label: 'b', token: 'tok-b' },
         ]);
-        const { done, tokens } = runWithKeys(keys);
+        const { done, sessions } = runWithKeys(keys);
 
         await expect(done).resolves.toBe('completed');
-        expect(tokens).toEqual(['tok-a', 'tok-b']);
+        expect(sessions).toMatchObject([
+          { token: 'tok-a', resume: undefined },
+          { token: 'tok-b', prompt: 'Continue where you stopped.', resume: sessions[0]!.sessionId },
+        ]);
+        expect(sessions[0]!.sessionId).toBeTruthy();
         expect(api.proposals).toEqual([expect.objectContaining({ title: 'Order exports' })]);
         expect(api.completions[0]!.body).toMatchObject({ outcome: { kind: 'ended' } });
         expect(keys.report()).toMatchObject([
@@ -1074,10 +1083,10 @@ describe('Claude executor in the runner loop', () => {
       });
 
       it('with every key at its limit the run fails and says when the first key resets', async () => {
-        const { done, tokens } = runWithKeys(new SubscriptionKeys([{ label: 'a', token: 'tok-a' }]));
+        const { done, sessions } = runWithKeys(new SubscriptionKeys([{ label: 'a', token: 'tok-a' }]));
 
         await expect(done).resolves.toBe('completed');
-        expect(tokens).toEqual(['tok-a']);
+        expect(sessions.map(({ token }) => token)).toEqual(['tok-a']);
         expect(api.completions[0]!.body).toMatchObject({
           outcome: {
             kind: 'failed',
