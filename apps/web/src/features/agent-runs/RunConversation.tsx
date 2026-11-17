@@ -86,7 +86,7 @@ function Message({
       <Avatar tone={tone}>{avatar}</Avatar>
       <div
         className={cn(
-          'min-w-0 max-w-[66ch] rounded-xl border px-3.5 py-2.5 text-[13.5px] text-ink-2',
+          'min-w-0 max-w-[100ch] rounded-xl border px-3.5 py-2.5 text-[13.5px] text-ink-2',
           tone === 'you' ? 'border-transparent bg-blue-wash' : 'border-border bg-surface shadow-card',
           tone === 'ask' && 'border-warn-text',
           className,
@@ -159,7 +159,7 @@ function Item({
       return (
         <li
           id={`run-${item.id}`}
-          className="grid max-w-[calc(66ch+40px)] grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-3 text-[13.5px]"
+          className="grid max-w-[calc(100ch+40px)] grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-3 text-[13.5px]"
         >
           <span
             aria-hidden
@@ -233,7 +233,7 @@ function Item({
         return (
           <li id={`run-${item.id}`} className="grid scroll-mt-6 grid-cols-[28px_minmax(0,1fr)] gap-3">
             <Avatar tone="ask">?</Avatar>
-            <div className="min-w-0 max-w-[66ch]">
+            <div className="min-w-0 max-w-[100ch]">
               <QuestionCard wsId={wsId} run={run} question={item.question} />
             </div>
           </li>

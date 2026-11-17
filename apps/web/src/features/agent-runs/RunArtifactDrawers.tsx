@@ -32,6 +32,7 @@ export function SpecDrawer({
   return (
     <RunDrawer
       title="Spec"
+      wide
       actions={
         all.length > 1 && shown ? (
           <Segmented
