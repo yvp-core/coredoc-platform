@@ -46,6 +46,24 @@ export enum PhaseGate {
 
 export const MAX_WORKFLOWS = 20;
 
+/** What a workflow's sessions may do with one tool family; `write` is granted only together with `read`. */
+export enum ToolAccess {
+  Read = 'read',
+  Write = 'write',
+}
+
+export const ToolAccessListSchema = z
+  .array(z.enum(ToolAccess))
+  .max(2)
+  .refine((granted) => !granted.includes(ToolAccess.Write) || granted.includes(ToolAccess.Read), {
+    error: '"write" is granted only together with "read"',
+  })
+  .default([]);
+
+/** The tool families a workflow grants beyond the Coredoc graph; an absent one grants nothing. */
+export const WorkflowToolsSchema = z.object({ jira: ToolAccessListSchema, google: ToolAccessListSchema });
+export type WorkflowTools = z.infer<typeof WorkflowToolsSchema>;
+
 /** How much reasoning a phase's session spends; absent means Claude Code's default for the model. */
 export const PHASE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type PhaseEffort = (typeof PHASE_EFFORTS)[number];
@@ -62,6 +80,8 @@ export const WorkflowShapeSchema = z.object({
   title: z.string().trim().min(1).max(80),
   repositories: z.enum(RepositoryMode),
   delivery: z.enum(DeliveryKind),
+  /** The server gives a turn's token the matching permissions; absent from runners before tool grants. */
+  tools: WorkflowToolsSchema.default({ jira: [], google: [] }),
   phases: z
     .array(
       z.object({
@@ -82,6 +102,7 @@ export const DEFAULT_WORKFLOW_SHAPE: WorkflowShape = {
   title: 'Story to pull request',
   repositories: RepositoryMode.Write,
   delivery: DeliveryKind.PullRequest,
+  tools: { jira: [], google: [] },
   phases: [
     { id: TurnKind.Scope, gate: PhaseGate.Acceptance },
     { id: TurnKind.Implement, gate: PhaseGate.None },

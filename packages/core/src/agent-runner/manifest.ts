@@ -8,6 +8,8 @@ import {
   type PhaseEffort,
   PHASE_ID_PATTERN,
   PhaseGate,
+  ToolAccessListSchema,
+  type WorkflowTools,
   RepositoryMode,
   TurnKind,
   WORKFLOW_ID_PATTERN,
@@ -17,10 +19,6 @@ import {
 /** The plugin the default phase prompts run; a manifest may leave it out only when every phase names an entry skill. */
 export const CORE_PLUGIN_NAME = 'coredoc-workflows';
 
-export enum JiraAccess {
-  Read = 'read',
-}
-
 const model = z.string().trim().min(1).max(100);
 const effort = z.enum(PHASE_EFFORTS);
 /** `<plugin>:<skill>`; the run-control tools are refused until the session has invoked it. */
@@ -29,7 +27,9 @@ const plugins = z
   .array(z.strictObject({ path: z.string().startsWith('/') }))
   .min(1)
   .max(10);
-const tools = z.strictObject({ jira: z.array(z.enum(JiraAccess)).default([]) }).default({ jira: [] });
+const tools = z
+  .strictObject({ jira: ToolAccessListSchema, google: ToolAccessListSchema })
+  .default({ jira: [], google: [] });
 
 const V1PhaseSchema = z.strictObject({
   model: model.optional(),
@@ -88,7 +88,7 @@ export interface ResolvedWorkflow {
   repositories: RepositoryMode;
   delivery: DeliveryKind;
   plugins: Array<{ path: string }>;
-  tools: { jira: JiraAccess[] };
+  tools: WorkflowTools;
   phases: WorkflowPhase[];
 }
 
@@ -100,12 +100,16 @@ export class ManifestError extends Error {}
 
 type V1Phases = z.infer<typeof ManifestV1Schema>['phases'];
 
-function defaultWorkflow(pluginPaths: Array<{ path: string }>, jira: JiraAccess[], phases: V1Phases): ResolvedWorkflow {
+function defaultWorkflow(
+  pluginPaths: Array<{ path: string }>,
+  granted: WorkflowTools,
+  phases: V1Phases,
+): ResolvedWorkflow {
   const [scope, implement] = DEFAULT_WORKFLOW_SHAPE.phases;
   return {
     ...DEFAULT_WORKFLOW_SHAPE,
     plugins: pluginPaths,
-    tools: { jira },
+    tools: granted,
     phases: [
       { ...scope!, ...phases.scope },
       { ...implement!, ...phases.implement },
@@ -139,7 +143,7 @@ function workflowProblems(id: string, workflow: z.infer<typeof WorkflowSchema>):
 export function resolveManifest(text: string | undefined, defaultPluginPath: string): ResolvedManifest {
   const defaultPlugins = [{ path: defaultPluginPath }];
   if (text === undefined) {
-    return { workflows: [defaultWorkflow(defaultPlugins, [], { scope: {}, implement: {} })] };
+    return { workflows: [defaultWorkflow(defaultPlugins, { jira: [], google: [] }, { scope: {}, implement: {} })] };
   }
 
   let json: unknown;
@@ -153,7 +157,7 @@ export function resolveManifest(text: string | undefined, defaultPluginPath: str
   const manifest = parsed.data;
   if (manifest.version === 1) {
     return {
-      workflows: [defaultWorkflow(manifest.plugins ?? defaultPlugins, manifest.tools.jira, manifest.phases)],
+      workflows: [defaultWorkflow(manifest.plugins ?? defaultPlugins, manifest.tools, manifest.phases)],
     };
   }
 
@@ -178,6 +182,7 @@ export function workflowShape(workflow: ResolvedWorkflow): WorkflowShape {
     title: workflow.title,
     repositories: workflow.repositories,
     delivery: workflow.delivery,
+    tools: workflow.tools,
     phases: workflow.phases.map(({ id, gate, model: phaseModel, effort: phaseEffort }) => ({
       id,
       gate,

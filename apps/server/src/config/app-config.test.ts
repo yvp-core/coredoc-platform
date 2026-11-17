@@ -203,6 +203,63 @@ describe('loadAppConfig — INTENT_ROLES (temporary intent rollout)', () => {
   });
 });
 
+describe('loadAppConfig — Google for agent runs', () => {
+  const PRIVATE_KEY = '-----BEGIN PRIVATE KEY-----\nMIItest\n-----END PRIVATE KEY-----\n';
+  const KEY = JSON.stringify({
+    type: 'service_account',
+    client_email: 'agent@example.iam.gserviceaccount.com',
+    private_key: PRIVATE_KEY,
+  });
+  const GOOGLE_ENV = {
+    AGENT_GOOGLE_SERVICE_ACCOUNT_KEY: KEY,
+    AGENT_GOOGLE_SHARED_DRIVE_ID: 'drive-0001',
+    AGENT_GOOGLE_WORKSPACE_ID: 'ws-1',
+  };
+
+  it('is off with none of the three variables and on with all of them', () => {
+    expect(loadAppConfig({}, 'worker').connectors.agentGoogle).toBeUndefined();
+    expect(loadAppConfig({ ...API_ENV, ...GOOGLE_ENV }, 'api').connectors.agentGoogle).toEqual({
+      serviceAccount: { clientEmail: 'agent@example.iam.gserviceaccount.com', privateKey: PRIVATE_KEY },
+      sharedDriveId: 'drive-0001',
+      workspaceId: 'ws-1',
+    });
+  });
+
+  it.each([
+    ['only the key', { AGENT_GOOGLE_SERVICE_ACCOUNT_KEY: KEY }, ['SHARED_DRIVE_ID', 'WORKSPACE_ID']],
+    ['no workspace', { ...GOOGLE_ENV, AGENT_GOOGLE_WORKSPACE_ID: undefined }, ['WORKSPACE_ID']],
+    ['a blank drive id', { ...GOOGLE_ENV, AGENT_GOOGLE_SHARED_DRIVE_ID: ' ' }, ['SHARED_DRIVE_ID']],
+    ['no key', { ...GOOGLE_ENV, AGENT_GOOGLE_SERVICE_ACCOUNT_KEY: undefined }, ['SERVICE_ACCOUNT_KEY']],
+    [
+      'a key that is not JSON',
+      { ...GOOGLE_ENV, AGENT_GOOGLE_SERVICE_ACCOUNT_KEY: PRIVATE_KEY },
+      ['SERVICE_ACCOUNT_KEY'],
+    ],
+    [
+      'a key without a private key',
+      { ...GOOGLE_ENV, AGENT_GOOGLE_SERVICE_ACCOUNT_KEY: JSON.stringify({ client_email: 'agent@example.com' }) },
+      ['SERVICE_ACCOUNT_KEY'],
+    ],
+    [
+      'an OAuth client file instead of a service account key',
+      { ...GOOGLE_ENV, AGENT_GOOGLE_SERVICE_ACCOUNT_KEY: JSON.stringify({ web: { client_id: 'x' } }) },
+      ['SERVICE_ACCOUNT_KEY'],
+    ],
+  ])('refuses %s in every role, naming the variable and never the key', (_case, env, named) => {
+    for (const role of ['api', 'worker'] as const) {
+      try {
+        loadAppConfig({ ...API_ENV, ...env }, role);
+        expect.unreachable('expected a config error');
+      } catch (error) {
+        expect(error).toBeInstanceOf(AppConfigError);
+        const { lines, message } = error as AppConfigError;
+        expect(lines.map((line) => line.split(':')[0])).toEqual(named.map((name) => `AGENT_GOOGLE_${name}`));
+        expect(message).not.toContain('MIItest');
+      }
+    }
+  });
+});
+
 describe('loadAppConfig — purity', () => {
   it('does not write anything back into the environment it was handed', () => {
     const env: NodeJS.ProcessEnv = { ...API_ENV };

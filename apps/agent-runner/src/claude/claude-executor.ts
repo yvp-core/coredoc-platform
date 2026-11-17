@@ -9,7 +9,6 @@ import type {
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import {
-  JiraAccess,
   MAX_STATE_ARCHIVE_BYTES,
   PhaseGate,
   RepositoryMode,
@@ -17,6 +16,7 @@ import {
   type ResolvedWorkflow,
   RunFailureCode,
   RunnerStartupProblemCode,
+  ToolAccess,
   defaultRetryDelay,
   type TurnAssignment,
   TurnKind,
@@ -644,8 +644,11 @@ export class ClaudeExecutor implements TurnExecutor {
       // Under the key `coredoc`: the plugin recognises Coredoc tools by that name segment.
       mcpServers.coredoc = server;
       // No `coredoc` segment: Jira reads must not count as Coredoc reads.
-      if (workflow.tools.jira.includes(JiraAccess.Read)) {
+      if (workflow.tools.jira.includes(ToolAccess.Read)) {
         mcpServers.jira = { ...server, url: `${server.url}?toolset=agent-jira` };
+      }
+      if (workflow.tools.google.includes(ToolAccess.Read)) {
+        mcpServers.google = { ...server, url: `${server.url}?toolset=agent-google` };
       }
     }
     return {

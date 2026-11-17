@@ -9,7 +9,7 @@ const defaultWorkflow = (overrides: Record<string, unknown> = {}) => ({
   repositories: 'write',
   delivery: 'pull-request',
   plugins: [{ path: '/opt/coredoc-workflows' }],
-  tools: { jira: [] },
+  tools: { jira: [], google: [] },
   phases: [
     { id: 'scope', gate: 'acceptance' },
     { id: 'implement', gate: 'none' },
@@ -22,6 +22,7 @@ const review = {
   repositories: 'none',
   delivery: 'none',
   plugins: [{ path: '/opt/acme/plugins/review' }],
+  tools: { google: ['read', 'write'] },
   phases: [
     { id: 'review', gate: 'acceptance', entrySkill: 'review:review' },
     { id: 'record', gate: 'none', entrySkill: 'review:record', model: 'claude-sonnet-5-5', effort: 'low' },
@@ -46,7 +47,7 @@ describe('resolveManifest', () => {
       workflows: [
         defaultWorkflow({
           plugins: [{ path: '/opt/acme/plugins/acme-agent-run' }],
-          tools: { jira: ['read'] },
+          tools: { jira: ['read'], google: [] },
           phases: [
             {
               id: 'scope',
@@ -64,7 +65,7 @@ describe('resolveManifest', () => {
 
   it('resolves each version 2 workflow under its id', () => {
     expect(resolveManifest(v2({ 'doc-review': review }), DEFAULT_PLUGIN)).toEqual({
-      workflows: [{ id: 'doc-review', ...review, tools: { jira: [] } }],
+      workflows: [{ id: 'doc-review', ...review, tools: { jira: [], google: ['read', 'write'] } }],
     });
   });
 
@@ -85,6 +86,8 @@ describe('resolveManifest', () => {
     ['a phase without an entry skill', v2({ x: { ...review, phases: [{ id: 'record', gate: 'none' }] } })],
     ['pull requests without repositories', v2({ x: { ...review, delivery: 'pull-request' } })],
     ['a workflow id with capitals', v2({ Review: review })],
+    ['a write grant without read', v2({ x: { ...review, tools: { jira: ['write'] } } })],
+    ['an unknown tool family', v2({ x: { ...review, tools: { slack: ['read'] } } })],
     ['an unknown effort', v2({ x: { ...review, phases: [{ ...review.phases[1], effort: 'extreme' }] } })],
   ])('rejects %s', (_case, text) => {
     expect(() => resolveManifest(text, DEFAULT_PLUGIN)).toThrow(/manifest/i);

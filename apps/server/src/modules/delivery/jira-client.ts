@@ -199,6 +199,17 @@ export class JiraClient {
     return asRecord(await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}?${query}`));
   }
 
+  /** Replaces the description (Atlassian Document Format) and adds labels; what is left out stays as it is. */
+  async updateIssue(issueIdOrKey: string, change: { description?: unknown; addLabels?: string[] }): Promise<void> {
+    await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}`, {
+      method: 'PUT',
+      body: {
+        ...(change.description !== undefined ? { fields: { description: change.description } } : {}),
+        ...(change.addLabels?.length ? { update: { labels: change.addLabels.map((add) => ({ add })) } } : {}),
+      },
+    });
+  }
+
   async addComment(issueIdOrKey: string, body: unknown): Promise<{ id: string }> {
     const res = asRecord(
       await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/comment`, {

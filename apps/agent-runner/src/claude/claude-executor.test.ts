@@ -540,6 +540,37 @@ describe('Claude executor in the runner loop', () => {
       expect(seen[0]!.prompt).not.toMatch(/coredoc-workflows|get_intent_context|interview/);
     });
 
+    it.each([
+      { grant: ['read'], google: true },
+      { grant: [], google: false },
+    ])('google tools $grant gives the google server: $google', async ({ grant, google }) => {
+      const manifest = resolveManifest(
+        JSON.stringify({
+          version: 1,
+          plugins: [{ path: PLUGIN }, { path: ACME_PLUGIN }],
+          tools: { jira: ['read'], google: grant },
+          phases: { scope: { entrySkill: 'acme-agent-run:scope' } },
+        }),
+        PLUGIN,
+      );
+      const { done, seen } = runTurn(
+        assignment(),
+        { ...acmeInit, skills: ['acme-agent-run:scope'], propose: [proposal] },
+        { manifest },
+      );
+      await expect(done).resolves.toBe('completed');
+      const servers = seen[0]!.options.mcpServers!;
+      if (google) {
+        expect(servers.google).toMatchObject({
+          url: `${api.baseUrl}/api/v1/workspaces/${WORKSPACE}/mcp?toolset=agent-google`,
+          headers: { Authorization: 'Bearer cdt_turn_token' },
+          timeout: 120_000,
+        });
+      } else {
+        expect(servers).not.toHaveProperty('google');
+      }
+    });
+
     it('a resumed session is not asked for the entry skill again', async () => {
       const first = assignment();
       await runTurn(

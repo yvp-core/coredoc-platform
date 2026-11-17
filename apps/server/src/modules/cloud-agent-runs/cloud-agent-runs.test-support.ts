@@ -142,6 +142,13 @@ export class FakeJira {
         const items = [...this.issues.values()].filter((issue) => issue.parent === parentKey).map((i) => this.wire(i));
         return { items, nextPageToken: null };
       },
+      updateIssue: async (idOrKey: string, change: { description?: unknown; addLabels?: string[] }) => {
+        this.record('updateIssue', idOrKey);
+        const issue = this.find(idOrKey);
+        if (!issue) throw new JiraNotFoundError(`Jira API 404 for /issue/${idOrKey}`);
+        if (change.description !== undefined) issue.description = structuredClone(change.description);
+        issue.labels = [...new Set([...(issue.labels ?? []), ...(change.addLabels ?? [])])];
+      },
       addComment: async (idOrKey: string, body: unknown) => {
         this.record('addComment', idOrKey);
         const issue = this.find(idOrKey);
@@ -308,6 +315,7 @@ export const DEFAULT_WORKFLOW = {
   title: 'Default',
   repositories: 'write',
   delivery: 'pull-request',
+  tools: { jira: [], google: [] },
   phases: [
     { id: 'scope', gate: 'acceptance' },
     { id: 'implement', gate: 'none' },

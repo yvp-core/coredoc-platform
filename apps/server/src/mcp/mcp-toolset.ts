@@ -24,6 +24,7 @@ import type { McpOptions } from '@rekog/mcp-nest';
 export enum McpToolset {
   Intent = 'intent',
   AgentJira = 'agent-jira',
+  AgentGoogle = 'agent-google',
 }
 
 export const TOOLSET_QUERY_PARAM = 'toolset';
@@ -41,11 +42,24 @@ export const TOOLSET_TOOLS: Readonly<Record<McpToolset, ReadonlySet<string>>> = 
     'intent_source_update',
     'submit_session_feedback',
   ]),
-  [McpToolset.AgentJira]: new Set(['jira_get_issue', 'jira_search']),
+  [McpToolset.AgentJira]: new Set(['jira_get_issue', 'jira_search', 'jira_update_issue']),
+  [McpToolset.AgentGoogle]: new Set([
+    'read_doc',
+    'update_doc',
+    'search_files',
+    'get_file_metadata',
+    'read_file_content',
+    'create_file',
+    'trash_file',
+    'get_spreadsheet',
+    'get_values',
+    'append_values',
+    'update_values',
+  ]),
 };
 
 /** Toolsets whose tools are served only with the toolset selected, never in the every-tool default. */
-const EXCLUSIVE_TOOLSETS: readonly McpToolset[] = [McpToolset.AgentJira];
+const EXCLUSIVE_TOOLSETS: readonly McpToolset[] = [McpToolset.AgentJira, McpToolset.AgentGoogle];
 
 const TOOLSET_ONLY_TOOLS: ReadonlyMap<string, McpToolset> = new Map(
   EXCLUSIVE_TOOLSETS.flatMap((toolset) => [...TOOLSET_TOOLS[toolset]].map((name) => [name, toolset] as const)),

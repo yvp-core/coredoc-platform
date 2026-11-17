@@ -33,4 +33,6 @@ export type AuthenticatedMcpRequest = Request & {
   mcpAuthKind?: McpAuthKind;
   /** Present only for `McpAuthKind.ServiceToken`. */
   serviceTokenPermissions?: string[];
+  /** Present only for an agent turn's own token: the turn it was minted for. */
+  serviceTokenTurnId?: string;
 };

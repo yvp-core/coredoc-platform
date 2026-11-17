@@ -51,6 +51,12 @@ export enum TokenPermission {
   AgentRunnerRun = 'agent-runner:run',
   /** Agent-turn tokens only: read the workspace Jira connector's issues through the agent-jira MCP toolset. */
   JiraRead = 'jira:read',
+  /** Agent-turn tokens only, in the final phase of a workflow that grants it: update the run's own Jira issue. */
+  JiraWrite = 'jira:write',
+  /** Agent-turn tokens only, for a workflow that grants it: the agent-google MCP toolset's reads. */
+  GoogleRead = 'google:read',
+  /** Agent-turn tokens only, for a workflow that grants it: the agent-google MCP toolset's writes. */
+  GoogleWrite = 'google:write',
 }
 
 /** Explicit CI grants: graph publishing and automatic intent writes, never human authority or administration. */
@@ -106,6 +112,9 @@ export const WILDCARD_EXEMPT_PERMISSIONS: TokenPermission[] = [
   TokenPermission.IntentBindings,
   TokenPermission.AgentRunnerRun,
   TokenPermission.JiraRead,
+  TokenPermission.JiraWrite,
+  TokenPermission.GoogleRead,
+  TokenPermission.GoogleWrite,
 ];
 
 /** True when `*` must not stand in for this permission — see WILDCARD_EXEMPT_PERMISSIONS. */

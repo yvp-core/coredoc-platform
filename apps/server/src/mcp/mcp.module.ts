@@ -34,6 +34,8 @@ import { CrossRepoTools } from './tools/cross-repo.tools.js';
 import { CypherTools } from './tools/cypher.tools.js';
 import { IntentTools } from './tools/intent.tools.js';
 import { AgentJiraTools } from './tools/agent-jira.tools.js';
+import { AgentGoogleTools } from './tools/agent-google.tools.js';
+import { AgentGoogle } from '../libs/google/agent-google.js';
 import { CloudAgentRunIssueReader } from '../modules/cloud-agent-runs/cloud-agent-run-issue-reader.js';
 import { CloudAgentRunJiraConnector } from '../modules/cloud-agent-runs/cloud-agent-run-jira-connector.js';
 
@@ -89,6 +91,8 @@ export const MCP_SERVER_OPTIONS: McpOptions = {
     IntentTools,
     SessionFeedbackTools,
     AgentJiraTools,
+    AgentGoogleTools,
+    AgentGoogle,
     // Stateless over Prisma; provided here rather than importing the cloud agent runs graph.
     CloudAgentRunIssueReader,
     CloudAgentRunJiraConnector,

@@ -53,6 +53,7 @@ beforeEach(() => {
     maxStartedRuns: 2,
     maxRepositories: 5,
     model: null,
+    google: { configured: false, sharedDriveId: null },
     availability: { available: true, reasons: [] },
     trigger: { ready: false, projectKeys: ['ORD'], reasons: [] },
     repositories: [],

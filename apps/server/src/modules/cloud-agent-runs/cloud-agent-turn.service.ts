@@ -20,6 +20,7 @@ import {
   RunnerVersionsSchema,
   type SubmitResult,
   type SubmitResultResponse,
+  ToolAccess,
   type TurnAssignment,
 } from '@coredoc/core/agent-runner';
 import { TokenPermission } from '../../auth/token-permissions.js';
@@ -365,11 +366,14 @@ export class CloudAgentTurnService {
   /**
    * The turn's MCP-only credential, acting as the run owner: intent read in
    * a phase that ends with a proposal (proposing intent could overwrite the PRD tooling's
-   * candidates), read and propose in the final phase. Hash-only; returned once.
+   * candidates), read and propose in the final phase. Google and Jira-write permissions only as the
+   * run's workflow grants them: Google in every phase, Jira write in the final one. Hash-only; returned once.
    */
   private async mintMcpToken(tx: Tx, run: CloudAgentRun, turnId: string, kind: string, at: Date): Promise<string> {
     // A re-claimed turn replaces the token its lost attempt held.
     await deleteTurnTokens(tx, [turnId]);
+    const { tools } = workflowOf(run);
+    const final = isFinalPhase(run, kind);
     const plaintext = `cdt_${randomBytes(32).toString('hex')}`;
     await tx.serviceToken.create({
       data: {
@@ -382,7 +386,10 @@ export class CloudAgentTurnService {
         permissions: [
           TokenPermission.IntentRead,
           TokenPermission.JiraRead,
-          ...(isFinalPhase(run, kind) ? [TokenPermission.IntentPropose] : []),
+          ...(final ? [TokenPermission.IntentPropose] : []),
+          ...(final && tools.jira.includes(ToolAccess.Write) ? [TokenPermission.JiraWrite] : []),
+          ...(tools.google.includes(ToolAccess.Read) ? [TokenPermission.GoogleRead] : []),
+          ...(tools.google.includes(ToolAccess.Write) ? [TokenPermission.GoogleWrite] : []),
         ],
         expiresAt: new Date(at.getTime() + run.maxTurnDurationSeconds * 1000 + MCP_TOKEN_GRACE_MS),
         createdBy: run.runOwnerId,

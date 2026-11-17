@@ -131,6 +131,7 @@ export class McpRewriteMiddleware implements NestMiddleware {
     let user: AuthUser;
     let authKind: McpAuthKind = McpAuthKind.Jwt;
     let serviceTokenPermissions: string[] | undefined;
+    let serviceTokenTurnId: string | null = null;
 
     try {
       if (token.startsWith('cdt_')) {
@@ -153,6 +154,7 @@ export class McpRewriteMiddleware implements NestMiddleware {
         user = { id: serviceToken.createdBy, email: `service-token:${serviceToken.name}` };
         authKind = McpAuthKind.ServiceToken;
         serviceTokenPermissions = [...serviceToken.permissions];
+        serviceTokenTurnId = serviceToken.owningTurnId;
       } else {
         // JWT — verify the access token issued by our OAuth server (HS256)
         user = await this.authService.verifyAccessToken(token);
@@ -174,6 +176,7 @@ export class McpRewriteMiddleware implements NestMiddleware {
     trusted.userWorkspaceRole = member.role;
     trusted.mcpAuthKind = authKind;
     if (serviceTokenPermissions) trusted.serviceTokenPermissions = serviceTokenPermissions;
+    if (serviceTokenTurnId) trusted.serviceTokenTurnId = serviceTokenTurnId;
 
     next();
   }
@@ -239,6 +242,7 @@ export class McpRewriteMiddleware implements NestMiddleware {
       trusted.userWorkspaceRole = member.role;
       trusted.mcpAuthKind = McpAuthKind.ServiceToken;
       trusted.serviceTokenPermissions = [...serviceToken.permissions];
+      if (serviceToken.owningTurnId) trusted.serviceTokenTurnId = serviceToken.owningTurnId;
       return next();
     }
 

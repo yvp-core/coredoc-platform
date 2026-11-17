@@ -9,24 +9,36 @@
     "find_dependents",
     "find_entity_usage",
     "get_extraction_coverage",
+    "get_file_metadata",
     "get_intent_context",
+    "get_spreadsheet",
+    "get_values",
     "intent_read",
     "jira_get_issue",
     "jira_search",
     "list_entrypoints",
     "list_file_symbols",
     "list_service_dependencies",
+    "read_doc",
+    "read_file_content",
     "run_cypher_query",
+    "search_files",
     "search_symbols",
     "semantic_search",
     "trace_cross_repo_call"
   ],
   "write": [
+    "append_values",
+    "create_file",
     "intent_propose",
     "intent_review",
     "intent_source_update",
     "intent_tree",
-    "submit_session_feedback"
+    "jira_update_issue",
+    "submit_session_feedback",
+    "trash_file",
+    "update_doc",
+    "update_values"
   ],
   "byAction": {
     "intent_anchor": {

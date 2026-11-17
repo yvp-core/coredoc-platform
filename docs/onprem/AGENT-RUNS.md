@@ -239,7 +239,8 @@ With one, its keys override the defaults:
 | `phases.<scope\|implement>.model` | The model for that phase; it wins over the workspace's model setting. |
 | `phases.<scope\|implement>.effort` | The reasoning effort for that phase's session: `low`, `medium`, `high`, `xhigh` or `max`. Without it the session uses Claude Code's default for the model; a level the model does not support is lowered by Claude Code. Subagents keep the effort their own definition names. |
 | `phases.<scope\|implement>.entrySkill` | `<plugin>:<skill>`. The agent is told to start with it, and `propose_scope` / `submit_result` are refused until the session has invoked it. The skill owns the phase's method: the prompt then carries only the run's facts, the fixed rules, the questions policy and the run-control tools, without the default `coredoc-workflows` steps and without the default intent read (`get_intent_context` for `jira:<KEY>`), which the scope skill then makes itself. Ship a server that supports this before a runner image whose manifest leaves `coredoc-workflows` out. Whether and what the agent asks people is the skill's to decide; where questions go is the workspace's questions policy for that phase. |
-| `tools.jira` | `["read"]` gives the agent `jira_get_issue` and `jira_search` over the workspace Jira connector, confined to its projects. Leaving it out hides the tools from the agent but is not an access boundary: every scope and implement turn token may read those projects, the same issues the run already reads as its PRD. |
+| `tools.jira` | `["read"]` gives the agent `jira_get_issue` and `jira_search` over the workspace Jira connector, confined to its projects. Leaving it out hides the tools from the agent but is not an access boundary: every scope and implement turn token may read those projects, the same issues the run already reads as its PRD. With `["read", "write"]` the final phase of a workflow also gets `jira_update_issue`, which updates the description and adds labels on the issue the run started from, and no other issue. `write` is granted only together with `read`. |
+| `tools.google` | `["read"]` or `["read", "write"]` gives the workflow's sessions the Google Docs, Drive and Sheets tools (`read_doc`, `update_doc`, `search_files`, `get_file_metadata`, `read_file_content`, `create_file`, `trash_file`, `get_spreadsheet`, `get_values`, `append_values`, `update_values`), confined to one shared drive. Documents are changed only through suggestions. Needs the server variables in §3.3. |
 
 A manifest that does not parse, a plugin that does not load, or an entry skill
 Claude Code does not list is a start-up problem (§6): the runner claims nothing
@@ -261,7 +262,7 @@ manifest declares the workflows itself, and a person starting a run picks one:
       "repositories": "write",
       "delivery": "pull-request",
       "plugins": [{ "path": "/opt/acme/plugins/acme-agent-run" }],
-      "tools": { "jira": ["read"] },
+      "tools": { "jira": ["read", "write"], "google": ["read", "write"] },
       "phases": [
         { "id": "scope", "gate": "acceptance", "entrySkill": "acme-agent-run:scope" },
         { "id": "implement", "gate": "none", "entrySkill": "acme-agent-run:implement" }
@@ -310,6 +311,27 @@ Answering questions, accepting and cancelling stay open to every member.
 Every run still starts from a Jira issue, whichever workflow it runs. A
 workflow with repositories gets them from its accepted proposal, so one with a
 single phase starts with none and its agent asks for each with `request_repo`.
+
+### 3.3 Google documents
+
+A workflow that grants `tools.google` needs three variables on the server, all or none:
+
+- `AGENT_GOOGLE_SERVICE_ACCOUNT_KEY`: the service account's JSON key as one string.
+- `AGENT_GOOGLE_SHARED_DRIVE_ID`: the shared drive the tools are confined to.
+- `AGENT_GOOGLE_WORKSPACE_ID`: the one workspace whose runs may use the tools.
+
+The service account must be a member of that shared drive with a role that can trash files (Content manager). Enable the Google Docs, Drive and Sheets APIs in the account's project. Everything the agent writes is authored by the service account. A workflow that grants Google cannot be started in a workspace it is not configured for. Changing the variables needs a server restart.
+
+What the tools refuse, whatever the agent asks: a file, folder or spreadsheet
+outside the shared drive; a direct edit of a document (`update_doc` takes only
+text insertion and deletion, text and paragraph style and bullet requests, and
+applies them as suggestions); accepting, rejecting or deleting a suggestion;
+writing or deleting a comment; trashing a folder or a file an agent run did
+not create; reading a stored file that is not text or is larger than 2 MiB.
+
+Adding a tool grant changes the workflow's definition. With more than one
+runner token, the workflow is unstartable until every runner has claimed once
+on the new image (§3.2).
 
 ## 4. Runner token and Secret
 
