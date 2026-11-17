@@ -4,11 +4,13 @@ import { XIcon } from 'lucide-react';
 export function RunDrawer({
   title,
   actions,
+  wide,
   onClose,
   children,
 }: {
   title: string;
   actions?: React.ReactNode;
+  wide?: boolean;
   onClose: () => void;
   children: React.ReactNode;
 }) {
@@ -18,7 +20,7 @@ export function RunDrawer({
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40" />
         <DialogPrimitive.Content
           aria-describedby={undefined}
-          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[540px] flex-col bg-surface shadow-card outline-none"
+          className={`fixed inset-y-0 right-0 z-50 flex w-full flex-col bg-surface shadow-card outline-none ${wide ? 'max-w-[1040px]' : 'max-w-[540px]'}`}
         >
           <header className="flex items-center gap-2 border-b border-border-soft px-4 pt-[calc(env(safe-area-inset-top,0px)+14px)] pb-3">
             <DialogPrimitive.Title className="mr-auto text-[14px] font-semibold text-ink-1">
