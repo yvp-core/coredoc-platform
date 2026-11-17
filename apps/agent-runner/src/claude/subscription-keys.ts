@@ -112,7 +112,7 @@ export class SubscriptionKeys {
   recordRateLimit(label: string, info: SDKRateLimitInfo): void {
     const window: UsageWindow = {
       // Reported as a fraction where `/usage` reports a percentage.
-      utilization: info.utilization === undefined ? null : Math.min(100, Math.round(info.utilization * 100)),
+      utilization: info.utilization === undefined ? null : Math.min(100, info.utilization * 100),
       resetsAt: info.resetsAt === undefined ? null : new Date(epochMs(info.resetsAt)).toISOString(),
     };
     if (info.rateLimitType === 'five_hour') this.recordUsage(label, { fiveHour: window });
