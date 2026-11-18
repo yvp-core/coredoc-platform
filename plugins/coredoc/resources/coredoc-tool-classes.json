@@ -34,6 +34,7 @@
     "intent_review",
     "intent_source_update",
     "intent_tree",
+    "jira_create_child_issue",
     "jira_update_issue",
     "submit_session_feedback",
     "trash_file",
