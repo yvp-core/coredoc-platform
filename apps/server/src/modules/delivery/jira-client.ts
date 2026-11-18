@@ -210,7 +210,6 @@ export class JiraClient {
     });
   }
 
-  /** A new issue under `parentId`, in the parent's project. */
   async createChildIssue(
     parentId: string,
     projectKey: string,
