@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /** Configuration comes from the environment only; the runner holds no server credentials. */
 import { readFileSync } from 'node:fs';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { ClaudeExecutor, heldOpen } from './claude/claude-executor.js';
 import { checkClaudeStartup, checkRunnerStartup } from './claude/startup-check.js';
-import { parseSubscriptionKeys, planUsageOf, SubscriptionKeys } from './claude/subscription-keys.js';
+import { type PlanUsage, parseSubscriptionKeys, planUsageOf, SubscriptionKeys } from './claude/subscription-keys.js';
 import { GithubApi } from './github/github-api.js';
 import { type LoadedManifest, loadManifest } from './manifest.js';
 import { type PackageRegistry, packageRegistries } from './package-registries.js';
@@ -19,6 +20,8 @@ import { RunnerStartupProblemCode, resolveManifest } from '@coredoc/core/agent-r
 // one token or several as `label:token,label:token`.
 const SUBSCRIPTION_TOKENS =
   process.env.CLAUDE_CODE_OAUTH_TOKENS?.trim() || process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim() || '';
+const PLAN_USAGE_READ_TIMEOUT_MS = 30_000;
+const PLAN_USAGE_REFRESH_MS = 10 * 60_000;
 const DEV_SUBSCRIPTION = process.env.COREDOC_RUNNER_DEV_SUBSCRIPTION === '1' && SUBSCRIPTION_TOKENS !== '';
 const REQUIRED = [
   'COREDOC_API_URL',
@@ -180,7 +183,66 @@ const runner = new Runner({
   log,
 });
 
+/** A session given no input makes no model request; it is open only long enough to answer `/usage`. */
+async function readPlanUsage(token: string): Promise<PlanUsage | null> {
+  const abort = new AbortController();
+  const aborted = new Promise<null>((resolve) =>
+    abort.signal.addEventListener('abort', () => resolve(null), { once: true }),
+  );
+  const timeout = setTimeout(() => abort.abort(), PLAN_USAGE_READ_TIMEOUT_MS);
+  await mkdir(scratchRoot, { recursive: true });
+  const dir = await mkdtemp(join(scratchRoot, 'usage-'));
+  try {
+    const session = query({
+      prompt: {
+        [Symbol.asyncIterator]: () => ({ next: async () => ({ done: true, value: await aborted }) }),
+      },
+      options: {
+        cwd: dir,
+        settingSources: [],
+        tools: [],
+        abortController: abort,
+        env: {
+          PATH: process.env.PATH ?? '',
+          HOME: dir,
+          TMPDIR: dir,
+          CLAUDE_CONFIG_DIR: dir,
+          DISABLE_AUTOUPDATER: '1',
+          CLAUDE_CODE_OAUTH_TOKEN: token,
+        },
+      },
+    });
+    const usage = await Promise.race([
+      session.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }),
+      aborted,
+    ]);
+    if (!usage) throw new Error('timed out');
+    return planUsageOf(usage);
+  } finally {
+    clearTimeout(timeout);
+    abort.abort();
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** Every key, so settings show the ones no turn has used yet. */
+async function refreshPlanUsage(keys: SubscriptionKeys): Promise<void> {
+  for (const { label, token } of subscriptionTokens) {
+    try {
+      const usage = await readPlanUsage(token);
+      if (usage) keys.recordUsage(label, usage);
+      else log(`subscription key ${label}: Claude Code reports no plan usage for it`);
+    } catch (error) {
+      log(`subscription key ${label}: could not read its usage: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+}
+
 log(`starting runner ${versions.runner}`);
+if (subscriptionKeys) {
+  void refreshPlanUsage(subscriptionKeys);
+  setInterval(() => void refreshPlanUsage(subscriptionKeys), PLAN_USAGE_REFRESH_MS).unref();
+}
 await runner.start(shutdown.signal);
 log('stopped');
 // A one-turn runner is a Job: an idle SDK or HTTP handle must not keep it from completing.
