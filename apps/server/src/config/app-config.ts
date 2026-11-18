@@ -305,7 +305,7 @@ export interface WorkersConfig {
   retention: RetentionConfig;
 }
 
-/** The service account agent runs reach Google with, the shared drive it is confined to and the workspace it serves. */
+/** The service account agent runs reach Google with, the shared drive it searches and creates files in and the workspace it serves. */
 export interface AgentGoogleConfig {
   serviceAccount: { clientEmail: string; privateKey: string };
   sharedDriveId: string;

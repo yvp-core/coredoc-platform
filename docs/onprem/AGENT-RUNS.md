@@ -240,7 +240,7 @@ With one, its keys override the defaults:
 | `phases.<scope\|implement>.effort` | The reasoning effort for that phase's session: `low`, `medium`, `high`, `xhigh` or `max`. Without it the session uses Claude Code's default for the model; a level the model does not support is lowered by Claude Code. Subagents keep the effort their own definition names. |
 | `phases.<scope\|implement>.entrySkill` | `<plugin>:<skill>`. The agent is told to start with it, and `propose_scope` / `submit_result` are refused until the session has invoked it. The skill owns the phase's method: the prompt then carries only the run's facts, the fixed rules, the questions policy and the run-control tools, without the default `coredoc-workflows` steps and without the default intent read (`get_intent_context` for `jira:<KEY>`), which the scope skill then makes itself. Ship a server that supports this before a runner image whose manifest leaves `coredoc-workflows` out. Whether and what the agent asks people is the skill's to decide; where questions go is the workspace's questions policy for that phase. |
 | `tools.jira` | `["read"]` gives the agent `jira_get_issue` and `jira_search` over the workspace Jira connector, confined to its projects. Leaving it out hides the tools from the agent but is not an access boundary: every scope and implement turn token may read those projects, the same issues the run already reads as its PRD. With `["read", "write"]` the final phase of a workflow also gets `jira_update_issue`, which updates the description and adds labels on the issue the run started from, and no other issue. `write` is granted only together with `read`. |
-| `tools.google` | `["read"]` or `["read", "write"]` gives the workflow's sessions the Google Docs, Drive and Sheets tools (`read_doc`, `update_doc`, `search_files`, `get_file_metadata`, `read_file_content`, `create_file`, `trash_file`, `get_spreadsheet`, `get_values`, `append_values`, `update_values`), confined to one shared drive. Documents are changed only through suggestions. Needs the server variables in §3.3. |
+| `tools.google` | `["read"]` or `["read", "write"]` gives the workflow's sessions the Google Docs, Drive and Sheets tools (`read_doc`, `update_doc`, `search_files`, `get_file_metadata`, `read_file_content`, `create_file`, `trash_file`, `get_spreadsheet`, `get_values`, `append_values`, `update_values`) over one shared drive and the files people share with the service account. Documents are changed only through suggestions. Needs the server variables in §3.3. |
 
 A manifest that does not parse, a plugin that does not load, or an entry skill
 Claude Code does not list is a start-up problem (§6): the runner claims nothing
@@ -317,12 +317,13 @@ single phase starts with none and its agent asks for each with `request_repo`.
 A workflow that grants `tools.google` needs three variables on the server, all or none:
 
 - `AGENT_GOOGLE_SERVICE_ACCOUNT_KEY`: the service account's JSON key as one string.
-- `AGENT_GOOGLE_SHARED_DRIVE_ID`: the shared drive the tools are confined to.
+- `AGENT_GOOGLE_SHARED_DRIVE_ID`: the shared drive the agent searches and creates files in.
 - `AGENT_GOOGLE_WORKSPACE_ID`: the one workspace whose runs may use the tools.
 
-The service account must be a member of that shared drive with a role that can trash files (Content manager). Enable the Google Docs, Drive and Sheets APIs in the account's project. Everything the agent writes is authored by the service account. A workflow that grants Google cannot be started in a workspace it is not configured for. Changing the variables needs a server restart.
+The service account must be a member of that shared drive with a role that can trash files (Content manager). Enable the Google Docs, Drive and Sheets APIs in the account's project. Everything the agent writes is authored by the service account. The agent also reads, and suggests edits in, any file outside that drive that a person shared with the service account's address: sharing a file with it is how a person lets agent runs into that file, and removing the share takes it back. A workflow that grants Google cannot be started in a workspace it is not configured for. Changing the variables needs a server restart.
 
-What the tools refuse, whatever the agent asks: a file, folder or spreadsheet
+What the tools refuse, whatever the agent asks: a file the service account was
+not given (Google answers "not found"); creating a file, or listing a folder,
 outside the shared drive; a direct edit of a document (`update_doc` takes only
 text insertion and deletion, text and paragraph style and bullet requests, and
 applies them as suggestions); accepting, rejecting or deleting a suggestion;
