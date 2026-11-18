@@ -1,6 +1,7 @@
 // Docs, Drive and Sheets over plain HTTPS as one service account (house pattern: native
 // fetch, as jira-client.ts and github-client.ts). Every content call takes a `DriveFile`,
-// which only `file()` hands out after checking the file is in the configured shared drive.
+// which only `file()` hands out. The service account reaches the configured shared drive and
+// whatever a person shared with it; new files and search stay inside the shared drive.
 
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Optional } from '@nestjs/common';
@@ -23,6 +24,7 @@ const SHEETS = 'https://sheets.googleapis.com/v4';
 
 export const GOOGLE_DOC = 'application/vnd.google-apps.document';
 export const GOOGLE_FOLDER = 'application/vnd.google-apps.folder';
+export const GOOGLE_SHEET = 'application/vnd.google-apps.spreadsheet';
 const GOOGLE_NATIVE_PREFIX = 'application/vnd.google-apps.';
 
 /** Drive keeps app properties per calling application: only this service account's project reads the mark. */
@@ -72,6 +74,8 @@ export interface DriveFile {
   size: number | null;
   /** Created by `createFile`, so an agent run may trash it. */
   agentCreated: boolean;
+  /** False for a file outside the configured shared drive that a person shared with the service account. */
+  inSharedDrive: boolean;
 }
 
 /** The configuration when it names this workspace; null for every other workspace and when unset. */
@@ -110,7 +114,7 @@ function driveString(value: string): string {
   return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
-function toFile(raw: Record<string, unknown>): DriveFile {
+function toFile(raw: Record<string, unknown>, sharedDriveId: string): DriveFile {
   return {
     id: String(raw.id),
     name: String(raw.name ?? ''),
@@ -120,6 +124,7 @@ function toFile(raw: Record<string, unknown>): DriveFile {
     // Drive sends int64 fields as strings.
     size: raw.size === undefined || raw.size === null ? null : Number(raw.size),
     agentCreated: asRecord(raw.appProperties).coredocAgentRun === AGENT_MARK.coredocAgentRun,
+    inSharedDrive: raw.driveId === sharedDriveId || raw.id === sharedDriveId,
   };
 }
 
@@ -140,7 +145,7 @@ export class AgentGoogle {
     this.fetch = fetcher ?? (this.config ? serviceAccountFetch(this.config) : undefined);
   }
 
-  /** The file's metadata, after refusing one outside the configured shared drive. */
+  /** The file's metadata. Google answers only for the shared drive and for files shared with the service account. */
   async file(id: string): Promise<DriveFile> {
     const raw = asRecord(
       await this.json(
@@ -148,11 +153,7 @@ export class AgentGoogle {
         `${DRIVE}/files/${encodeURIComponent(id)}?${query({ supportsAllDrives: 'true', fields: FILE_FIELDS })}`,
       ),
     );
-    const drive = this.sharedDriveId();
-    if (raw.driveId !== drive && raw.id !== drive) {
-      throw new GoogleRefusal(`${id} is outside the shared drive agent runs are confined to`);
-    }
-    return toFile(raw);
+    return toFile(raw, this.sharedDriveId());
   }
 
   /** Accepted text and pending suggestions together: the only view whose indexes a later update can use. */
@@ -198,6 +199,9 @@ export class AgentGoogle {
     name: string | undefined,
     parent: DriveFile | undefined,
   ): Promise<{ files: unknown[]; complete: boolean }> {
+    if (parent && !parent.inSharedDrive) {
+      throw new GoogleRefusal(`search_files lists only the shared drive, and ${parent.id} is outside it`);
+    }
     const clauses = [
       'trashed = false',
       ...(name ? [`name contains ${driveString(name)}`] : []),
@@ -244,14 +248,27 @@ export class AgentGoogle {
     ).text();
   }
 
-  /** `content` becomes a Google Doc's first text (Markdown or HTML), or the stored file's bytes; a folder has none. */
+  /**
+   * `content` becomes a Google Doc's first text (Markdown or HTML), or the stored file's bytes; a folder has
+   * none and a spreadsheet starts empty.
+   */
   async createFile(parent: DriveFile, name: string, mimeType: string, content: string): Promise<DriveFile> {
+    const drive = this.sharedDriveId();
+    if (!parent.inSharedDrive) {
+      throw new GoogleRefusal(`create_file creates only inside the shared drive, and ${parent.id} is outside it`);
+    }
     const metadata = { name, mimeType, parents: [parent.id], appProperties: AGENT_MARK };
     const params = query({ supportsAllDrives: 'true', fields: FILE_FIELDS });
-    if (mimeType === GOOGLE_FOLDER)
-      return toFile(asRecord(await this.json('POST', `${DRIVE}/files?${params}`, metadata)));
+    if (mimeType === GOOGLE_FOLDER || mimeType === GOOGLE_SHEET) {
+      if (mimeType === GOOGLE_SHEET && content) {
+        throw new GoogleRefusal(
+          'create_file makes an empty spreadsheet: leave content out and write rows with update_values',
+        );
+      }
+      return toFile(asRecord(await this.json('POST', `${DRIVE}/files?${params}`, metadata)), drive);
+    }
     if (mimeType.startsWith(GOOGLE_NATIVE_PREFIX) && mimeType !== GOOGLE_DOC) {
-      throw new GoogleRefusal(`create_file makes Google Docs, folders and plain files, not ${mimeType}`);
+      throw new GoogleRefusal(`create_file makes Google Docs, spreadsheets, folders and plain files, not ${mimeType}`);
     }
     const mediaType =
       mimeType !== GOOGLE_DOC ? mimeType : /^\s*<(!doctype|html)\b/i.test(content) ? 'text/html' : 'text/markdown';
@@ -272,7 +289,7 @@ export class AgentGoogle {
       body,
       contentType: `multipart/related; boundary=${boundary}`,
     });
-    return toFile(asRecord(await res.json()));
+    return toFile(asRecord(await res.json()), drive);
   }
 
   async trash(file: DriveFile): Promise<void> {

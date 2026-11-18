@@ -11,6 +11,7 @@ import {
   agentGoogleFor,
   GOOGLE_DOC,
   GOOGLE_FOLDER,
+  GOOGLE_SHEET,
   GoogleRefusal,
 } from '../../libs/google/agent-google.js';
 import { authorizeIntentPermission } from '../intent-auth.js';
@@ -77,13 +78,15 @@ const CreateFileSchema = z.object({
     .min(1)
     .max(255)
     .regex(/^[^\r\n]+$/, 'one line'),
-  parentId: ID.describe('The folder to create it in; the shared drive’s id for its top level'),
+  parentId: ID.describe('The folder to create it in, inside the shared drive; the shared drive’s id for its top level'),
   mimeType: z
     .string()
     .trim()
     .toLowerCase()
     .regex(/^[\w.+-]+\/[\w.+-]+$/, 'a media type such as text/markdown')
-    .describe(`${GOOGLE_DOC} converts Markdown or HTML content to a Google Doc; ${GOOGLE_FOLDER} creates a folder`),
+    .describe(
+      `${GOOGLE_DOC} converts Markdown or HTML content to a Google Doc; ${GOOGLE_SHEET} creates an empty spreadsheet; ${GOOGLE_FOLDER} creates a folder`,
+    ),
   content: z
     .string()
     .refine((value) => Buffer.byteLength(value) <= MAX_CONTENT_BYTES, { error: 'content is at most 1 MiB of text' })
@@ -107,7 +110,7 @@ export class AgentGoogleTools {
     name: 'read_doc',
     annotations: toolAnnotations('read_doc'),
     description:
-      'Read a Google Doc of the shared drive as the Docs API document, under `content`: every tab, with pending suggestions inline, so its indexes and revisionId are the ones update_doc needs.',
+      'Read a Google Doc of the shared drive, or one shared with the service account, as the Docs API document, under `content`: every tab, with pending suggestions inline, so its indexes and revisionId are the ones update_doc needs.',
     parameters: ReadDocSchema,
   })
   async readDoc(args: unknown, _context: Context, request: Request) {
@@ -123,7 +126,7 @@ export class AgentGoogleTools {
   @Tool({
     name: 'update_doc',
     annotations: toolAnnotations('update_doc'),
-    description: `Apply Docs API batchUpdate requests to a Google Doc of the shared drive as suggestions, never as direct edits. Only ${ALLOWED_REQUESTS.join(', ')} are forwarded; any other request type is refused, so suggestions are not accepted, rejected or deleted and comments are read-only. Returns the created suggestion ids and the comment update state.`,
+    description: `Apply Docs API batchUpdate requests to a Google Doc of the shared drive, or one shared with the service account, as suggestions, never as direct edits. Only ${ALLOWED_REQUESTS.join(', ')} are forwarded; any other request type is refused, so suggestions are not accepted, rejected or deleted and comments are read-only. Returns the created suggestion ids and the comment update state.`,
     parameters: UpdateDocSchema,
   })
   async updateDoc(args: unknown, _context: Context, request: Request) {
@@ -174,7 +177,8 @@ export class AgentGoogleTools {
   @Tool({
     name: 'get_file_metadata',
     annotations: toolAnnotations('get_file_metadata'),
-    description: 'A shared-drive file’s name, type, parents and modified time.',
+    description:
+      'A file’s name, type, parents and modified time, and whether it is in the shared drive (`inSharedDrive`) or only shared with the service account.',
     parameters: FileSchema,
   })
   async getFileMetadata(args: unknown, _context: Context, request: Request) {
@@ -187,7 +191,7 @@ export class AgentGoogleTools {
     name: 'read_file_content',
     annotations: toolAnnotations('read_file_content'),
     description:
-      'Read a shared-drive file as text: a Google Doc as Markdown, a stored text file (text/*, JSON, CSV) as it is, 2 MiB at most. For a spreadsheet use get_values.',
+      'Read a file of the shared drive, or one shared with the service account, as text: a Google Doc as Markdown, a stored text file (text/*, JSON, CSV) as it is, 2 MiB at most. For a spreadsheet use get_values.',
     parameters: ReadFileContentSchema,
   })
   async readFileContent(args: unknown, _context: Context, request: Request) {
@@ -204,7 +208,7 @@ export class AgentGoogleTools {
     name: 'create_file',
     annotations: toolAnnotations('create_file'),
     description:
-      'Create a file in a folder of the shared drive from text given in the call (not a path): a Google Doc converted from Markdown or HTML, a folder, or a plain file of the given type.',
+      'Create a file in a folder of the shared drive from text given in the call (not a path): a Google Doc converted from Markdown or HTML, an empty spreadsheet, a folder, or a plain file of the given type.',
     parameters: CreateFileSchema,
   })
   async createFile(args: unknown, _context: Context, request: Request) {
@@ -236,7 +240,7 @@ export class AgentGoogleTools {
   @Tool({
     name: 'get_spreadsheet',
     annotations: toolAnnotations('get_spreadsheet'),
-    description: 'A shared-drive spreadsheet’s title and its sheets: name, id, row and column counts.',
+    description: 'A spreadsheet’s title and its sheets: name, id, row and column counts.',
     parameters: SpreadsheetSchema,
   })
   async getSpreadsheet(args: unknown, _context: Context, request: Request) {
@@ -248,7 +252,7 @@ export class AgentGoogleTools {
   @Tool({
     name: 'get_values',
     annotations: toolAnnotations('get_values'),
-    description: 'Read the cell values of a range of a shared-drive spreadsheet, 2 MiB at most.',
+    description: 'Read the cell values of a range of a spreadsheet, 2 MiB at most.',
     parameters: GetValuesSchema,
   })
   async getValues(args: unknown, _context: Context, request: Request) {
@@ -260,7 +264,7 @@ export class AgentGoogleTools {
   @Tool({
     name: 'append_values',
     annotations: toolAnnotations('append_values'),
-    description: 'Append rows after the last row of the table found in a range of a shared-drive spreadsheet.',
+    description: 'Append rows after the last row of the table found in a range of a spreadsheet.',
     parameters: WriteValuesSchema,
   })
   async appendValues(args: unknown, _context: Context, request: Request) {
@@ -272,7 +276,7 @@ export class AgentGoogleTools {
   @Tool({
     name: 'update_values',
     annotations: toolAnnotations('update_values'),
-    description: 'Overwrite the cells of a range of a shared-drive spreadsheet in place.',
+    description: 'Overwrite the cells of a range of a spreadsheet in place.',
     parameters: WriteValuesSchema,
   })
   async updateValues(args: unknown, _context: Context, request: Request) {
