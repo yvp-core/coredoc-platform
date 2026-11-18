@@ -15,6 +15,7 @@ const FILES: Record<string, Record<string, unknown>> = {
   sheet: { id: 'sheet', name: 'Decisions', mimeType: 'application/vnd.google-apps.spreadsheet', driveId: DRIVE },
   elsewhere: { id: 'elsewhere', name: 'Payroll', mimeType: DOC_TYPE, driveId: 'another-drive' },
   mine: { id: 'mine', name: 'Private', mimeType: DOC_TYPE },
+  outsideFolder: { id: 'outsideFolder', name: 'Consultant', mimeType: 'application/vnd.google-apps.folder' },
   locked: { id: 'locked', name: 'Locked', mimeType: DOC_TYPE, driveId: DRIVE },
   notes: { id: 'notes', name: 'notes.md', mimeType: 'text/markdown', size: '11', driveId: DRIVE },
   dump: { id: 'dump', name: 'dump.csv', mimeType: 'text/csv', size: String(2 * 1024 * 1024 + 1), driveId: DRIVE },
@@ -163,17 +164,16 @@ const TOOLS: Array<[string, (tools: AgentGoogleTools, id: string, request: never
 
 describe('agent Google tools', () => {
   describe.each(TOOLS)('%s', (_name, call) => {
-    it.each([
-      'elsewhere',
-      'mine',
-    ])('refuses the file %s outside the shared drive after looking up only its drive', async (id) => {
+    it('answers Google\'s "not found" for a file the service account cannot see', async () => {
       const { tools, sent } = fakeGoogle();
 
-      const result = await call(tools, id, turn());
+      const result = await call(tools, 'nobody-shared-this', turn());
 
       expect(result.isError).toBe(true);
-      expect(body(result)).toContain('outside the shared drive');
-      expect(sent.map(({ method, url }) => `${method} ${url.pathname}`)).toEqual([`GET /drive/v3/files/${id}`]);
+      expect(body(result)).toContain('404');
+      expect(sent.map(({ method, url }) => `${method} ${url.pathname}`)).toEqual([
+        'GET /drive/v3/files/nobody-shared-this',
+      ]);
       expect(sent[0]!.url.searchParams.get('supportsAllDrives')).toBe('true');
     });
 
@@ -325,6 +325,72 @@ describe('agent Google tools', () => {
       body(refused);
     }
     expect(sent.filter(({ method }) => method === 'PATCH')).toHaveLength(1);
+  });
+
+  it.each([
+    ['in another shared drive', 'elsewhere'],
+    ["in a person's own drive", 'mine'],
+  ])('a doc %s that was shared with the service account is read and takes suggestions', async (_case, id) => {
+    const { tools, sent } = fakeGoogle();
+
+    const read = await tools.readDoc({ documentId: id }, {} as never, turn());
+    const suggested = await tools.updateDoc(
+      {
+        documentId: id,
+        requests: [{ insertText: { location: { index: 1 }, text: 'x' } }],
+        writeControl: { requiredRevisionId: 'rev-7' },
+      },
+      {} as never,
+      turn(),
+    );
+    const metadata = JSON.parse(body(await tools.getFileMetadata({ fileId: id }, {} as never, turn())));
+
+    expect(read.isError).toBeUndefined();
+    expect(suggested.isError).toBeUndefined();
+    expect(metadata.inSharedDrive).toBe(false);
+    expect(sent.some(({ url }) => url.pathname === `/v1/documents/${id}:batchUpdate`)).toBe(true);
+  });
+
+  it.each([
+    [
+      'create_file in',
+      (t: AgentGoogleTools, r: never) =>
+        t.createFile(
+          { name: 'Notes', parentId: 'outsideFolder', mimeType: DOC_TYPE, content: '# Notes' },
+          {} as never,
+          r,
+        ),
+    ],
+    [
+      'search_files in',
+      (t: AgentGoogleTools, r: never) => t.searchFiles({ parentId: 'outsideFolder' }, {} as never, r),
+    ],
+  ])('%s a folder outside the shared drive is refused after looking up only the folder', async (_case, call) => {
+    const { tools, sent } = fakeGoogle();
+
+    const result = await call(tools, turn());
+
+    expect(result.isError).toBe(true);
+    expect(body(result)).toContain('outside it');
+    expect(sent.map(({ method, url }) => `${method} ${url.pathname}`)).toEqual(['GET /drive/v3/files/outsideFolder']);
+  });
+
+  it('create_file makes an empty spreadsheet and refuses one given content', async () => {
+    const { tools, sent } = fakeGoogle();
+    const sheet = { name: 'Decisions', parentId: 'folder', mimeType: 'application/vnd.google-apps.spreadsheet' };
+
+    const created = await tools.createFile(sheet, {} as never, turn());
+    const refused = await tools.createFile({ ...sheet, content: 'a,b\n' }, {} as never, turn());
+
+    expect(created.isError).toBeUndefined();
+    expect(refused.isError).toBe(true);
+    body(refused);
+    const posts = sent.filter(({ method }) => method === 'POST');
+    expect(posts.map(({ url }) => url.pathname)).toEqual(['/drive/v3/files']);
+    expect(JSON.parse(posts[0]!.body!)).toMatchObject({
+      ...{ name: 'Decisions', parents: ['folder'] },
+      mimeType: sheet.mimeType,
+    });
   });
 
   it('create_file refuses a Google-native type it does not make, however the type is cased', async () => {
