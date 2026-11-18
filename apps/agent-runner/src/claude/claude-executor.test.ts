@@ -121,6 +121,8 @@ function fakeQuery(
         cloneDepth: undefined as string | undefined,
         prd: undefined as string | undefined,
         accepted: undefined as string | undefined,
+        /** spec.md as the session finds it, before it writes anything. */
+        spec: undefined as string | undefined,
         npmrc: undefined as string | undefined,
         workNpmrc: existsSync(join(options.cwd!, '.npmrc')),
         asks: [] as AskRecord[],
@@ -149,6 +151,8 @@ function fakeQuery(
       if (existsSync(prdPath)) record.prd = await readFile(prdPath, 'utf8');
       const acceptedPath = join(options.cwd!, 'ACCEPTED.md');
       if (existsSync(acceptedPath)) record.accepted = await readFile(acceptedPath, 'utf8');
+      const earlierSpec = join(options.cwd!, 'spec.md');
+      if (existsSync(earlierSpec)) record.spec = await readFile(earlierSpec, 'utf8');
       // Claude Code writes its transcript under its config directory.
       const configDir = options.env!.CLAUDE_CONFIG_DIR!;
       await mkdir(join(configDir, 'projects', 'work'), { recursive: true });
@@ -893,6 +897,8 @@ describe('Claude executor in the runner loop', () => {
     expect(seen[0]!.options.resume).toBe(first.run.sessionId);
     expect(seen[0]!.options.sessionId).toBeUndefined();
     expect(seen[0]!.prompt).toBe('Also cover billing exports.');
+    // The proposal file of the first turn is back, though the scratch volume was wiped in between.
+    expect(seen[0]!.spec).toBe(proposal.specMarkdown);
   });
 
   it('writes the package registry setting into the turn home before the session, never into the work tree', async () => {

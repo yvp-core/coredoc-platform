@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
+import { copyFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type {
   HookCallback,
@@ -383,6 +383,9 @@ export class ClaudeExecutor implements TurnExecutor {
     // Not SPEC.md: on a case-insensitive filesystem that is the spec.md the phase writes its own proposal to.
     const acceptedPath = final ? specPath : join(paths.work, 'ACCEPTED.md');
     if (turn.acceptedSpec) await writeFile(acceptedPath, turn.acceptedSpec.markdown, 'utf8');
+    // The work directory is not archived, so a sent-back proposal's file travels with the state.
+    const keptSpec = join(paths.state, 'spec.md');
+    if (!final && existsSync(keptSpec)) await copyFile(keptSpec, specPath);
     const methodOwnedBySkill = phase.entrySkill !== undefined;
     const firstPrompt = final
       ? implementPrompt(turn, specPath, prdPath, [], methodOwnedBySkill)
@@ -427,6 +430,7 @@ export class ClaudeExecutor implements TurnExecutor {
     }
     // Like an implement turn, a limit hit before any proposal, result or question continues the session.
     const checkpoint = session.checkpoint && !closed && questions.state.parkedQuestion === null;
+    if (!final && existsSync(specPath)) await copyFile(specPath, keptSpec);
     const archived = await this.uploadState(paths, io);
     return { spend, outcome: archived ?? { kind: checkpoint ? 'checkpoint' : 'ended' }, lastMessage };
   }
