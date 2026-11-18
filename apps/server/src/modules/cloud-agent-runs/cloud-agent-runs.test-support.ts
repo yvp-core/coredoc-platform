@@ -149,6 +149,25 @@ export class FakeJira {
         if (change.description !== undefined) issue.description = structuredClone(change.description);
         issue.labels = [...new Set([...(issue.labels ?? []), ...(change.addLabels ?? [])])];
       },
+      createChildIssue: async (
+        parentId: string,
+        projectKey: string,
+        issue: { summary: string; issueType: string; description?: unknown; labels?: string[] },
+      ) => {
+        this.record('createChildIssue', parentId);
+        const parent = this.find(parentId);
+        if (!parent) throw new JiraNotFoundError('Jira API 400 for /rest/api/3/issue');
+        const { id, key } = this.add({
+          key: `${projectKey}-${90_000 + this.issues.size}`,
+          project: projectKey,
+          parent: parent.key,
+          summary: issue.summary,
+          issueType: issue.issueType,
+          description: issue.description,
+          labels: issue.labels,
+        });
+        return { id, key };
+      },
       addComment: async (idOrKey: string, body: unknown) => {
         this.record('addComment', idOrKey);
         const issue = this.find(idOrKey);

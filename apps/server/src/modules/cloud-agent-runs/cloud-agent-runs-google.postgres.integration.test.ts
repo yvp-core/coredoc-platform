@@ -424,10 +424,11 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: Google and Jira-write too
     expect((await callTool(configured, handoff, 'agent-google', 'get_file_metadata', { fileId: 'spec' })).refused).toBe(
       false,
     );
-    // Arguments that try to name another issue reach nothing: the tool has no issue argument.
+    // An issue that is not a child of the run's issue is refused, whatever names it.
+    const stray = await callTool(configured, handoff, 'agent-jira', 'jira_update_issue', { ...update, key: bystander });
+    expect(stray).toMatchObject({ refused: true, text: expect.stringContaining('not a child') });
     const updated = await callTool(configured, handoff, 'agent-jira', 'jira_update_issue', {
       ...update,
-      key: bystander,
       issueKey: bystander,
     });
     expect(updated).toMatchObject({ refused: false, text: expect.stringContaining(issueKey) });
@@ -437,6 +438,16 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: Google and Jira-write too
     });
     expect(jira.callsOn(bystander).filter((call) => call.startsWith('updateIssue'))).toEqual([]);
     expect(jira.issues.get(bystander)).toMatchObject({ labels: ['stub'] });
+
+    // A story created under the run's issue, then updated by its key.
+    const story = { summary: 'Overtime contract', description: paragraphDoc('Draft.'), labels: ['contracts'] };
+    const created = await callTool(configured, handoff, 'agent-jira', 'jira_create_child_issue', story);
+    expect(created.refused).toBe(false);
+    const childKey = /Created (\S+) under/.exec(created.text)![1]!;
+    expect(jira.issues.get(childKey)).toMatchObject({ parent: issueKey, issueType: 'Story', ...story });
+    const revised = { key: childKey, description: paragraphDoc('Final.') };
+    expect((await callTool(configured, handoff, 'agent-jira', 'jira_update_issue', revised)).refused).toBe(false);
+    expect(jira.issues.get(childKey)).toMatchObject({ description: revised.description, labels: ['contracts'] });
   });
 
   it('a workflow that grants nothing gets neither permission, and its calls to the tools are refused', async () => {

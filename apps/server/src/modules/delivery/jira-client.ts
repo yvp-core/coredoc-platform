@@ -210,6 +210,33 @@ export class JiraClient {
     });
   }
 
+  /** A new issue under `parentId`, in the parent's project. */
+  async createChildIssue(
+    parentId: string,
+    projectKey: string,
+    issue: { summary: string; issueType: string; description?: unknown; labels?: string[] },
+  ): Promise<{ id: string; key: string }> {
+    const res = asRecord(
+      await this.request('/rest/api/3/issue', {
+        method: 'POST',
+        body: {
+          fields: {
+            project: { key: projectKey },
+            parent: { id: parentId },
+            issuetype: { name: issue.issueType },
+            summary: issue.summary,
+            ...(issue.description !== undefined ? { description: issue.description } : {}),
+            ...(issue.labels?.length ? { labels: issue.labels } : {}),
+          },
+        },
+      }),
+    );
+    if (typeof res.id !== 'string' || typeof res.key !== 'string') {
+      throw new Error('Jira create-issue response is missing its id or key');
+    }
+    return { id: res.id, key: res.key };
+  }
+
   async addComment(issueIdOrKey: string, body: unknown): Promise<{ id: string }> {
     const res = asRecord(
       await this.request(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/comment`, {

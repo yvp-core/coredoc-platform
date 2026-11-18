@@ -42,7 +42,7 @@ export const TOOLSET_TOOLS: Readonly<Record<McpToolset, ReadonlySet<string>>> = 
     'intent_source_update',
     'submit_session_feedback',
   ]),
-  [McpToolset.AgentJira]: new Set(['jira_get_issue', 'jira_search', 'jira_update_issue']),
+  [McpToolset.AgentJira]: new Set(['jira_get_issue', 'jira_search', 'jira_update_issue', 'jira_create_child_issue']),
   [McpToolset.AgentGoogle]: new Set([
     'read_doc',
     'update_doc',

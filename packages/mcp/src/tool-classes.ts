@@ -72,6 +72,7 @@ export const COREDOC_TOOL_CLASSES: Readonly<Record<string, ToolClass>> = {
   // Agent-run writes to Google and to the run's own Jira issue.
   append_values: ToolAccess.Write,
   create_file: ToolAccess.Write,
+  jira_create_child_issue: ToolAccess.Write,
   jira_update_issue: ToolAccess.Write,
   trash_file: ToolAccess.Write,
   update_doc: ToolAccess.Write,

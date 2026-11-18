@@ -161,15 +161,30 @@ export class CloudAgentRunIssueReader {
       });
   }
 
-  /** Not retried: the calling agent sees the failure and may call again. */
+  /**
+   * Updates the run's issue, or with `childKey` one of its direct children and nothing else.
+   * Not retried: the calling agent sees the failure and may call again.
+   */
   async updateIssue(
     workspaceId: string,
     jiraIssueId: string,
     change: { description?: unknown; addLabels?: string[] },
+    childKey?: string,
   ): Promise<void> {
     const connector = await this.connector(workspaceId);
+    let target = jiraIssueId;
+    if (childKey) {
+      const child = await this.readIssue(connector, childKey, ['project', 'parent']);
+      if (String(record(record(child.fields).parent).id ?? '') !== jiraIssueId) {
+        throw new JiraReadFailure(
+          RunFailureCode.IssueNotReadable,
+          `${childKey} is not a child of the issue this run started from, so it is not updated`,
+        );
+      }
+      target = String(child.id);
+    }
     try {
-      await connector.client.updateIssue(jiraIssueId, change);
+      await connector.client.updateIssue(target, change);
     } catch (error) {
       if (isPermanent(error)) {
         throw new JiraReadFailure(
@@ -179,6 +194,34 @@ export class CloudAgentRunIssueReader {
       }
       if (error instanceof JiraApiError || error instanceof JiraRateLimitError) {
         throw new JiraReadFailure(RunFailureCode.JiraError, `Jira failed while the issue was being updated`);
+      }
+      throw error;
+    }
+  }
+
+  /** A new issue under the run's issue, in its project; returns the new key. Not retried, so never created twice. */
+  async createChildIssue(
+    workspaceId: string,
+    jiraIssueId: string,
+    issue: { summary: string; issueType: string; description?: unknown; labels?: string[] },
+  ): Promise<string> {
+    const connector = await this.connector(workspaceId);
+    const parent = await this.readIssue(connector, jiraIssueId, ['project']);
+    const projectKey = String(record(record(parent.fields).project).key ?? '');
+    try {
+      return (await connector.client.createChildIssue(jiraIssueId, projectKey, issue)).key;
+    } catch (error) {
+      if (isPermanent(error)) {
+        throw new JiraReadFailure(
+          RunFailureCode.IssueNotReadable,
+          `Jira refused to create the issue: the Jira connector may not create issues in ${projectKey}, "${issue.issueType}" cannot be a child of this issue, or a value is not valid`,
+        );
+      }
+      if (error instanceof JiraApiError || error instanceof JiraRateLimitError) {
+        throw new JiraReadFailure(
+          RunFailureCode.JiraError,
+          'Jira failed while the issue was being created; search the children before trying again',
+        );
       }
       throw error;
     }
