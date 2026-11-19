@@ -31,6 +31,8 @@ export interface ToolContext {
   detailConfig: DetailLevelConfig;
   /** The workspace's graph backend, so a tool can name it in an error. */
   graphBackend: GraphBackend;
+  /** An access area withholds part of the graph from this caller — see WorkspaceContext.restricted. */
+  restricted: boolean;
 }
 
 export abstract class BaseCoredocTool {
@@ -47,7 +49,7 @@ export abstract class BaseCoredocTool {
     workspaceContext: WorkspaceContext,
     toolName?: string,
   ): ToolContext {
-    const { repository, scope, repos, graphBackend } = workspaceContext;
+    const { repository, scope, repos, restricted, graphBackend } = workspaceContext;
 
     // If args.scope specifies a target repo, narrow within workspace
     let resolvedScope = scope;
@@ -85,6 +87,7 @@ export abstract class BaseCoredocTool {
       detailLevel,
       detailConfig,
       graphBackend,
+      restricted,
     };
   }
 

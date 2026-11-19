@@ -24,6 +24,8 @@ function makeService() {
   } as unknown as GraphService;
 }
 
+const READER = { userId: 'user-1', role: 'member' };
+
 describe('GraphController', () => {
   let service: ReturnType<typeof makeService>;
   let controller: GraphController;
@@ -41,9 +43,9 @@ describe('GraphController', () => {
     const expected = [{ id: 'x:function:foo' }];
     (service.searchSymbols as any).mockResolvedValue(expected);
 
-    const result = await controller.search('ws-1', 'foo', 'function', 'api-server', '10');
+    const result = await controller.search('ws-1', READER, 'foo', 'function', 'api-server', '10');
 
-    expect(service.searchSymbols).toHaveBeenCalledWith('ws-1', {
+    expect(service.searchSymbols).toHaveBeenCalledWith('ws-1', READER, {
       q: 'foo',
       types: 'function',
       scopeRepo: 'api-server',
@@ -56,9 +58,9 @@ describe('GraphController', () => {
     const expected = { repos: [], coverage: [] };
     (service.overview as any).mockResolvedValue(expected);
 
-    const result = await controller.overview('ws-1', 'api-server');
+    const result = await controller.overview('ws-1', READER, 'api-server');
 
-    expect(service.overview).toHaveBeenCalledWith('ws-1', { scopeRepo: 'api-server' });
+    expect(service.overview).toHaveBeenCalledWith('ws-1', READER, { scopeRepo: 'api-server' });
     expect(result).toBe(expected);
   });
 
@@ -66,9 +68,9 @@ describe('GraphController', () => {
     const expected = [{ service: 'order-service' }];
     (service.serviceDependencies as any).mockResolvedValue(expected);
 
-    const result = await controller.serviceDependencies('ws-1', undefined);
+    const result = await controller.serviceDependencies('ws-1', READER, undefined);
 
-    expect(service.serviceDependencies).toHaveBeenCalledWith('ws-1', { scopeRepo: undefined });
+    expect(service.serviceDependencies).toHaveBeenCalledWith('ws-1', READER, { scopeRepo: undefined });
     expect(result).toBe(expected);
   });
 
@@ -76,9 +78,9 @@ describe('GraphController', () => {
     const expected = [{ id: 'x:entrypoint:1' }];
     (service.entrypoints as any).mockResolvedValue(expected);
 
-    const result = await controller.entrypoints('ws-1', 'api-server', 'http', '50');
+    const result = await controller.entrypoints('ws-1', READER, 'api-server', 'http', '50');
 
-    expect(service.entrypoints).toHaveBeenCalledWith('ws-1', {
+    expect(service.entrypoints).toHaveBeenCalledWith('ws-1', READER, {
       scopeRepo: 'api-server',
       protocol: 'http',
       limit: '50',
@@ -90,25 +92,25 @@ describe('GraphController', () => {
     const expected = { node: { id: 'x:function:f' }, neighborCounts: [] };
     (service.nodeDetail as any).mockResolvedValue(expected);
 
-    const result = await controller.node('ws-1', 'x:function:f');
+    const result = await controller.node('ws-1', READER, 'x:function:f');
 
-    expect(service.nodeDetail).toHaveBeenCalledWith('ws-1', 'x:function:f');
+    expect(service.nodeDetail).toHaveBeenCalledWith('ws-1', READER, 'x:function:f');
     expect(result).toBe(expected);
   });
 
   it('node passes an empty string when id is absent (service 400s on it)', async () => {
     (service.nodeDetail as any).mockResolvedValue({});
-    await controller.node('ws-1', undefined);
-    expect(service.nodeDetail).toHaveBeenCalledWith('ws-1', '');
+    await controller.node('ws-1', READER, undefined);
+    expect(service.nodeDetail).toHaveBeenCalledWith('ws-1', READER, '');
   });
 
   it('neighbors delegates to GraphService.neighbors with all query params', async () => {
     const expected = { nodes: [], edges: [], truncated: false };
     (service.neighbors as any).mockResolvedValue(expected);
 
-    const result = await controller.neighbors('ws-1', 'x:function:f', 'out', 'CALLS', '50', 'cur1');
+    const result = await controller.neighbors('ws-1', READER, 'x:function:f', 'out', 'CALLS', '50', 'cur1');
 
-    expect(service.neighbors).toHaveBeenCalledWith('ws-1', 'x:function:f', {
+    expect(service.neighbors).toHaveBeenCalledWith('ws-1', READER, 'x:function:f', {
       direction: 'out',
       edgeTypes: 'CALLS',
       limit: '50',
@@ -121,9 +123,9 @@ describe('GraphController', () => {
     const expected = { nodes: [], edges: [], truncated: false };
     (service.subgraph as any).mockResolvedValue(expected);
 
-    const result = await controller.subgraph('ws-1', 'x:function:f', 'out', 'CALLS', '4', '100');
+    const result = await controller.subgraph('ws-1', READER, 'x:function:f', 'out', 'CALLS', '4', '100');
 
-    expect(service.subgraph).toHaveBeenCalledWith('ws-1', 'x:function:f', {
+    expect(service.subgraph).toHaveBeenCalledWith('ws-1', READER, 'x:function:f', {
       direction: 'out',
       edgeTypes: 'CALLS',
       depth: '4',
@@ -136,9 +138,9 @@ describe('GraphController', () => {
     const expected = { nodes: [], truncated: false, lowCoverageRepos: [] };
     (service.deadCode as any).mockResolvedValue(expected);
 
-    const result = await controller.deadCode('ws-1', 'function,class', 'api-server', '50', 'cur1');
+    const result = await controller.deadCode('ws-1', READER, 'function,class', 'api-server', '50', 'cur1');
 
-    expect(service.deadCode).toHaveBeenCalledWith('ws-1', {
+    expect(service.deadCode).toHaveBeenCalledWith('ws-1', READER, {
       types: 'function,class',
       scopeRepo: 'api-server',
       limit: '50',
@@ -151,9 +153,9 @@ describe('GraphController', () => {
     const expected = { nodes: [], edges: [], truncated: false };
     (service.crossRepo as any).mockResolvedValue(expected);
 
-    const result = await controller.crossRepo('ws-1', 'api-server', '25');
+    const result = await controller.crossRepo('ws-1', READER, 'api-server', '25');
 
-    expect(service.crossRepo).toHaveBeenCalledWith('ws-1', { scopeRepo: 'api-server', limit: '25' });
+    expect(service.crossRepo).toHaveBeenCalledWith('ws-1', READER, { scopeRepo: 'api-server', limit: '25' });
     expect(result).toBe(expected);
   });
 
@@ -161,9 +163,9 @@ describe('GraphController', () => {
     const expected = { cypher: true, edgesAmong: true };
     (service.capabilities as any).mockResolvedValue(expected);
 
-    const result = await controller.capabilities('ws-1');
+    const result = await controller.capabilities('ws-1', READER);
 
-    expect(service.capabilities).toHaveBeenCalledWith('ws-1');
+    expect(service.capabilities).toHaveBeenCalledWith('ws-1', READER);
     expect(result).toBe(expected);
   });
 });

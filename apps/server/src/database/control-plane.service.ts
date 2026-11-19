@@ -38,6 +38,33 @@ export type {
   ServiceToken,
 } from '../generated/prisma/client.js';
 
+/** Server-internal work with no human reader (push, derivation): reads every repo. */
+export const SYSTEM_READER = 'system' as const;
+
+/** Who a repo read is for. For a service token, the token's creator. */
+export type RepoReader = { userId: string; role: string } | typeof SYSTEM_READER;
+
+/**
+ * The repos this reader may read — the one place repo read access is decided. A
+ * repo in an access area is readable only by the area's members and by workspace
+ * admins/owners. `withheld` are the repos kept from this reader: they still live
+ * in the workspace graph, so graph reads must be filtered against them.
+ */
+export async function readableRepos(
+  controlPlane: Pick<ControlPlaneService, 'listRepos' | 'listAccessAreaIds'>,
+  workspaceId: string,
+  reader: RepoReader,
+) {
+  const repos = await controlPlane.listRepos(workspaceId);
+  if (reader === SYSTEM_READER || reader.role === 'admin' || reader.role === 'owner') {
+    return { repos, withheld: [] };
+  }
+  if (!repos.some((repo) => repo.accessAreaId)) return { repos, withheld: [] };
+  const areaIds = new Set(await controlPlane.listAccessAreaIds(workspaceId, reader.userId));
+  const readable = (repo: (typeof repos)[number]) => !repo.accessAreaId || areaIds.has(repo.accessAreaId);
+  return { repos: repos.filter(readable), withheld: repos.filter((repo) => !readable(repo)) };
+}
+
 // =============================================================================
 // Service
 // =============================================================================
@@ -344,6 +371,14 @@ export class ControlPlaneService {
       where: { workspaceId },
       orderBy: { repoName: 'asc' },
     });
+  }
+
+  async listAccessAreaIds(workspaceId: string, userId: string) {
+    const memberships = await this.prisma.accessAreaMember.findMany({
+      where: { workspaceId, userId },
+      select: { areaId: true },
+    });
+    return memberships.map((membership) => membership.areaId);
   }
 
   async removeRepo(workspaceId: string, repoId: string) {

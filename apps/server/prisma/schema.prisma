@@ -86,6 +86,8 @@ model Workspace {
   agentRunSettings       AgentRunSettings?
   agentRunnersSeen       AgentRunnerSeen[]
 
+  accessAreas AccessArea[]
+
   @@map("workspaces")
 }
 
@@ -127,8 +129,9 @@ model WorkspaceMember {
   pending     Boolean  @default(false)
   joinedAt    DateTime @default(now()) @map("joined_at") @db.Timestamptz
 
-  workspace  Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  invitation WorkspaceInvitation?
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitation  WorkspaceInvitation?
+  accessAreas AccessAreaMember[]
 
   @@id([workspaceId, userId])
   // One identity per workspace. Emails are normalized to lowercase on write
@@ -200,13 +203,49 @@ model WorkspaceRepo {
   lastSummaryVersion String? @map("last_summary_version")
   lastEmbedVersion   String? @map("last_embed_version")
 
-  workspace Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  artifacts WorkspaceRepoArtifact[]
+  // Null = every workspace member reads this repo. Set = only the area's
+  // members (and workspace admins/owners) do.
+  accessAreaId String? @map("access_area_id") @db.Uuid
+
+  workspace  Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // Restrict, never SetNull: deleting an area must not silently open its repos.
+  accessArea AccessArea?             @relation(fields: [accessAreaId], references: [id], onDelete: Restrict)
+  artifacts  WorkspaceRepoArtifact[]
 
   @@unique([workspaceId, repoKey])
   @@unique([workspaceId, captureRepositoryKey])
   @@unique([workspaceId, intentRepoKey])
   @@map("workspace_repos")
+}
+
+/// A named zone of restricted knowledge: the repos assigned to it are readable
+/// only by its members and by workspace admins/owners.
+model AccessArea {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  name        String   @db.VarChar(100)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members   AccessAreaMember[]
+  repos     WorkspaceRepo[]
+
+  @@unique([workspaceId, name])
+  @@map("access_areas")
+}
+
+model AccessAreaMember {
+  areaId      String @map("area_id") @db.Uuid
+  workspaceId String @map("workspace_id") @db.Uuid
+  userId      String @map("user_id")
+
+  area   AccessArea      @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  // onUpdate Cascade: a pending member's userId is re-keyed on first login.
+  member WorkspaceMember @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([areaId, userId])
+  @@index([workspaceId, userId])
+  @@map("access_area_members")
 }
 
 enum WorkspaceRepoArtifactKind {

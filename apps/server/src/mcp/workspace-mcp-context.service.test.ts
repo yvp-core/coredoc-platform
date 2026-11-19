@@ -43,6 +43,21 @@ describe('WorkspaceMcpContextService', () => {
     service = new WorkspaceMcpContextService(deps.workspaceDbPool, deps.controlPlane, deps.fileCache);
   });
 
+  it('refuses a reader every repo is withheld from instead of handing out an empty, unfiltered scope', async () => {
+    (deps.controlPlane.getWorkspaceById as any).mockResolvedValue({ id: 'ws-1', slug: 'acme', graphBackend: 'turso' });
+    (deps.workspaceDbPool.getRepository as any).mockResolvedValue({ findCode: vi.fn() });
+    (deps.controlPlane.listRepos as any).mockResolvedValue([
+      { repoName: 'calc', repoKey: 'hashcalc', accessAreaId: 'area-calc' },
+    ]);
+    (deps.controlPlane as any).listAccessAreaIds = vi.fn().mockResolvedValue([]);
+    const callback = vi.fn();
+
+    await expect(
+      service.withContextByWorkspaceId('ws-1', callback, { userId: 'u1', role: 'member' }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(callback).not.toHaveBeenCalled();
+  });
+
   it('keeps the Turso path byte-compatible and never touches the file cache', async () => {
     (deps.controlPlane.getWorkspaceById as any).mockResolvedValue({
       id: 'ws-1',

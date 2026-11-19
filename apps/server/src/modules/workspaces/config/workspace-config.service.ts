@@ -6,7 +6,7 @@
  */
 
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ControlPlaneService } from '../../../database/control-plane.service.js';
+import { ControlPlaneService, type RepoReader, readableRepos } from '../../../database/control-plane.service.js';
 
 // =============================================================================
 // Types
@@ -51,13 +51,13 @@ export interface WorkspaceConfig {
 export class WorkspaceConfigService {
   constructor(private readonly controlPlane: ControlPlaneService) {}
 
-  async getWorkspaceConfig(workspaceId: string): Promise<WorkspaceConfig> {
+  async getWorkspaceConfig(workspaceId: string, reader: RepoReader): Promise<WorkspaceConfig> {
     const workspace = await this.controlPlane.getWorkspaceById(workspaceId);
     if (!workspace) {
       throw new NotFoundException('Workspace not found');
     }
 
-    const repos = await this.controlPlane.listRepos(workspaceId);
+    const { repos } = await readableRepos(this.controlPlane, workspaceId, reader);
     const members = await this.controlPlane.listMembers(workspaceId);
 
     return {

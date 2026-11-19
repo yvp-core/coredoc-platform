@@ -4,7 +4,7 @@
  * cannot invalidate an in-flight query.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import {
   GRAPH_FILE_FORMAT_COMPATIBILITY,
   GRAPH_READ_CAPABILITY_IDENTITY,
@@ -15,17 +15,26 @@ import {
 } from '@coredoc/db';
 import type { ScopeContext } from '@coredoc/mcp';
 import type { Request } from 'express';
-import type { WorkspaceRepo } from '../database/control-plane.service.js';
-import { ControlPlaneService } from '../database/control-plane.service.js';
+import type { RepoReader, WorkspaceRepo } from '../database/control-plane.service.js';
+import { ControlPlaneService, SYSTEM_READER, readableRepos } from '../database/control-plane.service.js';
+import type { AuthenticatedMcpRequest } from './mcp-auth-context.js';
 import { WorkspaceFileCacheService, type WorkspaceGraphFileLease } from '../database/workspace-file-cache.service.js';
 import { WorkspaceDbPoolService } from '../database/workspace-db-pool.service.js';
 import { GraphBackend, resolveGraphBackend } from '../database/graph-backend.js';
 import { resolveWorkspaceScope } from './workspace-scope-resolver.js';
+import { withholdRepos } from './withhold-repos.js';
 
 export interface WorkspaceContext {
   repository: IGraphReadRepository;
   scope: ScopeContext;
+  /** The repos this reader may read — `scope` is built from exactly these. */
   repos: WorkspaceRepo[];
+  /**
+   * True when an access area withholds at least one workspace repo from this
+   * reader. The graph itself still holds those repos, so anything that reads it
+   * without a repo filter (raw Cypher) must refuse.
+   */
+  restricted: boolean;
   /** Captured immutable graph version, or null for the legacy Turso path. */
   versionId: string | null;
   /**
@@ -155,7 +164,10 @@ function graphReadIdentity(repository: IGraphReadRepository): object {
   return identity;
 }
 
-function scopedRepository(repository: IGraphReadRepository): {
+function scopedRepository(
+  repository: IGraphReadRepository,
+  withheldRepoHashes: readonly string[],
+): {
   repository: IGraphReadRepository;
   revoke(): void;
   drain(): Promise<void>;
@@ -191,7 +203,12 @@ function scopedRepository(repository: IGraphReadRepository): {
       enumerable: true,
       value: (...args: unknown[]) => {
         assertActive();
-        const result = Reflect.apply(implementation, repository, args);
+        const raw = Reflect.apply(implementation, repository, args);
+        // The access-area boundary for every hosted graph read — see withholdRepos.
+        const result =
+          withheldRepoHashes.length > 0
+            ? Promise.resolve(raw).then((value) => withholdRepos(value, withheldRepoHashes))
+            : raw;
         track(result);
         return result;
       },
@@ -224,10 +241,24 @@ export class WorkspaceMcpContextService {
     if (!workspaceId) {
       throw new Error('Missing workspaceId on request');
     }
-    return this.withContextByWorkspaceId(workspaceId, callback);
+    // Fail closed: a request with no trusted principal is in no access area, so
+    // it reads only the repos open to every member.
+    const { user, userWorkspaceRole } = request as AuthenticatedMcpRequest;
+    return this.withContextByWorkspaceId(workspaceId, callback, {
+      userId: user?.id ?? '',
+      role: userWorkspaceRole ?? '',
+    });
   }
 
-  async withContextByWorkspaceId<T>(workspaceId: string, callback: WorkspaceContextCallback<T>): Promise<T> {
+  /**
+   * `reader` decides which repos the context exposes. Omit it only for
+   * server-internal work that no person reads the result of.
+   */
+  async withContextByWorkspaceId<T>(
+    workspaceId: string,
+    callback: WorkspaceContextCallback<T>,
+    reader: RepoReader = SYSTEM_READER,
+  ): Promise<T> {
     const workspace = await this.controlPlane.getWorkspaceById(workspaceId);
     if (!workspace) {
       throw new WorkspaceGraphContextError('WORKSPACE_NOT_FOUND', `Workspace not found: ${workspaceId}`);
@@ -300,10 +331,25 @@ export class WorkspaceMcpContextService {
     let releaseError: unknown;
     let result!: T;
     try {
-      scoped = scopedRepository(repository);
-      const repos = await this.controlPlane.listRepos(workspaceId);
+      const { repos, withheld } = await readableRepos(this.controlPlane, workspaceId, reader);
+      // Every backend reads an empty repo scope as "no filter", so a reader with
+      // nothing readable must be refused, not handed an empty scope.
+      if (withheld.length > 0 && repos.length === 0) {
+        throw new ForbiddenException('You have no access to any repository in this workspace');
+      }
+      scoped = scopedRepository(
+        repository,
+        withheld.map((repo) => repo.repoKey),
+      );
       const scope = resolveWorkspaceScope(repos);
-      result = await callback({ repository: scoped.repository, scope, repos, versionId, graphBackend });
+      result = await callback({
+        repository: scoped.repository,
+        scope,
+        repos,
+        restricted: withheld.length > 0,
+        versionId,
+        graphBackend,
+      });
     } catch (error) {
       callbackFailed = true;
       callbackError = error;

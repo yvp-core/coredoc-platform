@@ -7,7 +7,7 @@
 
 import { Inject, Injectable, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { CONNECTORS_CONFIG, type ConnectorsConfig, configFromEnv } from '../../config/app-config.js';
-import { ControlPlaneService } from '../../database/control-plane.service.js';
+import { ControlPlaneService, type RepoReader, readableRepos } from '../../database/control-plane.service.js';
 
 // =============================================================================
 // Types
@@ -31,9 +31,15 @@ export class SourceService {
     @Optional() @Inject(CONNECTORS_CONFIG) private readonly connectors: ConnectorsConfig = configFromEnv().connectors,
   ) {}
 
-  async fetchFile(workspaceId: string, repoName: string, filePath: string, ref?: string): Promise<SourceFile> {
-    // Look up repo to get git URL
-    const repos = await this.controlPlane.listRepos(workspaceId);
+  async fetchFile(
+    workspaceId: string,
+    reader: RepoReader,
+    repoName: string,
+    filePath: string,
+    ref?: string,
+  ): Promise<SourceFile> {
+    // Look up repo to get git URL. A repo the reader may not read is "not found".
+    const { repos } = await readableRepos(this.controlPlane, workspaceId, reader);
     const repo = repos.find((r) => r.repoName === repoName);
     if (!repo) {
       throw new NotFoundException(`Repo "${repoName}" not found in workspace`);

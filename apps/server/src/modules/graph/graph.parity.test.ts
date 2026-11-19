@@ -52,10 +52,15 @@ import { SqliteDriver, SqliteRepository, NodeType, EdgeType } from '@coredoc/db'
 import type { GraphNode, GraphEdge, IGraphRepository } from '@coredoc/db';
 import type { ScopeContext } from '@coredoc/mcp';
 import { resolveDetailLevel } from '@coredoc/mcp';
-import { handleSearchSymbols, handleListEntrypoints, handleListServiceDependencies } from '@coredoc/mcp/tools';
+import {
+  handleSearchSymbols,
+  handleListEntrypoints,
+  handleListServiceDependencies,
+  handleTraceCrossRepoCall,
+} from '@coredoc/mcp/tools';
 
 import { GraphService } from './graph.service.js';
-import type { WorkspaceMcpContextService } from '../../mcp/workspace-mcp-context.service.js';
+import { WorkspaceMcpContextService } from '../../mcp/workspace-mcp-context.service.js';
 import { resolveWorkspaceScope } from '../../mcp/workspace-scope-resolver.js';
 
 // =============================================================================
@@ -429,6 +434,8 @@ function buildFixtureGraph(): { nodes: GraphNode[]; edges: GraphEdge[] } {
 // reused from packages/db/src/sqlite/repository.test.ts.
 // =============================================================================
 
+const READER = { userId: 'user-1', role: 'member' };
+
 describe('GraphService REST↔MCP parity (real SQLite fixture)', () => {
   let tmpDir: string;
   let driver: SqliteDriver;
@@ -473,7 +480,7 @@ describe('GraphService REST↔MCP parity (real SQLite fixture)', () => {
 
   describe('searchSymbols parity', () => {
     it('matches the handler with no type filter (all kinds)', async () => {
-      const restResult = await graphService.searchSymbols('ws-1', { q: 'order' });
+      const restResult = await graphService.searchSymbols('ws-1', READER, { q: 'order' });
       const handlerResponse = await handleSearchSymbols(
         { query: 'order', limit: 20 },
         unscopedScope,
@@ -488,7 +495,7 @@ describe('GraphService REST↔MCP parity (real SQLite fixture)', () => {
     });
 
     it('matches the handler with types=function filter', async () => {
-      const restResult = await graphService.searchSymbols('ws-1', { q: 'create', types: 'function' });
+      const restResult = await graphService.searchSymbols('ws-1', READER, { q: 'create', types: 'function' });
       const handlerResponse = await handleSearchSymbols(
         { query: 'create', type: 'function', limit: 20 },
         unscopedScope,
@@ -511,7 +518,7 @@ describe('GraphService REST↔MCP parity (real SQLite fixture)', () => {
 
   describe('overview parity', () => {
     it('matches getRepoOverview + getCoverageCounts composed directly', async () => {
-      const restResult = await graphService.overview('ws-1', {});
+      const restResult = await graphService.overview('ws-1', READER, {});
       const [repos, coverage] = await Promise.all([
         repository.getRepoOverview(unscopedScope.repoHashes),
         repository.getCoverageCounts(unscopedScope.repoHashes),
@@ -529,7 +536,7 @@ describe('GraphService REST↔MCP parity (real SQLite fixture)', () => {
     // above alone could not catch that, since it recomputes both sides the
     // same way GraphService does and would happily agree with a shared bug.
     it('matches a hardcoded literal payload for this fixture (fails on any reshape)', async () => {
-      const restResult = await graphService.overview('ws-1', {});
+      const restResult = await graphService.overview('ws-1', READER, {});
 
       expect(restResult).toEqual({
         repos: [
@@ -605,7 +612,7 @@ describe('GraphService REST↔MCP parity (real SQLite fixture)', () => {
     const userServiceClassId = `${USER_SVC_HASH}:class:src/services/user.service.ts:UserService`;
 
     it('returns only edges with BOTH endpoints in the set (no half-in edge leaks)', async () => {
-      const result = await graphService.edgesAmong('ws-1', { nodeIds: [createUserId, notifyOrderServiceId] });
+      const result = await graphService.edgesAmong('ws-1', READER, { nodeIds: [createUserId, notifyOrderServiceId] });
 
       expect(result).toEqual({
         truncated: false,
@@ -624,7 +631,7 @@ describe('GraphService REST↔MCP parity (real SQLite fixture)', () => {
 
     it('matches the repository called directly for the same ids', async () => {
       const nodeIds = [userServiceClassId, createUserId, notifyOrderServiceId];
-      const restResult = await graphService.edgesAmong('ws-1', { nodeIds });
+      const restResult = await graphService.edgesAmong('ws-1', READER, { nodeIds });
       const direct = await repository.getEdgesAmong(nodeIds, unscopedScope.repoHashes, 4000);
 
       expect(restResult).toEqual(direct);
@@ -632,7 +639,7 @@ describe('GraphService REST↔MCP parity (real SQLite fixture)', () => {
     });
 
     it('truncates at a client-supplied limit rather than dropping the flag', async () => {
-      const result = await graphService.edgesAmong('ws-1', {
+      const result = await graphService.edgesAmong('ws-1', READER, {
         nodeIds: [userServiceClassId, createUserId, notifyOrderServiceId],
         limit: 1,
       });
@@ -649,7 +656,7 @@ describe('GraphService REST↔MCP parity (real SQLite fixture)', () => {
 
   describe('serviceDependencies parity', () => {
     it('matches the handler unscoped (aggregates external calls across both repos)', async () => {
-      const restResult = await graphService.serviceDependencies('ws-1', {});
+      const restResult = await graphService.serviceDependencies('ws-1', READER, {});
       const handlerResponse = await handleListServiceDependencies(
         {},
         unscopedScope,
@@ -665,7 +672,7 @@ describe('GraphService REST↔MCP parity (real SQLite fixture)', () => {
 
     it('matches the handler scoped to order-service only', async () => {
       const scopedScope = resolveWorkspaceScope(REPOS, ORDER_SVC_NAME);
-      const restResult = await graphService.serviceDependencies('ws-1', { scopeRepo: ORDER_SVC_NAME });
+      const restResult = await graphService.serviceDependencies('ws-1', READER, { scopeRepo: ORDER_SVC_NAME });
       const handlerResponse = await handleListServiceDependencies(
         {},
         scopedScope,
@@ -690,7 +697,7 @@ describe('GraphService REST↔MCP parity (real SQLite fixture)', () => {
 
   describe('entrypoints parity', () => {
     it('matches the handler with no protocol filter', async () => {
-      const restResult = await graphService.entrypoints('ws-1', {});
+      const restResult = await graphService.entrypoints('ws-1', READER, {});
       const handlerResponse = await handleListEntrypoints(
         { limit: 20 },
         unscopedScope,
@@ -705,7 +712,7 @@ describe('GraphService REST↔MCP parity (real SQLite fixture)', () => {
     });
 
     it('matches the handler with protocol=http', async () => {
-      const restResult = await graphService.entrypoints('ws-1', { protocol: 'http' });
+      const restResult = await graphService.entrypoints('ws-1', READER, { protocol: 'http' });
       const handlerResponse = await handleListEntrypoints(
         { type: 'http', limit: 20 },
         unscopedScope,
@@ -720,7 +727,7 @@ describe('GraphService REST↔MCP parity (real SQLite fixture)', () => {
     });
 
     it('matches the handler (no filter) with protocol=all — the REST alias for omitted', async () => {
-      const restResult = await graphService.entrypoints('ws-1', { protocol: 'all' });
+      const restResult = await graphService.entrypoints('ws-1', READER, { protocol: 'all' });
       const handlerResponse = await handleListEntrypoints(
         { limit: 20 },
         unscopedScope,
@@ -733,5 +740,130 @@ describe('GraphService REST↔MCP parity (real SQLite fixture)', () => {
       expect(restResult).toEqual(handlerResponse.data);
       expect((restResult as unknown[]).length).toBeGreaterThan(0);
     });
+  });
+});
+
+// =============================================================================
+// Access areas: a reader the order-service repo is withheld from. Both repos
+// live in the SAME graph, so every read must stay inside the reader's scope —
+// including across the RESOLVES_TO bridge that joins the two repos.
+// =============================================================================
+
+describe('GraphService with a withheld repo (real SQLite fixture)', () => {
+  let tmpDir: string;
+  let driver: SqliteDriver;
+  let restricted: GraphService;
+  let wsContext: WorkspaceMcpContextService;
+
+  const userNodeId = `${USER_SVC_HASH}:external_call:${ORDER_SVC_NAME}:bridge`;
+  const withheldNodeId = `${ORDER_SVC_HASH}:entrypoint:src/controllers/order.controller.ts:POST /orders`;
+  // Nothing a reader of user-service alone could legitimately be shown.
+  const WITHHELD = [ORDER_SVC_HASH, 'order.service.ts', 'order.controller.ts', 'createOrder', 'enrichOrderData'];
+
+  beforeAll(async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'graph-withheld-'));
+    driver = new SqliteDriver(`file:${join(tmpDir, 'test.db')}`);
+    await driver.initialize();
+    const repository: IGraphRepository = new SqliteRepository(driver);
+
+    const { nodes, edges } = buildFixtureGraph();
+    nodes.push({
+      id: userNodeId,
+      type: NodeType.ExternalCall,
+      name: `${ORDER_SVC_NAME}:POST /api/orders`,
+      properties: { serviceName: ORDER_SVC_NAME, protocol: 'http', httpMethod: 'POST', pathTemplate: '/api/orders' },
+      repoId: USER_SVC_HASH,
+      filePath: 'src/services/user.service.ts',
+      startLine: 70,
+    });
+    edges.push({
+      id: 'edge:resolves_to:bridge',
+      sourceId: userNodeId,
+      targetId: withheldNodeId,
+      type: EdgeType.ResolvesTo,
+      confidence: 1.0,
+      createdBy: 'linker',
+      properties: {},
+    });
+    await repository.pushNodes(nodes);
+    await repository.pushEdges(edges);
+
+    // The REAL context service: the access-area boundary lives in it, so stubbing
+    // it would test nothing. order-service sits in an area READER is not in.
+    wsContext = new WorkspaceMcpContextService(
+      { getRepository: async () => repository } as never,
+      {
+        getWorkspaceById: async () => ({ id: 'ws-1', slug: 'acme', graphBackend: 'turso', activeGraphVersionId: null }),
+        listRepos: async () => [
+          { ...REPOS[0]!, accessAreaId: null },
+          { ...REPOS[1]!, accessAreaId: 'area-orders' },
+        ],
+        listAccessAreaIds: async () => [],
+      } as never,
+      {} as never,
+    );
+    restricted = new GraphService(wsContext);
+  });
+
+  afterAll(async () => {
+    await driver.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('never returns anything from the withheld repo, on any read', async () => {
+    const reads: Record<string, unknown> = {
+      search: await restricted.searchSymbols('ws-1', READER, { q: 'order' }),
+      overview: await restricted.overview('ws-1', READER, {}),
+      serviceDependencies: await restricted.serviceDependencies('ws-1', READER, {}),
+      entrypoints: await restricted.entrypoints('ws-1', READER, {}),
+      repos: await restricted.listRepos('ws-1', READER),
+      functions: await restricted.nodesByType('ws-1', READER, { type: 'function' }),
+      entrypointNodes: await restricted.nodesByType('ws-1', READER, { type: 'entrypoint' }),
+      bridgeNode: await restricted.nodeDetail('ws-1', READER, userNodeId),
+      neighbors: await restricted.neighbors('ws-1', READER, userNodeId, {}),
+      subgraph: await restricted.subgraph('ws-1', READER, userNodeId, { depth: '3' }),
+      deadCode: await restricted.deadCode('ws-1', READER, {}),
+      crossRepo: await restricted.crossRepo('ws-1', READER, {}),
+      edgesAmong: await restricted.edgesAmong('ws-1', READER, { nodeIds: [userNodeId, withheldNodeId] }),
+      // The MCP tool that exists to follow a call INTO another repo.
+      traceCrossRepoCall: await wsContext.withContextByWorkspaceId(
+        'ws-1',
+        ({ scope, repository }) =>
+          handleTraceCrossRepoCall(
+            { targetService: ORDER_SVC_NAME },
+            scope,
+            'raw',
+            'full',
+            resolveDetailLevel('full'),
+            repository,
+          ),
+        READER,
+      ),
+    };
+
+    for (const [name, result] of Object.entries(reads)) {
+      const text = JSON.stringify(result);
+      for (const secret of WITHHELD) {
+        expect(text, `${name} leaked "${secret}"`).not.toContain(secret);
+      }
+    }
+  });
+
+  it('answers "not found" for a node of the withheld repo', async () => {
+    await expect(restricted.nodeDetail('ws-1', READER, withheldNodeId)).rejects.toMatchObject({ status: 404 });
+    for (const read of [
+      restricted.neighbors('ws-1', READER, withheldNodeId, {}),
+      restricted.subgraph('ws-1', READER, withheldNodeId, { depth: '2' }),
+    ]) {
+      const text = JSON.stringify(await read.catch((error: unknown) => ({ refused: String(error) })));
+      for (const secret of ['order.service.ts', 'createOrder', 'enrichOrderData']) expect(text).not.toContain(secret);
+    }
+  });
+
+  it('refuses raw Cypher, which cannot be limited to the readable repos', async () => {
+    await expect(restricted.runCypher('ws-1', READER, { query: 'MATCH (n) RETURN n' })).rejects.toMatchObject({
+      status: 403,
+    });
+    await expect(restricted.capabilities('ws-1', READER)).resolves.toMatchObject({ cypher: false });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ControlPlaneService } from './control-plane.service.js';
+import { ControlPlaneService, SYSTEM_READER, readableRepos } from './control-plane.service.js';
 import type { PrismaService } from './prisma.service.js';
 
 /**
@@ -485,5 +485,38 @@ describe('ControlPlaneService.getWorkspaceOwnerWorkosIdentity', () => {
         where: { profile_id: { in: ['github-owner', 'workos-owner'] }, provider: 'workos' },
       }),
     );
+  });
+});
+
+describe('readableRepos', () => {
+  const open = { repoName: 'api', accessAreaId: null };
+  const closed = { repoName: 'calc', accessAreaId: 'area-calc' };
+  const controlPlane = (areaIds: string[]) =>
+    ({
+      listRepos: async () => [open, closed],
+      listAccessAreaIds: async () => areaIds,
+    }) as never;
+
+  it('withholds an area repo from a member outside the area and reports it as withheld', async () => {
+    await expect(readableRepos(controlPlane([]), 'ws-1', { userId: 'u1', role: 'member' })).resolves.toEqual({
+      repos: [open],
+      withheld: [closed],
+    });
+  });
+
+  it('shows an area repo to the area member, to admins and owners, and to system reads', async () => {
+    const everything = { repos: [open, closed], withheld: [] };
+    await expect(readableRepos(controlPlane(['area-calc']), 'ws-1', { userId: 'u1', role: 'member' })).resolves.toEqual(
+      everything,
+    );
+    for (const role of ['admin', 'owner']) {
+      await expect(readableRepos(controlPlane([]), 'ws-1', { userId: 'u1', role })).resolves.toEqual(everything);
+    }
+    await expect(readableRepos(controlPlane([]), 'ws-1', SYSTEM_READER)).resolves.toEqual(everything);
+  });
+
+  it('withholds area repos from an unrecognised role', async () => {
+    const result = await readableRepos(controlPlane([]), 'ws-1', { userId: '', role: '' });
+    expect(result.repos).toEqual([open]);
   });
 });
