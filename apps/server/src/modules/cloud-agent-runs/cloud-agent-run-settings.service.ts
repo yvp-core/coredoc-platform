@@ -121,9 +121,14 @@ export class CloudAgentRunSettingsService {
       (
         await this.prisma.workspaceMember.findMany({
           where: { workspaceId, userId: { in: memberIds } },
-          select: { userId: true, email: true, role: true, pending: true },
+          select: {
+            userId: true,
+            email: true,
+            pending: true,
+            bindings: { where: { resourceType: 'workspace' }, select: { role: true } },
+          },
         })
-      ).map((member) => [member.userId, member]),
+      ).map(({ bindings, ...member }) => [member.userId, { ...member, role: bindings[0]?.role ?? '' }]),
     );
     const owner = settings.runOwnerId ? members.get(settings.runOwnerId) : undefined;
     const google = agentGoogleFor(this.connectors, workspaceId);

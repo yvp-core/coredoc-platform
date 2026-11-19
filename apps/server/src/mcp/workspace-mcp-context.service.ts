@@ -241,8 +241,8 @@ export class WorkspaceMcpContextService {
     if (!workspaceId) {
       throw new Error('Missing workspaceId on request');
     }
-    // Fail closed: a request with no trusted principal is in no access area, so
-    // it reads only the repos open to every member.
+    // Fail closed: a request with no trusted principal holds no binding on any
+    // repo, so it reads only what a plain member reads.
     const { user, userWorkspaceRole } = request as AuthenticatedMcpRequest;
     return this.withContextByWorkspaceId(workspaceId, callback, {
       userId: user?.id ?? '',

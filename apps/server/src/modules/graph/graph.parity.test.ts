@@ -795,10 +795,10 @@ describe('GraphService with a withheld repo (real SQLite fixture)', () => {
       {
         getWorkspaceById: async () => ({ id: 'ws-1', slug: 'acme', graphBackend: 'turso', activeGraphVersionId: null }),
         listRepos: async () => [
-          { ...REPOS[0]!, accessAreaId: null },
-          { ...REPOS[1]!, accessAreaId: 'area-orders' },
+          { ...REPOS[0]!, restricted: false },
+          { ...REPOS[1]!, restricted: true },
         ],
-        listAccessAreaIds: async () => [],
+        listRepoGrants: async () => [],
       } as never,
       {} as never,
     );

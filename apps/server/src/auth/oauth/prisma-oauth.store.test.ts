@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 import '../../config/load-env.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ForbiddenException } from '@nestjs/common';
@@ -162,7 +163,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaOAuthStore (integration)', () => {
     await expect(store.storeAuthCode(code('web', WEB_CLIENT_ID))).resolves.toBeUndefined();
 
     const ws = await prisma.workspace.create({ data: { name: `${RUN}-gate-ws`, slug: `${RUN}-gate-ws` } });
-    await prisma.workspaceMember.create({ data: { workspaceId: ws.id, userId, email, role: 'member' } });
+    await seedMembers(prisma, [{ workspaceId: ws.id, userId, email, role: 'member' }]);
     await expect(store.storeAuthCode(code('member', mcp.client_id))).resolves.toBeUndefined();
 
     await prisma.oAuthClient.delete({ where: { client_id: desktop.client_id } });
@@ -233,9 +234,9 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaOAuthStore (integration)', () => {
     const ws = await prisma.workspace.create({ data: { name: `${RUN}-ws`, slug: `${RUN}-ws` } });
     const email = `invitee-${RUN}@example.com`;
     const placeholderUserId = `pending:${email.toLowerCase()}`;
-    await prisma.workspaceMember.create({
-      data: { workspaceId: ws.id, userId: placeholderUserId, email, role: 'member', pending: true },
-    });
+    await seedMembers(prisma, [
+      { workspaceId: ws.id, userId: placeholderUserId, email, role: 'member', pending: true },
+    ]);
     await prisma.workspaceInvitation.create({ data: { workspaceId: ws.id, memberUserId: placeholderUserId } });
 
     // First login with the invited email reconciles the placeholder.
@@ -264,9 +265,9 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaOAuthStore (integration)', () => {
     const ws = await prisma.workspace.create({ data: { name: `${RUN}-expired-ws`, slug: `${RUN}-expired-ws` } });
     const email = `expired-${RUN}@example.com`;
     const placeholderUserId = `pending:${email.toLowerCase()}`;
-    await prisma.workspaceMember.create({
-      data: { workspaceId: ws.id, userId: placeholderUserId, email, role: 'member', pending: true },
-    });
+    await seedMembers(prisma, [
+      { workspaceId: ws.id, userId: placeholderUserId, email, role: 'member', pending: true },
+    ]);
     await prisma.workspaceInvitation.create({
       data: { workspaceId: ws.id, memberUserId: placeholderUserId, expiresAt: new Date(Date.now() - 60_000) },
     });

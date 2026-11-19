@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 /**
  * Workspace import and the file-like reads, end to end against PostgreSQL.
  *
@@ -216,9 +217,7 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
       data: { name: `intent-read-${RUN}`, slug: `intent-read-${RUN}`, intentEnabled: true },
     });
     workspaceId = workspace.id;
-    await prisma.workspaceMember.create({
-      data: { workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-    });
+    await seedMembers(prisma, [{ workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' }]);
 
     const moduleRef = await Test.createTestingModule({
       controllers: [IntentImportController],
@@ -309,9 +308,7 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
       data: { name: `intent-read-copy-${RUN}`, slug: `intent-read-copy-${RUN}`, intentEnabled: true },
     });
     try {
-      await prisma.workspaceMember.create({
-        data: { workspaceId: copy.id, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-      });
+      await seedMembers(prisma, [{ workspaceId: copy.id, userId: OWNER.id, email: OWNER.email, role: 'owner' }]);
       await request(app.getHttpServer())
         .post(`/api/v1/workspaces/${copy.id}/intent/import/workspace`)
         .send({ idempotencyKey: `ws-roundtrip-${RUN}`, document: first })
@@ -963,9 +960,7 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
       data: { name: `intent-read-arch-${RUN}`, slug: `intent-read-arch-${RUN}`, intentEnabled: true },
     });
     try {
-      await prisma.workspaceMember.create({
-        data: { workspaceId: copy.id, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-      });
+      await seedMembers(prisma, [{ workspaceId: copy.id, userId: OWNER.id, email: OWNER.email, role: 'owner' }]);
       await request(app.getHttpServer())
         .post(`/api/v1/workspaces/${copy.id}/intent/import/workspace`)
         .send({ idempotencyKey: `ws-arch-${RUN}`, document: first })
@@ -982,9 +977,7 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
       data: { name: `${name}-${RUN}`, slug: `${name}-${RUN}`, intentEnabled: true },
     });
     try {
-      await prisma.workspaceMember.create({
-        data: { workspaceId: ws.id, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-      });
+      await seedMembers(prisma, [{ workspaceId: ws.id, userId: OWNER.id, email: OWNER.email, role: 'owner' }]);
       await run(ws.id);
     } finally {
       await removeWorkspace(ws.id);

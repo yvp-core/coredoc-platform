@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 /**
  * The context read end to end: real PostgreSQL (trigram indexes included), real
  * guards, a real Ladybug snapshot (spec §7, §6.2, §6.3, issue 07 acceptance).
@@ -130,12 +131,10 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
       data: { name: `intent-ctx-${RUN}`, slug: `intent-ctx-${RUN}`, intentEnabled: true },
     });
     workspaceId = workspace.id;
-    await prisma.workspaceMember.createMany({
-      data: [
-        { workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-        { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
-      ],
-    });
+    await seedMembers(prisma, [
+      { workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
+      { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
+    ]);
     await prisma.workspaceRepo.createMany({
       data: [
         { workspaceId, repoKey: HASH_A, repoName: 'orders-api', intentRepoKey: REPO_KEY_A, lastPushedAt: PUSHED_AT },
@@ -1510,9 +1509,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
         data: { name: `intent-ctx-dims-${RUN}`, slug: `intent-ctx-dims-${RUN}`, intentEnabled: true },
       });
       dimsWorkspace = workspace.id;
-      await prisma.workspaceMember.create({
-        data: { workspaceId: dimsWorkspace, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-      });
+      await seedMembers(prisma, [{ workspaceId: dimsWorkspace, userId: OWNER.id, email: OWNER.email, role: 'owner' }]);
       const author = { createdBy: OWNER.id, updatedBy: OWNER.id };
       const values = (...ids: string[]) => ids.map((id) => ({ id, title: id.toUpperCase() }));
       await prisma.intentDimension.createMany({

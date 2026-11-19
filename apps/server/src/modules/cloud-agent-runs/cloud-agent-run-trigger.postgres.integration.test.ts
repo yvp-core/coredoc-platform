@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 import '../../config/load-env.js';
 import { randomBytes } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
@@ -165,14 +166,12 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     const slug = `cat-${RUN}-${workspaces.length}`;
     const { id } = await prisma.workspace.create({ data: { name: slug, slug, deliveryEnabled: true } });
     workspaces.push(id);
-    await prisma.workspaceMember.createMany({
-      data: [
-        { workspaceId: id, userId: OWNER.id, email: OWNER.email, role: 'admin' },
-        { workspaceId: id, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
-        { workspaceId: id, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
-        { workspaceId: id, userId: OTHER_MEMBER.id, email: OTHER_MEMBER.email, role: 'member' },
-      ],
-    });
+    await seedMembers(prisma, [
+      { workspaceId: id, userId: OWNER.id, email: OWNER.email, role: 'admin' },
+      { workspaceId: id, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
+      { workspaceId: id, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
+      { workspaceId: id, userId: OTHER_MEMBER.id, email: OTHER_MEMBER.email, role: 'member' },
+    ]);
     const baseUrl = `https://${slug}.atlassian.net`;
     const jira = new FakeJira();
     jiraSites.set(baseUrl, jira);

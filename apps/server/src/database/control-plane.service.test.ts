@@ -60,7 +60,7 @@ function createRepoMutationLockMock() {
   };
   const executeRaw = vi.fn().mockResolvedValue(1);
   const transaction = vi.fn(async (operation: (tx: unknown) => Promise<unknown>) =>
-    operation({ $executeRaw: executeRaw, workspaceRepo }),
+    operation({ $executeRaw: executeRaw, workspaceRepo, accessBinding: { deleteMany: vi.fn() } }),
   );
   return {
     prisma: { $transaction: transaction, workspaceRepo } as unknown as PrismaService,
@@ -489,24 +489,25 @@ describe('ControlPlaneService.getWorkspaceOwnerWorkosIdentity', () => {
 });
 
 describe('readableRepos', () => {
-  const open = { repoName: 'api', accessAreaId: null };
-  const closed = { repoName: 'calc', accessAreaId: 'area-calc' };
-  const controlPlane = (areaIds: string[]) =>
+  const open = { repoKey: 'api', restricted: false };
+  const closed = { repoKey: 'calc', restricted: true };
+  // `granted`: repo keys the reader holds a member binding on, directly or through a group.
+  const controlPlane = (granted: string[]) =>
     ({
       listRepos: async () => [open, closed],
-      listAccessAreaIds: async () => areaIds,
+      listRepoGrants: async () => granted.map((key) => ({ role: 'member', resourceType: 'repo', resourceId: key })),
     }) as never;
 
-  it('withholds an area repo from a member outside the area and reports it as withheld', async () => {
+  it('withholds a restricted repo from a member with no binding on it and reports it as withheld', async () => {
     await expect(readableRepos(controlPlane([]), 'ws-1', { userId: 'u1', role: 'member' })).resolves.toEqual({
       repos: [open],
       withheld: [closed],
     });
   });
 
-  it('shows an area repo to the area member, to admins and owners, and to system reads', async () => {
+  it('shows a restricted repo to a member bound to it, to admins and owners, and to system reads', async () => {
     const everything = { repos: [open, closed], withheld: [] };
-    await expect(readableRepos(controlPlane(['area-calc']), 'ws-1', { userId: 'u1', role: 'member' })).resolves.toEqual(
+    await expect(readableRepos(controlPlane(['calc']), 'ws-1', { userId: 'u1', role: 'member' })).resolves.toEqual(
       everything,
     );
     for (const role of ['admin', 'owner']) {
@@ -515,8 +516,15 @@ describe('readableRepos', () => {
     await expect(readableRepos(controlPlane([]), 'ws-1', SYSTEM_READER)).resolves.toEqual(everything);
   });
 
-  it('withholds area repos from an unrecognised role', async () => {
+  it('withholds every repo from support, open ones included', async () => {
+    await expect(readableRepos(controlPlane([]), 'ws-1', { userId: 'u1', role: 'support' })).resolves.toEqual({
+      repos: [],
+      withheld: [open, closed],
+    });
+  });
+
+  it('gives an unrecognised role nothing once a repo is restricted', async () => {
     const result = await readableRepos(controlPlane([]), 'ws-1', { userId: '', role: '' });
-    expect(result.repos).toEqual([open]);
+    expect(result.repos).toEqual([]);
   });
 });

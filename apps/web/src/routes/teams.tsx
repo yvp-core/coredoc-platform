@@ -6,6 +6,7 @@ import { meQueryOptions } from '@/api/queries/me';
 import { PageHead } from '@/components/page-head';
 import { RoleBadge } from '@/components/role-badge';
 import { PillTabs } from '@/components/ui/pill-tabs';
+import { AccessPanel } from '@/features/teams/AccessPanel';
 import { CiCdPanel } from '@/features/teams/CiCdPanel';
 import { McpConfigPanel } from '@/features/teams/McpConfigPanel';
 import { MembersPanel } from '@/features/teams/MembersPanel';
@@ -13,10 +14,11 @@ import { hasAdminAccess } from '@/lib/roles';
 
 import { findWorkspace } from './workspace';
 
-type Tab = 'members' | 'mcp' | 'cicd';
+type Tab = 'members' | 'access' | 'mcp' | 'cicd';
 
 const TABS: { value: Tab; label: string }[] = [
   { value: 'members', label: 'Members' },
+  { value: 'access', label: 'Access' },
   { value: 'mcp', label: 'MCP config' },
   { value: 'cicd', label: 'CI/CD' },
 ];
@@ -42,9 +44,16 @@ export function WorkspaceTeams() {
             <RoleBadge role={workspace.role} />
           </>
         }
-        right={<PillTabs<Tab> value={tab} onChange={setTab} items={TABS} />}
+        right={
+          <PillTabs<Tab>
+            value={tab}
+            onChange={setTab}
+            items={canManage ? TABS : TABS.filter((item) => item.value !== 'access')}
+          />
+        }
       />
       {tab === 'members' && <MembersPanel wsId={workspace.id} currentUserId={me.user.id} canManage={canManage} />}
+      {tab === 'access' && canManage && <AccessPanel wsId={workspace.id} />}
       {tab === 'mcp' && <McpConfigPanel wsId={workspace.id} />}
       {tab === 'cicd' && (
         <CiCdPanel wsId={workspace.id} canManage={canManage} intentEnabled={workspace.intentEnabled} />

@@ -1,3 +1,4 @@
+import { seedMembers } from '../../../database/seed-members.test-support.js';
 /**
  * Intent performance smoke — the §15 GATE, not a spec number.
  *
@@ -184,9 +185,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent performance smoke (PostgreSQL + Lady
       data: { name: `intent-perf-${RUN}`, slug: `intent-perf-${RUN}` },
     });
     workspaceId = workspace.id;
-    await prisma.workspaceMember.create({
-      data: { workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-    });
+    await seedMembers(prisma, [{ workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' }]);
     rows = await seedPerfWorkspaceRows(prisma, workspaceId, OWNER.id, graph);
     const repos = (await prisma.workspaceRepo.findMany({ where: { workspaceId } })) as unknown as WorkspaceRepo[];
     const repository = countingRepository(opened.repository as unknown as object, graphCounter);

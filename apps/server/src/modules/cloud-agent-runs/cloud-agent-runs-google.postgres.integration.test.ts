@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 import '../../config/load-env.js';
 import { randomBytes } from 'node:crypto';
 import type { Server } from 'node:http';
@@ -128,9 +129,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: Google and Jira-write too
   async function seedWorkspace(name: string): Promise<string> {
     const workspace = await prisma.workspace.create({ data: { name, slug: name, deliveryEnabled: true } });
     const workspaceId = workspace.id;
-    await prisma.workspaceMember.create({
-      data: { workspaceId, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
-    });
+    await seedMembers(prisma, [{ workspaceId, userId: ADMIN.id, email: ADMIN.email, role: 'admin' }]);
     const jiraConnector = await prisma.deliveryConnector.create({
       data: {
         workspaceId,

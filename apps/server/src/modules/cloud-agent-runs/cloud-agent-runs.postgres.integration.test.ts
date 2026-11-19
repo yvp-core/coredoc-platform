@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 import '../../config/load-env.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -104,14 +105,12 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
     });
     const other = await prisma.workspace.create({ data: { name: `car-other-${RUN}`, slug: `car-other-${RUN}` } });
     otherWorkspaceId = other.id;
-    await prisma.workspaceMember.createMany({
-      data: [
-        { workspaceId, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
-        { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
-        { workspaceId, userId: DEMOTED.id, email: DEMOTED.email, role: 'admin' },
-        { workspaceId: otherWorkspaceId, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
-      ],
-    });
+    await seedMembers(prisma, [
+      { workspaceId, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
+      { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
+      { workspaceId, userId: DEMOTED.id, email: DEMOTED.email, role: 'admin' },
+      { workspaceId: otherWorkspaceId, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
+    ]);
     const users = new Map([ADMIN, MEMBER, DEMOTED].map((user) => [user.id, user]));
     const storage = configFromEnv().storage;
     const moduleRef = await Test.createTestingModule({
@@ -861,8 +860,8 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs (PostgreSQL integration)',
 
     it('a runner token whose creator was demoted is refused, and settings say why', async () => {
       const token = await mintRunnerToken('runner-demoted', DEMOTED);
-      await prisma.workspaceMember.update({
-        where: { workspaceId_userId: { workspaceId, userId: DEMOTED.id } },
+      await prisma.accessBinding.updateMany({
+        where: { workspaceId, userId: DEMOTED.id, resourceType: 'workspace' },
         data: { role: 'member' },
       });
 

@@ -88,7 +88,13 @@ describe('authorizeHumanReviewer', () => {
     ]);
   });
 
-  it.each(ROLES)('admits a %s user session', (role) => {
+  it('refuses support: it reads intent but does not review it', () => {
+    expect(() => authorizeHumanReviewer(req({ userWorkspaceRole: WorkspaceMemberRole.Support }))).toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it.each(INTENT_REVIEWER_ROLES)('admits a %s user session', (role) => {
     const auth = authorizeHumanReviewer(req({ userWorkspaceRole: role }));
     expect(auth.role).toBe(role);
     expect(auth.authKind).toBe(McpAuthKind.Jwt);

@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 import { GithubApiError, GithubAuthError, GithubRateLimitError } from '../../libs/github/github-client.js';
 import { ReleaseActorKind } from './intent-release.fold.js';
 import { GithubIntentReleaseService } from './github-intent-release.service.js';
@@ -83,9 +84,7 @@ describe.skipIf(!URL)('hosted handoff server flow (PostgreSQL + graph)', () => {
       data: { name: 'handoff', slug: `handoff-${randomUUID()}`, intentReleaseTrigger: 'merge', intentEnabled: true },
     });
     workspaceId = ws.id;
-    await prisma.workspaceMember.create({
-      data: { workspaceId, userId: actor.id, email: 'handoff@example.com', role: 'owner' },
-    });
+    await seedMembers(prisma, [{ workspaceId, userId: actor.id, email: 'handoff@example.com', role: 'owner' }]);
     await prisma.workspaceRepo.create({
       data: { workspaceId, repoKey: HASH, repoName: 'orders-api', intentRepoKey: REPO, productionBranch: 'main' },
     });

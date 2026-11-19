@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 /**
  * The anchor surface end to end: real PostgreSQL, real guards, a real Ladybug
  * snapshot (spec §4.6, §6.5, issue 05 acceptance).
@@ -127,12 +128,10 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
       data: { name: `intent-anchor-${RUN}`, slug: `intent-anchor-${RUN}`, intentEnabled: true },
     });
     workspaceId = workspace.id;
-    await prisma.workspaceMember.createMany({
-      data: [
-        { workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-        { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
-      ],
-    });
+    await seedMembers(prisma, [
+      { workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
+      { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
+    ]);
     await prisma.workspaceRepo.createMany({
       data: [
         { workspaceId, repoKey: HASH_A, repoName: 'orders-api', intentRepoKey: REPO_KEY_A },

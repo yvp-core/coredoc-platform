@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 /**
  * The review-queue read against real PostgreSQL (spec §7, issue v1.1-04).
  *
@@ -100,13 +101,11 @@ describe.skipIf(!TEST_DATABASE_URL)('intent review queue (PostgreSQL integration
       data: { name: `intent-queue-empty-${RUN}`, slug: `intent-queue-empty-${RUN}`, intentEnabled: true },
     });
     emptyWorkspaceId = empty.id;
-    await prisma.workspaceMember.createMany({
-      data: [
-        { workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-        { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
-        { workspaceId: emptyWorkspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-      ],
-    });
+    await seedMembers(prisma, [
+      { workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
+      { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
+      { workspaceId: emptyWorkspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
+    ]);
 
     const author = { createdBy: OWNER.id, updatedBy: OWNER.id };
     await prisma.intentDomain.createMany({
@@ -422,9 +421,7 @@ describe.skipIf(!TEST_DATABASE_URL)('intent review queue (PostgreSQL integration
         data: { name: `intent-queue-hints-${RUN}`, slug: `intent-queue-hints-${RUN}`, intentEnabled: true },
       });
       hintsWorkspace = workspace.id;
-      await prisma.workspaceMember.create({
-        data: { workspaceId: hintsWorkspace, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-      });
+      await seedMembers(prisma, [{ workspaceId: hintsWorkspace, userId: OWNER.id, email: OWNER.email, role: 'owner' }]);
       const author = { createdBy: OWNER.id, updatedBy: OWNER.id };
       await prisma.intentDimension.create({
         data: {

@@ -23,7 +23,7 @@ import { LicenseGuard } from './modules/license/license.guard.js';
 import { LicenseApiModule } from './modules/license/license.module.js';
 import { MapperApiModule } from './modules/mapper/mapper.module.js';
 import { MembersModule } from './modules/members/members.module.js';
-import { AccessAreasModule } from './modules/access-areas/access-areas.module.js';
+import { AccessModule } from './modules/access/access.module.js';
 import { MetaModule } from './modules/meta/meta.module.js';
 import { MetricsApiModule } from './modules/metrics/metrics.module.js';
 import { ParsersModule } from './modules/parsers/parsers.module.js';
@@ -49,7 +49,7 @@ const optionalModules = [
     WebAuthModule,
     WorkspacesModule,
     MembersModule,
-    AccessAreasModule,
+    AccessModule,
     ReposModule,
     PushApiModule,
     McpModule,

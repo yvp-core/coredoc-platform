@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 /**
  * Export end to end against real PostgreSQL and real guards (spec §9, §12, §14),
  * seeded through the workspace import, plus the import refusals that hold for
@@ -198,12 +199,10 @@ describe.skipIf(!TEST_DATABASE_URL)('intent workspace import refusals and export
     const workspace = await prisma.workspace.create({
       data: { name: `intent-xfer-${label}-${RUN}`, slug: `intent-xfer-${label}-${RUN}`, intentEnabled: true },
     });
-    await prisma.workspaceMember.createMany({
-      data: [
-        { workspaceId: workspace.id, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-        { workspaceId: workspace.id, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
-      ],
-    });
+    await seedMembers(prisma, [
+      { workspaceId: workspace.id, userId: OWNER.id, email: OWNER.email, role: 'owner' },
+      { workspaceId: workspace.id, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
+    ]);
     await prisma.workspaceRepo.create({
       data: {
         workspaceId: workspace.id,

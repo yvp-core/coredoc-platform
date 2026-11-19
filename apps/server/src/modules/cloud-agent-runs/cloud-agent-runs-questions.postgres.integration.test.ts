@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 import '../../config/load-env.js';
 import { randomBytes } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
@@ -109,17 +110,15 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: questions and policies (P
       data: { name: `carq-${RUN}`, slug: `carq-${RUN}`, deliveryEnabled: true },
     });
     workspaceId = workspace.id;
-    await prisma.workspaceMember.createMany({
-      data: [
-        { workspaceId, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
-        { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
-      ],
-    });
+    await seedMembers(prisma, [
+      { workspaceId, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
+      { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
+    ]);
     const other = await prisma.workspace.create({ data: { name: `carq-other-${RUN}`, slug: `carq-other-${RUN}` } });
     otherWorkspaceId = other.id;
-    await prisma.workspaceMember.create({
-      data: { workspaceId: otherWorkspaceId, userId: OUTSIDER.id, email: OUTSIDER.email, role: 'admin' },
-    });
+    await seedMembers(prisma, [
+      { workspaceId: otherWorkspaceId, userId: OUTSIDER.id, email: OUTSIDER.email, role: 'admin' },
+    ]);
     await prisma.deliveryConnector.create({
       data: {
         workspaceId,
