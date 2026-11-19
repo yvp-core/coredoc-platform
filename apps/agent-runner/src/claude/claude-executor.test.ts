@@ -576,6 +576,49 @@ describe('Claude executor in the runner loop', () => {
       }
     });
 
+    it('a workflow’s own MCP server gets its headers and the run it is called for', async () => {
+      const manifest = resolveManifest(
+        JSON.stringify({
+          version: 2,
+          workflows: {
+            default: {
+              title: 'Story to pull request',
+              repositories: 'write',
+              delivery: 'pull-request',
+              plugins: [{ path: PLUGIN }, { path: ACME_PLUGIN }],
+              mcpServers: {
+                slack: { url: 'https://tools.acme.example/mcp', headers: { Authorization: 'Bearer tools' } },
+              },
+              phases: [
+                { id: 'scope', gate: 'acceptance', entrySkill: 'acme-agent-run:scope' },
+                { id: 'implement', gate: 'none', entrySkill: 'acme-agent-run:scope' },
+              ],
+            },
+          },
+        }),
+        PLUGIN,
+      );
+      const turn = assignment();
+      const { done, seen } = runTurn(
+        turn,
+        { ...acmeInit, skills: ['acme-agent-run:scope'], propose: [proposal] },
+        { manifest },
+      );
+      await expect(done).resolves.toBe('completed');
+      expect(seen[0]!.options.mcpServers!.slack).toEqual({
+        type: 'http',
+        url: 'https://tools.acme.example/mcp',
+        headers: {
+          Authorization: 'Bearer tools',
+          'X-Coredoc-Run-Id': turn.run.id,
+          'X-Coredoc-Workflow': 'default',
+          'X-Coredoc-Phase': 'scope',
+          'X-Coredoc-Issue': turn.run.issueKey,
+        },
+        timeout: 120_000,
+      });
+    });
+
     it('a resumed session is not asked for the entry skill again', async () => {
       const first = assignment();
       await runTurn(

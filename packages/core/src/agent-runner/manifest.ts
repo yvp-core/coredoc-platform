@@ -31,6 +31,46 @@ const tools = z
   .strictObject({ jira: ToolAccessListSchema, google: ToolAccessListSchema })
   .default({ jira: [], google: [] });
 
+/** The runner's run-control server; `coredoc` anywhere in a name would make its tools count as Coredoc reads. */
+const RESERVED_MCP_SERVERS = new Set(['agent_run']);
+/** Set by the runner on every request to a workflow's server, so a manifest cannot forge the run's identity. */
+export const RUN_CONTEXT_HEADER_PREFIX = 'x-coredoc-';
+/** A header value read from a runner variable at start-up. */
+export const ENV_REFERENCE = /^env:([A-Za-z_][A-Za-z0-9_]*)$/;
+/**
+ * MCP servers a deployment runs itself and gives to this workflow's sessions, beyond the platform's
+ * own. A header value is literal, or `env:<VARIABLE>` for a runner variable.
+ */
+const mcpServers = z
+  .record(
+    z
+      .string()
+      .regex(/^[a-z][a-z0-9_-]{0,31}$/)
+      .refine((name) => !RESERVED_MCP_SERVERS.has(name) && !name.includes('coredoc'), {
+        error: 'the name is reserved for the runner',
+      }),
+    z.strictObject({
+      url: z.url({ protocol: /^https?$/ }),
+      headers: z
+        .record(
+          z
+            .string()
+            .regex(/^[A-Za-z0-9-]+$/)
+            .refine((name) => !name.toLowerCase().startsWith(RUN_CONTEXT_HEADER_PREFIX), {
+              error: `${RUN_CONTEXT_HEADER_PREFIX}* headers are set by the runner`,
+            }),
+          z
+            .string()
+            .min(1)
+            .regex(/^[^\r\n]*$/),
+        )
+        .default({}),
+    }),
+  )
+  .refine((servers) => Object.keys(servers).length <= 10, { error: 'at most 10 servers' })
+  .default({});
+export type WorkflowMcpServers = z.infer<typeof mcpServers>;
+
 const V1PhaseSchema = z.strictObject({
   model: model.optional(),
   effort: effort.optional(),
@@ -52,6 +92,7 @@ const WorkflowSchema = z.strictObject({
   delivery: z.enum(DeliveryKind),
   plugins,
   tools,
+  mcpServers,
   phases: z
     .array(
       z.strictObject({
@@ -89,6 +130,7 @@ export interface ResolvedWorkflow {
   delivery: DeliveryKind;
   plugins: Array<{ path: string }>;
   tools: WorkflowTools;
+  mcpServers: WorkflowMcpServers;
   phases: WorkflowPhase[];
 }
 
@@ -110,6 +152,7 @@ function defaultWorkflow(
     ...DEFAULT_WORKFLOW_SHAPE,
     plugins: pluginPaths,
     tools: granted,
+    mcpServers: {},
     phases: [
       { ...scope!, ...phases.scope },
       { ...implement!, ...phases.implement },
@@ -134,6 +177,11 @@ function workflowProblems(id: string, workflow: z.infer<typeof WorkflowSchema>):
       problems.push(`${id}: phase ${phase.id} is not the last one, so it must have gate "acceptance"`);
     }
   });
+  for (const family of ['jira', 'google'] as const) {
+    if (workflow.tools[family].length > 0 && family in workflow.mcpServers) {
+      problems.push(`${id}: mcpServers.${family} cannot be named while tools.${family} is granted`);
+    }
+  }
   if (workflow.delivery === DeliveryKind.PullRequest && workflow.repositories !== RepositoryMode.Write) {
     problems.push(`${id}: delivery "pull-request" needs repositories "write"`);
   }

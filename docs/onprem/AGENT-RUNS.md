@@ -289,6 +289,7 @@ manifest declares the workflows itself, and a person starting a run picks one:
 | `repositories` | `write`: the run clones repositories and pushes `coredoc/**` branches. `none`: nothing is cloned and the agent gets no repository tools. |
 | `delivery` | `pull-request`: draft pull requests after the last phase; needs `repositories: write`. `none`: the run ends with its result on the run page and the done comment in Jira. |
 | `plugins`, `tools` | As in §3.1, for this workflow's sessions only. |
+| `mcpServers` | Optional. MCP servers you run yourself, given to this workflow's sessions beside the platform's: up to ten, as `"<name>": { "url": "https://…", "headers": { … } }` over HTTP. This is how a workflow gets tools the platform does not ship, without a platform change: the server holds the credentials of the system behind it and decides what a run may do there. A header value is literal, or `env:<VARIABLE>` for a key of the runner Secret, which is read at start-up and masked in what the runner reports; an unset variable is a start-up problem. The runner adds `X-Coredoc-Run-Id`, `X-Coredoc-Workflow`, `X-Coredoc-Phase` and `X-Coredoc-Issue` to every request, so the server knows which run is calling; a manifest cannot set `X-Coredoc-*` headers itself. A name is lowercase letters, digits, `-` and `_`, cannot contain `coredoc` or be `agent_run`, and can be `jira` or `google` only in a workflow that does not grant that tool family. Add the server's host to the runner's egress (§7). |
 | `phases` | One to eight, run in order, each in its own Claude Code session. Every phase needs an `entrySkill`; `model` and `effort` are optional, as in §3.1. A phase with gate `acceptance` ends with `propose_scope` and waits for a person to accept or send it back (or is accepted automatically under that policy). The last phase has gate `none` and ends with `submit_result`; every earlier phase has gate `acceptance`. Phase ids are at most 16 characters; `delivery` is reserved. |
 
 The server learns a workspace's workflows from what its runner tokens report,
@@ -697,7 +698,11 @@ spec:
   than the run's budget, and act as a runner of its workspace. The mitigations
   are configuration: a dedicated key with a spend limit, a narrowly scoped
   token, the branch rules, the run-branch ruleset, egress policy, and revoking
-  the runner token.
+  the runner token. The same holds for a header a workflow's `mcpServers` reads
+  from the runner Secret: give the runner a credential for your own tool server,
+  never the credential of the system behind it, and treat the `X-Coredoc-*`
+  headers as the runner's word, which an agent holding that credential can
+  imitate.
 - **Exfiltration.** Anything the agent can read can leave through an allowed
   host that accepts uploads, such as a public package registry or the GitHub
   organisation itself. The model API is an allowed host too: with the key, the

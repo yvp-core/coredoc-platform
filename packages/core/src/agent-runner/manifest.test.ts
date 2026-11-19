@@ -10,6 +10,7 @@ const defaultWorkflow = (overrides: Record<string, unknown> = {}) => ({
   delivery: 'pull-request',
   plugins: [{ path: '/opt/coredoc-workflows' }],
   tools: { jira: [], google: [] },
+  mcpServers: {},
   phases: [
     { id: 'scope', gate: 'acceptance' },
     { id: 'implement', gate: 'none' },
@@ -65,7 +66,19 @@ describe('resolveManifest', () => {
 
   it('resolves each version 2 workflow under its id', () => {
     expect(resolveManifest(v2({ 'doc-review': review }), DEFAULT_PLUGIN)).toEqual({
-      workflows: [{ id: 'doc-review', ...review, tools: { jira: [], google: ['read', 'write'] } }],
+      workflows: [{ id: 'doc-review', ...review, tools: { jira: [], google: ['read', 'write'] }, mcpServers: {} }],
+    });
+  });
+
+  it('keeps a workflow’s own MCP servers, and lets one take the name of a tool family the workflow does not grant', () => {
+    const mcpServers = {
+      slack: { url: 'https://tools.acme.example/mcp/slack', headers: { Authorization: 'env:ACME_TOOLS_TOKEN' } },
+      google: { url: 'http://tools.acme.svc/mcp/google' },
+    };
+    const [workflow] = resolveManifest(v2({ x: { ...review, tools: {}, mcpServers } }), DEFAULT_PLUGIN).workflows;
+    expect(workflow?.mcpServers).toEqual({
+      slack: mcpServers.slack,
+      google: { url: 'http://tools.acme.svc/mcp/google', headers: {} },
     });
   });
 
@@ -88,6 +101,24 @@ describe('resolveManifest', () => {
     ['a workflow id with capitals', v2({ Review: review })],
     ['a write grant without read', v2({ x: { ...review, tools: { jira: ['write'] } } })],
     ['an unknown tool family', v2({ x: { ...review, tools: { slack: ['read'] } } })],
+    [
+      'an MCP server named like Coredoc’s',
+      v2({ x: { ...review, mcpServers: { 'acme-coredoc': { url: 'https://a.example' } } } }),
+    ],
+    [
+      'an MCP server under a granted tool family’s name',
+      v2({ x: { ...review, mcpServers: { google: { url: 'https://a.example' } } } }),
+    ],
+    ['an MCP server that is not HTTP', v2({ x: { ...review, mcpServers: { slack: { url: 'file:///opt/slack' } } } })],
+    [
+      'an MCP server header the runner sets',
+      v2({
+        x: {
+          ...review,
+          mcpServers: { slack: { url: 'https://a.example', headers: { 'X-Coredoc-Run-Id': 'forged' } } },
+        },
+      }),
+    ],
     ['an unknown effort', v2({ x: { ...review, phases: [{ ...review.phases[1], effort: 'extreme' }] } })],
   ])('rejects %s', (_case, text) => {
     expect(() => resolveManifest(text, DEFAULT_PLUGIN)).toThrow(/manifest/i);
