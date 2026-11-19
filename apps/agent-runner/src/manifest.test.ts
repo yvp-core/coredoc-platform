@@ -21,7 +21,38 @@ describe('loadManifest', () => {
     expect(loaded).toEqual({
       manifest: resolveManifest(undefined, '/opt/coredoc-workflows'),
       digest: null,
+      secrets: [],
     });
+  });
+
+  it('reads an MCP server header from the runner variable it names, and refuses the manifest when it is unset', async () => {
+    const path = join(dir, 'tools.json');
+    const workflow = {
+      title: 'Digest',
+      repositories: 'none',
+      delivery: 'none',
+      plugins: [{ path: '/opt/acme/digest' }],
+      mcpServers: {
+        slack: {
+          url: 'https://tools.acme.example/mcp',
+          headers: { Authorization: 'env:ACME_TOOLS_TOKEN', 'X-Team': 'ops' },
+        },
+      },
+      phases: [{ id: 'digest', gate: 'none', entrySkill: 'digest:run' }],
+    };
+    await writeFile(path, JSON.stringify({ version: 2, workflows: { digest: workflow } }));
+
+    const loaded = await loadManifest(
+      { COREDOC_RUNNER_MANIFEST: path, ACME_TOOLS_TOKEN: 'Bearer s3cret-value' },
+      '/opt/x',
+    );
+    expect(loaded.manifest.workflows[0]?.mcpServers.slack?.headers).toEqual({
+      Authorization: 'Bearer s3cret-value',
+      'X-Team': 'ops',
+    });
+    expect(loaded.secrets).toEqual(['Bearer s3cret-value']);
+
+    await expect(loadManifest({ COREDOC_RUNNER_MANIFEST: path }, '/opt/x')).rejects.toThrow(/ACME_TOOLS_TOKEN/);
   });
 
   it('reports the file’s digest, and refuses an invalid file instead of falling back to the defaults', async () => {

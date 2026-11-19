@@ -56,7 +56,7 @@ const versions = {
 const scratchRoot = process.env.COREDOC_RUNNER_SCRATCH?.trim() || '/scratch';
 const pluginPath = process.env.COREDOC_WORKFLOWS_PLUGIN_PATH?.trim() || '/opt/coredoc-workflows';
 // Like the registries: reported through the start-up check, and the runner claims nothing until it is fixed.
-let loaded: LoadedManifest = { manifest: resolveManifest(undefined, pluginPath), digest: null };
+let loaded: LoadedManifest = { manifest: resolveManifest(undefined, pluginPath), digest: null, secrets: [] };
 let manifestProblem: StartupProblem | null = null;
 try {
   loaded = await loadManifest(process.env, pluginPath);
@@ -173,6 +173,7 @@ const runner = new Runner({
     botToken,
     runnerToken,
     ...registries.map((registry) => registry.token ?? ''),
+    ...loaded.secrets,
   ],
   startupCheck: async () =>
     manifestProblem

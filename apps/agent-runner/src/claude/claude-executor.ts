@@ -742,6 +742,16 @@ export class ClaudeExecutor implements TurnExecutor {
         mcpServers.google = { ...server, url: `${server.url}?toolset=agent-google` };
       }
     }
+    // A deployment's own servers: they learn which run is calling from these headers, not from the agent.
+    const runContext = {
+      'X-Coredoc-Run-Id': turn.run.id,
+      'X-Coredoc-Workflow': workflow.id,
+      'X-Coredoc-Phase': turn.turn.kind,
+      'X-Coredoc-Issue': turn.run.issueKey,
+    };
+    for (const [name, { url, headers }] of Object.entries(workflow.mcpServers)) {
+      mcpServers[name] = { type: 'http', url, headers: { ...headers, ...runContext }, timeout: MCP_TOOL_TIMEOUT_MS };
+    }
     return {
       cwd: paths.work,
       ...(resume ? { resume: turn.run.sessionId } : { sessionId: turn.run.sessionId }),
