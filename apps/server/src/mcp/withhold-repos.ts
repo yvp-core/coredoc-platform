@@ -15,7 +15,7 @@
  *
  * ponytail: counts computed inside the database (neighbor tallies, coverage
  * totals) still include withheld nodes — they reveal that something exists, not
- * what. Filter in the queries if that ever matters.
+ * what.
  */
 
 const WITHHELD = Symbol('withheld');

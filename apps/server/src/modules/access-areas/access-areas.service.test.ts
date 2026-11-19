@@ -74,6 +74,14 @@ describe('AccessAreasService', () => {
     noWrites(writes);
   });
 
+  it('fails the save when a concurrent save claimed the repo after the check', async () => {
+    const { service, writes } = makeService({ repos: [{ repoKey: 'calc', accessAreaId: null }] });
+    writes.repoUpdateMany.mockResolvedValue({ count: 0 });
+    await expect(
+      service.save('ws-1', null, { name: 'Calc', memberUserIds: [], repoKeys: ['calc'] }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
   it('refuses to replace an area of another workspace', async () => {
     const { service, writes } = makeService({ area: null });
     await expect(

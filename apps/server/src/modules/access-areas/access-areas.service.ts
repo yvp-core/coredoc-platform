@@ -72,10 +72,15 @@ export class AccessAreasService {
         where: { workspaceId, accessAreaId: area.id, repoKey: { notIn: repoKeys } },
         data: { accessAreaId: null },
       });
-      await transaction.workspaceRepo.updateMany({
-        where: { workspaceId, repoKey: { in: repoKeys } },
+      // Conditional on purpose: a concurrent save may have claimed a repo after
+      // the check above. The row lock makes the later writer see it and fail.
+      const assigned = await transaction.workspaceRepo.updateMany({
+        where: { workspaceId, repoKey: { in: repoKeys }, OR: [{ accessAreaId: null }, { accessAreaId: area.id }] },
         data: { accessAreaId: area.id },
       });
+      if (assigned.count !== repoKeys.length) {
+        throw new ConflictException('A repo was assigned to another access area meanwhile; retry');
+      }
       return area.id;
     });
     return { id, name: input.name, memberUserIds, repoKeys };
