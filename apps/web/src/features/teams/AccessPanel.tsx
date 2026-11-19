@@ -7,9 +7,9 @@ import {
   type AccessGroup,
   accessQueryOptions,
   deleteGroup,
-  type RepoAccess,
+  type RepoBinding,
   saveGroup,
-  saveRepoAccess,
+  saveResourceAccess,
 } from '@/api/queries/access';
 import { membersQueryOptions } from '@/api/queries/members';
 import type { Member } from '@/api/types';
@@ -21,6 +21,15 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 
 import { Table, Td, Th, Tr } from './table';
+
+/** A repo or an intent domain, as the access form sees it. */
+interface Resource {
+  kind: 'repos' | 'domains';
+  id: string;
+  name: string;
+  restricted: boolean;
+  bindings: RepoBinding[];
+}
 
 const ERROR_CLASS = 'text-[13px] text-danger-text';
 // The only role a repo binding can carry today (REPO_ROLES on the server).
@@ -151,25 +160,25 @@ function GroupForm({
   );
 }
 
-function RepoForm({
+function ResourceForm({
   wsId,
-  repo,
+  resource,
   groups,
   members,
   onDone,
 }: {
   wsId: string;
-  repo: RepoAccess;
+  resource: Resource;
   groups: AccessGroup[];
   members: Member[];
   onDone: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [restricted, setRestricted] = useState(repo.restricted);
-  const [userIds, setUserIds] = useState(repo.bindings.flatMap((binding) => binding.userId ?? []));
-  const [groupIds, setGroupIds] = useState(repo.bindings.flatMap((binding) => binding.groupId ?? []));
+  const [restricted, setRestricted] = useState(resource.restricted);
+  const [userIds, setUserIds] = useState(resource.bindings.flatMap((binding) => binding.userId ?? []));
+  const [groupIds, setGroupIds] = useState(resource.bindings.flatMap((binding) => binding.groupId ?? []));
   const mutation = useMutation({
-    mutationFn: saveRepoAccess,
+    mutationFn: saveResourceAccess,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ws', wsId, 'access'] });
       // A member's repo list is filtered by the same bindings.
@@ -184,7 +193,8 @@ function RepoForm({
         event.preventDefault();
         mutation.mutate({
           wsId,
-          repoKey: repo.repoKey,
+          kind: resource.kind,
+          id: resource.id,
           input: {
             restricted,
             bindings: [
@@ -196,7 +206,7 @@ function RepoForm({
       }}
       className="mt-3 flex flex-col gap-3 border-t border-border-soft pt-3"
     >
-      <div className="text-[13.5px] font-medium text-ink-1">{repo.repoName}</div>
+      <div className="text-[13.5px] font-medium text-ink-1">{resource.name}</div>
       <label className="flex items-center gap-2 text-[13.5px] text-ink-2">
         <Switch checked={restricted} onChange={(event) => setRestricted(event.target.checked)} />
         Restricted: only the groups and members below can read it
@@ -224,23 +234,93 @@ function RepoForm({
   );
 }
 
-function describeAccess(repo: RepoAccess): string {
-  if (!repo.restricted) return 'All members';
-  const groups = repo.bindings.filter((binding) => binding.groupId).length;
-  const people = repo.bindings.length - groups;
+function describeAccess(resource: Resource): string {
+  if (!resource.restricted) return 'All members';
+  const groups = resource.bindings.filter((binding) => binding.groupId).length;
+  const people = resource.bindings.length - groups;
   return `Restricted · ${groups} groups, ${people} members`;
+}
+
+/** A table of repos or intent domains with the access form of the one being edited. */
+function ResourceCard({
+  wsId,
+  title,
+  sub,
+  column,
+  empty,
+  resources,
+  groups,
+  members,
+}: {
+  wsId: string;
+  title: string;
+  sub: string;
+  column: string;
+  empty: string;
+  resources: Resource[];
+  groups: AccessGroup[];
+  members: Member[];
+}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const edited = resources.find((resource) => resource.id === editing);
+  return (
+    <Card>
+      <CardHead title={title} sub={sub} />
+      <CardBody className="pt-2">
+        {resources.length === 0 ? (
+          <EmptyNote>{empty}</EmptyNote>
+        ) : (
+          <Table minWidth={480}>
+            <thead>
+              <tr>
+                <Th>{column}</Th>
+                <Th>Who can read</Th>
+                <Th />
+              </tr>
+            </thead>
+            <tbody>
+              {resources.map((resource) => (
+                <Tr key={resource.id}>
+                  <Td>{resource.name}</Td>
+                  <Td>{describeAccess(resource)}</Td>
+                  <Td>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setEditing(resource.id)}
+                      aria-label={`Edit access to ${resource.name}`}
+                    >
+                      Edit
+                    </Button>
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+        {edited && (
+          <ResourceForm
+            key={edited.id}
+            wsId={wsId}
+            resource={edited}
+            groups={groups}
+            members={members}
+            onDone={() => setEditing(null)}
+          />
+        )}
+      </CardBody>
+    </Card>
+  );
 }
 
 function Panels({ wsId, access, members }: { wsId: string; access: Access; members: Member[] }) {
   const queryClient = useQueryClient();
-  // null = closed, 'new' = blank group form, otherwise the id / repo key being edited.
+  // null = closed, 'new' = blank group form, otherwise the id of the group being edited.
   const [group, setGroup] = useState<string | null>(null);
-  const [repoKey, setRepoKey] = useState<string | null>(null);
   const removal = useMutation({
     mutationFn: deleteGroup,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ws', wsId, 'access'] }),
   });
-  const editedRepo = access.repos.find((repo) => repo.repoKey === repoKey);
 
   return (
     <div className="flex flex-col gap-4">
@@ -310,55 +390,26 @@ function Panels({ wsId, access, members }: { wsId: string; access: Access; membe
         </CardBody>
       </Card>
 
-      <Card>
-        <CardHead
-          title="Repos"
-          sub="A repo is readable by all members unless restricted. Admins and owners read everything."
-        />
-        <CardBody className="pt-2">
-          {access.repos.length === 0 ? (
-            <EmptyNote>No repos connected.</EmptyNote>
-          ) : (
-            <Table minWidth={480}>
-              <thead>
-                <tr>
-                  <Th>Repo</Th>
-                  <Th>Who can read</Th>
-                  <Th />
-                </tr>
-              </thead>
-              <tbody>
-                {access.repos.map((repo) => (
-                  <Tr key={repo.repoKey}>
-                    <Td>{repo.repoName}</Td>
-                    <Td>{describeAccess(repo)}</Td>
-                    <Td>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setRepoKey(repo.repoKey)}
-                        aria-label={`Edit access to ${repo.repoName}`}
-                      >
-                        Edit
-                      </Button>
-                    </Td>
-                  </Tr>
-                ))}
-              </tbody>
-            </Table>
-          )}
-          {editedRepo && (
-            <RepoForm
-              key={editedRepo.repoKey}
-              wsId={wsId}
-              repo={editedRepo}
-              groups={access.groups}
-              members={members}
-              onDone={() => setRepoKey(null)}
-            />
-          )}
-        </CardBody>
-      </Card>
+      <ResourceCard
+        wsId={wsId}
+        title="Repos"
+        sub="A repo is readable by all members unless restricted. Admins and owners read everything."
+        column="Repo"
+        empty="No repos connected."
+        resources={access.repos.map((repo) => ({ ...repo, kind: 'repos', id: repo.repoKey, name: repo.repoName }))}
+        groups={access.groups}
+        members={members}
+      />
+      <ResourceCard
+        wsId={wsId}
+        title="Intent domains"
+        sub="A domain and everything under it is readable by all members unless restricted."
+        column="Domain"
+        empty="No intent domains."
+        resources={access.domains.map((domain) => ({ ...domain, kind: 'domains', name: domain.title }))}
+        groups={access.groups}
+        members={members}
+      />
     </div>
   );
 }

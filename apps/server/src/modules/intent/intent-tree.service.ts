@@ -28,6 +28,7 @@ import {
   type IntentFeature as IntentFeatureRow,
 } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { visibleDomains, visibleFeatures, visibleItems, withheldIntentDomains } from './intent-access.js';
 import {
   INTENT_LIMITS,
   RegistryIssueCode,
@@ -137,6 +138,7 @@ export async function readIntentNodeCounts(
   workspaceId: string,
   where: Prisma.IntentItemWhereInput,
 ) {
+  where = { AND: [where, visibleItems()] };
   // Two grouped reads, not one per node: `payload` is JSONB, which groupBy
   // cannot key on, so the open questions are their own filtered grouping.
   const [rows, openRows, commentRows] = await Promise.all([
@@ -172,7 +174,7 @@ export async function readIntentNodeCounts(
     threadsOnFeature.size === 0
       ? []
       : prisma.intentFeature.findMany({
-          where: { workspaceId, id: { in: [...threadsOnFeature.keys()] } },
+          where: { workspaceId, id: { in: [...threadsOnFeature.keys()] }, ...visibleFeatures() },
           select: { id: true, domainId: true },
         }),
   ]);
@@ -252,6 +254,7 @@ export class IntentTreeService {
     const rows = await this.prisma.intentDomain.findMany({
       where: {
         workspaceId,
+        ...visibleDomains(),
         ...(includeArchived ? {} : { archived: false }),
         ...(cursor ? { id: { gt: cursor[0] as string } } : {}),
       },
@@ -319,6 +322,7 @@ export class IntentTreeService {
     const rows = await this.prisma.intentFeature.findMany({
       where: {
         workspaceId,
+        ...visibleFeatures(),
         ...(query.domainId ? { domainId: query.domainId } : {}),
         ...(query.includeArchived === 'true' ? {} : { archived: false }),
         ...(cursor ? { id: { gt: cursor[0] as string } } : {}),
@@ -878,9 +882,12 @@ const DOMAIN: TreeNodeKind<
   assertDeletable: (tx, workspaceId, id) =>
     assertNodeEmpty(tx, workspaceId, 'Domain', id, { features: { domainId: id }, items: { domainId: id } }),
   delete: async (tx, workspaceId, id) => ({
-    removedRelationCount: await deleteTreeNode(tx, workspaceId, { kind: 'domain', id }, 'Domain', () =>
-      tx.intentDomain.delete({ where: nodeKey(workspaceId, id) }),
-    ),
+    removedRelationCount: await deleteTreeNode(tx, workspaceId, { kind: 'domain', id }, 'Domain', async () => {
+      // Bindings name the domain by id, with no foreign key: a domain created
+      // again under the same id must not inherit them.
+      await tx.accessBinding.deleteMany({ where: { workspaceId, resourceType: 'intent_domain', resourceId: id } });
+      return tx.intentDomain.delete({ where: nodeKey(workspaceId, id) });
+    }),
   }),
   deletedAudit: (row) => ({ title: row.title, archived: row.archived }),
 };
@@ -1070,7 +1077,8 @@ async function readDomain(
   path: string[],
 ): Promise<IntentDomainRow> {
   const domain = await reader.intentDomain.findUnique({ where: nodeKey(workspaceId, id) });
-  if (!domain) {
+  // A withheld domain answers exactly as a missing one, for reads and writes alike.
+  if (!domain || withheldIntentDomains().includes(domain.id)) {
     throw intentNotFound(IntentErrorCode.DomainNotFound, `Domain '${id}' does not exist in this workspace`, path);
   }
   return domain;
@@ -1083,7 +1091,7 @@ async function readFeature(
   path: string[],
 ): Promise<IntentFeatureRow> {
   const feature = await reader.intentFeature.findUnique({ where: nodeKey(workspaceId, id) });
-  if (!feature) {
+  if (!feature || withheldIntentDomains().includes(feature.domainId)) {
     throw intentNotFound(IntentErrorCode.FeatureNotFound, `Feature '${id}' does not exist in this workspace`, path);
   }
   return feature;

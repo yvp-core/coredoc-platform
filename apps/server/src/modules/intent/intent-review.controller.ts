@@ -1,3 +1,5 @@
+import { UseInterceptors } from '@nestjs/common';
+import { IntentAccessInterceptor } from './intent-access.interceptor.js';
 /**
  * The review and decision-history surface (spec §7), alongside
  * `IntentController` under `/api/v1/workspaces/:workspaceId/intent/…`.
@@ -40,6 +42,7 @@ import { IntentTransitionsService, ListIntentTransitionsQuerySchema } from './in
 
 @Controller('workspaces/:workspaceId/intent')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, IntentEnabledGuard)
+@UseInterceptors(IntentAccessInterceptor)
 @UseFilters(IntentExceptionFilter)
 export class IntentReviewController {
   constructor(

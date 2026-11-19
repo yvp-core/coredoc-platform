@@ -3,8 +3,8 @@ import { can } from './iam.js';
 
 const onWorkspace = (role: string) => ({ role, resourceType: 'workspace', resourceId: 'ws-1' });
 const onRepo = (role: string, key: string) => ({ role, resourceType: 'repo', resourceId: key });
-const open = { type: 'repo', key: 'api', restricted: false } as const;
-const closed = { type: 'repo', key: 'calc', restricted: true } as const;
+const open = { type: 'repo', id: 'api', restricted: false } as const;
+const closed = { type: 'repo', id: 'calc', restricted: true } as const;
 
 describe('can', () => {
   it('lets a workspace binding reach an open repo but not a restricted one', () => {

@@ -39,6 +39,7 @@
 import { Injectable } from '@nestjs/common';
 import { IntentAuthoritySourceKind, IntentItemAuthority, Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { visibleDomainSql } from './intent-access.js';
 import {
   IntentErrorCode,
   IntentAuthorizingSourceKind,
@@ -157,6 +158,7 @@ export class IntentReviewService {
         FROM "intent_items"
        WHERE "workspace_id" = ${workspaceId}::uuid
          AND "id" IN (${Prisma.join(unique)})
+         AND ${visibleDomainSql(Prisma.sql`"domain_id"`)}
        ORDER BY "id"
          FOR UPDATE`;
     return new Map(rows.map((row) => [row.id, row]));

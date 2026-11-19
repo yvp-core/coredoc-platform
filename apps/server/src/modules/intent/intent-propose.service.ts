@@ -38,6 +38,7 @@ import {
 } from '@coredoc/core';
 import { IntentAuditEntityKind, IntentItemAuthority, Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { visibleItems, withheldIntentDomains } from './intent-access.js';
 import type { ProposeIntentItemsInput, ProposedIntentItemInput } from './contract/index.js';
 import {
   IntentAnchorTargetService,
@@ -427,8 +428,12 @@ export class IntentProposeService {
   ): Promise<ExistingItemFacts | undefined> {
     const row = await tx.intentItem.findUnique({
       where: { workspaceId_id: { workspaceId, id } },
-      select: { id: true, kind: true, authority: true },
+      select: { id: true, kind: true, authority: true, domainId: true },
     });
+    // The id is taken by an item the caller may not see: it can neither be updated nor created again.
+    if (row?.domainId && withheldIntentDomains().includes(row.domainId)) {
+      throw intentNotFound(IntentErrorCode.ItemNotFound, `Intent item '${id}' cannot be changed`, ['id']);
+    }
     return row === null ? undefined : { id: row.id, kind: row.kind as IntentKind, authority: row.authority };
   }
 
@@ -455,6 +460,7 @@ export class IntentProposeService {
     const rows = await tx.intentItemSource.findMany({
       where: {
         workspaceId,
+        item: visibleItems(),
         OR: proposal.sources.map((source) => ({ ref: source.ref, localId: source.localId })),
       },
       select: { itemId: true },
@@ -514,7 +520,7 @@ export class IntentProposeService {
         where: { workspaceId_id: { workspaceId, id: proposal.featureId } },
         select: { id: true, domainId: true },
       });
-      if (!feature) {
+      if (!feature || withheldIntentDomains().includes(feature.domainId)) {
         throw intentNotFound(
           IntentErrorCode.FeatureNotFound,
           `Feature '${proposal.featureId}' does not exist in this workspace`,
@@ -536,7 +542,7 @@ export class IntentProposeService {
         where: { workspaceId_id: { workspaceId, id: proposal.domainId } },
         select: { id: true },
       });
-      if (!domain) {
+      if (!domain || withheldIntentDomains().includes(domain.id)) {
         throw intentNotFound(
           IntentErrorCode.DomainNotFound,
           `Domain '${proposal.domainId}' does not exist in this workspace`,
@@ -768,8 +774,8 @@ export class IntentProposeService {
     path: string[],
   ): Promise<string | null> {
     if (proposal.proposedSuccessorOfId === undefined) return null;
-    const predecessor = await tx.intentItem.findUnique({
-      where: { workspaceId_id: { workspaceId, id: proposal.proposedSuccessorOfId } },
+    const predecessor = await tx.intentItem.findFirst({
+      where: { workspaceId, id: proposal.proposedSuccessorOfId, ...visibleItems() },
       select: { id: true, authority: true },
     });
     if (!predecessor) {

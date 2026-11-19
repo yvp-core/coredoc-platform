@@ -257,7 +257,7 @@ model AccessBinding {
   userId       String?  @map("user_id")
   groupId      String?  @map("group_id") @db.Uuid
   role         String   @db.VarChar(64)
-  // 'workspace' (resourceId = workspace id) or 'repo' (resourceId = repo key).
+  // 'workspace' (resourceId = workspace id), 'repo' (repo key) or 'intent_domain' (domain id).
   resourceType String   @map("resource_type") @db.VarChar(32)
   resourceId   String   @map("resource_id")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -1320,6 +1320,9 @@ model IntentDomain {
   /// Hidden from browse defaults; children stay readable. Archiving is the only
   /// way to retire a domain that still holds reviewed content.
   archived    Boolean  @default(false)
+  /// True = bindings on the workspace do not reach this domain; only bindings on
+  /// the domain itself (and workspace managers) do. See src/auth/iam.ts.
+  restricted  Boolean  @default(false)
   createdBy   String   @map("created_by") @db.VarChar(256)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedBy   String   @map("updated_by") @db.VarChar(256)

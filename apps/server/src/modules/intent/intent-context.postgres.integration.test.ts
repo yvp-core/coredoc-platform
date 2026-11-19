@@ -38,7 +38,7 @@ import {
   type OpenedIntentGraphFixture,
 } from '@coredoc/db/testing';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthGuard } from '../../auth/auth.guard.js';
 import { TokenPermission } from '../../auth/token-permissions.js';
 import { ControlPlaneService, type WorkspaceRepo } from '../../database/control-plane.service.js';
@@ -394,6 +394,51 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
   const idsOf = (body: { matches: ContextMatch[] }) => body.matches.map((match) => match.id);
   const reasonOf = (body: { matches: ContextMatch[] }, id: string) =>
     body.matches.find((match) => match.id === id)?.matchReason;
+
+  describe('with the security domain restricted', () => {
+    const restrict = (restricted: boolean) =>
+      prisma.intentDomain.update({
+        where: { workspaceId_id: { workspaceId, id: 'security' } },
+        data: { restricted },
+      });
+    beforeEach(() => restrict(true));
+    afterEach(async () => {
+      await restrict(false);
+      await prisma.accessBinding.deleteMany({ where: { workspaceId, resourceType: 'intent_domain' } });
+    });
+
+    const reads: Record<string, unknown>[] = [
+      { intentIds: 'br-admin-only' },
+      { task: 'administrator override refund' },
+      { mode: 'list' },
+      { mode: 'list', includeCandidates: 'true', includeDiagnostics: 'true' },
+    ];
+
+    it('keeps its items out of every context read of a member with no binding on it', async () => {
+      principal = { user: MEMBER };
+      for (const query of reads) {
+        const text = JSON.stringify(await read(query)).replaceAll('"unknownIntentIds":["br-admin-only"]', '');
+        expect(text, JSON.stringify(query)).not.toContain('br-admin-only');
+        expect(text, JSON.stringify(query)).not.toContain('Only an administrator');
+      }
+      // An exact id it may not see is reported exactly like one that does not exist.
+      expect((await read({ intentIds: 'br-admin-only' })).unknownIntentIds).toEqual(['br-admin-only']);
+      // Asked for by name, the domain is refused as undeclared, and the refusal lists only what the reader may see.
+      const refusal = await read({ domain: 'security' }, 400);
+      expect(refusal.message).toContain('declared: ordering.');
+    });
+
+    it('shows them to the owner and to a member bound to the domain', async () => {
+      principal = { user: OWNER };
+      expect(idsOf(await read({ intentIds: 'br-admin-only' }))).toEqual(['br-admin-only']);
+
+      await prisma.accessBinding.create({
+        data: { workspaceId, userId: MEMBER.id, role: 'member', resourceType: 'intent_domain', resourceId: 'security' },
+      });
+      principal = { user: MEMBER };
+      expect(idsOf(await read({ intentIds: 'br-admin-only' }))).toEqual(['br-admin-only']);
+    });
+  });
 
   describe('task context fusion', () => {
     it('keeps exact and anchored rules while excluding weak task-only matches', async () => {
@@ -1590,6 +1635,8 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
         {} as never,
         {} as never,
         {} as never,
+        {} as never,
+        new ControlPlaneService(prisma as unknown as PrismaService),
       );
     });
 

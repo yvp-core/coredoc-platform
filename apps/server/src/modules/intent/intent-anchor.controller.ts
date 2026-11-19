@@ -1,3 +1,5 @@
+import { UseInterceptors } from '@nestjs/common';
+import { IntentAccessInterceptor } from './intent-access.interceptor.js';
 /**
  * Anchor surface of the cloud intent service (spec §4.6, §7), under
  * `/api/v1/workspaces/:workspaceId/intent/items/:itemId/anchors…`.
@@ -39,6 +41,7 @@ import { intentActorOf } from '../../mcp/intent-auth.js';
 
 @Controller('workspaces/:workspaceId/intent')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, IntentEnabledGuard)
+@UseInterceptors(IntentAccessInterceptor)
 @UseFilters(IntentExceptionFilter)
 export class IntentAnchorController {
   constructor(private readonly anchors: IntentAnchorService) {}

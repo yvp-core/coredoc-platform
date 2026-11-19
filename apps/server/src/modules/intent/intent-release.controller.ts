@@ -1,3 +1,5 @@
+import { UseInterceptors } from '@nestjs/common';
+import { IntentAccessInterceptor } from './intent-access.interceptor.js';
 import { IntentHandoffProcessor } from './intent-handoff-processor.service.js';
 import { IntentDeploymentSchema } from './intent-handoff.operations.js';
 import { WorkspaceRoleValue } from '../../auth/decorators/workspace-role-value.decorator.js';
@@ -29,6 +31,7 @@ import { IntentActorRole } from '../../mcp/intent-auth.js';
 
 @Controller('workspaces/:workspaceId/intent')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard)
+@UseInterceptors(IntentAccessInterceptor)
 @UseFilters(IntentExceptionFilter)
 export class IntentReleaseController {
   constructor(

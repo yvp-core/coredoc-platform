@@ -1,3 +1,5 @@
+import { UseInterceptors } from '@nestjs/common';
+import { IntentAccessInterceptor } from './intent-access.interceptor.js';
 import { Body, Controller, Get, Param, Post, Query, UseFilters, UseGuards } from '@nestjs/common';
 import type { z } from 'zod';
 import { AuthGuard } from '../../auth/auth.guard.js';
@@ -28,6 +30,7 @@ const COMMENT_CONTENT = { maxMultilineChars: INTENT_CONTRACT_LIMITS.text };
 
 @Controller('workspaces/:workspaceId/intent/comments')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, IntentEnabledGuard)
+@UseInterceptors(IntentAccessInterceptor)
 @UseFilters(IntentExceptionFilter)
 export class IntentCommentController {
   constructor(private readonly comments: IntentCommentService) {}

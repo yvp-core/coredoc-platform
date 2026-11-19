@@ -2,6 +2,7 @@ import { lockHandoff } from './intent-handoff.service.js';
 import { createHash } from 'node:crypto';
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
+import { visibleItems } from './intent-access.js';
 import { IntentReleaseTrigger, Prisma } from '../../generated/prisma/client.js';
 import { IntentErrorCode } from './contract/index.js';
 import {
@@ -181,7 +182,7 @@ export class IntentReleaseService {
     return this.prisma.$transaction(
       async (tx) => {
         const items = await tx.intentItem.findMany({
-          where: { workspaceId, id: { in: itemIds } },
+          where: { workspaceId, id: { in: itemIds }, ...visibleItems() },
           include: {
             sources: {
               select: { kind: true, ref: true, localId: true, revision: true, locator: true, title: true, url: true },
@@ -194,7 +195,7 @@ export class IntentReleaseService {
         const state = await readReleaseSnapshot(tx, workspaceId);
         const ancestry = await readReleaseAncestry(tx, workspaceId, [...itemIds, ...state.effectiveIds]);
         const affected = await tx.intentItem.findMany({
-          where: { workspaceId, id: { in: [...new Set(ancestry.map((row) => row.id))] } },
+          where: { workspaceId, id: { in: [...new Set(ancestry.map((row) => row.id))] }, ...visibleItems() },
           select: { id: true, title: true },
         });
         const titles = new Map(affected.map((row) => [row.id, row.title]));
@@ -280,7 +281,7 @@ export class IntentReleaseService {
         };
         const ids = [...new Set(entries.flatMap(entryIds))];
         const items = await tx.intentItem.findMany({
-          where: { workspaceId, id: { in: ids } },
+          where: { workspaceId, id: { in: ids }, ...visibleItems() },
           select: { id: true, title: true },
         });
         const titles = Object.fromEntries(items.map((item) => [item.id, item.title]));

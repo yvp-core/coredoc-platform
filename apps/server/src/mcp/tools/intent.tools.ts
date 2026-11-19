@@ -67,6 +67,9 @@ import {
 
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { roleAllows } from '../../auth/iam.js';
+import { ControlPlaneService } from '../../database/control-plane.service.js';
+import type { AuthenticatedMcpRequest } from '../mcp-auth-context.js';
+import { withWithheldIntentDomains } from '../../modules/intent/intent-access.js';
 import { Tool, ToolGuards } from '@rekog/mcp-nest';
 import type { Context } from '@rekog/mcp-nest';
 import type { Request } from 'express';
@@ -741,6 +744,7 @@ export class IntentTools {
     private readonly handoffs: IntentHandoffService,
     private readonly items: IntentItemService,
     private readonly reads: IntentReadService,
+    private readonly controlPlane: ControlPlaneService,
   ) {
     this.treeDispatch = {
       [IntentTreeAction.DomainCreate]: (ws, actor, body) =>
@@ -1130,7 +1134,15 @@ export class IntentTools {
     const startedAt = Date.now();
     let answer: IntentToolAnswer;
     try {
-      answer = await body();
+      // Every intent tool reads and writes with the caller's withheld domains in scope.
+      const caller = request as AuthenticatedMcpRequest;
+      const withheld = caller.workspaceId
+        ? await this.controlPlane.withheldIntentDomains(caller.workspaceId, {
+            userId: caller.user?.id ?? '',
+            role: caller.userWorkspaceRole ?? '',
+          })
+        : [];
+      answer = await withWithheldIntentDomains(withheld, body);
     } catch (error) {
       if (error instanceof ToolDeadlineError) {
         // The same {status, code, message} the graph tools answer with.

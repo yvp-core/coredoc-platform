@@ -21,7 +21,7 @@ function makeService(state: {
     groupMemberCreateMany: vi.fn(),
   };
   const transaction = {
-    workspaceRepo: { findFirst: vi.fn().mockResolvedValue(state.repo ?? null), update: writes.repoUpdate },
+    workspaceRepo: { count: vi.fn().mockResolvedValue(state.repo ? 1 : 0), updateMany: writes.repoUpdate },
     workspaceMember: { count: vi.fn().mockResolvedValue(state.members ?? 0) },
     accessGroup: {
       count: vi.fn().mockResolvedValue(state.groups ?? 0),
@@ -44,7 +44,9 @@ const GROUP_ID = '0b0e7f0e-58a5-4a65-9d0c-0f8f6b2f2c11';
 describe('AccessService', () => {
   it('refuses repo access for a repo that is not connected to the workspace', async () => {
     const { service, writes } = makeService({ repo: null });
-    await expect(service.saveRepoAccess('ws-1', 'foreign', { restricted: true, bindings: [] })).rejects.toMatchObject({
+    await expect(
+      service.saveResourceAccess('ws-1', 'repo', 'foreign', { restricted: true, bindings: [] }),
+    ).rejects.toMatchObject({
       status: 404,
     });
     noWrites(writes);
@@ -53,7 +55,10 @@ describe('AccessService', () => {
   it('refuses to bind a user who is not a member of the workspace', async () => {
     const { service, writes } = makeService({ repo: { id: 'r1' }, members: 0 });
     await expect(
-      service.saveRepoAccess('ws-1', 'calc', { restricted: true, bindings: [{ userId: 'outsider', role: 'member' }] }),
+      service.saveResourceAccess('ws-1', 'repo', 'calc', {
+        restricted: true,
+        bindings: [{ userId: 'outsider', role: 'member' }],
+      }),
     ).rejects.toMatchObject({ status: 400 });
     noWrites(writes);
   });
@@ -61,14 +66,17 @@ describe('AccessService', () => {
   it('refuses to bind a group of another workspace', async () => {
     const { service, writes } = makeService({ repo: { id: 'r1' }, groups: 0 });
     await expect(
-      service.saveRepoAccess('ws-1', 'calc', { restricted: true, bindings: [{ groupId: GROUP_ID, role: 'member' }] }),
+      service.saveResourceAccess('ws-1', 'repo', 'calc', {
+        restricted: true,
+        bindings: [{ groupId: GROUP_ID, role: 'member' }],
+      }),
     ).rejects.toMatchObject({ status: 400 });
     noWrites(writes);
   });
 
   it('replaces the repo bindings whole and stores one role per principal', async () => {
     const { service, writes } = makeService({ repo: { id: 'r1' }, members: 1, groups: 1 });
-    await service.saveRepoAccess('ws-1', 'calc', {
+    await service.saveResourceAccess('ws-1', 'repo', 'calc', {
       restricted: true,
       bindings: [
         { userId: 'u1', role: 'member' },
@@ -80,7 +88,10 @@ describe('AccessService', () => {
       where: { workspaceId: 'ws-1', resourceType: 'repo', resourceId: 'calc' },
     });
     expect(writes.bindingCreateMany.mock.calls[0]?.[0].data).toHaveLength(2);
-    expect(writes.repoUpdate).toHaveBeenCalledWith({ where: { id: 'r1' }, data: { restricted: true } });
+    expect(writes.repoUpdate).toHaveBeenCalledWith({
+      where: { workspaceId: 'ws-1', repoKey: 'calc' },
+      data: { restricted: true },
+    });
   });
 
   it('refuses a group member who does not belong to the workspace, and a group of another workspace', async () => {

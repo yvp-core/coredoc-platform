@@ -12,7 +12,10 @@
  */
 import 'reflect-metadata';
 import { RequestMethod } from '@nestjs/common';
-import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
+import { GUARDS_METADATA, INTERCEPTORS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
+import { IntentAccessInterceptor } from './intent-access.interceptor.js';
+import { IntentAnchorModule } from './intent-anchor.module.js';
+import { IntentModule } from './intent.module.js';
 import { describe, expect, it } from 'vitest';
 import { WORKSPACE_ROLE_KEY } from '../../auth/decorators/workspace-role.decorator.js';
 import { PERMISSION_KEY } from '../../auth/decorators/require-permission.decorator.js';
@@ -121,5 +124,28 @@ describe('intent REST guard matrix', () => {
       expect(route.session).toBe(true);
       expect(route.permission).toBeUndefined();
     }
+  });
+});
+
+/**
+ * Domain restriction is carried per request by `IntentAccessInterceptor`; a
+ * controller without it would read every domain. The controllers are taken from
+ * the modules, not from a list here, so a new one cannot be forgotten.
+ */
+describe('intent domain restriction', () => {
+  const declared = [IntentModule, IntentAnchorModule].flatMap(
+    (module) => (Reflect.getMetadata('controllers', module) as (new (...args: never[]) => unknown)[]) ?? [],
+  );
+  // Import only fills an empty workspace and returns counts, never content.
+  const exempt = new Set<unknown>([IntentImportController]);
+
+  it('finds the intent controllers', () => {
+    expect(declared.length).toBeGreaterThanOrEqual(CONTROLLERS.length);
+  });
+
+  it.each(
+    declared.filter((controller) => !exempt.has(controller)).map((c) => [c.name, c] as const),
+  )('%s runs under the interceptor', (_name, controller) => {
+    expect(Reflect.getMetadata(INTERCEPTORS_METADATA, controller)).toContain(IntentAccessInterceptor);
   });
 });

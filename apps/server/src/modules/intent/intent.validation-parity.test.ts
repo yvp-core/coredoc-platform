@@ -36,6 +36,7 @@ import { IntentReviewService } from './intent-review.service.js';
 import { IntentTransitionsService } from './intent-transitions.service.js';
 import { IntentTreeService } from './intent-tree.service.js';
 import { IntentController } from './intent.controller.js';
+import { IntentAccessInterceptor } from './intent-access.interceptor.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const ITEM_ID = 'itm_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -297,6 +298,8 @@ describe('intent request-validation parity', () => {
       .useValue({ canActivate: () => true })
       .overrideGuard(IntentEnabledGuard)
       .useValue({ canActivate: () => true })
+      .overrideInterceptor(IntentAccessInterceptor)
+      .useValue({ intercept: (_context: ExecutionContext, next: { handle: () => unknown }) => next.handle() })
       .compile();
 
     app = moduleRef.createNestApplication();

@@ -10,6 +10,7 @@ const ACCESS = {
     { repoKey: 'core', repoName: 'core', restricted: true, bindings: [{ userId: 'u1', role: 'member' }] },
     { repoKey: 'web', repoName: 'web', restricted: false, bindings: [] },
   ],
+  domains: [{ id: 'billing', title: 'Billing', restricted: false, bindings: [] }],
 };
 const MEMBERS = [
   { userId: 'u1', email: 'one@example.com', displayName: 'One', role: 'member' },
@@ -46,7 +47,7 @@ describe('AccessPanel', () => {
     );
     const user = userEvent.setup();
     expect(await screen.findByText('Restricted · 0 groups, 1 members')).toBeInTheDocument();
-    expect(screen.getByText('All members')).toBeInTheDocument();
+    expect(screen.getAllByText('All members')).toHaveLength(2);
 
     await user.click(screen.getByRole('button', { name: 'Edit access to core' }));
     await user.click(screen.getByRole('checkbox', { name: /Core team/ }));
@@ -65,6 +66,17 @@ describe('AccessPanel', () => {
           { userId: 'u2', role: 'member' },
         ],
       },
+    });
+
+    // An intent domain is restricted through the same form, on its own route.
+    await user.click(screen.getByRole('button', { name: 'Edit access to Billing' }));
+    await user.click(screen.getByRole('switch'));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(writes[1]).toEqual({
+      url: '/api/v1/workspaces/ws1/access/domains/billing',
+      method: 'PUT',
+      body: { restricted: true, bindings: [] },
     });
   });
 });
