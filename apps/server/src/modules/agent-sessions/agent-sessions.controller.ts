@@ -18,7 +18,7 @@ export class AgentSessionsController {
   constructor(private readonly sessions: AgentSessionsService) {}
 
   @Get('summary')
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   // Keeps the telemetry:write ingest token write-only — service tokens need an
   // explicit read grant here; JWT members pass through the permissions guard.
   @RequirePermission(TokenPermission.ResultRead)
@@ -33,7 +33,7 @@ export class AgentSessionsController {
 
   @Post(':sessionId/context')
   @HttpCode(204)
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   @RequirePermission(TokenPermission.TelemetryWrite)
   async context(
     @Param('workspaceId') workspaceId: string,

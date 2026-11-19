@@ -94,7 +94,9 @@ describe('intent REST guard matrix', () => {
   });
 
   it.each(all.map((r) => [r.name, r] as const))('%s asks for no more than a member', (_name, route) => {
-    expect(route.role).toBe('member');
+    // 'code' is the member level for routes that answer with graph facts: it keeps
+    // out only roles that cannot read code.
+    expect(['member', 'code']).toContain(route.role);
   });
 
   // The intent gate — workspace flag plus the temporary INTENT_ROLES list — reads

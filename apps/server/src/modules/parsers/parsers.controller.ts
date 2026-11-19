@@ -14,7 +14,7 @@ export class ParsersController {
   constructor(private readonly parsersService: ParsersService) {}
 
   @Get()
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   @RequirePermission(TokenPermission.ParserRead)
   async listParsers(@Param('workspaceId') workspaceId: string) {
     return this.parsersService.listParsers(workspaceId);
@@ -33,7 +33,7 @@ export class ParsersController {
   }
 
   @Get(':repoName')
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   @RequirePermission(TokenPermission.ParserRead)
   async downloadParser(
     @Param('workspaceId') workspaceId: string,
@@ -48,7 +48,7 @@ export class ParsersController {
 
   /** Get parser metadata (version, size, uploader) without downloading the tarball. */
   @Get(':repoName/meta')
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   @RequirePermission(TokenPermission.ParserRead)
   async getParserMeta(@Param('workspaceId') workspaceId: string, @Param('repoName') repoName: string) {
     const meta = await this.parsersService.getParserMeta(workspaceId, repoName);

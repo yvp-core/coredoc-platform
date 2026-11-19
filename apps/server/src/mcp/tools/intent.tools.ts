@@ -66,6 +66,7 @@ import {
 } from '../../modules/intent/intent-release.operations.js';
 
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { roleAllows } from '../../auth/iam.js';
 import { Tool, ToolGuards } from '@rekog/mcp-nest';
 import type { Context } from '@rekog/mcp-nest';
 import type { Request } from 'express';
@@ -1022,6 +1023,10 @@ export class IntentTools {
       if (input.action === IntentAnchorAction.Preview) {
         const auth = this.permissionGate(request, TokenPermission.IntentRead);
         if ('status' in auth) return auth.answer;
+        // Preview answers with graph facts, so it needs the right to read code.
+        if (!roleAllows(auth.role, 'graph.read')) {
+          throw new ForbiddenException('Your role cannot read code');
+        }
 
         // Validated before not_configured — see intent_propose.
         const query = parseContract(PreviewIntentAnchorQuerySchema, input.request);

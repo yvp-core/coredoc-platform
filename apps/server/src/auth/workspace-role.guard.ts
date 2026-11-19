@@ -8,6 +8,7 @@ import { type Action, roleAllows } from './iam.js';
 // What each `@WorkspaceRole` level asks for. Roles and their actions: ./iam.ts.
 const REQUIRED_ACTION: Record<string, Action> = {
   member: 'workspace.read',
+  code: 'graph.read',
   admin: 'workspace.manage',
   owner: 'workspace.own',
 };
