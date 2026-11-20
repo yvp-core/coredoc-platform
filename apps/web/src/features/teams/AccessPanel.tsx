@@ -409,7 +409,7 @@ function Panels({ wsId, access, members }: { wsId: string; access: Access; membe
         resources={access.domains.map((domain) => ({
           ...domain,
           kind: 'domains',
-          name: domain.archived ? ` (archived)` : domain.title,
+          name: domain.archived ? `${domain.title} (archived)` : domain.title,
         }))}
         groups={access.groups}
         members={members}

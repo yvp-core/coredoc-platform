@@ -333,6 +333,21 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
       await absent(read);
     });
 
+    it('refuses to delete a relation that reaches into it, and leaves the relation in place', async () => {
+      const relations = () => prisma.intentNodeRelation.count({ where: { workspaceId } });
+      const before = await relations();
+      await expect(
+        withheld(() =>
+          tree.deleteRelation(workspaceId, ACTOR, {
+            idempotencyKey: `withheld-relation-`,
+            from: { kind: 'feature', id: 'punches' },
+            to: { kind: 'feature', id: 'sessions' },
+          } as never),
+        ),
+      ).rejects.toMatchObject({ status: 404 });
+      expect(await relations()).toBe(before);
+    });
+
     it('refuses an export instead of handing out a partial one', async () => {
       const exports = service(IntentExportService);
       await expect(withheld(() => exports.export(workspaceId))).rejects.toMatchObject({ status: 403 });

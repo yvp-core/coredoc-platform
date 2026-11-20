@@ -1,3 +1,4 @@
+import { IntentReviewerGuard } from './intent-reviewer.guard.js';
 import { UseInterceptors } from '@nestjs/common';
 import { IntentAccessInterceptor } from './intent-access.interceptor.js';
 import { Body, Controller, Get, Param, Post, Query, UseFilters, UseGuards } from '@nestjs/common';
@@ -46,7 +47,7 @@ export class IntentCommentController {
   }
 
   @Post()
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   create(
     @Param('workspaceId') workspaceId: string,
@@ -60,7 +61,7 @@ export class IntentCommentController {
   }
 
   @Post(':commentId/status')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   setStatus(
     @Param('workspaceId') workspaceId: string,

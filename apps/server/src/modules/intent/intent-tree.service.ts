@@ -646,7 +646,7 @@ export class IntentTreeService {
             },
           },
         });
-        if (!existing) {
+        if (!existing || (await isWithheldNode(tx, workspaceId, { kind: 'feature', id: input.featureId }))) {
           throw intentNotFound(
             IntentErrorCode.SeedNotFound,
             `Feature '${input.featureId}' has no seed for node '${input.nodeId}' in repo '${input.repoKey}'`,
@@ -736,7 +736,7 @@ export class IntentTreeService {
       async (tx) => {
         const [from, to] = canonicalRelationEndpoints(input.from, input.to);
         const existing = await tx.intentNodeRelation.findUnique({ where: relationIdentity(workspaceId, from, to) });
-        if (!existing) {
+        if (!existing || (await isWithheldNode(tx, workspaceId, from)) || (await isWithheldNode(tx, workspaceId, to))) {
           throw intentNotFound(
             IntentErrorCode.NodeRelationNotFound,
             `No relation joins ${input.from.kind} '${input.from.id}' and ${input.to.kind} '${input.to.id}'`,
@@ -1058,6 +1058,26 @@ const DIMENSION: TreeNodeKind<
 };
 
 /* ------------------------------------------------------------ readers --- */
+
+/**
+ * Whether a node belongs to a domain withheld from the caller. Deletes that find
+ * their row by its own key (a seed, a relation) ask this, since they never go
+ * through `readFeature` / `readDomain`; a withheld node answers as a missing row.
+ */
+async function isWithheldNode(
+  reader: Pick<IntentTransaction, 'intentFeature'>,
+  workspaceId: string,
+  node: { kind: string; id: string },
+): Promise<boolean> {
+  const withheld = withheldIntentDomains();
+  if (withheld.length === 0) return false;
+  if (node.kind === 'domain') return withheld.includes(node.id);
+  const feature = await reader.intentFeature.findUnique({
+    where: nodeKey(workspaceId, node.id),
+    select: { domainId: true },
+  });
+  return feature !== null && withheld.includes(feature.domainId);
+}
 
 function readNode(
   reader: Pick<IntentTransaction, 'intentDomain' | 'intentFeature'>,

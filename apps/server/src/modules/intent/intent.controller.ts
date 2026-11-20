@@ -1,3 +1,4 @@
+import { IntentReviewerGuard } from './intent-reviewer.guard.js';
 import { UseInterceptors } from '@nestjs/common';
 import { IntentAccessInterceptor } from './intent-access.interceptor.js';
 /**
@@ -159,7 +160,7 @@ export class IntentController {
   /* ------------------------------------------------------------ domains --- */
 
   @Post('domains')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async createDomain(
     @Param('workspaceId') workspaceId: string,
@@ -171,7 +172,7 @@ export class IntentController {
   }
 
   @Patch('domains/:domainId')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async updateDomain(
     @Param('workspaceId') workspaceId: string,
@@ -185,7 +186,7 @@ export class IntentController {
   }
 
   @Post('domains/:domainId/archive')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async archiveDomain(
     @Param('workspaceId') workspaceId: string,
@@ -199,7 +200,7 @@ export class IntentController {
   }
 
   @Post('domains/:domainId/delete')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async deleteDomain(
     @Param('workspaceId') workspaceId: string,
@@ -225,7 +226,7 @@ export class IntentController {
   }
 
   @Post('dimensions')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async createDimension(
     @Param('workspaceId') workspaceId: string,
@@ -237,7 +238,7 @@ export class IntentController {
   }
 
   @Patch('dimensions/:dimensionId')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async updateDimension(
     @Param('workspaceId') workspaceId: string,
@@ -251,7 +252,7 @@ export class IntentController {
   }
 
   @Post('dimensions/:dimensionId/archive')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async archiveDimension(
     @Param('workspaceId') workspaceId: string,
@@ -265,7 +266,7 @@ export class IntentController {
   }
 
   @Post('dimensions/:dimensionId/delete')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async deleteDimension(
     @Param('workspaceId') workspaceId: string,
@@ -281,7 +282,7 @@ export class IntentController {
   /* ----------------------------------------------------------- features --- */
 
   @Post('features')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async createFeature(
     @Param('workspaceId') workspaceId: string,
@@ -293,7 +294,7 @@ export class IntentController {
   }
 
   @Patch('features/:featureId')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async updateFeature(
     @Param('workspaceId') workspaceId: string,
@@ -307,7 +308,7 @@ export class IntentController {
   }
 
   @Post('features/:featureId/archive')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async archiveFeature(
     @Param('workspaceId') workspaceId: string,
@@ -321,7 +322,7 @@ export class IntentController {
   }
 
   @Post('features/:featureId/delete')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async deleteFeature(
     @Param('workspaceId') workspaceId: string,
@@ -337,7 +338,7 @@ export class IntentController {
   /* -------------------------------------------------------------- seeds --- */
 
   @Post('features/:featureId/seeds')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async putSeed(
     @Param('workspaceId') workspaceId: string,
@@ -351,7 +352,7 @@ export class IntentController {
   }
 
   @Post('features/:featureId/seeds/delete')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async deleteSeed(
     @Param('workspaceId') workspaceId: string,

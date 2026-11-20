@@ -1,3 +1,4 @@
+import { IntentReviewerGuard } from './intent-reviewer.guard.js';
 import { UseInterceptors } from '@nestjs/common';
 import { IntentAccessInterceptor } from './intent-access.interceptor.js';
 /**
@@ -51,7 +52,7 @@ export class IntentReviewController {
   ) {}
 
   @Post('items/review')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async reviewItems(
     @Param('workspaceId') workspaceId: string,

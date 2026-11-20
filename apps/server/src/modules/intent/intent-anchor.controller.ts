@@ -1,3 +1,4 @@
+import { IntentReviewerGuard } from './intent-reviewer.guard.js';
 import { UseInterceptors } from '@nestjs/common';
 import { IntentAccessInterceptor } from './intent-access.interceptor.js';
 /**
@@ -47,7 +48,7 @@ export class IntentAnchorController {
   constructor(private readonly anchors: IntentAnchorService) {}
 
   @Post('items/:itemId/anchors/refresh')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('code')
   async refreshAnchor(
     @Param('workspaceId') workspaceId: string,
