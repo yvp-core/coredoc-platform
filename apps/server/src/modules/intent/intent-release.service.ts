@@ -2,7 +2,7 @@ import { lockHandoff } from './intent-handoff.service.js';
 import { createHash } from 'node:crypto';
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
-import { visibleItems } from './intent-access.js';
+import { visibleItems, withheldIntentDomains } from './intent-access.js';
 import { IntentReleaseTrigger, Prisma } from '../../generated/prisma/client.js';
 import { IntentErrorCode } from './contract/index.js';
 import {
@@ -633,7 +633,9 @@ export class IntentReleaseService {
     if (input.kind === 'plan' || input.kind === 'withdraw' || input.kind === 'reinstate') {
       await tx.$queryRaw`SELECT id FROM intent_items WHERE workspace_id = ${workspaceId}::uuid AND id = ${input.itemId} FOR UPDATE`;
       const item = await tx.intentItem.findUnique({ where: { workspaceId_id: { workspaceId, id: input.itemId } } });
-      if (!item) throw intentNotFound(IntentErrorCode.ItemNotFound, 'No such item in this workspace', ['itemId']);
+      // An item of a withheld domain answers as missing: its plan is not the caller's to change.
+      if (!item || (item.domainId && withheldIntentDomains().includes(item.domainId)))
+        throw intentNotFound(IntentErrorCode.ItemNotFound, 'No such item in this workspace', ['itemId']);
       if (input.kind !== 'withdraw' && item.authority !== 'accepted')
         throw intentStateError(IntentErrorCode.PlanNotPlannable, 'Only an accepted item can be planned or reinstated', [
           'itemId',
@@ -681,7 +683,7 @@ export class IntentReleaseService {
         ['deliveredRef'],
       );
     await tx.$queryRaw`SELECT id FROM intent_items WHERE workspace_id = ${workspaceId}::uuid AND id IN (${Prisma.join(touched)}) ORDER BY id FOR UPDATE`;
-    const rows = await tx.intentItem.findMany({ where: { workspaceId, id: { in: touched } } });
+    const rows = await tx.intentItem.findMany({ where: { workspaceId, id: { in: touched }, ...visibleItems() } });
     const byId = new Map(rows.map((row) => [row.id, row]));
     for (const id of touched)
       if (!byId.has(id))

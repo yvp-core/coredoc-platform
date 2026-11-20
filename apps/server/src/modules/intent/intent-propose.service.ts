@@ -662,7 +662,7 @@ export class IntentProposeService {
     const found = new Map(
       (
         await tx.intentItem.findMany({
-          where: { workspaceId, id: { in: outside } },
+          where: { workspaceId, id: { in: outside }, ...visibleItems() },
           select: { id: true, authority: true },
         })
       ).map((row) => [row.id, row.authority]),

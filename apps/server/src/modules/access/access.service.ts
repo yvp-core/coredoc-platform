@@ -24,9 +24,10 @@ export class AccessService {
         select: { repoKey: true, repoName: true, restricted: true },
       }),
       this.prisma.intentDomain.findMany({
-        where: { workspaceId, archived: false },
+        // Archived domains too: archiving leaves the items readable and the bindings in force.
+        where: { workspaceId },
         orderBy: { id: 'asc' },
-        select: { id: true, title: true, restricted: true },
+        select: { id: true, title: true, restricted: true, archived: true },
       }),
       this.prisma.accessBinding.findMany({
         where: { workspaceId, resourceType: { in: ['repo', 'intent_domain'] } },

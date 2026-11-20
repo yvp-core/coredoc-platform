@@ -406,7 +406,11 @@ function Panels({ wsId, access, members }: { wsId: string; access: Access; membe
         sub="A domain and everything under it is readable by all members unless restricted."
         column="Domain"
         empty="No intent domains."
-        resources={access.domains.map((domain) => ({ ...domain, kind: 'domains', name: domain.title }))}
+        resources={access.domains.map((domain) => ({
+          ...domain,
+          kind: 'domains',
+          name: domain.archived ? ` (archived)` : domain.title,
+        }))}
         groups={access.groups}
         members={members}
       />

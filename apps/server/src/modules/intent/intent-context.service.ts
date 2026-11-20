@@ -417,7 +417,7 @@ export class IntentContextService {
     const referenced =
       referencedIds.length > 0
         ? await this.prisma.intentItem.findMany({
-            where: { workspaceId, id: { in: referencedIds } },
+            where: { workspaceId, id: { in: referencedIds }, ...visibleItems() },
             select: { appliesWhen: true, ...TREE_CONDITIONS_SELECT },
           })
         : [];
@@ -571,7 +571,7 @@ export class IntentContextService {
     const refs =
       referenced.length > 0
         ? await this.prisma.intentItem.findMany({
-            where: { workspaceId, id: { in: referenced } },
+            where: { workspaceId, id: { in: referenced }, ...visibleItems() },
             select: { id: true, authority: true, appliesWhen: true, ...TREE_CONDITIONS_SELECT },
           })
         : [];

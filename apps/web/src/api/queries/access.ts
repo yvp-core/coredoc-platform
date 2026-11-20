@@ -26,6 +26,7 @@ export interface RepoAccess {
 export interface DomainAccess {
   id: string;
   title: string;
+  archived: boolean;
   restricted: boolean;
   bindings: RepoBinding[];
 }

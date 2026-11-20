@@ -10,7 +10,7 @@ const ACCESS = {
     { repoKey: 'core', repoName: 'core', restricted: true, bindings: [{ userId: 'u1', role: 'member' }] },
     { repoKey: 'web', repoName: 'web', restricted: false, bindings: [] },
   ],
-  domains: [{ id: 'billing', title: 'Billing', restricted: false, bindings: [] }],
+  domains: [{ id: 'billing', title: 'Billing', archived: false, restricted: false, bindings: [] }],
 };
 const MEMBERS = [
   { userId: 'u1', email: 'one@example.com', displayName: 'One', role: 'member' },
