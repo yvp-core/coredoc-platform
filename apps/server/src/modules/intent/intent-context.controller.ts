@@ -1,3 +1,5 @@
+import { UseInterceptors } from '@nestjs/common';
+import { IntentAccessInterceptor } from './intent-access.interceptor.js';
 /**
  * The agent read route (spec §7), under
  * `/api/v1/workspaces/:workspaceId/intent/context`.
@@ -34,6 +36,7 @@ import { IntentContextService } from './intent-context.service.js';
 
 @Controller('workspaces/:workspaceId/intent')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, IntentEnabledGuard)
+@UseInterceptors(IntentAccessInterceptor)
 @UseFilters(IntentExceptionFilter)
 export class IntentContextController {
   constructor(private readonly context: IntentContextService) {}

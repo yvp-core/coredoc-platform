@@ -1,3 +1,4 @@
+import { IntentReviewerGuard } from './intent-reviewer.guard.js';
 /**
  * `POST /api/v1/workspaces/:workspaceId/intent/import/workspace` — a whole
  * knowledge base into an empty workspace.
@@ -40,7 +41,7 @@ export class IntentImportController {
    * items, delivery status) into an empty workspace.
    */
   @Post('import/workspace')
-  @UseGuards(UserSessionGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard)
   @WorkspaceRole('member')
   async importWorkspace(
     @Param('workspaceId') workspaceId: string,

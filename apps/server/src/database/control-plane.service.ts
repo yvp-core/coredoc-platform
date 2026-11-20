@@ -64,7 +64,7 @@ export async function readableRepos(
     ? [workspaceGrant, ...(await controlPlane.listRepoGrants(workspaceId, reader.userId))]
     : [workspaceGrant];
   const readable = (repo: (typeof repos)[number]) =>
-    can(grants, 'graph.read', { type: 'repo', key: repo.repoKey, restricted: repo.restricted });
+    can(grants, 'graph.read', { type: 'repo', id: repo.repoKey, restricted: repo.restricted });
   return { repos: repos.filter(readable), withheld: repos.filter((repo) => !readable(repo)) };
 }
 
@@ -228,6 +228,34 @@ export class ControlPlaneService {
       include: WORKSPACE_ROLE,
     });
     return members.map(withRole);
+  }
+
+  /**
+   * The intent domains kept from this reader — the one place intent read access
+   * is decided (rules in auth/iam.ts). Every intent read excludes these ids;
+   * system work (release, handoff, CI) passes SYSTEM_READER and gets none.
+   */
+  async withheldIntentDomains(workspaceId: string, reader: RepoReader): Promise<string[]> {
+    if (reader === SYSTEM_READER || roleAllows(reader.role, 'workspace.manage')) return [];
+    const restricted = await this.prisma.intentDomain.findMany({
+      where: { workspaceId, restricted: true },
+      select: { id: true },
+    });
+    if (restricted.length === 0) return [];
+    const grants = [
+      { role: reader.role, resourceType: 'workspace', resourceId: workspaceId },
+      ...(await this.prisma.accessBinding.findMany({
+        where: {
+          workspaceId,
+          resourceType: 'intent_domain',
+          OR: [{ userId: reader.userId }, { group: { members: { some: { userId: reader.userId } } } }],
+        },
+        select: { role: true, resourceType: true, resourceId: true },
+      })),
+    ];
+    return restricted
+      .filter(({ id }) => !can(grants, 'intent.read', { type: 'intent_domain', id, restricted: true }))
+      .map(({ id }) => id);
   }
 
   /** Bindings on single repos held by the user directly or through a group. */

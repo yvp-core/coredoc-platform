@@ -1,3 +1,5 @@
+import { UseInterceptors } from '@nestjs/common';
+import { IntentAccessInterceptor } from './intent-access.interceptor.js';
 /**
  * The review-queue read route (spec §7), under
  * `/api/v1/workspaces/:workspaceId/intent/review-queue`.
@@ -28,6 +30,7 @@ import { IntentReviewQueueService } from './intent-review-queue.service.js';
 
 @Controller('workspaces/:workspaceId/intent')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, IntentEnabledGuard)
+@UseInterceptors(IntentAccessInterceptor)
 @UseFilters(IntentExceptionFilter)
 export class IntentReviewQueueController {
   constructor(private readonly queue: IntentReviewQueueService) {}

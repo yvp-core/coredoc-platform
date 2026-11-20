@@ -164,6 +164,8 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      new ControlPlaneService(prisma as unknown as PrismaService),
     );
   });
 

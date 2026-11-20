@@ -36,6 +36,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { IntentItemAuthority } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { withheldIntentDomains } from './intent-access.js';
 import {
   IntentErrorCode,
   type AddIntentAnchorInput,
@@ -395,9 +396,10 @@ async function lockAcceptedItem(tx: IntentTransaction, workspaceId: string, item
 async function assertAcceptedItem(reader: ItemReader, workspaceId: string, itemId: string, path: string[]) {
   const item = await reader.intentItem.findUnique({
     where: { workspaceId_id: { workspaceId, id: itemId } },
-    select: { id: true, authority: true },
+    select: { id: true, authority: true, domainId: true },
   });
-  if (!item) {
+  // An item of a withheld domain answers exactly as a missing one.
+  if (!item || (item.domainId && withheldIntentDomains().includes(item.domainId))) {
     throw intentNotFound(
       IntentErrorCode.ItemNotFound,
       `Intent item '${itemId}' does not exist in this workspace`,

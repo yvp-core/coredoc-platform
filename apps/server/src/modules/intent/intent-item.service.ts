@@ -26,6 +26,7 @@ import { intentNotFound } from './intent-state-errors.js';
 import { listConditionsOf } from './intent-context.service.js';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
+import { visibleItems } from './intent-access.js';
 import { IntentCursorScope, decodeIntentCursor, paginate } from './intent-cursor.js';
 
 /**
@@ -84,6 +85,7 @@ export class IntentItemService {
       where: {
         workspaceId,
         AND: [
+          visibleItems(),
           ...(query.authorities
             ? [
                 {
@@ -189,6 +191,7 @@ export class IntentItemService {
     const rows = await this.prisma.intentItemSource.groupBy({
       where: {
         workspaceId,
+        item: visibleItems(),
         ...(text
           ? {
               OR: [
@@ -226,7 +229,7 @@ export class IntentItemService {
       },
       async (tx) => {
         const before = await tx.intentItemSource.findMany({
-          where: { workspaceId, ref: input.ref },
+          where: { workspaceId, ref: input.ref, item: visibleItems() },
           select: { id: true, itemId: true, localId: true, title: true, url: true },
           orderBy: { id: 'asc' },
         });

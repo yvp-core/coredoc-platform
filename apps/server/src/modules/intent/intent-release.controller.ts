@@ -1,3 +1,6 @@
+import { IntentReviewerGuard } from './intent-reviewer.guard.js';
+import { UseInterceptors } from '@nestjs/common';
+import { IntentAccessInterceptor } from './intent-access.interceptor.js';
 import { IntentHandoffProcessor } from './intent-handoff-processor.service.js';
 import { IntentDeploymentSchema } from './intent-handoff.operations.js';
 import { WorkspaceRoleValue } from '../../auth/decorators/workspace-role-value.decorator.js';
@@ -29,6 +32,7 @@ import { IntentActorRole } from '../../mcp/intent-auth.js';
 
 @Controller('workspaces/:workspaceId/intent')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard)
+@UseInterceptors(IntentAccessInterceptor)
 @UseFilters(IntentExceptionFilter)
 export class IntentReleaseController {
   constructor(
@@ -79,7 +83,7 @@ export class IntentReleaseController {
    * branch raises inside `recordDeployment`, so both branches refuse "off" by name.
    */
   @Post('releases')
-  @UseGuards(IntentEnabledGuard)
+  @UseGuards(IntentReviewerGuard, IntentEnabledGuard)
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.IntentRelease)
   async record(
@@ -122,7 +126,7 @@ export class IntentReleaseController {
   }
 
   @Post('releases/:seq/rollback')
-  @UseGuards(UserSessionGuard, IntentEnabledGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard, IntentEnabledGuard)
   @WorkspaceRole('member')
   rollback(
     @Param('workspaceId') workspaceId: string,
@@ -136,7 +140,7 @@ export class IntentReleaseController {
   }
 
   @Post('items/:itemId/plan')
-  @UseGuards(UserSessionGuard, IntentEnabledGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard, IntentEnabledGuard)
   @WorkspaceRole('member')
   plan(
     @Param('workspaceId') workspaceId: string,
@@ -150,7 +154,7 @@ export class IntentReleaseController {
   }
 
   @Post('items/:itemId/plan/withdraw')
-  @UseGuards(UserSessionGuard, IntentEnabledGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard, IntentEnabledGuard)
   @WorkspaceRole('member')
   withdraw(
     @Param('workspaceId') workspaceId: string,
@@ -164,7 +168,7 @@ export class IntentReleaseController {
   }
 
   @Post('items/:itemId/plan/reinstate')
-  @UseGuards(UserSessionGuard, IntentEnabledGuard)
+  @UseGuards(UserSessionGuard, IntentReviewerGuard, IntentEnabledGuard)
   @WorkspaceRole('member')
   reinstate(
     @Param('workspaceId') workspaceId: string,

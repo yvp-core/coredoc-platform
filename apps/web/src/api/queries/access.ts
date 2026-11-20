@@ -23,9 +23,18 @@ export interface RepoAccess {
   bindings: RepoBinding[];
 }
 
+export interface DomainAccess {
+  id: string;
+  title: string;
+  archived: boolean;
+  restricted: boolean;
+  bindings: RepoBinding[];
+}
+
 export interface Access {
   groups: AccessGroup[];
   repos: RepoAccess[];
+  domains: DomainAccess[];
 }
 
 // staleTime: 0 — same rationale as membersQueryOptions: who may read what is
@@ -55,14 +64,15 @@ export function deleteGroup(params: { wsId: string; groupId: string }): Promise<
   return request<void>(`/api/v1/workspaces/${params.wsId}/access/groups/${params.groupId}`, { method: 'DELETE' });
 }
 
-/** Replaces whether the repo is restricted and who is bound to it. */
-export function saveRepoAccess(params: {
+/** Replaces whether a repo or an intent domain is restricted and who is bound to it. */
+export function saveResourceAccess(params: {
   wsId: string;
-  repoKey: string;
+  kind: 'repos' | 'domains';
+  id: string;
   input: Pick<RepoAccess, 'restricted' | 'bindings'>;
 }): Promise<unknown> {
-  const { wsId, repoKey, input } = params;
-  return request(`/api/v1/workspaces/${wsId}/access/repos/${encodeURIComponent(repoKey)}`, {
+  const { wsId, kind, id, input } = params;
+  return request(`/api/v1/workspaces/${wsId}/access/${kind}/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),

@@ -5,6 +5,7 @@ import {
   type IntentComment as IntentCommentRow,
 } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { visibleFeatures, visibleItems, withheldIntentDomains } from './intent-access.js';
 import {
   IntentErrorCode,
   type CreateIntentCommentInput,
@@ -220,7 +221,21 @@ async function readComment(
   id: string,
   path: string[],
 ): Promise<IntentCommentRow> {
-  const comment = await tx.intentComment.findFirst({ where: { id, workspaceId } });
+  // A comment on a node of a withheld domain answers as missing, like the node.
+  const comment = await tx.intentComment.findFirst({
+    where: {
+      id,
+      workspaceId,
+      ...(withheldIntentDomains().length
+        ? {
+            AND: [
+              { OR: [{ itemId: null }, { item: visibleItems() }] },
+              { OR: [{ featureId: null }, { feature: visibleFeatures() }] },
+            ],
+          }
+        : {}),
+    },
+  });
   if (!comment) {
     throw intentNotFound(IntentErrorCode.CommentNotFound, `Comment '${id}' does not exist in this workspace`, path);
   }
@@ -233,15 +248,15 @@ async function assertTargetExists(
   target: CommentTarget,
   path: string[],
 ): Promise<void> {
-  const key = { workspaceId_id: { workspaceId, id: target.id } };
+  const key = { workspaceId, id: target.id };
   if (target.kind === 'feature') {
-    if (await reader.intentFeature.findUnique({ where: key, select: { id: true } })) return;
+    if (await reader.intentFeature.findFirst({ where: { ...key, ...visibleFeatures() }, select: { id: true } })) return;
     throw intentNotFound(
       IntentErrorCode.FeatureNotFound,
       `Feature '${target.id}' does not exist in this workspace`,
       path,
     );
   }
-  if (await reader.intentItem.findUnique({ where: key, select: { id: true } })) return;
+  if (await reader.intentItem.findFirst({ where: { ...key, ...visibleItems() }, select: { id: true } })) return;
   throw intentNotFound(IntentErrorCode.ItemNotFound, `Item '${target.id}' does not exist in this workspace`, path);
 }

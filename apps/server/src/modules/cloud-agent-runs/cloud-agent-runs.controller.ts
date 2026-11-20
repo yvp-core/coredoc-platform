@@ -1,3 +1,5 @@
+import { UseInterceptors } from '@nestjs/common';
+import { IntentAccessInterceptor } from '../intent/intent-access.interceptor.js';
 import {
   Body,
   Controller,
@@ -200,6 +202,7 @@ export class CloudAgentRunsController {
   }
 
   @Get(':runId/activity')
+  @UseInterceptors(IntentAccessInterceptor)
   @WorkspaceRole('code')
   runActivity(
     @Param('workspaceId') workspaceId: string,

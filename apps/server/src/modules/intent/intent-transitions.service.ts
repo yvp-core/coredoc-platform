@@ -17,6 +17,7 @@
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { PrismaService } from '../../database/prisma.service.js';
+import { visibleItems } from './intent-access.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { IntentCursorScope, decodeIntentCursor, paginate } from './intent-cursor.js';
 import { intentNotFound } from './intent-state-errors.js';
@@ -66,8 +67,8 @@ export class IntentTransitionsService {
 
   /** One item's history. A missing item is a 404, not an empty page. */
   async listItemTransitions(workspaceId: string, itemId: string, query: ListIntentTransitionsQuery, limit: number) {
-    const item = await this.prisma.intentItem.findUnique({
-      where: { workspaceId_id: { workspaceId, id: itemId } },
+    const item = await this.prisma.intentItem.findFirst({
+      where: { workspaceId, id: itemId, ...visibleItems() },
       select: { id: true },
     });
     if (!item) {
@@ -88,7 +89,7 @@ export class IntentTransitionsService {
   async listWorkspaceTransitions(workspaceId: string, query: ListIntentTransitionsQuery, limit: number) {
     const cursor = decodeIntentCursor(query.cursor, IntentCursorScope.WorkspaceTransitions, 2);
     const rows = await this.prisma.intentAuthorityTransition.findMany({
-      where: { workspaceId, ...olderThan(cursor) },
+      where: { workspaceId, item: visibleItems(), ...olderThan(cursor) },
       orderBy: [...RECENCY_ORDER],
       take: limit + 1,
     });

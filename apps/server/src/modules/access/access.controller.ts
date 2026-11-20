@@ -58,6 +58,15 @@ export class AccessController {
     @Param('repoKey') repoKey: string,
     @Body(new ZodValidationPipe(SaveRepoAccessSchema, dtoFieldMessages)) dto: SaveRepoAccessInput,
   ) {
-    return this.access.saveRepoAccess(workspaceId, repoKey, dto);
+    return this.access.saveResourceAccess(workspaceId, 'repo', repoKey, dto);
+  }
+
+  @Put('domains/:domainId')
+  async replaceDomainAccess(
+    @Param('workspaceId') workspaceId: string,
+    @Param('domainId') domainId: string,
+    @Body(new ZodValidationPipe(SaveRepoAccessSchema, dtoFieldMessages)) dto: SaveRepoAccessInput,
+  ) {
+    return this.access.saveResourceAccess(workspaceId, 'intent_domain', domainId, dto);
   }
 }

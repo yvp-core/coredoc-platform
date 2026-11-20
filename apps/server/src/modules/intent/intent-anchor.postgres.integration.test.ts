@@ -596,6 +596,10 @@ describe.skipIf(!TEST_DATABASE_URL)('intent anchors (PostgreSQL integration)', (
         app.get(IntentAnchorService),
         { recordMcpQuery: async () => undefined } as never,
         {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        app.get(ControlPlaneService),
       );
     });
 

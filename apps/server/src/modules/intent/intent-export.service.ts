@@ -23,8 +23,9 @@
  * Ordering and hashing live in `intent-export.operations.ts` with the format
  * they belong to; this file's job is only to read the rows in that order.
  */
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
+import { withheldIntentDomains } from './intent-access.js';
 import { Prisma } from '../../generated/prisma/client.js';
 import {
   CLOUD_INTENT_EXPORT_FORMAT_VERSION,
@@ -60,6 +61,7 @@ export class IntentExportService {
   constructor(private readonly prisma: PrismaService) {}
 
   async export(workspaceId: string): Promise<CloudIntentExportV1> {
+    assertWholeWorkspace();
     const content = await this.readContent(workspaceId);
     return {
       formatVersion: CLOUD_INTENT_EXPORT_FORMAT_VERSION,
@@ -71,6 +73,7 @@ export class IntentExportService {
 
   /** The content as the workspace-import document; see `intent-workspace-export.ts`. */
   async exportWorkspace(workspaceId: string): Promise<CloudIntentWorkspaceDocumentV1> {
+    assertWholeWorkspace();
     return readWorkspaceDocument(this.prisma, workspaceId);
   }
 
@@ -244,5 +247,16 @@ export class IntentExportService {
         'which one export document does not carry.',
       [collection],
     );
+  }
+}
+
+/**
+ * An export is the whole workspace: it carries a content hash and must import
+ * back unchanged. A reader with a domain withheld gets none of it rather than a
+ * silently partial document.
+ */
+function assertWholeWorkspace(): void {
+  if (withheldIntentDomains().length > 0) {
+    throw new ForbiddenException('Exporting intent needs access to every domain of the workspace');
   }
 }

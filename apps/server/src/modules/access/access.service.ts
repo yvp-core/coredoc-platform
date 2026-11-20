@@ -12,7 +12,7 @@ export class AccessService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(workspaceId: string) {
-    const [groups, repos, bindings] = await Promise.all([
+    const [groups, repos, domains, bindings] = await Promise.all([
       this.prisma.accessGroup.findMany({
         where: { workspaceId },
         orderBy: { name: 'asc' },
@@ -23,23 +23,29 @@ export class AccessService {
         orderBy: { repoName: 'asc' },
         select: { repoKey: true, repoName: true, restricted: true },
       }),
+      this.prisma.intentDomain.findMany({
+        // Archived domains too: archiving leaves the items readable and the bindings in force.
+        where: { workspaceId },
+        orderBy: { id: 'asc' },
+        select: { id: true, title: true, restricted: true, archived: true },
+      }),
       this.prisma.accessBinding.findMany({
-        where: { workspaceId, resourceType: 'repo' },
-        select: { resourceId: true, userId: true, groupId: true, role: true },
+        where: { workspaceId, resourceType: { in: ['repo', 'intent_domain'] } },
+        select: { resourceType: true, resourceId: true, userId: true, groupId: true, role: true },
       }),
     ]);
+    const bound = (resourceType: string, resourceId: string) =>
+      bindings
+        .filter((binding) => binding.resourceType === resourceType && binding.resourceId === resourceId)
+        .map(({ userId, groupId, role }) => (userId ? { userId, role } : { groupId, role }));
     return {
       groups: groups.map((group) => ({
         id: group.id,
         name: group.name,
         memberUserIds: group.members.map((member) => member.userId),
       })),
-      repos: repos.map((repo) => ({
-        ...repo,
-        bindings: bindings
-          .filter((binding) => binding.resourceId === repo.repoKey)
-          .map(({ userId, groupId, role }) => (userId ? { userId, role } : { groupId, role })),
-      })),
+      repos: repos.map((repo) => ({ ...repo, bindings: bound('repo', repo.repoKey) })),
+      domains: domains.map((domain) => ({ ...domain, bindings: bound('intent_domain', domain.id) })),
     };
   }
 
@@ -74,8 +80,13 @@ export class AccessService {
     if (count === 0) throw new NotFoundException('Group not found');
   }
 
-  /** Replaces whether the repo is restricted and who is bound to it. */
-  async saveRepoAccess(workspaceId: string, repoKey: string, input: SaveRepoAccessInput) {
+  /** Replaces whether the repo or intent domain is restricted and who is bound to it. */
+  async saveResourceAccess(
+    workspaceId: string,
+    resourceType: 'repo' | 'intent_domain',
+    resourceId: string,
+    input: SaveRepoAccessInput,
+  ) {
     // One role per principal per resource: a later entry for the same principal wins.
     const bindings = [
       ...new Map(input.bindings.map((binding) => [binding.userId ?? binding.groupId, binding])).values(),
@@ -85,28 +96,39 @@ export class AccessService {
 
     await this.prisma.$transaction(async (transaction) => {
       // Every id is caller-supplied, so each is checked against THIS workspace.
-      const repo = await transaction.workspaceRepo.findFirst({ where: { workspaceId, repoKey } });
-      if (!repo) throw new NotFoundException('Repo not found');
+      const data = { restricted: input.restricted };
+      const target =
+        resourceType === 'repo'
+          ? {
+              count: () => transaction.workspaceRepo.count({ where: { workspaceId, repoKey: resourceId } }),
+              restrict: () =>
+                transaction.workspaceRepo.updateMany({ where: { workspaceId, repoKey: resourceId }, data }),
+            }
+          : {
+              count: () => transaction.intentDomain.count({ where: { workspaceId, id: resourceId } }),
+              restrict: () => transaction.intentDomain.updateMany({ where: { workspaceId, id: resourceId }, data }),
+            };
+      if ((await target.count()) === 0) throw new NotFoundException('Resource not found');
       await this.assertMembers(transaction, workspaceId, userIds);
       const groups = await transaction.accessGroup.count({ where: { workspaceId, id: { in: groupIds } } });
       if (groups !== groupIds.length) {
         throw new BadRequestException('bindings names a group that does not belong to this workspace');
       }
 
-      await transaction.accessBinding.deleteMany({ where: { workspaceId, resourceType: 'repo', resourceId: repoKey } });
+      await transaction.accessBinding.deleteMany({ where: { workspaceId, resourceType, resourceId } });
       await transaction.accessBinding.createMany({
         data: bindings.map((binding) => ({
           workspaceId,
           userId: binding.userId ?? null,
           groupId: binding.groupId ?? null,
           role: binding.role,
-          resourceType: 'repo',
-          resourceId: repoKey,
+          resourceType,
+          resourceId,
         })),
       });
-      await transaction.workspaceRepo.update({ where: { id: repo.id }, data: { restricted: input.restricted } });
+      await target.restrict();
     });
-    return { repoKey, restricted: input.restricted, bindings };
+    return { resourceType, resourceId, restricted: input.restricted, bindings };
   }
 
   private async assertMembers(

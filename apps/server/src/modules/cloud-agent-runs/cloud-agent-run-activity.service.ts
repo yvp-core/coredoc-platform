@@ -3,6 +3,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { INTENT_CONFIG, type IntentConfig, configFromEnv } from '../../config/app-config.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { visibleItems } from '../intent/intent-access.js';
 import { isIntentEnabled } from '../intent/intent-enabled.guard.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE, type CloudAgentRunArchiveStore } from './cloud-agent-run-archive.store.js';
 import { CloudAgentRunErrorCode, cloudAgentRunError, RunPhase } from './run-states.js';
@@ -146,7 +147,7 @@ export class CloudAgentRunActivityService {
     if (proposed.size === 0 && read.size === 0) return { read: [], proposed: [] };
 
     const items = await this.prisma.intentItem.findMany({
-      where: { workspaceId, id: { in: [...proposed, ...read] } },
+      where: { workspaceId, id: { in: [...proposed, ...read] }, ...visibleItems() },
       select: {
         id: true,
         title: true,
