@@ -30,7 +30,7 @@ export class AgentRunsController {
 
   @Post()
   @HttpCode(200)
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   @RequirePermission(TokenPermission.TelemetryWrite)
   async create(
     @Param('workspaceId') workspaceId: string,
@@ -48,7 +48,7 @@ export class AgentRunsController {
   // the route has no @RequirePermission — so browser/JWT members reach it via
   // role, while service tokens are barred regardless of their permissions.
   @Get()
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   @UseGuards(UserSessionGuard)
   async list(@Param('workspaceId') workspaceId: string) {
     return this.agentRuns.getWorkspaceAgentRuns(workspaceId);

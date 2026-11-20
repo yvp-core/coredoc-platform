@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 import '../../config/load-env.js';
 import type { ExecutionContext, INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -50,12 +51,10 @@ describe.skipIf(!TEST_DATABASE_URL)('intent comments (PostgreSQL integration)', 
       data: { name: `intent-comment-${RUN}`, slug: `intent-comment-${RUN}`, intentEnabled: true },
     });
     workspaceId = workspace.id;
-    await prisma.workspaceMember.createMany({
-      data: [
-        { workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-        { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
-      ],
-    });
+    await seedMembers(prisma, [
+      { workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
+      { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
+    ]);
     const audit = { createdBy: OWNER.id, updatedBy: OWNER.id };
     await prisma.intentDomain.create({
       data: { workspaceId, id: 'billing', title: 'Billing', statement: '', ...audit },

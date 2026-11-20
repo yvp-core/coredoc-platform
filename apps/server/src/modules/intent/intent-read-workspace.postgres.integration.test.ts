@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 /**
  * Workspace import and the file-like reads, end to end against PostgreSQL.
  *
@@ -22,6 +23,9 @@ import { IntentErrorCode, IntentPublicException } from './contract/index.js';
 import { IntentExportService } from './intent-export.service.js';
 import { IntentImportController } from './intent-import.controller.js';
 import { IntentItemService } from './intent-item.service.js';
+import { withWithheldIntentDomains } from './intent-access.js';
+import { IntentReviewQueueService } from './intent-review-queue.service.js';
+import { IntentTransitionsService } from './intent-transitions.service.js';
 import { INTENT_READ_LIMITS, IntentReadService } from './intent-read.service.js';
 import { IntentTreeService } from './intent-tree.service.js';
 import {
@@ -216,9 +220,7 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
       data: { name: `intent-read-${RUN}`, slug: `intent-read-${RUN}`, intentEnabled: true },
     });
     workspaceId = workspace.id;
-    await prisma.workspaceMember.create({
-      data: { workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-    });
+    await seedMembers(prisma, [{ workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' }]);
 
     const moduleRef = await Test.createTestingModule({
       controllers: [IntentImportController],
@@ -293,6 +295,86 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
     expect(transitions.every((row) => row.fromAuthority === null && row.sourceKind === 'import')).toBe(true);
   });
 
+  /**
+   * One domain is withheld from the reader; nothing that belongs to it may come
+   * back from any read. Every needle is unique to the withheld domain.
+   */
+  describe('with the time-tracking domain withheld', () => {
+    const NEEDLES = [
+      'time-tracking',
+      'Time tracking',
+      'Punches',
+      'br-punch-needs-device',
+      'unverified device',
+      'Device check',
+      'may lose unsent punches',
+    ];
+    const service = <T>(Service: new (prisma: PrismaService) => T) => new Service(prisma as unknown as PrismaService);
+    const withheld = <T>(read: () => Promise<T>) => withWithheldIntentDomains(['time-tracking'], read);
+    const absent = async (read: () => Promise<unknown>) => {
+      const text = JSON.stringify(await withheld(read));
+      expect(NEEDLES.filter((needle) => text.includes(needle))).toEqual([]);
+    };
+
+    it.each<[string, () => Promise<unknown>]>([
+      ['intent_read tree', () => reads.tree(workspaceId)],
+      ['intent_read root node', () => reads.node(workspaceId, {})],
+      ['intent_read search', () => reads.search(workspaceId, { query: 'device punches' } as never)],
+      ['root document', () => reads.document(workspaceId, { includeCandidates: true })],
+      ['related nodes of an open feature', () => reads.node(workspaceId, { feature: 'sessions' })],
+      ['tree', () => tree.getTree(workspaceId, {}, 50)],
+      ['features', () => tree.listFeatures(workspaceId, {}, 50)],
+      ['items', () => service(IntentItemService).listItems(workspaceId, {}, 100)],
+      ['sources', () => service(IntentItemService).listSources(workspaceId)],
+      ['review queue', () => service(IntentReviewQueueService).readQueue(workspaceId, {}, 50)],
+      ['pending review summary', () => service(IntentReviewQueueService).summary(workspaceId)],
+      ['transitions', () => service(IntentTransitionsService).listWorkspaceTransitions(workspaceId, {}, 100)],
+    ])('%s does not show it', async (_name, read) => {
+      await absent(read);
+    });
+
+    it('refuses to delete a relation that reaches into it, and leaves the relation in place', async () => {
+      const relations = () => prisma.intentNodeRelation.count({ where: { workspaceId } });
+      const before = await relations();
+      await expect(
+        withheld(() =>
+          tree.deleteRelation(workspaceId, ACTOR, {
+            idempotencyKey: `withheld-relation-`,
+            from: { kind: 'feature', id: 'punches' },
+            to: { kind: 'feature', id: 'sessions' },
+          } as never),
+        ),
+      ).rejects.toMatchObject({ status: 404 });
+      expect(await relations()).toBe(before);
+    });
+
+    it('refuses an export instead of handing out a partial one', async () => {
+      const exports = service(IntentExportService);
+      await expect(withheld(() => exports.export(workspaceId))).rejects.toMatchObject({ status: 403 });
+      await expect(withheld(() => exports.exportWorkspace(workspaceId))).rejects.toMatchObject({ status: 403 });
+    });
+
+    it.each<[string, () => Promise<unknown>]>([
+      ['node', () => reads.node(workspaceId, { domain: 'time-tracking' })],
+      ['feature node', () => reads.node(workspaceId, { feature: 'punches' })],
+      ['document', () => reads.document(workspaceId, { feature: 'punches' })],
+      ['features of the domain', () => tree.listFeatures(workspaceId, { domainId: 'time-tracking' }, 50)],
+      [
+        'item transitions',
+        () => service(IntentTransitionsService).listItemTransitions(workspaceId, 'br-punch-needs-device', {}, 50),
+      ],
+    ])('asking for its %s by id answers as if it did not exist', async (_name, read) => {
+      const outcome = await withheld(read).then(
+        (value) => JSON.stringify(value),
+        (error: Error) => `${error.message} ${JSON.stringify((error as { response?: unknown }).response ?? '')}`,
+      );
+      // The ids are the caller's own words, echoed in the refusal.
+      const told = NEEDLES.filter((needle) => !['time-tracking', 'br-punch-needs-device'].includes(needle));
+      expect(told.filter((needle) => outcome.includes(needle))).toEqual([]);
+      expect(outcome).not.toContain('Mobile punches');
+    });
+  });
+
   it('exports in the import format, and re-importing that export exports the same document', async () => {
     const exportsService = new IntentExportService(prisma as unknown as PrismaService);
     const first = await exportsService.exportWorkspace(workspaceId);
@@ -309,9 +391,7 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
       data: { name: `intent-read-copy-${RUN}`, slug: `intent-read-copy-${RUN}`, intentEnabled: true },
     });
     try {
-      await prisma.workspaceMember.create({
-        data: { workspaceId: copy.id, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-      });
+      await seedMembers(prisma, [{ workspaceId: copy.id, userId: OWNER.id, email: OWNER.email, role: 'owner' }]);
       await request(app.getHttpServer())
         .post(`/api/v1/workspaces/${copy.id}/intent/import/workspace`)
         .send({ idempotencyKey: `ws-roundtrip-${RUN}`, document: first })
@@ -963,9 +1043,7 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
       data: { name: `intent-read-arch-${RUN}`, slug: `intent-read-arch-${RUN}`, intentEnabled: true },
     });
     try {
-      await prisma.workspaceMember.create({
-        data: { workspaceId: copy.id, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-      });
+      await seedMembers(prisma, [{ workspaceId: copy.id, userId: OWNER.id, email: OWNER.email, role: 'owner' }]);
       await request(app.getHttpServer())
         .post(`/api/v1/workspaces/${copy.id}/intent/import/workspace`)
         .send({ idempotencyKey: `ws-arch-${RUN}`, document: first })
@@ -982,9 +1060,7 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
       data: { name: `${name}-${RUN}`, slug: `${name}-${RUN}`, intentEnabled: true },
     });
     try {
-      await prisma.workspaceMember.create({
-        data: { workspaceId: ws.id, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-      });
+      await seedMembers(prisma, [{ workspaceId: ws.id, userId: OWNER.id, email: OWNER.email, role: 'owner' }]);
       await run(ws.id);
     } finally {
       await removeWorkspace(ws.id);

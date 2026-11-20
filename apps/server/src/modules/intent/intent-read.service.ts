@@ -16,6 +16,13 @@ import { Injectable } from '@nestjs/common';
 import { DecisionStatus, IntentKind, type ContextCondition } from '@coredoc/core';
 import { IntentItemAuthority, IntentItemKind, IntentNodeKind, Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import {
+  visibleDomainSql,
+  visibleDomains,
+  visibleFeatures,
+  visibleItems,
+  withheldIntentDomains,
+} from './intent-access.js';
 import { IntentErrorCode } from './contract/index.js';
 import { likePattern } from './intent-context.select.js';
 import { IntentLexicalMatch, lexicalPredicate, matchLexically } from './intent-lexical.js';
@@ -183,17 +190,17 @@ export class IntentReadService {
     const countBy = (authority: IntentItemAuthority) =>
       this.prisma.intentItem.groupBy({
         by: ['domainId', 'featureId'],
-        where: { workspaceId, authority },
+        where: { workspaceId, authority, ...visibleItems() },
         _count: { _all: true },
       });
     const [domains, features, acceptedRows, candidateRows] = await Promise.all([
       this.prisma.intentDomain.findMany({
-        where: { workspaceId, archived: false },
+        where: { workspaceId, archived: false, ...visibleDomains() },
         orderBy: { id: 'asc' },
         select: { id: true, title: true },
       }),
       this.prisma.intentFeature.findMany({
-        where: { workspaceId, archived: false },
+        where: { workspaceId, archived: false, ...visibleFeatures() },
         orderBy: { id: 'asc' },
         select: { id: true, domainId: true, parentFeatureId: true, title: true },
       }),
@@ -356,7 +363,10 @@ export class IntentReadService {
     const kinds = parseKinds(request.kind);
     const scope = request.domain || request.feature ? await this.resolveNode(workspaceId, request) : undefined;
 
-    const filters: Prisma.Sql[] = [Prisma.sql`i.workspace_id = ${workspaceId}::uuid`];
+    const filters: Prisma.Sql[] = [
+      Prisma.sql`i.workspace_id = ${workspaceId}::uuid`,
+      visibleDomainSql(Prisma.sql`i.domain_id`),
+    ];
     if (kinds) filters.push(Prisma.sql`i.kind::text IN (${Prisma.join(kinds)})`);
     if (scope?.kind === 'feature') filters.push(Prisma.sql`i.feature_id = ${scope.id}`);
     if (scope?.kind === 'domain') filters.push(Prisma.sql`i.domain_id = ${scope.id}`);
@@ -458,10 +468,12 @@ export class IntentReadService {
       SELECT kind, id, title, text FROM (
         SELECT 'domain' AS kind, d.id, d.title, ${prose(Prisma.sql`d`)} AS text
           FROM intent_domains d WHERE d.workspace_id = ${workspaceId}::uuid AND d.archived = false
+            AND ${visibleDomainSql(Prisma.sql`d.id`)}
             ${scope?.kind === 'domain' ? Prisma.sql`AND d.id = ${scope.id}` : scope ? Prisma.sql`AND false` : Prisma.empty}
         UNION ALL
         SELECT 'feature' AS kind, f.id, f.title, ${prose(Prisma.sql`f`)} AS text
           FROM intent_features f WHERE f.workspace_id = ${workspaceId}::uuid AND f.archived = false
+            AND ${visibleDomainSql(Prisma.sql`f.domain_id`)}
             ${scope?.kind === 'feature' ? Prisma.sql`AND f.id = ${scope.id}` : scope?.kind === 'domain' ? Prisma.sql`AND f.domain_id = ${scope.id}` : Prisma.empty}
       ) nodes
       WHERE text IS NOT NULL AND ${matches(Prisma.sql`text`)}
@@ -592,12 +604,12 @@ export class IntentReadService {
   private async productOverview(workspaceId: string, authority: IntentItemAuthority[], release: ReleaseSnapshot) {
     const [domains, domainCount, counts, { delivery, effectiveIn }] = await Promise.all([
       this.prisma.intentDomain.findMany({
-        where: { workspaceId, archived: false },
+        where: { workspaceId, archived: false, ...visibleDomains() },
         orderBy: { id: 'asc' },
         take: INTENT_READ_LIMITS.rootDomains,
         select: { id: true, title: true },
       }),
-      this.prisma.intentDomain.count({ where: { workspaceId, archived: false } }),
+      this.prisma.intentDomain.count({ where: { workspaceId, archived: false, ...visibleDomains() } }),
       readIntentNodeCounts(this.prisma, workspaceId, PRODUCT_SCOPE),
       this.deliveryIn(workspaceId, authority, release, PRODUCT_SCOPE_SQL),
     ]);
@@ -640,6 +652,7 @@ export class IntentReadService {
       WHERE i.workspace_id = ${workspaceId}::uuid
         AND i.authority::text IN (${Prisma.join(authority)})
         AND ${scope}
+        AND ${visibleDomainSql(Prisma.sql`i.domain_id`)}
         AND NOT (i.kind::text = 'decision' AND COALESCE(i.payload->>'choiceStatus', '') = ${DecisionStatus.Open})
       ORDER BY i.id ASC`;
     const delivery: Delivery = { effective: 0, planned: 0, plannedIds: [], unrecorded: 0 };
@@ -756,7 +769,7 @@ export class IntentReadService {
           children: { where: { archived: false }, orderBy: { id: 'asc' }, select: { id: true, title: true } },
         },
       });
-      if (!feature) {
+      if (!feature || withheldIntentDomains().includes(feature.domainId)) {
         throw unknownNodeError('feature', request.feature, await this.featureCandidates(workspaceId), ['feature']);
       }
       if (request.domain && request.domain !== feature.domainId) {
@@ -788,7 +801,7 @@ export class IntentReadService {
           },
         },
       });
-      if (!domain) {
+      if (!domain || withheldIntentDomains().includes(domain.id)) {
         throw unknownNodeError('domain', request.domain, await this.domainCandidates(workspaceId), ['domain']);
       }
       return {
@@ -815,7 +828,7 @@ export class IntentReadService {
 
   private domainCandidates(workspaceId: string) {
     return this.prisma.intentDomain.findMany({
-      where: { workspaceId, archived: false },
+      where: { workspaceId, archived: false, ...visibleDomains() },
       select: { id: true, title: true },
       take: INTENT_NODE_SCAN,
     });
@@ -823,7 +836,7 @@ export class IntentReadService {
 
   private featureCandidates(workspaceId: string) {
     return this.prisma.intentFeature.findMany({
-      where: { workspaceId, archived: false },
+      where: { workspaceId, archived: false, ...visibleFeatures() },
       select: { id: true, title: true },
       take: INTENT_NODE_SCAN,
     });
@@ -847,11 +860,19 @@ export class IntentReadService {
     );
     const [domains, features] = await Promise.all([
       this.prisma.intentDomain.findMany({
-        where: { workspaceId, id: { in: others.filter((o) => o.kind === IntentNodeKind.domain).map((o) => o.id) } },
+        where: {
+          workspaceId,
+          id: { in: others.filter((o) => o.kind === IntentNodeKind.domain).map((o) => o.id) },
+          ...visibleDomains(),
+        },
         select: { id: true, title: true },
       }),
       this.prisma.intentFeature.findMany({
-        where: { workspaceId, id: { in: others.filter((o) => o.kind === IntentNodeKind.feature).map((o) => o.id) } },
+        where: {
+          workspaceId,
+          id: { in: others.filter((o) => o.kind === IntentNodeKind.feature).map((o) => o.id) },
+          ...visibleFeatures(),
+        },
         select: { id: true, title: true },
       }),
     ]);
@@ -859,7 +880,11 @@ export class IntentReadService {
       ...domains.map((d) => [nodeKey(IntentNodeKind.domain, d.id), d.title] as const),
       ...features.map((f) => [nodeKey(IntentNodeKind.feature, f.id), f.title] as const),
     ]);
-    return others.map((other) => ({ ...other, title: titles.get(nodeKey(other.kind, other.id)) ?? other.id }));
+    // With domains withheld, a node the lookups above did not return is one the reader may not see.
+    const shown = withheldIntentDomains().length
+      ? others.filter((other) => titles.has(nodeKey(other.kind, other.id)))
+      : others;
+    return shown.map((other) => ({ ...other, title: titles.get(nodeKey(other.kind, other.id)) ?? other.id }));
   }
 
   /** What else applies to a reader of this node, so a feature read never hides its domain's rules. */

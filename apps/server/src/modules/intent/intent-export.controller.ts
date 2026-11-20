@@ -1,3 +1,5 @@
+import { UseInterceptors } from '@nestjs/common';
+import { IntentAccessInterceptor } from './intent-access.interceptor.js';
 /**
  * `GET /api/v1/workspaces/:workspaceId/intent/export` — the export projection
  * (spec §9).
@@ -24,6 +26,7 @@ import { IntentExportService } from './intent-export.service.js';
 
 @Controller('workspaces/:workspaceId/intent')
 @UseGuards(AuthGuard, WorkspaceRoleGuard, PermissionsGuard, IntentEnabledGuard)
+@UseInterceptors(IntentAccessInterceptor)
 @UseFilters(IntentExceptionFilter)
 export class IntentExportController {
   constructor(private readonly exports: IntentExportService) {}

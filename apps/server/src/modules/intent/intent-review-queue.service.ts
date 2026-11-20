@@ -32,6 +32,8 @@
  */
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
+import { Prisma } from '../../generated/prisma/client.js';
+import { visibleDomainSql, visibleItems } from './intent-access.js';
 import {
   HINT_ITEM_SELECT,
   authoringHintsOf,
@@ -104,6 +106,7 @@ export async function readIntentPendingReview(
            COUNT(*) FILTER (WHERE i.proposed_successor_of_id IS NOT NULL)::int AS "replacements"
     FROM intent_items i
     WHERE i.workspace_id = ${workspaceId}::uuid AND i.authority::text = 'candidate'
+      AND ${visibleDomainSql(Prisma.sql`i.domain_id`)}
     GROUP BY i.domain_id
   `;
 
@@ -160,6 +163,7 @@ export class IntentReviewQueueService {
     const cursor = decodeIntentCursor(query.cursor, IntentCursorScope.ReviewQueue, 2);
     const where = {
       workspaceId,
+      ...visibleItems(),
       authority: 'candidate',
       ...(query.kind ? { kind: query.kind } : {}),
       ...(query.domainId ? { domainId: query.domainId } : {}),

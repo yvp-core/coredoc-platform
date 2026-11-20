@@ -74,6 +74,16 @@ function assertCypherOptIn(allowCypher: boolean): void {
   );
 }
 
+/** Raw Cypher cannot be repo-filtered, so a caller with a withheld repo gets no Cypher at all. */
+function assertUnrestricted(ctx: ToolContext): void {
+  if (!ctx.restricted) return;
+  throw new Error(
+    'run_cypher_query is not available to you: this workspace restricts some repositories you have no access to, ' +
+      'and a raw Cypher query cannot be limited to the repositories you may read. Use the purpose-built tools ' +
+      '(search_symbols, describe_repository, …) instead.',
+  );
+}
+
 /**
  * Feature-detect the capability on the LEASED repository — the facade carries
  * the optional Cypher methods only when the underlying graph implements them,
@@ -128,6 +138,7 @@ export class CypherTools extends BaseCoredocTool {
     try {
       return await this.executeWithMetrics(TOOL_NAME, args, request, (ctx) => {
         assertCypherOptIn(this.storage.allowCypher);
+        assertUnrestricted(ctx);
         assertCypherCapable(ctx, requestedShape(args));
         return handleRunCypherQuery(
           args,

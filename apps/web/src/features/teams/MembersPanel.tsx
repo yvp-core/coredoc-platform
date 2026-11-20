@@ -33,7 +33,7 @@ import { Table, Td, Th, Tr } from './table';
 
 // Mirrors ASSIGNABLE_ROLES on the server — 'owner' is never assignable, so it
 // is never an option.
-const ASSIGNABLE_ROLES = ['admin', 'product', 'member'] as const;
+const ASSIGNABLE_ROLES = ['admin', 'product', 'member', 'support'] as const;
 type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
 
 const ERROR_CLASS = 'text-[13px] text-danger-text';

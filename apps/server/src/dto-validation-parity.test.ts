@@ -196,7 +196,7 @@ const TABLE: Case[] = [
     { email: 'not-an-email', role: 'owner' },
     {
       statusCode: 400,
-      message: 'email must be an email; role must be one of the following values: admin, product, member',
+      message: 'email must be an email; role must be one of the following values: admin, product, member, support',
     },
   ],
   [
@@ -204,7 +204,7 @@ const TABLE: Case[] = [
     'PATCH',
     `${API}/workspaces/${WORKSPACE_ID}/members/user-1`,
     { role: 'superuser' },
-    { statusCode: 400, message: 'role must be one of: admin, product, member' },
+    { statusCode: 400, message: 'role must be one of: admin, product, member, support' },
   ],
   // jobs
   [

@@ -4,6 +4,8 @@ import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { PermissionsGuard, TokenPermission } from '../../auth/permissions.guard.js';
 import { WorkspaceRole } from '../../auth/decorators/workspace-role.decorator.js';
 import { RequirePermission } from '../../auth/decorators/require-permission.decorator.js';
+import { CurrentReader } from '../../auth/decorators/current-reader.decorator.js';
+import type { RepoReader } from '../../database/control-plane.service.js';
 import { type EdgesAmongBody, GraphService } from './graph.service.js';
 import { GraphRateLimitGuard } from './graph-rate-limit.guard.js';
 
@@ -40,26 +42,35 @@ export class GraphController {
   @RequirePermission(TokenPermission.GraphRead)
   async search(
     @Param('workspaceId') workspaceId: string,
+    @CurrentReader() reader: RepoReader,
     @Query('q') q?: string,
     @Query('types') types?: string,
     @Query('scopeRepo') scopeRepo?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.graphService.searchSymbols(workspaceId, { q, types, scopeRepo, limit });
+    return this.graphService.searchSymbols(workspaceId, reader, { q, types, scopeRepo, limit });
   }
 
   @Get('overview')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.GraphRead)
-  async overview(@Param('workspaceId') workspaceId: string, @Query('scopeRepo') scopeRepo?: string) {
-    return this.graphService.overview(workspaceId, { scopeRepo });
+  async overview(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentReader() reader: RepoReader,
+    @Query('scopeRepo') scopeRepo?: string,
+  ) {
+    return this.graphService.overview(workspaceId, reader, { scopeRepo });
   }
 
   @Get('service-dependencies')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.GraphRead)
-  async serviceDependencies(@Param('workspaceId') workspaceId: string, @Query('scopeRepo') scopeRepo?: string) {
-    return this.graphService.serviceDependencies(workspaceId, { scopeRepo });
+  async serviceDependencies(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentReader() reader: RepoReader,
+    @Query('scopeRepo') scopeRepo?: string,
+  ) {
+    return this.graphService.serviceDependencies(workspaceId, reader, { scopeRepo });
   }
 
   @Get('entrypoints')
@@ -67,18 +78,19 @@ export class GraphController {
   @RequirePermission(TokenPermission.GraphRead)
   async entrypoints(
     @Param('workspaceId') workspaceId: string,
+    @CurrentReader() reader: RepoReader,
     @Query('scopeRepo') scopeRepo?: string,
     @Query('protocol') protocol?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.graphService.entrypoints(workspaceId, { scopeRepo, protocol, limit });
+    return this.graphService.entrypoints(workspaceId, reader, { scopeRepo, protocol, limit });
   }
 
   @Get('node')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.GraphRead)
-  async node(@Param('workspaceId') workspaceId: string, @Query('id') id?: string) {
-    return this.graphService.nodeDetail(workspaceId, id ?? '');
+  async node(@Param('workspaceId') workspaceId: string, @CurrentReader() reader: RepoReader, @Query('id') id?: string) {
+    return this.graphService.nodeDetail(workspaceId, reader, id ?? '');
   }
 
   @Get('neighbors')
@@ -86,13 +98,14 @@ export class GraphController {
   @RequirePermission(TokenPermission.GraphRead)
   async neighbors(
     @Param('workspaceId') workspaceId: string,
+    @CurrentReader() reader: RepoReader,
     @Query('id') id?: string,
     @Query('direction') direction?: string,
     @Query('edgeTypes') edgeTypes?: string,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
   ) {
-    return this.graphService.neighbors(workspaceId, id ?? '', { direction, edgeTypes, limit, cursor });
+    return this.graphService.neighbors(workspaceId, reader, id ?? '', { direction, edgeTypes, limit, cursor });
   }
 
   /**
@@ -104,13 +117,14 @@ export class GraphController {
   @RequirePermission(TokenPermission.GraphRead)
   async subgraph(
     @Param('workspaceId') workspaceId: string,
+    @CurrentReader() reader: RepoReader,
     @Query('id') id?: string,
     @Query('direction') direction?: string,
     @Query('edgeTypes') edgeTypes?: string,
     @Query('depth') depth?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.graphService.subgraph(workspaceId, id ?? '', { direction, edgeTypes, depth, limit });
+    return this.graphService.subgraph(workspaceId, reader, id ?? '', { direction, edgeTypes, depth, limit });
   }
 
   /**
@@ -122,12 +136,13 @@ export class GraphController {
   @RequirePermission(TokenPermission.GraphRead)
   async deadCode(
     @Param('workspaceId') workspaceId: string,
+    @CurrentReader() reader: RepoReader,
     @Query('types') types?: string,
     @Query('scopeRepo') scopeRepo?: string,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
   ) {
-    return this.graphService.deadCode(workspaceId, { types, scopeRepo, limit, cursor });
+    return this.graphService.deadCode(workspaceId, reader, { types, scopeRepo, limit, cursor });
   }
 
   /**
@@ -140,17 +155,18 @@ export class GraphController {
   @RequirePermission(TokenPermission.GraphRead)
   async crossRepo(
     @Param('workspaceId') workspaceId: string,
+    @CurrentReader() reader: RepoReader,
     @Query('scopeRepo') scopeRepo?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.graphService.crossRepo(workspaceId, { scopeRepo, limit });
+    return this.graphService.crossRepo(workspaceId, reader, { scopeRepo, limit });
   }
 
   @Get('repos')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.GraphRead)
-  async repos(@Param('workspaceId') workspaceId: string) {
-    return this.graphService.listRepos(workspaceId);
+  async repos(@Param('workspaceId') workspaceId: string, @CurrentReader() reader: RepoReader) {
+    return this.graphService.listRepos(workspaceId, reader);
   }
 
   @Get('nodes')
@@ -158,19 +174,20 @@ export class GraphController {
   @RequirePermission(TokenPermission.GraphRead)
   async nodes(
     @Param('workspaceId') workspaceId: string,
+    @CurrentReader() reader: RepoReader,
     @Query('type') type?: string,
     @Query('scopeRepo') scopeRepo?: string,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
   ) {
-    return this.graphService.nodesByType(workspaceId, { type, scopeRepo, limit, cursor });
+    return this.graphService.nodesByType(workspaceId, reader, { type, scopeRepo, limit, cursor });
   }
 
   @Get('capabilities')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.GraphRead)
-  async capabilities(@Param('workspaceId') workspaceId: string) {
-    return this.graphService.capabilities(workspaceId);
+  async capabilities(@Param('workspaceId') workspaceId: string, @CurrentReader() reader: RepoReader) {
+    return this.graphService.capabilities(workspaceId, reader);
   }
 
   /**
@@ -182,8 +199,12 @@ export class GraphController {
   @Post('edges-among')
   @WorkspaceRole('member')
   @RequirePermission(TokenPermission.GraphRead)
-  async edgesAmong(@Param('workspaceId') workspaceId: string, @Body() body: EdgesAmongBody | undefined) {
-    return this.graphService.edgesAmong(workspaceId, body ?? {});
+  async edgesAmong(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentReader() reader: RepoReader,
+    @Body() body: EdgesAmongBody | undefined,
+  ) {
+    return this.graphService.edgesAmong(workspaceId, reader, body ?? {});
   }
 
   /**
@@ -199,8 +220,9 @@ export class GraphController {
   @RequirePermission(TokenPermission.GraphRead)
   async cypher(
     @Param('workspaceId') workspaceId: string,
+    @CurrentReader() reader: RepoReader,
     @Body() body: { query?: unknown; limit?: unknown } | undefined,
   ) {
-    return this.graphService.runCypher(workspaceId, body ?? {});
+    return this.graphService.runCypher(workspaceId, reader, body ?? {});
   }
 }

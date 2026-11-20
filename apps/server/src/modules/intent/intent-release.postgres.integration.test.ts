@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 import { IntentErrorCode } from './contract/index.js';
 import { IntentHandoffProcessor } from './intent-handoff-processor.service.js';
 import { IntentHandoffService } from './intent-handoff.service.js';
@@ -142,12 +143,10 @@ describe.skipIf(!databaseUrl)('release effectivity — PostgreSQL and REST', () 
       },
     });
     ws = workspace.id;
-    await prisma.workspaceMember.createMany({
-      data: [
-        { workspaceId: ws, userId: owner, email: 'release-owner@example.test', role: 'owner' },
-        { workspaceId: ws, userId: member, email: 'release-member@example.test', role: 'member' },
-      ],
-    });
+    await seedMembers(prisma, [
+      { workspaceId: ws, userId: owner, email: 'release-owner@example.test', role: 'owner' },
+      { workspaceId: ws, userId: member, email: 'release-member@example.test', role: 'member' },
+    ]);
     await prisma.workspaceRepo.createMany({
       data: [
         { workspaceId: ws, repoKey: graphRepoHashOf(REPO_KEY), repoName: 'orders-api', intentRepoKey: REPO_KEY },

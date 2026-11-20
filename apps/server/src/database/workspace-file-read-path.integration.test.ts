@@ -261,7 +261,7 @@ describe('workspace file read path integration', () => {
     });
 
     const inFlightA = replicaA.withContext(
-      { workspaceId: WORKSPACE_ID } as unknown as Request,
+      { workspaceId: WORKSPACE_ID, user: { id: 'user-1' }, userWorkspaceRole: 'member' } as unknown as Request,
       async ({ repository, versionId }) => {
         enterA();
         await gateA;

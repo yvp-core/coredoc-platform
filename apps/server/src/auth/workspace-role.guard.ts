@@ -3,13 +3,14 @@ import { Reflector } from '@nestjs/core';
 import { WORKSPACE_ROLE_KEY } from './decorators/workspace-role.decorator.js';
 import type { AuthUser } from './decorators/current-user.decorator.js';
 import { ControlPlaneService } from '../database/control-plane.service.js';
+import { type Action, roleAllows } from './iam.js';
 
-const ROLE_HIERARCHY: Record<string, number> = {
-  member: 1,
-  // Same rank as member: the role differs only in what the intent UI offers it.
-  product: 1,
-  admin: 2,
-  owner: 3,
+// What each `@WorkspaceRole` level asks for. Roles and their actions: ./iam.ts.
+const REQUIRED_ACTION: Record<string, Action> = {
+  member: 'workspace.read',
+  code: 'graph.read',
+  admin: 'workspace.manage',
+  owner: 'workspace.own',
 };
 
 @Injectable()
@@ -60,10 +61,8 @@ export class WorkspaceRoleGuard implements CanActivate {
     // Set userWorkspaceRole on request for downstream use
     request.userWorkspaceRole = member.role;
 
-    const requiredLevel = ROLE_HIERARCHY[requiredRole] ?? 0;
-    const userLevel = ROLE_HIERARCHY[member.role] ?? 0;
-
-    if (userLevel < requiredLevel) {
+    const action = REQUIRED_ACTION[requiredRole];
+    if (!action || !roleAllows(member.role, action)) {
       throw new ForbiddenException(`Requires ${requiredRole} role, you have ${member.role}`);
     }
 

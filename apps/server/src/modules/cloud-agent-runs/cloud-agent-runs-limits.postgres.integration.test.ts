@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 import '../../config/load-env.js';
 import { randomBytes } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
@@ -70,12 +71,10 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
       data: { name: `carl-${RUN}`, slug: `carl-${RUN}`, deliveryEnabled: true },
     });
     workspaceId = workspace.id;
-    await prisma.workspaceMember.createMany({
-      data: [
-        { workspaceId, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
-        { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
-      ],
-    });
+    await seedMembers(prisma, [
+      { workspaceId, userId: ADMIN.id, email: ADMIN.email, role: 'admin' },
+      { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
+    ]);
     await prisma.deliveryConnector.create({
       data: {
         workspaceId,
@@ -481,9 +480,7 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
         const failed = await prisma.cloudAgentRun.findUniqueOrThrow({ where: { id: run.id } });
         expect(failed).toMatchObject({ status: 'failed', failureCode: 'run_owner_removed' });
       } finally {
-        await prisma.workspaceMember.create({
-          data: { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
-        });
+        await seedMembers(prisma, [{ workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' }]);
       }
     });
 

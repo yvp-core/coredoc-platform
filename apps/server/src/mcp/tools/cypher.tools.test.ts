@@ -69,7 +69,12 @@ function cypherRepository() {
 }
 
 function request(): Request {
-  return { headers: {}, workspaceId: 'ws-1', user: { id: 'user-1' } } as unknown as Request;
+  return {
+    headers: {},
+    workspaceId: 'ws-1',
+    user: { id: 'user-1' },
+    userWorkspaceRole: 'member',
+  } as unknown as Request;
 }
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };

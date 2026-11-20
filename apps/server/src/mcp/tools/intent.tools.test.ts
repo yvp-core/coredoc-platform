@@ -107,6 +107,7 @@ function build(m: Mocks): IntentTools {
     m.handoffs as unknown as IntentHandoffService,
     m.items as unknown as IntentItemService,
     m.reads as unknown as IntentReadService,
+    { withheldIntentDomains: async () => [] } as never,
   );
 }
 

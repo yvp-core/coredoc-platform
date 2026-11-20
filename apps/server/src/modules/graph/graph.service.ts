@@ -14,6 +14,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -55,6 +56,7 @@ import {
 } from '../../mcp/workspace-mcp-context.service.js';
 import { WorkspaceFileCacheError } from '../../database/workspace-file-cache.service.js';
 import { GraphBackend } from '../../database/graph-backend.js';
+import type { RepoReader } from '../../database/control-plane.service.js';
 import { UnknownWorkspaceScopeError, resolveWorkspaceScope } from '../../mcp/workspace-scope-resolver.js';
 
 // SYMBOL_TYPES / ENTRYPOINT_TYPES now come straight from @coredoc/mcp's public
@@ -277,15 +279,20 @@ export class GraphService {
    */
   private async withScope<T>(
     workspaceId: string,
+    reader: RepoReader,
     scopeRepo: string | undefined,
     callback: (context: ScopedWorkspaceContext) => Promise<T> | T,
   ): Promise<T> {
     try {
-      return await this.wsContext.withContextByWorkspaceId(workspaceId, async (context) => {
-        let scope = context.scope;
-        if (scopeRepo) scope = resolveWorkspaceScope(context.repos, scopeRepo);
-        return callback({ ...context, scope });
-      });
+      return await this.wsContext.withContextByWorkspaceId(
+        workspaceId,
+        async (context) => {
+          let scope = context.scope;
+          if (scopeRepo) scope = resolveWorkspaceScope(context.repos, scopeRepo);
+          return callback({ ...context, scope });
+        },
+        reader,
+      );
     } catch (err) {
       if (
         err instanceof WorkspaceGraphContextError &&
@@ -316,7 +323,7 @@ export class GraphService {
   // BaseCoredocTool.executeWithMetrics). Explorer/browser traffic polluting
   // that signal was a bug; REST traffic is intentionally unrecorded.
 
-  async searchSymbols(workspaceId: string, query: SearchSymbolsQuery): Promise<unknown> {
+  async searchSymbols(workspaceId: string, reader: RepoReader, query: SearchSymbolsQuery): Promise<unknown> {
     const q = rejectDuplicateParam(query.q, 'q');
     if (q === undefined || q.trim() === '') {
       throw new BadRequestException('q is required');
@@ -343,7 +350,7 @@ export class GraphService {
     const args: Record<string, unknown> = { query: q, limit };
     if (type) args.type = type;
 
-    return this.withScope(workspaceId, scopeRepoRaw, async ({ scope, repository }) => {
+    return this.withScope(workspaceId, reader, scopeRepoRaw, async ({ scope, repository }) => {
       const response = await handleSearchSymbols(args, scope, 'raw', 'full', FULL_DETAIL_CONFIG, repository);
       // NOTE: response.resultCount / any skip/pagination metadata is
       // deliberately dropped here — Tier A returns only `data`.
@@ -351,9 +358,13 @@ export class GraphService {
     });
   }
 
-  async overview(workspaceId: string, query: OverviewQuery): Promise<{ repos: unknown; coverage: unknown }> {
+  async overview(
+    workspaceId: string,
+    reader: RepoReader,
+    query: OverviewQuery,
+  ): Promise<{ repos: unknown; coverage: unknown }> {
     const scopeRepoRaw = rejectDuplicateParam(query.scopeRepo, 'scopeRepo');
-    return this.withScope(workspaceId, scopeRepoRaw, async ({ scope, repository }) => {
+    return this.withScope(workspaceId, reader, scopeRepoRaw, async ({ scope, repository }) => {
       const [repos, coverage] = await Promise.all([
         repository.getRepoOverview(scope.repoHashes),
         repository.getCoverageCounts(scope.repoHashes),
@@ -362,15 +373,19 @@ export class GraphService {
     });
   }
 
-  async serviceDependencies(workspaceId: string, query: ServiceDependenciesQuery): Promise<unknown> {
+  async serviceDependencies(
+    workspaceId: string,
+    reader: RepoReader,
+    query: ServiceDependenciesQuery,
+  ): Promise<unknown> {
     const scopeRepoRaw = rejectDuplicateParam(query.scopeRepo, 'scopeRepo');
-    return this.withScope(workspaceId, scopeRepoRaw, async ({ scope, repository }) => {
+    return this.withScope(workspaceId, reader, scopeRepoRaw, async ({ scope, repository }) => {
       const response = await handleListServiceDependencies({}, scope, 'raw', undefined, undefined, repository);
       return response.data;
     });
   }
 
-  async entrypoints(workspaceId: string, query: EntrypointsQuery): Promise<unknown> {
+  async entrypoints(workspaceId: string, reader: RepoReader, query: EntrypointsQuery): Promise<unknown> {
     const scopeRepoRaw = rejectDuplicateParam(query.scopeRepo, 'scopeRepo');
     const protocolRaw = rejectDuplicateParam(query.protocol, 'protocol');
     const limitRaw = rejectDuplicateParam(query.limit, 'limit');
@@ -394,7 +409,7 @@ export class GraphService {
     const args: Record<string, unknown> = { limit };
     if (protocol) args.type = protocol;
 
-    return this.withScope(workspaceId, scopeRepoRaw, async ({ scope, repository }) => {
+    return this.withScope(workspaceId, reader, scopeRepoRaw, async ({ scope, repository }) => {
       const response = await handleListEntrypoints(args, scope, 'raw', 'full', FULL_DETAIL_CONFIG, repository);
       return response.data;
     });
@@ -410,9 +425,9 @@ export class GraphService {
    * when the id names no node in the workspace. Workspace-wide (no `scopeRepo`):
    * the explorer's default vantage is the whole workspace graph (§3.2).
    */
-  async nodeDetail(workspaceId: string, nodeId: string): Promise<NodeDetail> {
+  async nodeDetail(workspaceId: string, reader: RepoReader, nodeId: string): Promise<NodeDetail> {
     if (!nodeId || nodeId.trim() === '') throw new BadRequestException('id is required');
-    return this.withScope(workspaceId, undefined, async ({ scope, repository }) => {
+    return this.withScope(workspaceId, reader, undefined, async ({ scope, repository }) => {
       const [full, neighborCounts] = await Promise.all([
         repository.getNodeWithProperties(nodeId, scope.repoHashes),
         repository.getNeighborCounts(nodeId, scope.repoHashes),
@@ -427,7 +442,12 @@ export class GraphService {
    * params (direction, edgeTypes, limit ≤ 200) before they reach the repository;
    * `cursor` is opaque and passed through for keyset pagination.
    */
-  async neighbors(workspaceId: string, nodeId: string, query: NeighborsQuery): Promise<NeighborPage> {
+  async neighbors(
+    workspaceId: string,
+    reader: RepoReader,
+    nodeId: string,
+    query: NeighborsQuery,
+  ): Promise<NeighborPage> {
     if (!nodeId || nodeId.trim() === '') throw new BadRequestException('id is required');
 
     const directionRaw = rejectDuplicateParam(query.direction, 'direction');
@@ -458,7 +478,7 @@ export class GraphService {
     const params: GetNeighborsParams = { direction, limit };
     if (edgeTypes) params.edgeTypes = edgeTypes;
     if (cursor) params.cursor = cursor;
-    return this.withScope(workspaceId, undefined, ({ scope, repository }) =>
+    return this.withScope(workspaceId, reader, undefined, ({ scope, repository }) =>
       repository.getNeighbors(nodeId, params, scope.repoHashes),
     );
   }
@@ -467,8 +487,8 @@ export class GraphService {
    * All repositories in the workspace, for the explorer's always-on repo filter.
    * Workspace-wide (no scopeRepo) and lightweight — names only, sorted + deduped.
    */
-  async listRepos(workspaceId: string): Promise<{ repos: WorkspaceRepoRef[] }> {
-    return this.withScope(workspaceId, undefined, async ({ scope, repository }) => {
+  async listRepos(workspaceId: string, reader: RepoReader): Promise<{ repos: WorkspaceRepoRef[] }> {
+    return this.withScope(workspaceId, reader, undefined, async ({ scope, repository }) => {
       const rows = await repository.getRepositoryNames(scope.repoHashes);
       const seen = new Set<string>();
       const repos: WorkspaceRepoRef[] = [];
@@ -490,6 +510,7 @@ export class GraphService {
    */
   async nodesByType(
     workspaceId: string,
+    reader: RepoReader,
     query: { type?: string; scopeRepo?: string; limit?: string; cursor?: string },
   ): Promise<VizNodePage> {
     const typeRaw = rejectDuplicateParam(query.type, 'type');
@@ -501,7 +522,7 @@ export class GraphService {
     const limit = Math.min(parsePositiveIntOrThrow(limitRaw, 'limit', NODES_DEFAULT_LIMIT), NODES_MAX_LIMIT);
     const params: { limit: number; cursor?: string } = { limit };
     if (cursor) params.cursor = cursor;
-    return this.withScope(workspaceId, scopeRepoRaw, ({ scope, repository }) =>
+    return this.withScope(workspaceId, reader, scopeRepoRaw, ({ scope, repository }) =>
       repository.listNodesByType(typeRaw as NodeType, params, scope.repoHashes),
     );
   }
@@ -513,7 +534,12 @@ export class GraphService {
    * follows the RESOLVES_TO bridge crosses repos; `depth` is capped hard and the
    * node set is bounded so a dense graph can't blow the response.
    */
-  async subgraph(workspaceId: string, nodeId: string, query: SubgraphQuery): Promise<NeighborsResult> {
+  async subgraph(
+    workspaceId: string,
+    reader: RepoReader,
+    nodeId: string,
+    query: SubgraphQuery,
+  ): Promise<NeighborsResult> {
     if (!nodeId || nodeId.trim() === '') throw new BadRequestException('id is required');
 
     const directionRaw = rejectDuplicateParam(query.direction, 'direction');
@@ -542,7 +568,7 @@ export class GraphService {
 
     const params: SubgraphParams = { depth, direction, nodeCap };
     if (edgeTypes) params.edgeTypes = edgeTypes;
-    return this.withScope(workspaceId, undefined, ({ scope, repository }) =>
+    return this.withScope(workspaceId, reader, undefined, ({ scope, repository }) =>
       repository.getSubgraph(nodeId, params, scope.repoHashes),
     );
   }
@@ -554,7 +580,7 @@ export class GraphService {
    * those results "suspect" rather than confirmed dead. Optionally scoped to one
    * repo via `scopeRepo`.
    */
-  async deadCode(workspaceId: string, query: DeadCodeQuery): Promise<DeadCodePage> {
+  async deadCode(workspaceId: string, reader: RepoReader, query: DeadCodeQuery): Promise<DeadCodePage> {
     const typesRaw = rejectDuplicateParam(query.types, 'types');
     const scopeRepoRaw = rejectDuplicateParam(query.scopeRepo, 'scopeRepo');
     const limitRaw = rejectDuplicateParam(query.limit, 'limit');
@@ -573,7 +599,7 @@ export class GraphService {
     const params: DeadCodeParams = { limit };
     if (types) params.types = types;
     if (cursor) params.cursor = cursor;
-    return this.withScope(workspaceId, scopeRepoRaw, ({ scope, repository }) =>
+    return this.withScope(workspaceId, reader, scopeRepoRaw, ({ scope, repository }) =>
       repository.findDeadNodes(params, scope.repoHashes),
     );
   }
@@ -585,13 +611,13 @@ export class GraphService {
    * whole point is to span repos); `scopeRepo`, when given, keeps only bridges
    * that touch that repo rather than narrowing the DB scope.
    */
-  async crossRepo(workspaceId: string, query: CrossRepoQuery): Promise<NeighborsResult> {
+  async crossRepo(workspaceId: string, reader: RepoReader, query: CrossRepoQuery): Promise<NeighborsResult> {
     const scopeRepoRaw = rejectDuplicateParam(query.scopeRepo, 'scopeRepo');
     const limitRaw = rejectDuplicateParam(query.limit, 'limit');
     const limit = Math.min(parsePositiveIntOrThrow(limitRaw, 'limit', CROSSREPO_DEFAULT_LIMIT), CROSSREPO_MAX_LIMIT);
 
     const params: CrossRepoBridgeParams = { limit };
-    return this.withScope(workspaceId, undefined, ({ scope, repository, repos }) => {
+    return this.withScope(workspaceId, reader, undefined, ({ scope, repository, repos }) => {
       if (scopeRepoRaw) {
         // Translate the repo name to hashes without narrowing the DB scope: a
         // bridge necessarily spans repositories.
@@ -615,7 +641,7 @@ export class GraphService {
    * the caller did not send. Workspace-wide (no `scopeRepo`), like
    * `node`/`neighbors`/`subgraph`: the caller already named the exact nodes.
    */
-  async edgesAmong(workspaceId: string, body: EdgesAmongBody): Promise<EdgesAmongResult> {
+  async edgesAmong(workspaceId: string, reader: RepoReader, body: EdgesAmongBody): Promise<EdgesAmongResult> {
     const raw = body.nodeIds;
     if (!Array.isArray(raw)) {
       throw new BadRequestException('nodeIds is required and must be an array of node ids');
@@ -637,7 +663,7 @@ export class GraphService {
     // graph context (the repositories short-circuit the same way).
     if (nodeIds.length === 0) return { edges: [], truncated: false };
 
-    return this.withScope(workspaceId, undefined, ({ scope, repository }) =>
+    return this.withScope(workspaceId, reader, undefined, ({ scope, repository }) =>
       repository.getEdgesAmong(nodeIds, scope.repoHashes, limit),
     );
   }
@@ -647,15 +673,15 @@ export class GraphService {
    * UI). Resolved per workspace, not per deployment: the workspace's own
    * backend decides whether Cypher is offered — see `cypherPolicyAllows`.
    */
-  async capabilities(workspaceId: string): Promise<GraphCapabilities> {
+  async capabilities(workspaceId: string, reader: RepoReader): Promise<GraphCapabilities> {
     // `edgesAmong` is unconditional: `getEdgesAmong` is a required member of
     // IGraphReadRepository — the MissingGraphReadMethod exhaustiveness check in
     // ../../mcp/workspace-mcp-context.service.ts fails the build if a backend
     // omits it — so every resolvable backend can serve the route below. The
     // desktop explorer reads this to decide between auto-linking the canvas and
     // telling the user it cannot.
-    return this.withScope(workspaceId, undefined, ({ repository, graphBackend }) => ({
-      cypher: cypherAvailable(graphBackend, repository, this.storage.allowCypher),
+    return this.withScope(workspaceId, reader, undefined, ({ repository, graphBackend, restricted }) => ({
+      cypher: !restricted && cypherAvailable(graphBackend, repository, this.storage.allowCypher),
       edgesAmong: true,
     }));
   }
@@ -666,7 +692,11 @@ export class GraphService {
    * write/empty query (assertReadOnlyCypher, in the repository). Result is
    * node/edge-capped and runs under a statement timeout.
    */
-  async runCypher(workspaceId: string, body: { query?: unknown; limit?: unknown }): Promise<CypherGraphResult> {
+  async runCypher(
+    workspaceId: string,
+    reader: RepoReader,
+    body: { query?: unknown; limit?: unknown },
+  ): Promise<CypherGraphResult> {
     const query = typeof body.query === 'string' ? body.query : '';
     if (query.trim() === '') throw new BadRequestException('query is required');
     let limit = CYPHER_DEFAULT_LIMIT;
@@ -676,7 +706,10 @@ export class GraphService {
       limit = Math.min(parsed, CYPHER_MAX_LIMIT);
     }
     try {
-      return await this.withScope(workspaceId, undefined, async ({ repository, graphBackend }) => {
+      return await this.withScope(workspaceId, reader, undefined, async ({ repository, graphBackend, restricted }) => {
+        // Raw Cypher cannot be repo-filtered: a reader with a withheld repo gets none.
+        if (restricted)
+          throw new ForbiddenException('Cypher querying is not available with restricted repository access');
         if (!cypherPolicyAllows(graphBackend, this.storage.allowCypher)) {
           throw new NotFoundException('Cypher querying is not enabled for this deployment');
         }

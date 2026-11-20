@@ -1,3 +1,4 @@
+import { seedMembers } from '../../database/seed-members.test-support.js';
 import '../../config/load-env.js';
 import { createHash } from 'node:crypto';
 import type { ExecutionContext, INestApplication } from '@nestjs/common';
@@ -93,12 +94,10 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
       data: { name: `intent-mod-${RUN}`, slug: `intent-mod-${RUN}`, intentEnabled: true },
     });
     workspaceId = workspace.id;
-    await prisma.workspaceMember.createMany({
-      data: [
-        { workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
-        { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
-      ],
-    });
+    await seedMembers(prisma, [
+      { workspaceId, userId: OWNER.id, email: OWNER.email, role: 'owner' },
+      { workspaceId, userId: MEMBER.id, email: MEMBER.email, role: 'member' },
+    ]);
     await prisma.workspaceRepo.create({
       data: {
         workspaceId,
@@ -165,6 +164,8 @@ describe.skipIf(!TEST_DATABASE_URL)('intent module (PostgreSQL integration)', ()
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      new ControlPlaneService(prisma as unknown as PrismaService),
     );
   });
 

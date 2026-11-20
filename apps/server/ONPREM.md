@@ -140,8 +140,11 @@ email that matches their GitHub verified email:
 -- one-time bootstrap (psql against DATABASE_URL)
 INSERT INTO workspaces (name, slug) VALUES ('Acme', 'acme') RETURNING id;
 -- use the returned <workspace-id> below
-INSERT INTO workspace_members (workspace_id, user_id, email, role, pending)
-VALUES ('<workspace-id>', 'pending:admin@example.com', 'admin@example.com', 'owner', true);
+INSERT INTO workspace_members (workspace_id, user_id, email, pending)
+VALUES ('<workspace-id>', 'pending:admin@example.com', 'admin@example.com', true);
+-- the role is a binding on the workspace itself
+INSERT INTO access_bindings (workspace_id, user_id, role, resource_type, resource_id)
+VALUES ('<workspace-id>', 'pending:admin@example.com', 'owner', 'workspace', '<workspace-id>');
 ```
 On that admin's first login the pending row is re-keyed to their real user id;
 they then invite the rest via `POST /api/v1/workspaces/:id/members/invites`.

@@ -4,6 +4,8 @@ import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { PermissionsGuard, TokenPermission } from '../../auth/permissions.guard.js';
 import { WorkspaceRole } from '../../auth/decorators/workspace-role.decorator.js';
 import { RequirePermission } from '../../auth/decorators/require-permission.decorator.js';
+import { CurrentReader } from '../../auth/decorators/current-reader.decorator.js';
+import type { RepoReader } from '../../database/control-plane.service.js';
 import { ReposService } from './repos.service.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { dtoFieldMessages } from '../../common/pipes/dto-field-messages.js';
@@ -22,8 +24,8 @@ export class ReposController {
 
   @Get()
   @WorkspaceRole('member')
-  async listRepos(@Param('workspaceId') workspaceId: string) {
-    return this.reposService.listRepos(workspaceId);
+  async listRepos(@Param('workspaceId') workspaceId: string, @CurrentReader() reader: RepoReader) {
+    return this.reposService.listRepos(workspaceId, reader);
   }
 
   @Post()
@@ -53,8 +55,12 @@ export class ReposController {
 
   @Get(':repoName/state')
   @WorkspaceRole('member')
-  async getRepoState(@Param('workspaceId') workspaceId: string, @Param('repoName') repoName: string) {
-    const state = await this.reposService.getRepoState(workspaceId, repoName);
+  async getRepoState(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentReader() reader: RepoReader,
+    @Param('repoName') repoName: string,
+  ) {
+    const state = await this.reposService.getRepoState(workspaceId, reader, repoName);
     if (!state) throw new NotFoundException(`Repo "${repoName}" not found`);
     return state;
   }

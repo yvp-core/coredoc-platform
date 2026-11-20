@@ -28,6 +28,7 @@ import {
   type IntentFeature as IntentFeatureRow,
 } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { visibleDomains, visibleFeatures, visibleItems, withheldIntentDomains } from './intent-access.js';
 import {
   INTENT_LIMITS,
   RegistryIssueCode,
@@ -137,6 +138,7 @@ export async function readIntentNodeCounts(
   workspaceId: string,
   where: Prisma.IntentItemWhereInput,
 ) {
+  where = { AND: [where, visibleItems()] };
   // Two grouped reads, not one per node: `payload` is JSONB, which groupBy
   // cannot key on, so the open questions are their own filtered grouping.
   const [rows, openRows, commentRows] = await Promise.all([
@@ -172,7 +174,7 @@ export async function readIntentNodeCounts(
     threadsOnFeature.size === 0
       ? []
       : prisma.intentFeature.findMany({
-          where: { workspaceId, id: { in: [...threadsOnFeature.keys()] } },
+          where: { workspaceId, id: { in: [...threadsOnFeature.keys()] }, ...visibleFeatures() },
           select: { id: true, domainId: true },
         }),
   ]);
@@ -252,6 +254,7 @@ export class IntentTreeService {
     const rows = await this.prisma.intentDomain.findMany({
       where: {
         workspaceId,
+        ...visibleDomains(),
         ...(includeArchived ? {} : { archived: false }),
         ...(cursor ? { id: { gt: cursor[0] as string } } : {}),
       },
@@ -319,6 +322,7 @@ export class IntentTreeService {
     const rows = await this.prisma.intentFeature.findMany({
       where: {
         workspaceId,
+        ...visibleFeatures(),
         ...(query.domainId ? { domainId: query.domainId } : {}),
         ...(query.includeArchived === 'true' ? {} : { archived: false }),
         ...(cursor ? { id: { gt: cursor[0] as string } } : {}),
@@ -642,7 +646,7 @@ export class IntentTreeService {
             },
           },
         });
-        if (!existing) {
+        if (!existing || (await isWithheldNode(tx, workspaceId, { kind: 'feature', id: input.featureId }))) {
           throw intentNotFound(
             IntentErrorCode.SeedNotFound,
             `Feature '${input.featureId}' has no seed for node '${input.nodeId}' in repo '${input.repoKey}'`,
@@ -732,7 +736,7 @@ export class IntentTreeService {
       async (tx) => {
         const [from, to] = canonicalRelationEndpoints(input.from, input.to);
         const existing = await tx.intentNodeRelation.findUnique({ where: relationIdentity(workspaceId, from, to) });
-        if (!existing) {
+        if (!existing || (await isWithheldNode(tx, workspaceId, from)) || (await isWithheldNode(tx, workspaceId, to))) {
           throw intentNotFound(
             IntentErrorCode.NodeRelationNotFound,
             `No relation joins ${input.from.kind} '${input.from.id}' and ${input.to.kind} '${input.to.id}'`,
@@ -878,9 +882,12 @@ const DOMAIN: TreeNodeKind<
   assertDeletable: (tx, workspaceId, id) =>
     assertNodeEmpty(tx, workspaceId, 'Domain', id, { features: { domainId: id }, items: { domainId: id } }),
   delete: async (tx, workspaceId, id) => ({
-    removedRelationCount: await deleteTreeNode(tx, workspaceId, { kind: 'domain', id }, 'Domain', () =>
-      tx.intentDomain.delete({ where: nodeKey(workspaceId, id) }),
-    ),
+    removedRelationCount: await deleteTreeNode(tx, workspaceId, { kind: 'domain', id }, 'Domain', async () => {
+      // Bindings name the domain by id, with no foreign key: a domain created
+      // again under the same id must not inherit them.
+      await tx.accessBinding.deleteMany({ where: { workspaceId, resourceType: 'intent_domain', resourceId: id } });
+      return tx.intentDomain.delete({ where: nodeKey(workspaceId, id) });
+    }),
   }),
   deletedAudit: (row) => ({ title: row.title, archived: row.archived }),
 };
@@ -1052,6 +1059,26 @@ const DIMENSION: TreeNodeKind<
 
 /* ------------------------------------------------------------ readers --- */
 
+/**
+ * Whether a node belongs to a domain withheld from the caller. Deletes that find
+ * their row by its own key (a seed, a relation) ask this, since they never go
+ * through `readFeature` / `readDomain`; a withheld node answers as a missing row.
+ */
+async function isWithheldNode(
+  reader: Pick<IntentTransaction, 'intentFeature'>,
+  workspaceId: string,
+  node: { kind: string; id: string },
+): Promise<boolean> {
+  const withheld = withheldIntentDomains();
+  if (withheld.length === 0) return false;
+  if (node.kind === 'domain') return withheld.includes(node.id);
+  const feature = await reader.intentFeature.findUnique({
+    where: nodeKey(workspaceId, node.id),
+    select: { domainId: true },
+  });
+  return feature !== null && withheld.includes(feature.domainId);
+}
+
 function readNode(
   reader: Pick<IntentTransaction, 'intentDomain' | 'intentFeature'>,
   workspaceId: string,
@@ -1070,7 +1097,8 @@ async function readDomain(
   path: string[],
 ): Promise<IntentDomainRow> {
   const domain = await reader.intentDomain.findUnique({ where: nodeKey(workspaceId, id) });
-  if (!domain) {
+  // A withheld domain answers exactly as a missing one, for reads and writes alike.
+  if (!domain || withheldIntentDomains().includes(domain.id)) {
     throw intentNotFound(IntentErrorCode.DomainNotFound, `Domain '${id}' does not exist in this workspace`, path);
   }
   return domain;
@@ -1083,7 +1111,7 @@ async function readFeature(
   path: string[],
 ): Promise<IntentFeatureRow> {
   const feature = await reader.intentFeature.findUnique({ where: nodeKey(workspaceId, id) });
-  if (!feature) {
+  if (!feature || withheldIntentDomains().includes(feature.domainId)) {
     throw intentNotFound(IntentErrorCode.FeatureNotFound, `Feature '${id}' does not exist in this workspace`, path);
   }
   return feature;

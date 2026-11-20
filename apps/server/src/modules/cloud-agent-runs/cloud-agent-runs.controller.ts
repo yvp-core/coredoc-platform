@@ -1,3 +1,5 @@
+import { UseInterceptors } from '@nestjs/common';
+import { IntentAccessInterceptor } from '../intent/intent-access.interceptor.js';
 import {
   Body,
   Controller,
@@ -64,13 +66,13 @@ export class CloudAgentRunsController {
 
   // Declared before `/:runId`, so `settings` is never taken for a run id.
   @Get('settings')
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   getSettings(@Param('workspaceId') workspaceId: string) {
     return this.settings.view(workspaceId);
   }
 
   @Get('settings/jira-statuses')
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   getJiraStatuses(@Param('workspaceId') workspaceId: string) {
     return this.settings.jiraStatuses(workspaceId);
   }
@@ -87,7 +89,7 @@ export class CloudAgentRunsController {
   }
 
   @Get('workflows')
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   listWorkflows(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: AuthUser,
@@ -97,7 +99,7 @@ export class CloudAgentRunsController {
   }
 
   @Get()
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   list(
     @Param('workspaceId') workspaceId: string,
     @Query(new ZodValidationPipe(ListRunsQuerySchema)) query: { limit: number; offset: number },
@@ -106,7 +108,7 @@ export class CloudAgentRunsController {
   }
 
   @Post()
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   start(
     @Param('workspaceId') workspaceId: string,
     @Body(new ZodValidationPipe(StartRunSchema)) body: StartRunInput,
@@ -117,13 +119,13 @@ export class CloudAgentRunsController {
   }
 
   @Get(':runId')
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   detail(@Param('workspaceId') workspaceId: string, @Param('runId', ParseUUIDPipe) runId: string) {
     return this.runs.detail(workspaceId, runId);
   }
 
   @Get(':runId/specs')
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   specs(@Param('workspaceId') workspaceId: string, @Param('runId', ParseUUIDPipe) runId: string) {
     return this.runs.specs(workspaceId, runId);
   }
@@ -131,7 +133,7 @@ export class CloudAgentRunsController {
   /** Only the latest proposed version; the web app sends the version it displayed. */
   @Post(':runId/specs/:version/accept')
   @HttpCode(200)
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   acceptScope(
     @Param('workspaceId') workspaceId: string,
     @Param('runId', ParseUUIDPipe) runId: string,
@@ -143,7 +145,7 @@ export class CloudAgentRunsController {
 
   @Post(':runId/specs/:version/request-changes')
   @HttpCode(200)
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   requestScopeChanges(
     @Param('workspaceId') workspaceId: string,
     @Param('runId', ParseUUIDPipe) runId: string,
@@ -156,7 +158,7 @@ export class CloudAgentRunsController {
 
   @Post(':runId/questions/:requestId/answer')
   @HttpCode(200)
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   async answerQuestion(
     @Param('workspaceId') workspaceId: string,
     @Param('runId', ParseUUIDPipe) runId: string,
@@ -170,14 +172,14 @@ export class CloudAgentRunsController {
 
   @Post(':runId/cancel')
   @HttpCode(200)
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   cancel(@Param('workspaceId') workspaceId: string, @Param('runId', ParseUUIDPipe) runId: string) {
     return this.runs.cancel(workspaceId, runId);
   }
 
   @Post(':runId/continue')
   @HttpCode(200)
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   continueRun(
     @Param('workspaceId') workspaceId: string,
     @Param('runId', ParseUUIDPipe) runId: string,
@@ -189,7 +191,7 @@ export class CloudAgentRunsController {
   }
 
   @Post(':runId/rerun')
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   rerun(
     @Param('workspaceId') workspaceId: string,
     @Param('runId', ParseUUIDPipe) runId: string,
@@ -200,7 +202,8 @@ export class CloudAgentRunsController {
   }
 
   @Get(':runId/activity')
-  @WorkspaceRole('member')
+  @UseInterceptors(IntentAccessInterceptor)
+  @WorkspaceRole('code')
   runActivity(
     @Param('workspaceId') workspaceId: string,
     @Param('runId', ParseUUIDPipe) runId: string,
@@ -210,7 +213,7 @@ export class CloudAgentRunsController {
   }
 
   @Get(':runId/transcript')
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   async transcript(
     @Param('workspaceId') workspaceId: string,
     @Param('runId', ParseUUIDPipe) runId: string,
@@ -229,7 +232,7 @@ export class CloudAgentRunsController {
   }
 
   @Get(':runId/events')
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   events(
     @Param('workspaceId') workspaceId: string,
     @Param('runId', ParseUUIDPipe) runId: string,

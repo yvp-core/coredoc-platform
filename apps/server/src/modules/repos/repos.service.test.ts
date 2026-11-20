@@ -31,7 +31,7 @@ describe('ReposService.getRepoState', () => {
     // transaction, so this service holds no Prisma client of its own.
     const service = new ReposService(controlPlane as never, resultStorage as never);
 
-    await expect(service.getRepoState('ws_1', 'demo')).resolves.toMatchObject({
+    await expect(service.getRepoState('ws_1', { userId: 'user-1', role: 'member' }, 'demo')).resolves.toMatchObject({
       lastParseHash: 'parse_applied',
       currentSummaryVersion: 'sum_applied',
       currentEmbeddingsVersion: 'emb_applied',

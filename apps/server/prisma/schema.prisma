@@ -86,6 +86,9 @@ model Workspace {
   agentRunSettings       AgentRunSettings?
   agentRunnersSeen       AgentRunnerSeen[]
 
+  accessGroups   AccessGroup[]
+  accessBindings AccessBinding[]
+
   @@map("workspaces")
 }
 
@@ -120,15 +123,17 @@ model WorkspaceMember {
   userId      String   @map("user_id")
   email       String
   displayName String?  @map("display_name")
-  role        String   @default("member")
   // True while the member was invited by email but has not logged in yet. On
   // first login PrismaOAuthStore re-keys the row to the real userId (profile_id)
   // and clears this flag.
   pending     Boolean  @default(false)
   joinedAt    DateTime @default(now()) @map("joined_at") @db.Timestamptz
 
-  workspace  Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  invitation WorkspaceInvitation?
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitation  WorkspaceInvitation?
+  // The workspace role is the binding on the workspace itself (see AccessBinding).
+  bindings     AccessBinding[]
+  accessGroups AccessGroupMember[]
 
   @@id([workspaceId, userId])
   // One identity per workspace. Emails are normalized to lowercase on write
@@ -200,13 +205,72 @@ model WorkspaceRepo {
   lastSummaryVersion String? @map("last_summary_version")
   lastEmbedVersion   String? @map("last_embed_version")
 
-  workspace Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  artifacts WorkspaceRepoArtifact[]
+  // True = bindings on the workspace do not reach this repo; only bindings on
+  // the repo itself (and workspace managers) do.
+  restricted Boolean @default(false)
+
+  workspace  Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  artifacts  WorkspaceRepoArtifact[]
 
   @@unique([workspaceId, repoKey])
   @@unique([workspaceId, captureRepositoryKey])
   @@unique([workspaceId, intentRepoKey])
   @@map("workspace_repos")
+}
+
+/// A named set of workspace members, usable as the principal of a binding.
+model AccessGroup {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  name        String   @db.VarChar(100)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members   AccessGroupMember[]
+  bindings  AccessBinding[]
+
+  @@unique([workspaceId, name])
+  @@map("access_groups")
+}
+
+model AccessGroupMember {
+  groupId     String @map("group_id") @db.Uuid
+  workspaceId String @map("workspace_id") @db.Uuid
+  userId      String @map("user_id")
+
+  group  AccessGroup     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  // onUpdate Cascade: a pending member's userId is re-keyed on first login.
+  member WorkspaceMember @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([groupId, userId])
+  @@index([workspaceId, userId])
+  @@map("access_group_members")
+}
+
+/// "Principal has role on resource" — the only stored access fact. The
+/// principal is a member (userId) or a group (groupId), exactly one of them
+/// (CHECK in the migration). A principal holds at most one role per resource.
+/// Roles and their actions are defined in src/auth/iam.ts.
+model AccessBinding {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId  String   @map("workspace_id") @db.Uuid
+  userId       String?  @map("user_id")
+  groupId      String?  @map("group_id") @db.Uuid
+  role         String   @db.VarChar(64)
+  // 'workspace' (resourceId = workspace id), 'repo' (repo key) or 'intent_domain' (domain id).
+  resourceType String   @map("resource_type") @db.VarChar(32)
+  resourceId   String   @map("resource_id")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // onUpdate Cascade: a pending member's userId is re-keyed on first login.
+  member    WorkspaceMember? @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Cascade, onUpdate: Cascade)
+  group     AccessGroup?     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId, resourceType, resourceId])
+  @@unique([groupId, resourceType, resourceId])
+  @@index([workspaceId, resourceType, resourceId])
+  @@map("access_bindings")
 }
 
 enum WorkspaceRepoArtifactKind {
@@ -1256,6 +1320,9 @@ model IntentDomain {
   /// Hidden from browse defaults; children stay readable. Archiving is the only
   /// way to retire a domain that still holds reviewed content.
   archived    Boolean  @default(false)
+  /// True = bindings on the workspace do not reach this domain; only bindings on
+  /// the domain itself (and workspace managers) do. See src/auth/iam.ts.
+  restricted  Boolean  @default(false)
   createdBy   String   @map("created_by") @db.VarChar(256)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedBy   String   @map("updated_by") @db.VarChar(256)

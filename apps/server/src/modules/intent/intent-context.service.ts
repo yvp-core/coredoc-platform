@@ -47,6 +47,13 @@ import {
 import type { AnchorEvidence } from '@coredoc/db';
 import { ControlPlaneService } from '../../database/control-plane.service.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import {
+  visibleDomainSql,
+  visibleDomains,
+  visibleFeatures,
+  visibleItems,
+  withheldIntentDomains,
+} from './intent-access.js';
 import { Prisma, type IntentItemAuthority, type IntentItemKind } from '../../generated/prisma/client.js';
 import {
   IntentDerivationLimit,
@@ -410,7 +417,7 @@ export class IntentContextService {
     const referenced =
       referencedIds.length > 0
         ? await this.prisma.intentItem.findMany({
-            where: { workspaceId, id: { in: referencedIds } },
+            where: { workspaceId, id: { in: referencedIds }, ...visibleItems() },
             select: { appliesWhen: true, ...TREE_CONDITIONS_SELECT },
           })
         : [];
@@ -451,9 +458,9 @@ export class IntentContextService {
         where: { workspaceId_id: { workspaceId, id: request.feature } },
         select: { id: true, domainId: true },
       });
-      if (!feature) {
+      if (!feature || withheldIntentDomains().includes(feature.domainId)) {
         const declared = await this.prisma.intentFeature.findMany({
-          where: { workspaceId, archived: false },
+          where: { workspaceId, archived: false, ...visibleFeatures() },
           select: { id: true, title: true },
           orderBy: { id: 'asc' },
           take: INTENT_NODE_SCAN,
@@ -477,9 +484,9 @@ export class IntentContextService {
       where: { workspaceId_id: { workspaceId, id: domainId } },
       select: { id: true },
     });
-    if (!domain) {
+    if (!domain || withheldIntentDomains().includes(domain.id)) {
       const declared = await this.prisma.intentDomain.findMany({
-        where: { workspaceId, archived: false },
+        where: { workspaceId, archived: false, ...visibleDomains() },
         select: { id: true, title: true },
         orderBy: { id: 'asc' },
         take: INTENT_NODE_SCAN,
@@ -564,7 +571,7 @@ export class IntentContextService {
     const refs =
       referenced.length > 0
         ? await this.prisma.intentItem.findMany({
-            where: { workspaceId, id: { in: referenced } },
+            where: { workspaceId, id: { in: referenced }, ...visibleItems() },
             select: { id: true, authority: true, appliesWhen: true, ...TREE_CONDITIONS_SELECT },
           })
         : [];
@@ -614,7 +621,7 @@ export class IntentContextService {
     const ids = request.intentIds ?? [];
     if (ids.length === 0) return [];
     const rows = await this.prisma.intentItem.findMany({
-      where: { workspaceId, id: { in: ids } },
+      where: { workspaceId, id: { in: ids }, ...visibleItems() },
       select: { id: true, authority: true },
     });
     const byId = new Map(rows.map((row) => [row.id, row]));
@@ -650,6 +657,7 @@ export class IntentContextService {
     const rows = await this.prisma.$queryRaw<Array<{ id: string; authority: keyof typeof AUTHORITY_RANK }>>`
       SELECT i.id, i.authority::text AS authority FROM intent_items i
       WHERE i.workspace_id = ${workspaceId}::uuid
+        AND ${visibleDomainSql(Prisma.sql`i.domain_id`)}
         AND i.authority::text = ANY(${sourcedAuthorities(request)}::text[])
         ${skip.length ? Prisma.sql`AND i.id NOT IN (${Prisma.join(skip)})` : Prisma.empty}
         AND EXISTS (
@@ -680,6 +688,7 @@ export class IntentContextService {
       FROM intent_item_sources s
       JOIN intent_items i ON i.workspace_id = s.workspace_id AND i.id = s.item_id
       WHERE s.workspace_id = ${workspaceId}::uuid
+        AND ${visibleDomainSql(Prisma.sql`i.domain_id`)}
         AND i.authority::text = ANY(${sourcedAuthorities(request)}::text[])
         AND ${sourceRefPredicate(request.sourceRefs)}`;
     const cited = new Set(rows.map((row) => row.ref));
@@ -727,7 +736,10 @@ export class IntentContextService {
     scope: IntentContextScope | undefined,
     excludeIds: readonly string[],
   ): Prisma.Sql[] {
-    const parts: Prisma.Sql[] = [Prisma.sql`i.workspace_id = ${workspaceId}::uuid`];
+    const parts: Prisma.Sql[] = [
+      Prisma.sql`i.workspace_id = ${workspaceId}::uuid`,
+      visibleDomainSql(Prisma.sql`i.domain_id`),
+    ];
 
     const authority = request.includeCandidates
       ? Prisma.sql`i.authority::text IN ('accepted', 'candidate')`
@@ -1084,6 +1096,7 @@ export class IntentContextService {
     const where = {
       workspaceId,
       archived: false,
+      ...visibleFeatures(),
       ...(scope?.featureId ? { id: scope.featureId } : {}),
       ...(scope && scope.featureId === null ? { domainId: scope.domainId } : {}),
       ...(repoKeys.length > 0 ? { seeds: { some: { repoKey: { in: repoKeys } } } } : {}),

@@ -3,6 +3,7 @@ const LABELS: Record<string, string> = {
   admin: 'Admin · can review',
   product: 'Product · can review',
   member: 'Member',
+  support: 'Support · no code',
 };
 
 export function RoleBadge({ role }: { role: string }) {

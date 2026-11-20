@@ -1,5 +1,5 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
-import { ControlPlaneService } from '../../database/control-plane.service.js';
+import { ControlPlaneService, type RepoReader, readableRepos } from '../../database/control-plane.service.js';
 import { ResultStorageService } from '../push/result-storage.service.js';
 import type { ConnectRepoInput } from './repos.contract.js';
 import type { UpdateRepoInput } from './repos.contract.js';
@@ -13,8 +13,8 @@ export class ReposService {
     private readonly resultStorage: ResultStorageService,
   ) {}
 
-  async listRepos(workspaceId: string) {
-    return this.controlPlane.listRepos(workspaceId);
+  async listRepos(workspaceId: string, reader: RepoReader) {
+    return (await readableRepos(this.controlPlane, workspaceId, reader)).repos;
   }
 
   /**
@@ -53,8 +53,8 @@ export class ReposService {
     }
   }
 
-  async getRepoState(workspaceId: string, repoName: string): Promise<RepoStateResponse | null> {
-    const repos = await this.controlPlane.listRepos(workspaceId);
+  async getRepoState(workspaceId: string, reader: RepoReader, repoName: string): Promise<RepoStateResponse | null> {
+    const { repos } = await readableRepos(this.controlPlane, workspaceId, reader);
     const repo = repos.find((r) => r.repoName === repoName || r.repoKey === repoName);
     if (!repo) return null;
 

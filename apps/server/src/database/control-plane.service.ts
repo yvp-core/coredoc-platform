@@ -10,6 +10,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from './prisma.service.js';
 import { linkPendingMemberships } from '../auth/oauth/link-pending-memberships.js';
 import type { IntentReleaseTrigger, Prisma } from '../generated/prisma/client.js';
+import { can, roleAllows } from '../auth/iam.js';
 import {
   lockWorkspaceRepositoryIdentity,
   WORKSPACE_REPOSITORY_TRANSACTION_OPTIONS,
@@ -37,6 +38,43 @@ export type {
   WorkspaceGraphVersion,
   ServiceToken,
 } from '../generated/prisma/client.js';
+
+/** Server-internal work with no human reader (push, derivation): reads every repo. */
+export const SYSTEM_READER = 'system' as const;
+
+/** Who a repo read is for. For a service token, the token's creator. */
+export type RepoReader = { userId: string; role: string } | typeof SYSTEM_READER;
+
+/**
+ * The repos this reader may read — the one place repo read access is decided
+ * (rules in auth/iam.ts). `withheld` are the repos kept from this reader: they
+ * still live in the workspace graph, so graph reads must be filtered against them.
+ */
+export async function readableRepos(
+  controlPlane: Pick<ControlPlaneService, 'listRepos' | 'listRepoGrants'>,
+  workspaceId: string,
+  reader: RepoReader,
+) {
+  const repos = await controlPlane.listRepos(workspaceId);
+  if (reader === SYSTEM_READER || roleAllows(reader.role, 'workspace.manage')) return { repos, withheld: [] };
+  const workspaceGrant = { role: reader.role, resourceType: 'workspace', resourceId: workspaceId };
+  // Repo bindings matter only when something is out of the workspace role's reach.
+  const needsRepoGrants = !roleAllows(reader.role, 'graph.read') || repos.some((repo) => repo.restricted);
+  const grants = needsRepoGrants
+    ? [workspaceGrant, ...(await controlPlane.listRepoGrants(workspaceId, reader.userId))]
+    : [workspaceGrant];
+  const readable = (repo: (typeof repos)[number]) =>
+    can(grants, 'graph.read', { type: 'repo', id: repo.repoKey, restricted: repo.restricted });
+  return { repos: repos.filter(readable), withheld: repos.filter((repo) => !readable(repo)) };
+}
+
+/** Selects a member's workspace role — its binding on the workspace itself. */
+const WORKSPACE_ROLE = { bindings: { where: { resourceType: 'workspace' }, select: { role: true } } } as const;
+
+/** No workspace binding = an empty role, which allows nothing. */
+function withRole<T extends { bindings: { role: string }[] }>({ bindings, ...member }: T) {
+  return { ...member, role: bindings[0]?.role ?? '' };
+}
 
 // =============================================================================
 // Service
@@ -136,6 +174,7 @@ export class ControlPlaneService {
     const members = await this.prisma.workspaceMember.findMany({
       where: { userId },
       include: {
+        ...WORKSPACE_ROLE,
         workspace: {
           include: {
             agentRunSettings: { select: { enabled: true } },
@@ -145,9 +184,9 @@ export class ControlPlaneService {
       },
       orderBy: { workspace: { name: 'asc' } },
     });
-    return members.map(({ workspace: { agentRunSettings, _count, ...workspace }, role }) => ({
+    return members.map(({ workspace: { agentRunSettings, _count, ...workspace }, bindings }) => ({
       ...workspace,
-      role,
+      role: bindings[0]?.role ?? '',
       // Stable navigation flag: switching agent runs off keeps existing runs reachable.
       agentRunsEnabled: Boolean(agentRunSettings?.enabled) || _count.cloudAgentRuns > 0,
     }));
@@ -160,21 +199,70 @@ export class ControlPlaneService {
   async addMember(workspaceId: string, userId: string, email: string, role: string, displayName?: string) {
     // Emails are stored lowercase so the (workspaceId, email) unique constraint
     // and the case-insensitive invite reconciliation agree on one identity.
-    return this.prisma.workspaceMember.create({
-      data: { workspaceId, userId, email: email.toLowerCase(), role, displayName: displayName ?? null },
-    });
+    return withRole(
+      await this.prisma.workspaceMember.create({
+        data: {
+          workspaceId,
+          userId,
+          email: email.toLowerCase(),
+          displayName: displayName ?? null,
+          bindings: { create: { role, resourceType: 'workspace', resourceId: workspaceId } },
+        },
+        include: WORKSPACE_ROLE,
+      }),
+    );
   }
 
   async getMember(workspaceId: string, userId: string) {
-    return this.prisma.workspaceMember.findUnique({
+    const member = await this.prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId, userId } },
+      include: WORKSPACE_ROLE,
     });
+    return member && withRole(member);
   }
 
   async listMembers(workspaceId: string) {
-    return this.prisma.workspaceMember.findMany({
+    const members = await this.prisma.workspaceMember.findMany({
       where: { workspaceId },
       orderBy: { joinedAt: 'asc' },
+      include: WORKSPACE_ROLE,
+    });
+    return members.map(withRole);
+  }
+
+  /**
+   * The intent domains kept from this reader — the one place intent read access
+   * is decided (rules in auth/iam.ts). Every intent read excludes these ids;
+   * system work (release, handoff, CI) passes SYSTEM_READER and gets none.
+   */
+  async withheldIntentDomains(workspaceId: string, reader: RepoReader): Promise<string[]> {
+    if (reader === SYSTEM_READER || roleAllows(reader.role, 'workspace.manage')) return [];
+    const restricted = await this.prisma.intentDomain.findMany({
+      where: { workspaceId, restricted: true },
+      select: { id: true },
+    });
+    if (restricted.length === 0) return [];
+    const grants = [
+      { role: reader.role, resourceType: 'workspace', resourceId: workspaceId },
+      ...(await this.prisma.accessBinding.findMany({
+        where: {
+          workspaceId,
+          resourceType: 'intent_domain',
+          OR: [{ userId: reader.userId }, { group: { members: { some: { userId: reader.userId } } } }],
+        },
+        select: { role: true, resourceType: true, resourceId: true },
+      })),
+    ];
+    return restricted
+      .filter(({ id }) => !can(grants, 'intent.read', { type: 'intent_domain', id, restricted: true }))
+      .map(({ id }) => id);
+  }
+
+  /** Bindings on single repos held by the user directly or through a group. */
+  async listRepoGrants(workspaceId: string, userId: string) {
+    return this.prisma.accessBinding.findMany({
+      where: { workspaceId, resourceType: 'repo', OR: [{ userId }, { group: { members: { some: { userId } } } }] },
+      select: { role: true, resourceType: true, resourceId: true },
     });
   }
 
@@ -182,7 +270,7 @@ export class ControlPlaneService {
     // A workspace can carry more than one owner. Select the oldest owner that
     // actually has a WorkOS profile, with userId as a stable timestamp tie-break.
     const owners = await this.prisma.workspaceMember.findMany({
-      where: { workspaceId, role: 'owner', pending: false },
+      where: { workspaceId, pending: false, bindings: { some: { resourceType: 'workspace', role: 'owner' } } },
       orderBy: [{ joinedAt: 'asc' }, { userId: 'asc' }],
       select: { userId: true },
     });
@@ -207,10 +295,13 @@ export class ControlPlaneService {
   }
 
   async updateMemberRole(workspaceId: string, userId: string, role: string) {
-    return this.prisma.workspaceMember.update({
-      where: { workspaceId_userId: { workspaceId, userId } },
-      data: { role },
-    });
+    return withRole(
+      await this.prisma.workspaceMember.update({
+        where: { workspaceId_userId: { workspaceId, userId } },
+        data: { bindings: { updateMany: { where: { resourceType: 'workspace' }, data: { role } } } },
+        include: WORKSPACE_ROLE,
+      }),
+    );
   }
 
   async removeMember(workspaceId: string, userId: string) {
@@ -349,8 +440,13 @@ export class ControlPlaneService {
   async removeRepo(workspaceId: string, repoId: string) {
     await this.prisma.$transaction(async (transaction) => {
       await lockWorkspaceRepositoryIdentity(transaction, workspaceId);
-      await transaction.workspaceRepo.delete({
+      const repo = await transaction.workspaceRepo.delete({
         where: { id: repoId, workspaceId },
+      });
+      // Bindings name the repo by key, with no foreign key: a repo reconnected
+      // under the same key must not inherit them.
+      await transaction.accessBinding.deleteMany({
+        where: { workspaceId, resourceType: 'repo', resourceId: repo.repoKey },
       });
     }, WORKSPACE_REPOSITORY_TRANSACTION_OPTIONS);
   }
@@ -568,7 +664,13 @@ export class ControlPlaneService {
     const placeholderUserId = `pending:${normalizedEmail}`;
     return this.prisma.$transaction(async (tx) => {
       await tx.workspaceMember.create({
-        data: { workspaceId, userId: placeholderUserId, email: normalizedEmail, role, pending: true },
+        data: {
+          workspaceId,
+          userId: placeholderUserId,
+          email: normalizedEmail,
+          pending: true,
+          bindings: { create: { role, resourceType: 'workspace', resourceId: workspaceId } },
+        },
       });
       return tx.workspaceInvitation.create({
         data: { workspaceId, memberUserId: placeholderUserId },
@@ -591,11 +693,12 @@ export class ControlPlaneService {
   }
 
   async listPendingInvitations(workspaceId: string) {
-    return this.prisma.workspaceInvitation.findMany({
+    const invitations = await this.prisma.workspaceInvitation.findMany({
       where: { workspaceId, member: { pending: true } },
-      include: { member: true },
+      include: { member: { include: WORKSPACE_ROLE } },
       orderBy: { createdAt: 'asc' },
     });
+    return invitations.map((invitation) => ({ ...invitation, member: withRole(invitation.member) }));
   }
 
   async markInvitationDelivered(invitationId: string, workosInvitationId: string, expiresAt: Date, sentAt: Date) {

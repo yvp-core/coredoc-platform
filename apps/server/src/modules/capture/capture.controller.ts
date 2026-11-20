@@ -23,7 +23,7 @@ export class CaptureController {
 
   @Post('events')
   @HttpCode(200)
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   @RequirePermission(TokenPermission.TelemetryWrite)
   ingest(@Param('workspaceId') workspaceId: string, @CurrentUser() actor: AuthUser, @Body() body: unknown) {
     return this.capture.ingest(workspaceId, { id: actor.id, email: actor.email }, body);
@@ -31,7 +31,7 @@ export class CaptureController {
 
   @Post('repositories/resolve')
   @HttpCode(200)
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   @RequirePermission(TokenPermission.TelemetryWrite)
   @UseGuards(ExactTelemetryTokenGuard)
   resolveRepository(@Param('workspaceId') workspaceId: string, @Body() body: unknown) {
@@ -40,7 +40,7 @@ export class CaptureController {
 
   @Post('probe')
   @HttpCode(200)
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   @RequirePermission(TokenPermission.TelemetryWrite)
   @UseGuards(ExactTelemetryTokenGuard)
   probe(@Body() body: unknown): { status: 'ready' } {
@@ -49,14 +49,14 @@ export class CaptureController {
   }
 
   @Put('repositories/:repoKey')
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   @UseGuards(UserSessionGuard)
   bindRepository(@Param('workspaceId') workspaceId: string, @Param('repoKey') repoKey: string, @Body() body: unknown) {
     return this.capture.bindRepository(workspaceId, repoKey, body);
   }
 
   @Put('provisioning')
-  @WorkspaceRole('member')
+  @WorkspaceRole('code')
   @UseGuards(UserSessionGuard)
   reportProvisioning(@Param('workspaceId') workspaceId: string, @CurrentUser() actor: AuthUser, @Body() body: unknown) {
     return this.capture.reportProvisioning(workspaceId, actor.id, body);

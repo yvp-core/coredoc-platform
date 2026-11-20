@@ -2,6 +2,8 @@ import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../../auth/auth.guard.js';
 import { WorkspaceRoleGuard } from '../../auth/workspace-role.guard.js';
 import { WorkspaceRole } from '../../auth/decorators/workspace-role.decorator.js';
+import { CurrentReader } from '../../auth/decorators/current-reader.decorator.js';
+import type { RepoReader } from '../../database/control-plane.service.js';
 import { SourceService } from './source.service.js';
 
 @Controller('workspaces/:workspaceId/source/:repoName')
@@ -13,10 +15,11 @@ export class SourceController {
   @WorkspaceRole('member')
   async fetchFile(
     @Param('workspaceId') workspaceId: string,
+    @CurrentReader() reader: RepoReader,
     @Param('repoName') repoName: string,
     @Param('filePath') filePath: string,
     @Query('ref') ref?: string,
   ) {
-    return this.sourceService.fetchFile(workspaceId, repoName, filePath, ref);
+    return this.sourceService.fetchFile(workspaceId, reader, repoName, filePath, ref);
   }
 }

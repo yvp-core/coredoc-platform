@@ -49,6 +49,19 @@ describe('WorkspaceRoleGuard', () => {
     await expect(guard.canActivate(createMockContext())).rejects.toThrow(ForbiddenException);
   });
 
+  it('lets support into member routes but not into routes that expose code', async () => {
+    const guard = new WorkspaceRoleGuard(reflector, createMockControlPlane('support'));
+    const required = vi.spyOn(reflector, 'getAllAndOverride');
+
+    required.mockReturnValue('member');
+    await expect(guard.canActivate(createMockContext())).resolves.toBe(true);
+    required.mockReturnValue('code');
+    await expect(guard.canActivate(createMockContext())).rejects.toThrow(ForbiddenException);
+
+    const member = new WorkspaceRoleGuard(reflector, createMockControlPlane('member'));
+    await expect(member.canActivate(createMockContext())).resolves.toBe(true);
+  });
+
   it('allows member when member role required', async () => {
     vi.spyOn(reflector, 'getAllAndOverride').mockReturnValue('member');
     const guard = new WorkspaceRoleGuard(reflector, createMockControlPlane('member'));

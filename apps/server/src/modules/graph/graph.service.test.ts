@@ -67,6 +67,8 @@ function makeDeps(graphBackend = 'turso') {
 // MCP metrics. The former "records a rest:* metric" tests were removed with
 // the injection; this arity check guards against the dependency quietly
 // coming back.
+const READER = { userId: 'user-1', role: 'member' };
+
 describe('GraphService metrics isolation', () => {
   it('constructs with only the workspace-context dependency (no MetricsService)', () => {
     expect(GraphService.length).toBe(1);
@@ -86,7 +88,7 @@ describe('GraphService.searchSymbols', () => {
     handleSearchSymbols.mockResolvedValue(handlerResponse);
 
     const service = new GraphService(wsContext);
-    const result = await service.searchSymbols('ws-1', { q: 'foo' });
+    const result = await service.searchSymbols('ws-1', READER, { q: 'foo' });
 
     expect(result).toEqual(handlerResponse.data);
     expect(handleSearchSymbols).toHaveBeenCalledTimes(1);
@@ -102,7 +104,7 @@ describe('GraphService.searchSymbols', () => {
     handleSearchSymbols.mockResolvedValue({ data: [], metadata: {} });
     const service = new GraphService(wsContext);
 
-    await service.searchSymbols('ws-1', { q: 'foo', types: 'function' });
+    await service.searchSymbols('ws-1', READER, { q: 'foo', types: 'function' });
 
     const [args] = handleSearchSymbols.mock.calls[0]!;
     expect(args.type).toBe('function');
@@ -112,7 +114,7 @@ describe('GraphService.searchSymbols', () => {
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
 
-    await expect(service.searchSymbols('ws-1', { q: 'foo', types: 'not-a-real-type' })).rejects.toThrow(
+    await expect(service.searchSymbols('ws-1', READER, { q: 'foo', types: 'not-a-real-type' })).rejects.toThrow(
       /Invalid types/,
     );
     expect(handleSearchSymbols).not.toHaveBeenCalled();
@@ -122,7 +124,9 @@ describe('GraphService.searchSymbols', () => {
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
 
-    await expect(service.searchSymbols('ws-1', { q: 'foo', types: 'function,class' })).rejects.toThrow(/Invalid types/);
+    await expect(service.searchSymbols('ws-1', READER, { q: 'foo', types: 'function,class' })).rejects.toThrow(
+      /Invalid types/,
+    );
   });
 
   it('defaults limit to 20 and rejects a negative limit', async () => {
@@ -130,10 +134,10 @@ describe('GraphService.searchSymbols', () => {
     handleSearchSymbols.mockResolvedValue({ data: [], metadata: {} });
     const service = new GraphService(wsContext);
 
-    await service.searchSymbols('ws-1', { q: 'foo' });
+    await service.searchSymbols('ws-1', READER, { q: 'foo' });
     expect(handleSearchSymbols.mock.calls[0]![0].limit).toBe(20);
 
-    await expect(service.searchSymbols('ws-1', { q: 'foo', limit: '-1' })).rejects.toThrow(/Invalid limit/);
+    await expect(service.searchSymbols('ws-1', READER, { q: 'foo', limit: '-1' })).rejects.toThrow(/Invalid limit/);
   });
 
   it('narrows scope with scopeRepo', async () => {
@@ -141,7 +145,7 @@ describe('GraphService.searchSymbols', () => {
     handleSearchSymbols.mockResolvedValue({ data: [], metadata: {} });
     const service = new GraphService(wsContext);
 
-    await service.searchSymbols('ws-1', { q: 'foo', scopeRepo: 'api-server' });
+    await service.searchSymbols('ws-1', READER, { q: 'foo', scopeRepo: 'api-server' });
 
     const [, scope] = handleSearchSymbols.mock.calls[0]!;
     expect(scope.resolvedRepos).toEqual(['api-server']);
@@ -151,7 +155,7 @@ describe('GraphService.searchSymbols', () => {
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
 
-    await expect(service.searchSymbols('ws-1', {})).rejects.toMatchObject({
+    await expect(service.searchSymbols('ws-1', READER, {})).rejects.toMatchObject({
       status: 400,
       message: 'q is required',
     });
@@ -162,7 +166,7 @@ describe('GraphService.searchSymbols', () => {
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
 
-    await expect(service.searchSymbols('ws-1', { q: '   ' })).rejects.toMatchObject({
+    await expect(service.searchSymbols('ws-1', READER, { q: '   ' })).rejects.toMatchObject({
       status: 400,
       message: 'q is required',
     });
@@ -174,7 +178,7 @@ describe('GraphService.searchSymbols', () => {
     handleSearchSymbols.mockResolvedValue({ data: [], metadata: {} });
     const service = new GraphService(wsContext);
 
-    await service.searchSymbols('ws-1', { q: 'foo', limit: '10000' });
+    await service.searchSymbols('ws-1', READER, { q: 'foo', limit: '10000' });
 
     expect(handleSearchSymbols.mock.calls[0]![0].limit).toBe(500);
   });
@@ -183,7 +187,9 @@ describe('GraphService.searchSymbols', () => {
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
 
-    await expect(service.searchSymbols('ws-1', { q: ['foo', 'bar'] as unknown as string })).rejects.toMatchObject({
+    await expect(
+      service.searchSymbols('ws-1', READER, { q: ['foo', 'bar'] as unknown as string }),
+    ).rejects.toMatchObject({
       status: 400,
     });
     expect(handleSearchSymbols).not.toHaveBeenCalled();
@@ -200,7 +206,7 @@ describe('GraphService.searchSymbols', () => {
     } as unknown as WorkspaceMcpContextService;
     const service = new GraphService(wsContext);
 
-    await expect(service.searchSymbols('ws-1', { q: 'foo', scopeRepo: 'no-such-repo' })).rejects.toMatchObject({
+    await expect(service.searchSymbols('ws-1', READER, { q: 'foo', scopeRepo: 'no-such-repo' })).rejects.toMatchObject({
       status: 400,
       message: expect.stringContaining('Available repos'),
     });
@@ -211,7 +217,7 @@ describe('GraphService.searchSymbols', () => {
     const handlerError = new Error('Unknown scope from an internal repository failure');
     handleSearchSymbols.mockRejectedValue(handlerError);
 
-    await expect(new GraphService(wsContext).searchSymbols('ws-1', { q: 'foo' })).rejects.toBe(handlerError);
+    await expect(new GraphService(wsContext).searchSymbols('ws-1', READER, { q: 'foo' })).rejects.toBe(handlerError);
   });
 
   it('translates a missing workspace database into 404', async () => {
@@ -224,7 +230,7 @@ describe('GraphService.searchSymbols', () => {
     } as unknown as WorkspaceMcpContextService;
     const service = new GraphService(wsContext);
 
-    await expect(service.searchSymbols('ws-1', { q: 'foo' })).rejects.toMatchObject({
+    await expect(service.searchSymbols('ws-1', READER, { q: 'foo' })).rejects.toMatchObject({
       status: 404,
       message: 'No database available for workspace: acme',
     });
@@ -238,7 +244,7 @@ describe('GraphService.searchSymbols', () => {
       withContextByWorkspaceId: vi.fn().mockRejectedValue(new WorkspaceGraphContextError(code, message)),
     } as unknown as WorkspaceMcpContextService;
 
-    await expect(new GraphService(wsContext).searchSymbols('ws-1', { q: 'foo' })).rejects.toMatchObject({
+    await expect(new GraphService(wsContext).searchSymbols('ws-1', READER, { q: 'foo' })).rejects.toMatchObject({
       status: 404,
       message,
     });
@@ -255,7 +261,7 @@ describe('GraphService.searchSymbols', () => {
       withContextByWorkspaceId: vi.fn().mockRejectedValue(new WorkspaceFileCacheError(code, message)),
     } as unknown as WorkspaceMcpContextService;
 
-    await expect(new GraphService(wsContext).searchSymbols('ws-1', { q: 'foo' })).rejects.toMatchObject({
+    await expect(new GraphService(wsContext).searchSymbols('ws-1', READER, { q: 'foo' })).rejects.toMatchObject({
       status: 503,
       message,
     });
@@ -275,7 +281,7 @@ describe('GraphService.overview', () => {
     (repository.getCoverageCounts as any).mockResolvedValue(coverage);
 
     const service = new GraphService(wsContext);
-    const result = await service.overview('ws-1', {});
+    const result = await service.overview('ws-1', READER, {});
 
     expect(result).toEqual({ repos: overview, coverage });
   });
@@ -305,7 +311,7 @@ describe('GraphService.overview', () => {
       }),
     } as unknown as WorkspaceMcpContextService;
 
-    await new GraphService(wsContext).overview('ws-1', {});
+    await new GraphService(wsContext).overview('ws-1', READER, {});
 
     expect(events.at(-1)).toBe('release');
   });
@@ -322,7 +328,7 @@ describe('GraphService.serviceDependencies', () => {
     handleListServiceDependencies.mockResolvedValue(handlerResponse);
 
     const service = new GraphService(wsContext);
-    const result = await service.serviceDependencies('ws-1', {});
+    const result = await service.serviceDependencies('ws-1', READER, {});
 
     expect(result).toEqual(handlerResponse.data);
     const [, , format] = handleListServiceDependencies.mock.calls[0]!;
@@ -341,7 +347,7 @@ describe('GraphService.entrypoints', () => {
     handleListEntrypoints.mockResolvedValue(handlerResponse);
 
     const service = new GraphService(wsContext);
-    const result = await service.entrypoints('ws-1', { protocol: 'http' });
+    const result = await service.entrypoints('ws-1', READER, { protocol: 'http' });
 
     expect(result).toEqual(handlerResponse.data);
     const [args] = handleListEntrypoints.mock.calls[0]!;
@@ -352,7 +358,9 @@ describe('GraphService.entrypoints', () => {
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
 
-    await expect(service.entrypoints('ws-1', { protocol: 'carrier-pigeon' })).rejects.toThrow(/Invalid protocol/);
+    await expect(service.entrypoints('ws-1', READER, { protocol: 'carrier-pigeon' })).rejects.toThrow(
+      /Invalid protocol/,
+    );
   });
 
   it('clamps limit to the handler max of 100', async () => {
@@ -360,7 +368,7 @@ describe('GraphService.entrypoints', () => {
     handleListEntrypoints.mockResolvedValue({ data: [], metadata: {} });
     const service = new GraphService(wsContext);
 
-    await service.entrypoints('ws-1', { limit: '500' });
+    await service.entrypoints('ws-1', READER, { limit: '500' });
 
     expect(handleListEntrypoints.mock.calls[0]![0].limit).toBe(100);
   });
@@ -370,7 +378,7 @@ describe('GraphService.entrypoints', () => {
     handleListEntrypoints.mockResolvedValue({ data: [], metadata: {} });
     const service = new GraphService(wsContext);
 
-    await service.entrypoints('ws-1', { protocol: 'all' });
+    await service.entrypoints('ws-1', READER, { protocol: 'all' });
 
     expect(handleListEntrypoints.mock.calls[0]![0].type).toBeUndefined();
   });
@@ -380,7 +388,7 @@ describe('GraphService.entrypoints', () => {
     handleListEntrypoints.mockResolvedValue({ data: [], metadata: {} });
     const service = new GraphService(wsContext);
 
-    await service.entrypoints('ws-1', { scopeRepo: 'api-server' });
+    await service.entrypoints('ws-1', READER, { scopeRepo: 'api-server' });
 
     const [, scope] = handleListEntrypoints.mock.calls[0]!;
     expect(scope.resolvedRepos).toEqual(['api-server']);
@@ -398,7 +406,7 @@ describe('GraphService.nodeDetail (Tier B)', () => {
     (repository.getNeighborCounts as any).mockResolvedValue([{ edgeType: 'CALLS', direction: 'out', count: 2 }]);
 
     const service = new GraphService(wsContext);
-    const result = await service.nodeDetail('ws-1', 'hashcore:function:a.ts:f');
+    const result = await service.nodeDetail('ws-1', READER, 'hashcore:function:a.ts:f');
 
     expect(result.node).toEqual(node);
     expect(result.neighborCounts).toEqual([{ edgeType: 'CALLS', direction: 'out', count: 2 }]);
@@ -412,13 +420,13 @@ describe('GraphService.nodeDetail (Tier B)', () => {
     (repository.getNodeWithProperties as any).mockResolvedValue(null);
     (repository.getNeighborCounts as any).mockResolvedValue([]);
     const service = new GraphService(wsContext);
-    await expect(service.nodeDetail('ws-1', 'missing')).rejects.toMatchObject({ status: 404 });
+    await expect(service.nodeDetail('ws-1', READER, 'missing')).rejects.toMatchObject({ status: 404 });
   });
 
   it('400s on an empty id', async () => {
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
-    await expect(service.nodeDetail('ws-1', '')).rejects.toMatchObject({ status: 400 });
+    await expect(service.nodeDetail('ws-1', READER, '')).rejects.toMatchObject({ status: 400 });
   });
 });
 
@@ -431,7 +439,7 @@ describe('GraphService.listRepos', () => {
       { hash: 'h3', name: 'api' },
     ]);
     const service = new GraphService(wsContext);
-    const result = await service.listRepos('ws-1');
+    const result = await service.listRepos('ws-1', READER, READER);
     expect(result).toEqual({ repos: [{ name: 'api' }, { name: 'web' }] });
   });
 });
@@ -443,7 +451,7 @@ describe('GraphService.nodesByType (Tier B browse)', () => {
     (repository.listNodesByType as any).mockResolvedValue(page);
     const service = new GraphService(wsContext);
 
-    const result = await service.nodesByType('ws-1', { type: 'entrypoint', limit: '9999', cursor: 'c1' });
+    const result = await service.nodesByType('ws-1', READER, { type: 'entrypoint', limit: '9999', cursor: 'c1' });
 
     expect(result).toBe(page);
     expect(repository.listNodesByType).toHaveBeenCalledWith('entrypoint', { limit: 200, cursor: 'c1' }, ['hashcore']);
@@ -452,15 +460,15 @@ describe('GraphService.nodesByType (Tier B browse)', () => {
   it('400s on a missing or unknown type', async () => {
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
-    await expect(service.nodesByType('ws-1', {})).rejects.toMatchObject({ status: 400 });
-    await expect(service.nodesByType('ws-1', { type: 'nonsense' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.nodesByType('ws-1', READER, {})).rejects.toMatchObject({ status: 400 });
+    await expect(service.nodesByType('ws-1', READER, { type: 'nonsense' })).rejects.toMatchObject({ status: 400 });
   });
 
   it('narrows scope with scopeRepo and defaults the limit to 50', async () => {
     const { wsContext, repository } = makeDeps();
     (repository.listNodesByType as any).mockResolvedValue({ nodes: [], truncated: false });
     const service = new GraphService(wsContext);
-    await service.nodesByType('ws-1', { type: 'entity', scopeRepo: 'api-server' });
+    await service.nodesByType('ws-1', READER, { type: 'entity', scopeRepo: 'api-server' });
     expect(repository.listNodesByType).toHaveBeenCalledWith('entity', { limit: 50 }, ['hashcore']);
   });
 });
@@ -474,20 +482,20 @@ describe('GraphService cypher (capability + query)', () => {
   it('capabilities: cypher is off for a turso workspace (relational store); edgesAmong is always on', async () => {
     const { wsContext } = makeDeps('turso');
     const service = new GraphService(wsContext);
-    await expect(service.capabilities('ws-1')).resolves.toEqual({ cypher: false, edgesAmong: true });
+    await expect(service.capabilities('ws-1', READER, READER)).resolves.toEqual({ cypher: false, edgesAmong: true });
   });
 
   it('capabilities: cypher is on for a file_snapshot workspace with no operator flag (per-workspace file)', async () => {
     const { wsContext } = makeDeps('file_snapshot');
     const service = new GraphService(wsContext);
-    await expect(service.capabilities('ws-1')).resolves.toEqual({ cypher: true, edgesAmong: true });
+    await expect(service.capabilities('ws-1', READER, READER)).resolves.toEqual({ cypher: true, edgesAmong: true });
   });
 
   it('capabilities: a file_snapshot repository without runReadOnlyCypher still reports cypher: false', async () => {
     const { wsContext, repository } = makeDeps('file_snapshot');
     (repository as { runReadOnlyCypher?: unknown }).runReadOnlyCypher = undefined;
     const service = new GraphService(wsContext);
-    await expect(service.capabilities('ws-1')).resolves.toEqual({ cypher: false, edgesAmong: true });
+    await expect(service.capabilities('ws-1', READER, READER)).resolves.toEqual({ cypher: false, edgesAmong: true });
   });
 
   it('capabilities: cypher is on when backend=neo4j AND the operator flag is set', async () => {
@@ -495,7 +503,7 @@ describe('GraphService cypher (capability + query)', () => {
     process.env.COREDOC_ALLOW_CYPHER = 'true';
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
-    await expect(service.capabilities('ws-1')).resolves.toEqual({ cypher: true, edgesAmong: true });
+    await expect(service.capabilities('ws-1', READER, READER)).resolves.toEqual({ cypher: true, edgesAmong: true });
   });
 
   it('capabilities: backend=neo4j without the operator flag keeps cypher off', async () => {
@@ -503,13 +511,15 @@ describe('GraphService cypher (capability + query)', () => {
     delete process.env.COREDOC_ALLOW_CYPHER;
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
-    await expect(service.capabilities('ws-1')).resolves.toEqual({ cypher: false, edgesAmong: true });
+    await expect(service.capabilities('ws-1', READER, READER)).resolves.toEqual({ cypher: false, edgesAmong: true });
   });
 
   it('runCypher 404s for a turso workspace', async () => {
     const { wsContext, repository } = makeDeps('turso');
     const service = new GraphService(wsContext);
-    await expect(service.runCypher('ws-1', { query: 'MATCH (n) RETURN n' })).rejects.toMatchObject({ status: 404 });
+    await expect(service.runCypher('ws-1', READER, { query: 'MATCH (n) RETURN n' })).rejects.toMatchObject({
+      status: 404,
+    });
     expect(repository.runReadOnlyCypher).not.toHaveBeenCalled();
   });
 
@@ -518,7 +528,7 @@ describe('GraphService cypher (capability + query)', () => {
     const res = { nodes: [], edges: [], truncated: false };
     (repository.runReadOnlyCypher as any).mockResolvedValue(res);
     const service = new GraphService(wsContext);
-    const result = await service.runCypher('ws-1', { query: 'MATCH (n) RETURN n', limit: '10' });
+    const result = await service.runCypher('ws-1', READER, { query: 'MATCH (n) RETURN n', limit: '10' });
     expect(result).toBe(res);
     expect(repository.runReadOnlyCypher).toHaveBeenCalledWith('MATCH (n) RETURN n', { limit: 10 });
   });
@@ -527,7 +537,7 @@ describe('GraphService cypher (capability + query)', () => {
     const { wsContext, repository } = makeDeps('file_snapshot');
     (repository.runReadOnlyCypher as any).mockResolvedValue({ nodes: [], edges: [], truncated: false });
     const service = new GraphService(wsContext);
-    await service.runCypher('ws-1', { query: 'MATCH (n) RETURN n', limit: 9999 });
+    await service.runCypher('ws-1', READER, { query: 'MATCH (n) RETURN n', limit: 9999 });
     expect(repository.runReadOnlyCypher).toHaveBeenCalledWith('MATCH (n) RETURN n', { limit: 500 });
   });
 
@@ -535,7 +545,9 @@ describe('GraphService cypher (capability + query)', () => {
     const { wsContext, repository } = makeDeps('file_snapshot');
     (repository as { runReadOnlyCypher?: unknown }).runReadOnlyCypher = undefined;
     const service = new GraphService(wsContext);
-    await expect(service.runCypher('ws-1', { query: 'MATCH (n) RETURN n' })).rejects.toMatchObject({ status: 404 });
+    await expect(service.runCypher('ws-1', READER, { query: 'MATCH (n) RETURN n' })).rejects.toMatchObject({
+      status: 404,
+    });
   });
 
   it('runCypher runs the query and returns the graph result when enabled', async () => {
@@ -545,7 +557,7 @@ describe('GraphService cypher (capability + query)', () => {
     const res = { nodes: [], edges: [], truncated: false };
     (repository.runReadOnlyCypher as any).mockResolvedValue(res);
     const service = new GraphService(wsContext);
-    const result = await service.runCypher('ws-1', { query: 'MATCH (n) RETURN n', limit: '10' });
+    const result = await service.runCypher('ws-1', READER, { query: 'MATCH (n) RETURN n', limit: '10' });
     expect(result).toBe(res);
     expect(repository.runReadOnlyCypher).toHaveBeenCalledWith('MATCH (n) RETURN n', { limit: 10 });
   });
@@ -555,7 +567,7 @@ describe('GraphService cypher (capability + query)', () => {
     process.env.COREDOC_ALLOW_CYPHER = 'true';
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
-    await expect(service.runCypher('ws-1', { query: '   ' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.runCypher('ws-1', READER, { query: '   ' })).rejects.toMatchObject({ status: 400 });
   });
 
   it('runCypher translates a read-only violation from the repository into 400', async () => {
@@ -566,7 +578,9 @@ describe('GraphService cypher (capability + query)', () => {
       new Error('Only read-only Cypher is allowed (found "DELETE")'),
     );
     const service = new GraphService(wsContext);
-    await expect(service.runCypher('ws-1', { query: 'MATCH (n) DELETE n' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.runCypher('ws-1', READER, { query: 'MATCH (n) DELETE n' })).rejects.toMatchObject({
+      status: 400,
+    });
   });
 });
 
@@ -577,7 +591,7 @@ describe('GraphService.neighbors (Tier B)', () => {
     (repository.getNeighbors as any).mockResolvedValue(page);
     const service = new GraphService(wsContext);
 
-    const result = await service.neighbors('ws-1', 'hashcore:function:a.ts:f', {
+    const result = await service.neighbors('ws-1', READER, 'hashcore:function:a.ts:f', {
       direction: 'out',
       edgeTypes: 'CALLS,MAKES_EXTERNAL_CALL',
       limit: '9999', // clamped to 200
@@ -596,7 +610,7 @@ describe('GraphService.neighbors (Tier B)', () => {
     (repository.getNeighbors as any).mockResolvedValue({ nodes: [], edges: [], truncated: false });
     const service = new GraphService(wsContext);
 
-    await service.neighbors('ws-1', 'n', { cursor: 'c9' });
+    await service.neighbors('ws-1', READER, 'n', { cursor: 'c9' });
 
     expect(repository.getNeighbors).toHaveBeenCalledWith('n', { direction: 'both', limit: 50, cursor: 'c9' }, [
       'hashcore',
@@ -606,13 +620,15 @@ describe('GraphService.neighbors (Tier B)', () => {
   it('400s on an invalid direction', async () => {
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
-    await expect(service.neighbors('ws-1', 'n', { direction: 'sideways' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.neighbors('ws-1', READER, 'n', { direction: 'sideways' })).rejects.toMatchObject({
+      status: 400,
+    });
   });
 
   it('400s on an unknown edge type', async () => {
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
-    await expect(service.neighbors('ws-1', 'n', { edgeTypes: 'CALLS,NONSENSE' })).rejects.toMatchObject({
+    await expect(service.neighbors('ws-1', READER, 'n', { edgeTypes: 'CALLS,NONSENSE' })).rejects.toMatchObject({
       status: 400,
     });
   });
@@ -625,7 +641,7 @@ describe('GraphService.subgraph (Tier B traverse)', () => {
     (repository.getSubgraph as any).mockResolvedValue(page);
     const service = new GraphService(wsContext);
 
-    const result = await service.subgraph('ws-1', 'n0', {
+    const result = await service.subgraph('ws-1', READER, 'n0', {
       depth: '99', // clamped to 5
       direction: 'out',
       edgeTypes: 'CALLS,HANDLES',
@@ -643,7 +659,7 @@ describe('GraphService.subgraph (Tier B traverse)', () => {
     const { wsContext, repository } = makeDeps();
     (repository.getSubgraph as any).mockResolvedValue({ nodes: [], edges: [], truncated: false });
     const service = new GraphService(wsContext);
-    await service.subgraph('ws-1', 'n0', {});
+    await service.subgraph('ws-1', READER, 'n0', {});
     expect(repository.getSubgraph).toHaveBeenCalledWith('n0', { depth: 3, direction: 'both', nodeCap: 200 }, [
       'hashcore',
     ]);
@@ -652,9 +668,11 @@ describe('GraphService.subgraph (Tier B traverse)', () => {
   it('400s on empty id, bad direction, or bad edgeTypes', async () => {
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
-    await expect(service.subgraph('ws-1', '', { depth: '2' })).rejects.toMatchObject({ status: 400 });
-    await expect(service.subgraph('ws-1', 'n', { direction: 'sideways' })).rejects.toMatchObject({ status: 400 });
-    await expect(service.subgraph('ws-1', 'n', { edgeTypes: 'NOPE' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.subgraph('ws-1', READER, '', { depth: '2' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.subgraph('ws-1', READER, 'n', { direction: 'sideways' })).rejects.toMatchObject({
+      status: 400,
+    });
+    await expect(service.subgraph('ws-1', READER, 'n', { edgeTypes: 'NOPE' })).rejects.toMatchObject({ status: 400 });
   });
 });
 
@@ -665,7 +683,7 @@ describe('GraphService.deadCode', () => {
     (repository.findDeadNodes as any).mockResolvedValue(page);
     const service = new GraphService(wsContext);
 
-    const result = await service.deadCode('ws-1', { types: 'function,class', limit: '999' });
+    const result = await service.deadCode('ws-1', READER, { types: 'function,class', limit: '999' });
 
     expect(result).toBe(page);
     expect(repository.findDeadNodes).toHaveBeenCalledWith({ types: ['function', 'class'], limit: 200 }, ['hashcore']);
@@ -675,14 +693,14 @@ describe('GraphService.deadCode', () => {
     const { wsContext, repository } = makeDeps();
     (repository.findDeadNodes as any).mockResolvedValue({ nodes: [], truncated: false, lowCoverageRepos: [] });
     const service = new GraphService(wsContext);
-    await service.deadCode('ws-1', {});
+    await service.deadCode('ws-1', READER, {});
     expect(repository.findDeadNodes).toHaveBeenCalledWith({ limit: 50 }, ['hashcore']);
   });
 
   it('400s on an unknown node type', async () => {
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
-    await expect(service.deadCode('ws-1', { types: 'nope' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.deadCode('ws-1', READER, { types: 'nope' })).rejects.toMatchObject({ status: 400 });
   });
 });
 
@@ -697,7 +715,7 @@ describe('GraphService.edgesAmong (Tier B canvas linking)', () => {
     repository.getEdgesAmong.mockResolvedValue(page);
     const service = new GraphService(wsContext);
 
-    const result = await service.edgesAmong('ws-1', { nodeIds: ['n1', 'n2'] });
+    const result = await service.edgesAmong('ws-1', READER, { nodeIds: ['n1', 'n2'] });
 
     expect(result).toBe(page);
     expect(repository.getEdgesAmong).toHaveBeenCalledWith(['n1', 'n2'], ['hashcore'], 4000);
@@ -708,7 +726,7 @@ describe('GraphService.edgesAmong (Tier B canvas linking)', () => {
     repository.getEdgesAmong.mockResolvedValue({ edges: [], truncated: false });
     const service = new GraphService(wsContext);
 
-    await service.edgesAmong('ws-1', { nodeIds: ['n1'], limit: 99_999 });
+    await service.edgesAmong('ws-1', READER, { nodeIds: ['n1'], limit: 99_999 });
 
     expect(repository.getEdgesAmong).toHaveBeenCalledWith(['n1'], ['hashcore'], 4000);
   });
@@ -717,7 +735,7 @@ describe('GraphService.edgesAmong (Tier B canvas linking)', () => {
     const { wsContext, repository } = makeDeps();
     const service = new GraphService(wsContext);
 
-    await expect(service.edgesAmong('ws-1', { nodeIds: [] })).resolves.toEqual({ edges: [], truncated: false });
+    await expect(service.edgesAmong('ws-1', READER, { nodeIds: [] })).resolves.toEqual({ edges: [], truncated: false });
     expect(repository.getEdgesAmong).not.toHaveBeenCalled();
   });
 
@@ -729,7 +747,7 @@ describe('GraphService.edgesAmong (Tier B canvas linking)', () => {
     const { wsContext, repository } = makeDeps();
     const service = new GraphService(wsContext);
 
-    await expect(service.edgesAmong('ws-1', { nodeIds })).rejects.toMatchObject({
+    await expect(service.edgesAmong('ws-1', READER, { nodeIds })).rejects.toMatchObject({
       status: 400,
       message: expect.stringContaining('nodeIds'),
     });
@@ -741,7 +759,7 @@ describe('GraphService.edgesAmong (Tier B canvas linking)', () => {
     const service = new GraphService(wsContext);
 
     await expect(
-      service.edgesAmong('ws-1', { nodeIds: Array.from({ length: 3001 }, (_v, i) => `n${i}`) }),
+      service.edgesAmong('ws-1', READER, { nodeIds: Array.from({ length: 3001 }, (_v, i) => `n${i}`) }),
     ).rejects.toMatchObject({ status: 400, message: expect.stringContaining('nodeIds') });
     expect(repository.getEdgesAmong).not.toHaveBeenCalled();
   });
@@ -750,8 +768,12 @@ describe('GraphService.edgesAmong (Tier B canvas linking)', () => {
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
 
-    await expect(service.edgesAmong('ws-1', { nodeIds: ['n1'], limit: 0 })).rejects.toMatchObject({ status: 400 });
-    await expect(service.edgesAmong('ws-1', { nodeIds: ['n1'], limit: 'lots' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.edgesAmong('ws-1', READER, { nodeIds: ['n1'], limit: 0 })).rejects.toMatchObject({
+      status: 400,
+    });
+    await expect(service.edgesAmong('ws-1', READER, { nodeIds: ['n1'], limit: 'lots' })).rejects.toMatchObject({
+      status: 400,
+    });
   });
 });
 
@@ -762,7 +784,7 @@ describe('GraphService.crossRepo', () => {
     (repository.getCrossRepoBridges as any).mockResolvedValue(page);
     const service = new GraphService(wsContext);
 
-    const result = await service.crossRepo('ws-1', { limit: '999' });
+    const result = await service.crossRepo('ws-1', READER, { limit: '999' });
 
     expect(result).toBe(page);
     expect(repository.getCrossRepoBridges).toHaveBeenCalledWith({ limit: 200 }, ['hashcore']);
@@ -773,7 +795,7 @@ describe('GraphService.crossRepo', () => {
     (repository.getCrossRepoBridges as any).mockResolvedValue({ nodes: [], edges: [], truncated: false });
     const service = new GraphService(wsContext);
 
-    await service.crossRepo('ws-1', { scopeRepo: 'api-server' });
+    await service.crossRepo('ws-1', READER, { scopeRepo: 'api-server' });
 
     expect(repository.getCrossRepoBridges).toHaveBeenCalledWith(
       { limit: 50, focusRepoHashes: ['hashcore'] },
@@ -784,6 +806,6 @@ describe('GraphService.crossRepo', () => {
   it('400s on an unknown scopeRepo', async () => {
     const { wsContext } = makeDeps();
     const service = new GraphService(wsContext);
-    await expect(service.crossRepo('ws-1', { scopeRepo: 'ghost' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.crossRepo('ws-1', READER, { scopeRepo: 'ghost' })).rejects.toMatchObject({ status: 400 });
   });
 });
