@@ -31,6 +31,7 @@ import {
   REACH_ORDER_BY,
   afterInReachOrderSql,
   afterInReachOrderWhere,
+  reachesCandidates,
   reachOrderSql,
   type IntentReadReach,
   importedSql,
@@ -389,7 +390,9 @@ export class IntentReadService {
     if (scope?.kind === 'feature') filters.push(Prisma.sql`i.feature_id = ${scope.id}`);
     if (scope?.kind === 'domain') filters.push(Prisma.sql`i.domain_id = ${scope.id}`);
     const conditions = [...filters, reachSql(request)];
-    const page = request.after ? Prisma.sql`AND ${afterInReachOrderSql(workspaceId, request.after)}` : Prisma.empty;
+    const page = request.after
+      ? Prisma.sql`AND ${afterInReachOrderSql(request, workspaceId, request.after)}`
+      : Prisma.empty;
     // The matched fields, the item's text first, so a snippet shows content before its title.
     const text = Prisma.sql`concat_ws(' ', i.statement,
       (SELECT string_agg(v #>> '{}', ' ') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(i.body) = 'array' THEN i.body ELSE '[]'::jsonb END) v),
@@ -759,17 +762,18 @@ export class IntentReadService {
       ...IMPORT_ARRIVAL_SELECT,
     } as const;
     const base = { workspaceId, ...attachment, ...(kinds ? { kind: { in: kinds } } : {}) };
-    const afterItem = after
-      ? await this.prisma.intentItem.findUnique({
-          where: { workspaceId_id: { workspaceId, id: after } },
-          select: { authority: true },
-        })
-      : null;
+    const afterItem =
+      after && reachesCandidates(reach)
+        ? await this.prisma.intentItem.findUnique({
+            where: { workspaceId_id: { workspaceId, id: after } },
+            select: { authority: true },
+          })
+        : null;
     const [rows, superseded, release] = await Promise.all([
       this.prisma.intentItem.findMany({
         where: {
           ...base,
-          AND: [reachWhere(reach), after ? afterInReachOrderWhere(after, afterItem?.authority) : {}],
+          AND: [reachWhere(reach), after ? afterInReachOrderWhere(reach, after, afterItem?.authority) : {}],
         },
         orderBy: [...REACH_ORDER_BY],
         take: INTENT_READ_LIMITS.nodeItems + 1,
@@ -1113,7 +1117,7 @@ function renderItem(item: ItemRow, style: ItemStyle, options: RenderOptions): st
 
 const unreviewedRank = (item: ItemRow) => (item.authority === IntentItemAuthority.candidate ? 1 : 0);
 
-type DocEntry ={ heading: string } | { lines: string[] } | { item: ItemRow; style: ItemStyle };
+type DocEntry = { heading: string } | { lines: string[] } | { item: ItemRow; style: ItemStyle };
 
 interface DocSection {
   heading: string | null;

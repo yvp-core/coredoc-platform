@@ -951,8 +951,36 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
       });
       expect(next).toContain(`- ${imported} [business_rule] (imported, not reviewed) feature punches:`);
       expect(next).not.toContain('TRUNCATED');
+
+      // A review between two pages must not move the cursor past what is left.
+      await prisma.intentItem.update({
+        where: { workspaceId_id: { workspaceId, id: accepted } },
+        data: { authority: 'superseded' },
+      });
+      expect(
+        await reads.search(workspaceId, { query: 'unverified', includeImported: true, limit: 1, after: accepted }),
+      ).toContain(`- ${imported} [business_rule]`);
     } finally {
       await prisma.intentItem.delete({ where: { workspaceId_id: { workspaceId, id: accepted } } });
+    }
+  });
+
+  it('continues an accepted-only search after its last shown item was superseded', async () => {
+    const idsOf = (text: string) => [...text.matchAll(/^- ([a-z0-9-]+) \[/gm)].map((match) => match[1] as string);
+    const all = idsOf(await reads.search(workspaceId, { query: 'kiosk' }));
+    expect(all.length).toBeGreaterThan(1);
+    const shown = all[0] as string;
+    await prisma.intentItem.update({
+      where: { workspaceId_id: { workspaceId, id: shown } },
+      data: { authority: 'superseded' },
+    });
+    try {
+      expect(idsOf(await reads.search(workspaceId, { query: 'kiosk', after: shown }))).toEqual(all.slice(1));
+    } finally {
+      await prisma.intentItem.update({
+        where: { workspaceId_id: { workspaceId, id: shown } },
+        data: { authority: 'accepted' },
+      });
     }
   });
 
