@@ -81,6 +81,7 @@ import {
   PATH_SCOPED_NODE_KINDS,
   fileMemberLikePatterns,
   nodeSelectionTruncated,
+  answerRepos,
   graphRepoHashOfNodeId,
   hasSelector,
   mergeFeatureCandidates,
@@ -233,6 +234,18 @@ function unmatchedSourceRefsFields(refs: string[], returned: readonly { matchRea
   return {
     unmatchedSourceRefs: refs,
     unmatchedSourceRefsNote: `No item cites ${refs.join(', ')}${textOnly ? '; the items below matched the task text only' : ''}.`,
+  };
+}
+
+/** The repos a request names itself, beside those its returned anchors name. */
+function namedRepos(request: EffectiveContextRequest, anchorRepoKeys: readonly string[] = []) {
+  return {
+    repoKeys: [
+      ...anchorRepoKeys,
+      ...(request.files ?? []).map((file) => file.repoKey),
+      ...Object.keys(request.observed ?? {}),
+    ],
+    nodeIds: request.nodeIds ?? [],
   };
 }
 
@@ -1279,7 +1292,13 @@ export class IntentContextService {
       matchedFeatureIds,
       evidence: { available: evidence.available },
       graph: {
-        repos: derived.evidence.repos,
+        ...answerRepos(
+          derived.evidence.repos,
+          namedRepos(
+            request,
+            selected.flatMap((match) => (items.get(match.id)?.anchors ?? []).map((anchor) => anchor.repoKey)),
+          ),
+        ),
         ...(evidence.degradation ? { degradation: evidence.degradation } : {}),
         truncated: derived.truncated,
         limits: derived.limits,
@@ -1513,7 +1532,7 @@ export class IntentContextService {
         ? {
             evidence: { available: selected.derivation.evidence.available },
             graph: {
-              repos: selected.derivation.evidence.repos,
+              ...answerRepos(selected.derivation.evidence.repos, namedRepos(request)),
               ...(selected.derivation.degradation ? { degradation: selected.derivation.degradation } : {}),
               truncated: selected.derivation.truncated,
               limits: selected.derivation.limits,

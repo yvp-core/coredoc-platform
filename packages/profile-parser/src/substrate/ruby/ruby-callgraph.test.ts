@@ -963,6 +963,68 @@ end`,
 // A site key is caller + line, so two call sites on ONE line share it. Clause (ii) used to match
 // such an unshipped site against tier B's OWN edge on that line and count it a second time —
 // 1784 "resolved" sites against 1356 shipped edges on acme-web.
+describe('resolveRubyCalls — a method called on an inline `Klass.new(...)`', () => {
+  it('binds Svc.new(x).call to the instance method under rb-const', async () => {
+    const { edges, idGen } = await run(`module Accounts
+  class ActivateService
+    def initialize(user); end
+    def call; end
+  end
+end
+class Runner
+  def go(user); Accounts::ActivateService.new(user).call; end
+end`);
+
+    const e = edgeFor(edges, ').call');
+    expect(e?.provenance).toBe('rb-const');
+    expect(e?.calleeId).toBe(idGen.methodId(REL, 'Accounts::ActivateService', 'call'));
+  });
+
+  it('walks the ancestry of the constructed class', async () => {
+    const { edges, idGen } = await run(`class Base
+  def call; end
+end
+class Svc < Base
+end
+class Runner
+  def go; Svc.new.call; end
+end`);
+
+    expect(edgeFor(edges, 'new.call')?.calleeId).toBe(idGen.methodId(REL, 'Base', 'call'));
+  });
+
+  it('MUST NOT bind when the class defines its own `new`, or is not declared in the repo', async () => {
+    const { edges } = await run(`class Memo
+  def self.new; end
+  def call; end
+end
+class Other
+  def call; end
+end
+class Runner
+  def go
+    Memo.new.call
+    Gem::Thing.new.call
+  end
+end`);
+
+    expect(edgeFor(edges, 'Memo.new.call')?.calleeId).toBeUndefined();
+    expect(edgeFor(edges, 'Thing.new.call')?.calleeId).toBeUndefined();
+  });
+
+  it('MUST NOT reach a singleton method through an instance', async () => {
+    const { edges } = await run(`class Svc
+  def self.call; end
+  def self.other; end
+end
+class Runner
+  def go; Svc.new.call; end
+end`);
+
+    expect(edgeFor(edges, 'new.call')?.calleeId).toBeUndefined();
+  });
+});
+
 describe('resolveRubyCalls — a line holding both a shipped and an unshipped site', () => {
   it('counts the line once, so resolvedByTierB (and clause ii) equals the shipped edge count', async () => {
     const idGen = mkGen();
