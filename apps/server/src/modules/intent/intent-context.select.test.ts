@@ -14,6 +14,7 @@ import { IntentMatchReason as IntentDerivationMatchReason } from './derivation/d
 import { IntentContextMatchReason } from './intent-context.operations.js';
 import {
   AUTHORITY_RANK,
+  answerRepos,
   attachmentReason,
   compareMatches,
   enclosingNodeIdCandidates,
@@ -259,4 +260,28 @@ it('retains accepted attached rules ahead of an anchored candidate page, with st
     expect([...result.rankById]).toEqual(expected);
     expect(result.truncated).toBe(true);
   }
+});
+
+describe('answerRepos', () => {
+  const repos = [
+    { repoKey: 'orders-api', graphRepoHash: 'aaa111' },
+    { repoKey: 'billing-api', graphRepoHash: 'bbb222' },
+    { repoKey: null, graphRepoHash: 'ccc333' },
+    { repoKey: 'web-app', graphRepoHash: 'ddd444' },
+  ];
+
+  it('keeps the repos named by key or by a queried node id and counts the rest', () => {
+    const result = answerRepos(repos, { repoKeys: ['billing-api'], nodeIds: ['ccc333:function:src/a.ts:f'] });
+    expect(result.repos.map((repo) => repo.graphRepoHash)).toEqual(['bbb222', 'ccc333']);
+    expect(result.reposOmitted).toBe(2);
+  });
+
+  it('returns no repo, and says how many exist, when the answer names none', () => {
+    expect(answerRepos(repos, { repoKeys: [], nodeIds: [] })).toEqual({ repos: [], reposOmitted: 4 });
+  });
+
+  it('carries no count when nothing was left out', () => {
+    const all = { repoKeys: ['orders-api', 'billing-api', 'web-app'], nodeIds: ['ccc333:file:a.ts'] };
+    expect(answerRepos(repos, all).reposOmitted).toBeUndefined();
+  });
 });

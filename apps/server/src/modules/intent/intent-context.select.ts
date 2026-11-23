@@ -120,6 +120,24 @@ export function graphRepoHashOfNodeId(nodeId: string): string | null {
 }
 
 /**
+ * The repos an answer is about: those named by a returned anchor, a touched file, an observed
+ * checkout (`repoKeys`) or a queried node. Every other registered repo contributes only an
+ * `unverified` row, which over a workspace of dozens of repos outweighs the answer itself;
+ * `reposOmitted` counts them.
+ */
+export function answerRepos<Repo extends { repoKey: string | null; graphRepoHash: string }>(
+  repos: readonly Repo[],
+  named: { repoKeys: readonly string[]; nodeIds: readonly string[] },
+): { repos: Repo[]; reposOmitted?: number } {
+  const keys = new Set(named.repoKeys);
+  const hashes = new Set(named.nodeIds.map(graphRepoHashOfNodeId));
+  const kept = repos.filter(
+    (repo) => (repo.repoKey !== null && keys.has(repo.repoKey)) || hashes.has(repo.graphRepoHash),
+  );
+  return { repos: kept, ...(kept.length < repos.length ? { reposOmitted: repos.length - kept.length } : {}) };
+}
+
+/**
  * Authority ordering: accepted before candidate, then the retained states.
  *
  * Only the first two are reachable without an exact id; the other two are ranked

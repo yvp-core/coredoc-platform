@@ -502,7 +502,10 @@ export interface IntentRepoGraphProvenance {
 }
 
 export interface IntentGraphEvidence {
+  /** Only the repos the answer names: by an anchor, a file, a node id or an observed checkout. */
   repos: IntentRepoGraphProvenance[];
+  /** Registered repos left out of `repos` because nothing in the answer names them. */
+  reposOmitted?: number;
   /** Present when the snapshot could not be read at all — degradation, not error. */
   degradation?: { code: string; remediation: string };
   truncated: boolean;
