@@ -27,6 +27,7 @@ import {
   type TsNode,
   collectCalls,
   defOrClassName,
+  isCall,
   isSingletonDef,
   methodName,
   nearestAncestor,
@@ -621,6 +622,20 @@ function resolveCtorConstant(index: RubyDefIndex, reference: string, call: TsNod
 }
 
 /**
+ * The class whose instance a call's receiver is, when the receiver is `Klass.new(...)` written
+ * inline (`Svc.new(user).call`). Abstains exactly where the constructor rule does: a constant the
+ * repo does not declare, a module, or a user-defined `new` that may return something else.
+ */
+function constructedReceiverClass(index: RubyDefIndex, call: TsNode): string | undefined {
+  const recv = call.childForFieldName?.('receiver');
+  if (!recv || !isCall(recv) || methodName(recv) !== 'new') return undefined;
+  const ctor = receiverInfo(recv);
+  if (ctor.kind !== 'constant' || !ctor.text) return undefined;
+  const cls = resolveCtorConstant(index, ctor.text, recv);
+  return cls && !index.moduleNames.has(cls) && !hasUserDefinedNew(index, cls) ? cls : undefined;
+}
+
+/**
  * The `FunctionNode` for an association reader (`has_many :employees` → `Company#employees`).
  * Id and `classId` are derived exactly like a `def`'s in the same class, so the node is stable
  * and lands in the model's `ClassNode.methods`; `synthesized` is what keeps it distinguishable
@@ -969,6 +984,17 @@ export async function resolveRubyCalls(
             provenance = 'rb-const';
           }
         }
+        // `Klass.new(...).run`: the inline constructor pins the receiver's class as firmly as a
+        // constant does, so the instance method found on it is rb-const too — and a miss is
+        // external for the same reason a constant's is, never a unique-name guess.
+        const constructed = recv.kind === 'chain' ? constructedReceiverClass(index, call) : undefined;
+        if (!calleeId && constructed) {
+          const hit = resolveInstanceMethod(index, constructed, name);
+          if (hit) {
+            calleeId = hit.id;
+            provenance = 'rb-const';
+          }
+        }
         // Tier 2: self/bare → enclosing class + ancestry. (Guard: only resolves to a real
         // in-repo def; a DSL macro / inherited-from-gem name simply stays unresolved.) A
         // direct same-class hit is rb-self; an ancestry-walk hit is the lower-confidence
@@ -988,7 +1014,7 @@ export async function resolveRubyCalls(
         // external (a gem/stdlib class — Time/I18n/Rails/Kaminari/…), and resolving by
         // unique name there fabricates an edge (`Time.current` → an in-repo `current`).
         // Restrict to self/bare/var/chain receivers, where the type is genuinely unknown.
-        if (!calleeId && recv.kind !== 'constant') {
+        if (!calleeId && recv.kind !== 'constant' && !constructed) {
           const ids = index.byName.get(name);
           if (ids && ids.length === 1) {
             calleeId = ids[0];
