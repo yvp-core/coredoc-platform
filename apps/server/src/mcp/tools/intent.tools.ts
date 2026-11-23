@@ -65,8 +65,9 @@ import {
   RollbackIntentReleaseSchema,
 } from '../../modules/intent/intent-release.operations.js';
 
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { roleAllows } from '../../auth/iam.js';
+import { INTENT_CONFIG, configFromEnv, type IntentConfig } from '../../config/app-config.js';
 import { ControlPlaneService } from '../../database/control-plane.service.js';
 import type { AuthenticatedMcpRequest } from '../mcp-auth-context.js';
 import { withWithheldIntentDomains } from '../../modules/intent/intent-access.js';
@@ -310,7 +311,12 @@ const GetIntentContextSchema = z
     includeCandidates: z
       .boolean()
       .optional()
-      .describe('Include proposed candidates alongside accepted intent. Default false: accepted intent only'),
+      .describe(
+        'Include proposed candidates alongside accepted intent. Default false: accepted intent only, plus, where the ' +
+          'deployment turns it on, imported items: authority candidate with imported: true, recorded from the product ' +
+          'as it already runs and reviewed by nobody. Read one as likely current behaviour to verify in code, never ' +
+          'as accepted intent',
+      ),
     includeDiagnostics: z
       .boolean()
       .optional()
@@ -415,7 +421,13 @@ const IntentReadToolSchema = z
         `search only: words matched in title, statement, body and rationale, or ref:<value> for an exact, case-insensitive source-ref match; ` +
           `all of them, else any of them (the answer then says matched: 'any') (at most ${INTENT_READ_LIMITS.searchTokens})`,
       ),
-    includeCandidates: z.boolean().optional().describe('node/search: include unreviewed candidates. Default false'),
+    includeCandidates: z
+      .boolean()
+      .optional()
+      .describe(
+        'node/search: include unreviewed candidates. Default false; a deployment may still show imported items, each ' +
+          'marked "Imported from the existing product, not reviewed": likely current behaviour, not accepted intent',
+      ),
     refs: z
       .boolean()
       .optional()
@@ -745,6 +757,7 @@ export class IntentTools {
     private readonly items: IntentItemService,
     private readonly reads: IntentReadService,
     private readonly controlPlane: ControlPlaneService,
+    @Optional() @Inject(INTENT_CONFIG) private readonly intent: IntentConfig = configFromEnv().intent,
   ) {
     this.treeDispatch = {
       [IntentTreeAction.DomainCreate]: (ws, actor, body) =>
@@ -807,7 +820,10 @@ export class IntentTools {
         if ('status' in auth) return auth.answer;
 
         const input = parseContract(GetIntentContextSchema, args);
-        const data = await this.context.read(auth.workspaceId, normalizeIntentContextRequest(toContextQuery(input)));
+        const data = await this.context.read(auth.workspaceId, {
+          ...normalizeIntentContextRequest(toContextQuery(input)),
+          ...this.importedReach(),
+        });
 
         // An empty answer and an unconfigured workspace must never look alike.
         // The check runs only when the answer IS empty, so a workspace with
@@ -851,8 +867,8 @@ export class IntentTools {
         input.action === IntentReadAction.Tree
           ? await this.reads.tree(ws)
           : input.action === IntentReadAction.Node
-            ? await this.reads.node(ws, input)
-            : await this.reads.search(ws, { ...input, query: input.query as string });
+            ? await this.reads.node(ws, { ...input, ...this.importedReach() })
+            : await this.reads.search(ws, { ...input, ...this.importedReach(), query: input.query as string });
       return { data, success: true };
     });
   }
@@ -1070,6 +1086,15 @@ export class IntentTools {
       if (!(await this.hasIntentContent(auth.workspaceId))) return notConfigured();
       return { data: await this.items.updateSource(auth.workspaceId, actorOf(auth), input), success: true };
     });
+  }
+
+  /**
+   * What `INTENT_READ_IMPORTED` adds to an MCP read. Applied here and not in the
+   * REST controllers, so the web document and the review queue keep showing
+   * exactly what a product manager asked for.
+   */
+  private importedReach(): { includeImported?: true } {
+    return this.intent.readImported ? { includeImported: true } : {};
   }
 
   /* ------------------------------------------------------------ gates --- */

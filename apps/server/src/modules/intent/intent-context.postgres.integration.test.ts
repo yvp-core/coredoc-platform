@@ -56,6 +56,7 @@ import {
   INTENT_CONTEXT_READ_LIMITS,
   IntentContextMatchReason,
   IntentContextMode,
+  normalizeIntentContextRequest,
 } from './intent-context.operations.js';
 import { IntentContextService } from './intent-context.service.js';
 import { IntentItemService } from './intent-item.service.js';
@@ -869,6 +870,40 @@ describe.skipIf(!TEST_DATABASE_URL)('intent context read (PostgreSQL integration
       expect(list.entries.every((entry: ContextMatch) => entry.matchReason === IntentContextMatchReason.Source)).toBe(
         true,
       );
+    });
+
+    it('reaches a candidate without the opt-in only once it carries an import arrival, and marks it', async () => {
+      const readImported = (mode?: IntentContextMode) =>
+        contextService.read(workspaceId, {
+          ...normalizeIntentContextRequest({ sourceRefs: 'jira:DAY-1', ...(mode ? { mode } : {}) }),
+          includeImported: true,
+        }) as Promise<{ matches?: ContextMatch[]; entries?: ContextMatch[] }>;
+
+      // Proposed, not imported: the flag alone does not reach it.
+      expect((await readImported()).matches?.map((match) => match.id)).toEqual(['cap-checkout']);
+
+      const arrival = await prisma.intentAuthorityTransition.create({
+        data: {
+          workspaceId,
+          itemId: 'lim-legacy-export',
+          toAuthority: 'candidate',
+          actorId: 'importer',
+          actorRole: 'owner',
+          reason: 'Imported with the workspace',
+          sourceKind: 'import',
+          sourceRef: 'kb@main',
+        },
+      });
+      try {
+        for (const rows of [(await readImported()).matches, (await readImported(IntentContextMode.List)).entries]) {
+          expect(rows?.map((row) => [row.id, row.authority, (row as { imported?: boolean }).imported])).toEqual([
+            ['cap-checkout', 'accepted', undefined],
+            ['lim-legacy-export', 'candidate', true],
+          ]);
+        }
+      } finally {
+        await prisma.intentAuthorityTransition.delete({ where: { id: arrival.id } });
+      }
     });
 
     it('compares a jira key case-insensitively and any other ref exactly (AC-2)', async () => {

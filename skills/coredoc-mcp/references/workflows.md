@@ -81,7 +81,11 @@ workspace MCP; the local MCP has none. Their descriptions say how to call them a
 to react to; this section says what a `get_intent_context` answer means.
 
 **What an answer covers.** Only accepted items are discovered unless `includeCandidates: true`;
-only exact `intentIds` reach rejected or superseded items. Every item carries its version, match
+only exact `intentIds` reach rejected or superseded items. A deployment may add imported items to
+that default: `authority: candidate` with `imported: true` (in an `intent_read` document, "Imported
+from the existing product, not reviewed"). One was recorded from the product as it already runs and
+reviewed by nobody: read it as likely current behaviour to confirm in code, never as accepted intent
+or a blocking finding. Every item carries its version, match
 reason, sources and anchor evidence, and an exact-id read fetches payloads a ranked read left out.
 List mode is for browsing, not a mandatory first step. An anchor records where a rule was said to
 live, never that the code obeys it. Before concluding that no rule applies, check `truncated`,

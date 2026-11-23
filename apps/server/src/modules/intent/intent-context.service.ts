@@ -96,6 +96,7 @@ import { IntentErrorCode } from './contract/index.js';
 import { intentStateError } from './intent-state-errors.js';
 import { INTENT_NODE_SCAN, unknownNodeError } from './intent-node-suggest.js';
 import { IntentLexicalMatch, lexicalPredicate } from './intent-lexical.js';
+import { IMPORT_ARRIVAL_SELECT, isImportedCandidate, reachSql } from './intent-read-reach.js';
 import { treeConditionsOf } from './intent-tree.service.js';
 
 /** Effectivity plus every per-repo delivery (BR-5); `deliveries` is omitted when there are none. */
@@ -146,6 +147,8 @@ interface HydratedItem {
     title: string | null;
     url: string | null;
   }>;
+  /** The import arrival, when the item came with a workspace import. */
+  transitions: Array<{ id: bigint }>;
   anchors: Array<{
     repoKey: string;
     nodeId: string;
@@ -213,11 +216,6 @@ export function listConditionsOf(row: {
     ...(inherited ? { inherited: true } : {}),
     ...(variantCount > 0 ? { variants: variantCount } : {}),
   };
-}
-
-/** The authorities a source ref reaches: accepted, and candidates on opt-in. */
-function sourcedAuthorities(request: EffectiveContextRequest): string[] {
-  return request.includeCandidates ? ['accepted', 'candidate'] : ['accepted'];
 }
 
 /** A source row (aliased `s`) citing one of `refs`; only `kind: issue` refs fold case. */
@@ -671,7 +669,7 @@ export class IntentContextService {
       SELECT i.id, i.authority::text AS authority FROM intent_items i
       WHERE i.workspace_id = ${workspaceId}::uuid
         AND ${visibleDomainSql(Prisma.sql`i.domain_id`)}
-        AND i.authority::text = ANY(${sourcedAuthorities(request)}::text[])
+        AND ${reachSql(request)}
         ${skip.length ? Prisma.sql`AND i.id NOT IN (${Prisma.join(skip)})` : Prisma.empty}
         AND EXISTS (
           SELECT 1 FROM intent_item_sources s
@@ -702,7 +700,7 @@ export class IntentContextService {
       JOIN intent_items i ON i.workspace_id = s.workspace_id AND i.id = s.item_id
       WHERE s.workspace_id = ${workspaceId}::uuid
         AND ${visibleDomainSql(Prisma.sql`i.domain_id`)}
-        AND i.authority::text = ANY(${sourcedAuthorities(request)}::text[])
+        AND ${reachSql(request)}
         AND ${sourceRefPredicate(request.sourceRefs)}`;
     const cited = new Set(rows.map((row) => row.ref));
     return request.sourceRefs.filter((ref) => !cited.has(exact.includes(ref) ? ref : ref.toLowerCase()));
@@ -754,9 +752,7 @@ export class IntentContextService {
       visibleDomainSql(Prisma.sql`i.domain_id`),
     ];
 
-    const authority = request.includeCandidates
-      ? Prisma.sql`i.authority::text IN ('accepted', 'candidate')`
-      : Prisma.sql`i.authority::text = 'accepted'`;
+    const authority = reachSql(request);
     // Include production evidence BEFORE relevance selection and truncation, never append
     // unrelated effective rules after a selector has already bounded its answer.
     parts.push(
@@ -1570,6 +1566,7 @@ export class IntentContextService {
           select: { kind: true, ref: true, localId: true, revision: true, locator: true, title: true, url: true },
           orderBy: { id: 'asc' },
         },
+        ...IMPORT_ARRIVAL_SELECT,
         anchors: {
           where: { disabledAt: null },
           select: {
@@ -1629,6 +1626,8 @@ export class IntentContextService {
         : {}),
       ...(filter ? { contextMatch: this.contextMatchOf(item, filter, true) } : {}),
       authority: item.authority,
+      // Provenance, not authority: an imported candidate describes the product as it runs and is unreviewed.
+      ...(isImportedCandidate(item) ? { imported: true } : {}),
       // The handoff token: a reviewer re-fetches these ids and compares this
       // number before deciding (spec §5).
       version: item.version,
@@ -1704,6 +1703,7 @@ export class IntentContextService {
         kind: item.kind,
         title: item.title,
         authority: item.authority,
+        ...(isImportedCandidate(item) ? { imported: true } : {}),
         version: item.version,
         domainId: item.domainId,
         featureId: item.featureId,
