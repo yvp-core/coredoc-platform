@@ -492,7 +492,7 @@ const INTENT_READ_DESCRIPTION =
   'refs: false (default) gives the bare facts; refs: true keeps the Jira, Confluence and code references, for when ' +
   'you must cite or check a source. search {query, domain?, feature?, kind?, includeCandidates?, refs?, limit?, ' +
   'after?}: items whose title, statement, body or rationale contain every word (a ref:<value> word is an exact, case-insensitive source-ref match), or, when ' +
-  "none does, any word (the answer then says matched: 'any'), ordered by id, with the total and how many candidates " +
+  "none does, any word (the answer then says matched: 'any'), accepted first then by id, with the total and how many candidates " +
   "also match; get_intent_context's query needs every word. Then the nodes whose prose (overview, How it works) contains every word. An answer that stops short " +
   'says TRUNCATED and how to get the rest. Requires the intent:read permission.';
 

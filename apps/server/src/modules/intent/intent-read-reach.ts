@@ -54,3 +54,37 @@ export const IMPORT_ARRIVAL_SELECT = {
 export function isImportedCandidate(item: { authority: IntentItemAuthority; transitions: unknown[] }): boolean {
   return item.authority === IntentItemAuthority.candidate && item.transitions.length > 0;
 }
+
+/*
+ * Page order of a read: accepted first, then by id, so an unreviewed item never
+ * takes a reviewed one's place on a page. `after` is the last id of the previous
+ * page; an id that names no item continues as an accepted one would.
+ */
+
+const RANK_SQL = Prisma.sql`(CASE WHEN i.authority::text = 'accepted' THEN 0 ELSE 1 END)`;
+
+/** `ORDER BY` terms over `intent_items` aliased `i`. */
+export const reachOrderSql = Prisma.sql`${RANK_SQL}, i.id`;
+
+/** The rows that follow `after` in {@link reachOrderSql}. */
+export function afterInReachOrderSql(workspaceId: string, after: string): Prisma.Sql {
+  return Prisma.sql`(${RANK_SQL}, i.id) > (COALESCE((
+    SELECT CASE WHEN a.authority::text = 'accepted' THEN 0 ELSE 1 END FROM intent_items a
+    WHERE a.workspace_id = ${workspaceId}::uuid AND a.id = ${after}), 0), ${after})`;
+}
+
+/**
+ * {@link reachOrderSql} for Prisma. The enum declares `candidate` before
+ * `accepted`, so descending puts accepted first among the two a read reaches.
+ */
+export const REACH_ORDER_BY = [{ authority: 'desc' }, { id: 'asc' }] as const;
+
+/** {@link afterInReachOrderSql} for Prisma, given the authority of the `after` item. */
+export function afterInReachOrderWhere(
+  after: string,
+  afterAuthority: IntentItemAuthority | undefined,
+): Prisma.IntentItemWhereInput {
+  const candidate = IntentItemAuthority.candidate;
+  if (afterAuthority === candidate) return { authority: candidate, id: { gt: after } };
+  return { OR: [{ authority: IntentItemAuthority.accepted, id: { gt: after } }, { authority: candidate }] };
+}

@@ -910,6 +910,52 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
     }
   });
 
+  it('orders and pages accepted items before imported candidates, whatever their ids', async () => {
+    // Sorts after the imported candidate br-punch-needs-device by id.
+    const accepted = 'br-punch-zz-accepted';
+    const imported = 'br-punch-needs-device';
+    await prisma.intentItem.create({
+      data: {
+        workspaceId,
+        id: accepted,
+        kind: 'business_rule',
+        domainId: 'time-tracking',
+        featureId: 'punches',
+        title: 'Kept punches',
+        statement: 'A punch from an unverified device is kept for review.',
+        authority: 'accepted',
+        createdBy: OWNER.id,
+        updatedBy: OWNER.id,
+      },
+    });
+    try {
+      const reach = { feature: 'punches', includeImported: true };
+      const node = await reads.node(workspaceId, reach);
+      expect(node.indexOf(accepted)).toBeGreaterThan(-1);
+      expect(node.indexOf(accepted)).toBeLessThan(node.indexOf(imported));
+      // The candidate follows the accepted item in page order although its id is smaller.
+      expect(await reads.node(workspaceId, { ...reach, after: accepted })).toContain(imported);
+      const last = await reads.node(workspaceId, { ...reach, after: imported });
+      expect(last).not.toContain(`**${accepted}**`);
+      expect(last).not.toContain(`**${imported}**`);
+
+      const first = await reads.search(workspaceId, { query: 'unverified', includeImported: true, limit: 1 });
+      expect(first).toContain(`- ${accepted} [business_rule] feature punches:`);
+      expect(first).not.toContain(imported);
+      expect(first).toContain(`Continue with after: "${accepted}"`);
+      const next = await reads.search(workspaceId, {
+        query: 'unverified',
+        includeImported: true,
+        limit: 1,
+        after: accepted,
+      });
+      expect(next).toContain(`- ${imported} [business_rule] (imported, not reviewed) feature punches:`);
+      expect(next).not.toContain('TRUNCATED');
+    } finally {
+      await prisma.intentItem.delete({ where: { workspaceId_id: { workspaceId, id: accepted } } });
+    }
+  });
+
   it('refuses a guessed id with the nearest declared one', async () => {
     const error = await reads.node(workspaceId, { domain: 'attendance' }).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(IntentPublicException);

@@ -28,6 +28,10 @@ import { likePattern } from './intent-context.select.js';
 import { IntentLexicalMatch, lexicalPredicate, matchLexically } from './intent-lexical.js';
 import {
   IMPORT_ARRIVAL_SELECT,
+  REACH_ORDER_BY,
+  afterInReachOrderSql,
+  afterInReachOrderWhere,
+  reachOrderSql,
   type IntentReadReach,
   importedSql,
   isImportedCandidate,
@@ -98,7 +102,7 @@ export interface IntentReadNodeRequest {
   /** Also reach candidates that arrived with a workspace import (see `IntentReadReach`). */
   includeImported?: boolean;
   refs?: boolean;
-  /** Continue a truncated node read after this item id (items are paged by id). */
+  /** Continue a truncated node read after this item id (accepted items first, then by id). */
   after?: string;
 }
 
@@ -112,7 +116,7 @@ export interface IntentReadSearchRequest {
   includeImported?: boolean;
   refs?: boolean;
   limit?: number;
-  /** The last id of the previous page; results are ordered by id. */
+  /** The last id of the previous page; results are ordered accepted first, then by id. */
   after?: string;
 }
 
@@ -385,7 +389,7 @@ export class IntentReadService {
     if (scope?.kind === 'feature') filters.push(Prisma.sql`i.feature_id = ${scope.id}`);
     if (scope?.kind === 'domain') filters.push(Prisma.sql`i.domain_id = ${scope.id}`);
     const conditions = [...filters, reachSql(request)];
-    const page = request.after ? Prisma.sql`AND i.id > ${request.after}` : Prisma.empty;
+    const page = request.after ? Prisma.sql`AND ${afterInReachOrderSql(workspaceId, request.after)}` : Prisma.empty;
     // The matched fields, the item's text first, so a snippet shows content before its title.
     const text = Prisma.sql`concat_ws(' ', i.statement,
       (SELECT string_agg(v #>> '{}', ' ') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(i.body) = 'array' THEN i.body ELSE '[]'::jsonb END) v),
@@ -412,7 +416,7 @@ export class IntentReadService {
         >`SELECT i.id, i.kind::text AS kind, i.domain_id, i.feature_id, ${text} AS text,
             i.authority::text = 'candidate' AS candidate, ${importedSql} AS imported
           FROM intent_items i
-          WHERE ${where} ${page} ORDER BY i.id ASC LIMIT ${limit + 1}`,
+          WHERE ${where} ${page} ORDER BY ${reachOrderSql} LIMIT ${limit + 1}`,
         this.prisma.$queryRaw<{ total: bigint }[]>`SELECT count(*) AS total FROM intent_items i WHERE ${where}`,
       ]);
       const total = Number(totals[0]?.total ?? 0);
@@ -755,10 +759,19 @@ export class IntentReadService {
       ...IMPORT_ARRIVAL_SELECT,
     } as const;
     const base = { workspaceId, ...attachment, ...(kinds ? { kind: { in: kinds } } : {}) };
+    const afterItem = after
+      ? await this.prisma.intentItem.findUnique({
+          where: { workspaceId_id: { workspaceId, id: after } },
+          select: { authority: true },
+        })
+      : null;
     const [rows, superseded, release] = await Promise.all([
       this.prisma.intentItem.findMany({
-        where: { ...base, ...reachWhere(reach), ...(after ? { id: { gt: after } } : {}) },
-        orderBy: { id: 'asc' },
+        where: {
+          ...base,
+          AND: [reachWhere(reach), after ? afterInReachOrderWhere(after, afterItem?.authority) : {}],
+        },
+        orderBy: [...REACH_ORDER_BY],
         take: INTENT_READ_LIMITS.nodeItems + 1,
         select,
       }),
@@ -1098,7 +1111,9 @@ function renderItem(item: ItemRow, style: ItemStyle, options: RenderOptions): st
   return [`- **${item.id}** — ${clean(statement)}`, ...lines.map((line) => (line ? `  ${line}` : ''))];
 }
 
-type DocEntry = { heading: string } | { lines: string[] } | { item: ItemRow; style: ItemStyle };
+const unreviewedRank = (item: ItemRow) => (item.authority === IntentItemAuthority.candidate ? 1 : 0);
+
+type DocEntry ={ heading: string } | { lines: string[] } | { item: ItemRow; style: ItemStyle };
 
 interface DocSection {
   heading: string | null;
@@ -1153,7 +1168,8 @@ function documentSections(
   // without layout): it is what is live, and its planned successor alone would misstate that.
   const unplaced = [...items, ...stillInForce]
     .filter((item) => !rendered.has(item.id))
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    // Reviewed items first, as the page was read: an unreviewed one never leads a section.
+    .sort((a, b) => unreviewedRank(a) - unreviewedRank(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   for (const { kind, heading, style } of KIND_SECTIONS) {
     for (const item of unplaced.filter((candidate) => candidate.kind === kind && !isOpenQuestion(candidate)))
       sectionFor(heading).entries.push({ item, style });
