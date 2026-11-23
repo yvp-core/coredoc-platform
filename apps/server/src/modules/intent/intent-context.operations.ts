@@ -231,6 +231,8 @@ export interface IntentContextRequest {
   feature?: string;
   kinds?: IntentKind[];
   includeCandidates: boolean;
+  /** Also reach candidates that arrived with a workspace import; set by the MCP tool, never by a caller. */
+  includeImported?: boolean;
   includeDiagnostics?: boolean;
   effectivity?: boolean;
   /**

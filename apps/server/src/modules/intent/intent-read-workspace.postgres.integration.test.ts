@@ -858,6 +858,132 @@ describe.skipIf(!TEST_DATABASE_URL)('workspace import and file-like reads (Postg
     expect(domain).toContain('Features: sessions, sign-in');
   });
 
+  it('reaches imported candidates on request, marked unreviewed, and leaves proposed ones out', async () => {
+    // Proposed after the import, so it carries no import arrival.
+    await prisma.intentItem.create({
+      data: {
+        workspaceId,
+        id: 'br-punch-proposed',
+        kind: 'business_rule',
+        domainId: 'time-tracking',
+        featureId: 'punches',
+        title: 'Proposed punch rule',
+        statement: 'An unverified device may punch once.',
+        authority: 'candidate',
+        createdBy: OWNER.id,
+        updatedBy: OWNER.id,
+      },
+    });
+    try {
+      const node = await reads.node(workspaceId, { feature: 'punches', includeImported: true });
+      expect(node).toContain(
+        '- **br-punch-needs-device** — Mobile punching refuses an unverified device.\n' +
+          '  Imported from the existing product, not reviewed.',
+      );
+      expect(node).not.toContain('br-punch-proposed');
+      expect(await reads.node(workspaceId, { feature: 'punches', includeCandidates: true })).toContain(
+        '- **br-punch-proposed** — An unverified device may punch once.\n  Candidate: proposed, not reviewed.',
+      );
+
+      const search = await reads.search(workspaceId, { query: 'unverified', includeImported: true });
+      expect(search).toContain(
+        '1 items match every word of "unverified"\n' +
+          '1 more candidates also match; pass includeCandidates: true to see them.\n' +
+          '- br-punch-needs-device [business_rule] (imported, not reviewed) feature punches:',
+      );
+      expect(await reads.search(workspaceId, { query: 'unverified', includeCandidates: true })).toContain(
+        '- br-punch-proposed [business_rule] (candidate, not reviewed) feature punches:',
+      );
+
+      // A review moves the item out of the set: accepted intent carries no mark.
+      await prisma.intentItem.update({
+        where: { workspaceId_id: { workspaceId, id: 'br-punch-needs-device' } },
+        data: { authority: 'accepted' },
+      });
+      expect(await reads.node(workspaceId, { feature: 'punches' })).not.toContain('not reviewed');
+    } finally {
+      await prisma.intentItem.update({
+        where: { workspaceId_id: { workspaceId, id: 'br-punch-needs-device' } },
+        data: { authority: 'candidate' },
+      });
+      await prisma.intentItem.delete({ where: { workspaceId_id: { workspaceId, id: 'br-punch-proposed' } } });
+    }
+  });
+
+  it('orders and pages accepted items before imported candidates, whatever their ids', async () => {
+    // Sorts after the imported candidate br-punch-needs-device by id.
+    const accepted = 'br-punch-zz-accepted';
+    const imported = 'br-punch-needs-device';
+    await prisma.intentItem.create({
+      data: {
+        workspaceId,
+        id: accepted,
+        kind: 'business_rule',
+        domainId: 'time-tracking',
+        featureId: 'punches',
+        title: 'Kept punches',
+        statement: 'A punch from an unverified device is kept for review.',
+        authority: 'accepted',
+        createdBy: OWNER.id,
+        updatedBy: OWNER.id,
+      },
+    });
+    try {
+      const reach = { feature: 'punches', includeImported: true };
+      const node = await reads.node(workspaceId, reach);
+      expect(node.indexOf(accepted)).toBeGreaterThan(-1);
+      expect(node.indexOf(accepted)).toBeLessThan(node.indexOf(imported));
+      // The candidate follows the accepted item in page order although its id is smaller.
+      expect(await reads.node(workspaceId, { ...reach, after: accepted })).toContain(imported);
+      const last = await reads.node(workspaceId, { ...reach, after: imported });
+      expect(last).not.toContain(`**${accepted}**`);
+      expect(last).not.toContain(`**${imported}**`);
+
+      const first = await reads.search(workspaceId, { query: 'unverified', includeImported: true, limit: 1 });
+      expect(first).toContain(`- ${accepted} [business_rule] feature punches:`);
+      expect(first).not.toContain(imported);
+      expect(first).toContain(`Continue with after: "${accepted}"`);
+      const next = await reads.search(workspaceId, {
+        query: 'unverified',
+        includeImported: true,
+        limit: 1,
+        after: accepted,
+      });
+      expect(next).toContain(`- ${imported} [business_rule] (imported, not reviewed) feature punches:`);
+      expect(next).not.toContain('TRUNCATED');
+
+      // A review between two pages must not move the cursor past what is left.
+      await prisma.intentItem.update({
+        where: { workspaceId_id: { workspaceId, id: accepted } },
+        data: { authority: 'superseded' },
+      });
+      expect(
+        await reads.search(workspaceId, { query: 'unverified', includeImported: true, limit: 1, after: accepted }),
+      ).toContain(`- ${imported} [business_rule]`);
+    } finally {
+      await prisma.intentItem.delete({ where: { workspaceId_id: { workspaceId, id: accepted } } });
+    }
+  });
+
+  it('continues an accepted-only search after its last shown item was superseded', async () => {
+    const idsOf = (text: string) => [...text.matchAll(/^- ([a-z0-9-]+) \[/gm)].map((match) => match[1] as string);
+    const all = idsOf(await reads.search(workspaceId, { query: 'kiosk' }));
+    expect(all.length).toBeGreaterThan(1);
+    const shown = all[0] as string;
+    await prisma.intentItem.update({
+      where: { workspaceId_id: { workspaceId, id: shown } },
+      data: { authority: 'superseded' },
+    });
+    try {
+      expect(idsOf(await reads.search(workspaceId, { query: 'kiosk', after: shown }))).toEqual(all.slice(1));
+    } finally {
+      await prisma.intentItem.update({
+        where: { workspaceId_id: { workspaceId, id: shown } },
+        data: { authority: 'accepted' },
+      });
+    }
+  });
+
   it('refuses a guessed id with the nearest declared one', async () => {
     const error = await reads.node(workspaceId, { domain: 'attendance' }).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(IntentPublicException);

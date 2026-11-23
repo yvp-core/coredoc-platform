@@ -26,6 +26,19 @@ import {
 import { IntentErrorCode } from './contract/index.js';
 import { likePattern } from './intent-context.select.js';
 import { IntentLexicalMatch, lexicalPredicate, matchLexically } from './intent-lexical.js';
+import {
+  IMPORT_ARRIVAL_SELECT,
+  REACH_ORDER_BY,
+  afterInReachOrderSql,
+  afterInReachOrderWhere,
+  reachesCandidates,
+  reachOrderSql,
+  type IntentReadReach,
+  importedSql,
+  isImportedCandidate,
+  reachSql,
+  reachWhere,
+} from './intent-read-reach.js';
 import { INTENT_NODE_SCAN, unknownNodeError } from './intent-node-suggest.js';
 import { readReleaseSnapshot } from './intent-release.service.js';
 import type { Effectivity, ReleaseSnapshot } from './intent-release.fold.js';
@@ -87,8 +100,10 @@ export interface IntentReadNodeRequest {
   feature?: string;
   kind?: string[];
   includeCandidates?: boolean;
+  /** Also reach candidates that arrived with a workspace import (see `IntentReadReach`). */
+  includeImported?: boolean;
   refs?: boolean;
-  /** Continue a truncated node read after this item id (items are paged by id). */
+  /** Continue a truncated node read after this item id (accepted items first, then by id). */
   after?: string;
 }
 
@@ -98,9 +113,11 @@ export interface IntentReadSearchRequest {
   feature?: string;
   kind?: string[];
   includeCandidates?: boolean;
+  /** Also reach candidates that arrived with a workspace import (see `IntentReadReach`). */
+  includeImported?: boolean;
   refs?: boolean;
   limit?: number;
-  /** The last id of the previous page; results are ordered by id. */
+  /** The last id of the previous page; results are ordered accepted first, then by id. */
   after?: string;
 }
 
@@ -173,6 +190,8 @@ interface ItemRow {
   proposedSuccessorOfId: string | null;
   supersededById: string | null;
   sources: { ref: string; locator: string | null; title: string | null }[];
+  /** The import arrival, when the item came with a workspace import. */
+  transitions: { id: bigint }[];
 }
 
 interface NodeRef {
@@ -272,19 +291,19 @@ export class IntentReadService {
 
   async node(workspaceId: string, request: IntentReadNodeRequest): Promise<string> {
     const kinds = parseKinds(request.kind);
-    const authority = authorities(request.includeCandidates);
+    const reach: IntentReadReach = request;
     const target = await this.resolveNode(workspaceId, request);
     const refs = request.refs === true;
 
     const { current, stillInForce, release, more } = await this.loadNodeItems(
       workspaceId,
       target,
-      authority,
+      reach,
       kinds,
       request.after,
     );
     const items = current;
-    const overview = target.kind === 'root' ? await this.productOverview(workspaceId, authority, release) : undefined;
+    const overview = target.kind === 'root' ? await this.productOverview(workspaceId, reach, release) : undefined;
 
     // A continuation page has no layout to fill: its items render in kind order.
     // Items still in force are listed on the first page only, so a continuation does not repeat them.
@@ -331,9 +350,9 @@ export class IntentReadService {
       '',
       overview
         ? `Delivery across the whole product: ${deliveryText(overview.delivery)}.`
-        : `Delivery ${target.kind === 'domain' ? 'across this domain and its features' : 'across this feature and its sub-features'}: ${deliveryText(await this.subtreeDelivery(workspaceId, target, authority, release))}.`,
+        : `Delivery ${target.kind === 'domain' ? 'across this domain and its features' : 'across this feature and its sub-features'}: ${deliveryText(await this.subtreeDelivery(workspaceId, target, reach, release))}.`,
     );
-    footer.push(...(await this.inheritedNote(workspaceId, target, authority)));
+    footer.push(...(await this.inheritedNote(workspaceId, target, reach)));
     lines.push('', INTENT_NODE_FOOTER, ...footer);
     return lines.join('\n');
   }
@@ -370,11 +389,10 @@ export class IntentReadService {
     if (kinds) filters.push(Prisma.sql`i.kind::text IN (${Prisma.join(kinds)})`);
     if (scope?.kind === 'feature') filters.push(Prisma.sql`i.feature_id = ${scope.id}`);
     if (scope?.kind === 'domain') filters.push(Prisma.sql`i.domain_id = ${scope.id}`);
-    const conditions = [
-      ...filters,
-      Prisma.sql`i.authority::text IN (${Prisma.join(authorities(request.includeCandidates))})`,
-    ];
-    const page = request.after ? Prisma.sql`AND i.id > ${request.after}` : Prisma.empty;
+    const conditions = [...filters, reachSql(request)];
+    const page = request.after
+      ? Prisma.sql`AND ${afterInReachOrderSql(request, workspaceId, request.after)}`
+      : Prisma.empty;
     // The matched fields, the item's text first, so a snippet shows content before its title.
     const text = Prisma.sql`concat_ws(' ', i.statement,
       (SELECT string_agg(v #>> '{}', ' ') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(i.body) = 'array' THEN i.body ELSE '[]'::jsonb END) v),
@@ -389,9 +407,19 @@ export class IntentReadService {
       const where = Prisma.join([...conditions, predicate], ' AND ');
       const [rows, totals] = await Promise.all([
         this.prisma.$queryRaw<
-          { id: string; kind: string; domain_id: string | null; feature_id: string | null; text: string }[]
-        >`SELECT i.id, i.kind::text AS kind, i.domain_id, i.feature_id, ${text} AS text FROM intent_items i
-          WHERE ${where} ${page} ORDER BY i.id ASC LIMIT ${limit + 1}`,
+          {
+            id: string;
+            kind: string;
+            domain_id: string | null;
+            feature_id: string | null;
+            text: string;
+            candidate: boolean;
+            imported: boolean;
+          }[]
+        >`SELECT i.id, i.kind::text AS kind, i.domain_id, i.feature_id, ${text} AS text,
+            i.authority::text = 'candidate' AS candidate, ${importedSql} AS imported
+          FROM intent_items i
+          WHERE ${where} ${page} ORDER BY ${reachOrderSql} LIMIT ${limit + 1}`,
         this.prisma.$queryRaw<{ total: bigint }[]>`SELECT count(*) AS total FROM intent_items i WHERE ${where}`,
       ]);
       const total = Number(totals[0]?.total ?? 0);
@@ -408,7 +436,9 @@ export class IntentReadService {
     for (const row of shown) {
       const node = row.feature_id ? `feature ${row.feature_id}` : row.domain_id ? `domain ${row.domain_id}` : 'root';
       const text = request.refs === true ? row.text : stripRefs(row.text);
-      lines.push(`- ${row.id} [${row.kind}] ${node}: ${snippet(text, tokens)}`);
+      // An unreviewed row says so: nothing else on a search line tells it from accepted intent.
+      const unreviewed = row.candidate ? ` (${row.imported ? 'imported' : 'candidate'}, not reviewed)` : '';
+      lines.push(`- ${row.id} [${row.kind}]${unreviewed} ${node}: ${snippet(text, tokens)}`);
     }
     if (rows.length > limit) {
       const last = shown[shown.length - 1]?.id;
@@ -437,14 +467,18 @@ export class IntentReadService {
       const countCandidates = async (match: IntentLexicalMatch) => {
         const [row] = await this.prisma.$queryRaw<{ total: bigint }[]>`
           SELECT count(*) AS total FROM intent_items i
-          WHERE ${Prisma.join([...filters, Prisma.sql`i.authority::text = 'candidate'`, lexicalPredicate(tokens, match)], ' AND ')}`;
+          WHERE ${Prisma.join([...filters, Prisma.sql`i.authority::text = 'candidate' AND NOT ${reachSql(request)}`, lexicalPredicate(tokens, match)], ' AND ')}`;
         return Number(row?.total ?? 0);
       };
       let candidates = await countCandidates(IntentLexicalMatch.All);
       if (candidates === 0 && matched === IntentLexicalMatch.Any)
         candidates = await countCandidates(IntentLexicalMatch.Any);
       if (candidates > 0)
-        lines.splice(1, 0, `${candidates} candidates also match; pass includeCandidates: true to see them.`);
+        lines.splice(
+          1,
+          0,
+          `${candidates} ${request.includeImported ? 'more ' : ''}candidates also match; pass includeCandidates: true to see them.`,
+        );
     }
     return lines.join('\n');
   }
@@ -489,15 +523,10 @@ export class IntentReadService {
     request: { domain?: string; feature?: string; includeCandidates?: boolean },
   ): Promise<IntentNodeDocument> {
     const target = await this.resolveNode(workspaceId, request);
-    const authority = authorities(request.includeCandidates);
-    const { current, stillInForce, release, more } = await this.loadNodeItems(
-      workspaceId,
-      target,
-      authority,
-      undefined,
-    );
+    const reach: IntentReadReach = request;
+    const { current, stillInForce, release, more } = await this.loadNodeItems(workspaceId, target, reach, undefined);
     const items = current;
-    const overview = target.kind === 'root' ? await this.productOverview(workspaceId, authority, release) : undefined;
+    const overview = target.kind === 'root' ? await this.productOverview(workspaceId, reach, release) : undefined;
     const laidOut = documentSections(target.layout, items, stillInForce, false);
     const sections = overview ? productWideSections(laidOut) : laidOut;
 
@@ -548,7 +577,7 @@ export class IntentReadService {
       target.kind === 'root'
         ? []
         : await this.relatedOf(workspaceId, { kind: target.kind as IntentNodeKind, id: target.id });
-    const delivery = overview?.delivery ?? (await this.subtreeDelivery(workspaceId, target, authority, release));
+    const delivery = overview?.delivery ?? (await this.subtreeDelivery(workspaceId, target, reach, release));
     return {
       node: {
         kind: target.kind,
@@ -601,7 +630,7 @@ export class IntentReadService {
    * same scope — the root's own items plus every live domain's subtree — so the
    * domain rows add up to them.
    */
-  private async productOverview(workspaceId: string, authority: IntentItemAuthority[], release: ReleaseSnapshot) {
+  private async productOverview(workspaceId: string, reach: IntentReadReach, release: ReleaseSnapshot) {
     const [domains, domainCount, counts, { delivery, effectiveIn }] = await Promise.all([
       this.prisma.intentDomain.findMany({
         where: { workspaceId, archived: false, ...visibleDomains() },
@@ -611,7 +640,7 @@ export class IntentReadService {
       }),
       this.prisma.intentDomain.count({ where: { workspaceId, archived: false, ...visibleDomains() } }),
       readIntentNodeCounts(this.prisma, workspaceId, PRODUCT_SCOPE),
-      this.deliveryIn(workspaceId, authority, release, PRODUCT_SCOPE_SQL),
+      this.deliveryIn(workspaceId, reach, release, PRODUCT_SCOPE_SQL),
     ]);
     return {
       domains: domains.map((domain): IntentDocumentDomain => {
@@ -640,17 +669,12 @@ export class IntentReadService {
    * by a node read's page, so the numbers do not depend on what one page shows;
    * it reads two columns per item and keeps at most {@link PLANNED_NAMED} ids.
    */
-  private async deliveryIn(
-    workspaceId: string,
-    authority: IntentItemAuthority[],
-    release: ReleaseSnapshot,
-    scope: Prisma.Sql,
-  ) {
+  private async deliveryIn(workspaceId: string, reach: IntentReadReach, release: ReleaseSnapshot, scope: Prisma.Sql) {
     // The COALESCE keeps a decision without a choiceStatus counted, as `isOpenQuestion` does.
     const items = await this.prisma.$queryRaw<{ id: string; domain_id: string | null }[]>`
       SELECT i.id, i.domain_id FROM intent_items i
       WHERE i.workspace_id = ${workspaceId}::uuid
-        AND i.authority::text IN (${Prisma.join(authority)})
+        AND ${reachSql(reach)}
         AND ${scope}
         AND ${visibleDomainSql(Prisma.sql`i.domain_id`)}
         AND NOT (i.kind::text = 'decision' AND COALESCE(i.payload->>'choiceStatus', '') = ${DecisionStatus.Open})
@@ -678,13 +702,12 @@ export class IntentReadService {
   private async subtreeDelivery(
     workspaceId: string,
     target: { kind: 'feature' | 'domain' | 'root'; id: string; domainId: string | null },
-    authority: IntentItemAuthority[],
+    reach: IntentReadReach,
     release: ReleaseSnapshot,
   ): Promise<Delivery> {
-    if (target.kind === 'root')
-      return (await this.deliveryIn(workspaceId, authority, release, PRODUCT_SCOPE_SQL)).delivery;
+    if (target.kind === 'root') return (await this.deliveryIn(workspaceId, reach, release, PRODUCT_SCOPE_SQL)).delivery;
     if (target.kind === 'domain')
-      return (await this.deliveryIn(workspaceId, authority, release, Prisma.sql`i.domain_id = ${target.id}`)).delivery;
+      return (await this.deliveryIn(workspaceId, reach, release, Prisma.sql`i.domain_id = ${target.id}`)).delivery;
     const features = await this.prisma.intentFeature.findMany({
       where: { workspaceId, domainId: target.domainId ?? undefined },
       select: { id: true, parentFeatureId: true },
@@ -700,7 +723,7 @@ export class IntentReadService {
         }
     }
     return (
-      await this.deliveryIn(workspaceId, authority, release, Prisma.sql`i.feature_id IN (${Prisma.join([...below])})`)
+      await this.deliveryIn(workspaceId, reach, release, Prisma.sql`i.feature_id IN (${Prisma.join([...below])})`)
     ).delivery;
   }
 
@@ -713,7 +736,7 @@ export class IntentReadService {
   private async loadNodeItems(
     workspaceId: string,
     target: { kind: 'feature' | 'domain' | 'root'; id: string },
-    authority: IntentItemAuthority[],
+    reach: IntentReadReach,
     kinds: IntentItemKind[] | undefined,
     after?: string,
   ) {
@@ -736,12 +759,23 @@ export class IntentReadService {
       proposedSuccessorOfId: true,
       supersededById: true,
       sources: { select: { ref: true, locator: true, title: true }, orderBy: { id: 'asc' } },
+      ...IMPORT_ARRIVAL_SELECT,
     } as const;
     const base = { workspaceId, ...attachment, ...(kinds ? { kind: { in: kinds } } : {}) };
+    const afterItem =
+      after && reachesCandidates(reach)
+        ? await this.prisma.intentItem.findUnique({
+            where: { workspaceId_id: { workspaceId, id: after } },
+            select: { authority: true },
+          })
+        : null;
     const [rows, superseded, release] = await Promise.all([
       this.prisma.intentItem.findMany({
-        where: { ...base, authority: { in: authority }, ...(after ? { id: { gt: after } } : {}) },
-        orderBy: { id: 'asc' },
+        where: {
+          ...base,
+          AND: [reachWhere(reach), after ? afterInReachOrderWhere(reach, after, afterItem?.authority) : {}],
+        },
+        orderBy: [...REACH_ORDER_BY],
         take: INTENT_READ_LIMITS.nodeItems + 1,
         select,
       }),
@@ -891,17 +925,17 @@ export class IntentReadService {
   private async inheritedNote(
     workspaceId: string,
     target: { kind: 'feature' | 'domain' | 'root'; id: string; domainId: string | null },
-    authority: IntentItemAuthority[],
+    reach: IntentReadReach,
   ): Promise<string[]> {
     if (target.kind === 'root') return [];
     const [domainItems, rootItems] = await Promise.all([
       target.kind === 'feature' && target.domainId
         ? this.prisma.intentItem.count({
-            where: { workspaceId, domainId: target.domainId, featureId: null, authority: { in: authority } },
+            where: { workspaceId, domainId: target.domainId, featureId: null, ...reachWhere(reach) },
           })
         : Promise.resolve(0),
       this.prisma.intentItem.count({
-        where: { workspaceId, domainId: null, featureId: null, authority: { in: authority } },
+        where: { workspaceId, domainId: null, featureId: null, ...reachWhere(reach) },
       }),
     ]);
     const notes: string[] = [];
@@ -933,12 +967,6 @@ function parseKinds(kind: string[] | undefined): IntentItemKind[] | undefined {
     }
   }
   return kind as IntentItemKind[];
-}
-
-function authorities(includeCandidates: boolean | undefined): IntentItemAuthority[] {
-  return includeCandidates
-    ? [IntentItemAuthority.accepted, IntentItemAuthority.candidate]
-    : [IntentItemAuthority.accepted];
 }
 
 /** The stored layout, or — for a node written without one — its statement as the opening paragraph. */
@@ -1029,6 +1057,14 @@ function itemDetails(item: ItemRow, options: RenderOptions): string[] {
   if (item.authority === IntentItemAuthority.superseded && item.supersededById) {
     details.push(`Replaced by ${item.supersededById}; still in production until that ships.`);
   }
+  // The document shows no authority otherwise, so an unreviewed item would read as a settled rule.
+  if (item.authority === IntentItemAuthority.candidate) {
+    details.push(
+      isImportedCandidate(item)
+        ? 'Imported from the existing product, not reviewed.'
+        : 'Candidate: proposed, not reviewed.',
+    );
+  }
   const conditions = Array.isArray(item.appliesWhen) ? (item.appliesWhen as unknown as ContextCondition[]) : [];
   if (conditions.length > 0) details.push(`Applies when ${renderConditions(conditions)}.`);
   const state = options.release.effectivity(item.id);
@@ -1078,6 +1114,8 @@ function renderItem(item: ItemRow, style: ItemStyle, options: RenderOptions): st
   if (style === 'prose') return [`${clean(statement)} [${item.id}]`, ...lines];
   return [`- **${item.id}** — ${clean(statement)}`, ...lines.map((line) => (line ? `  ${line}` : ''))];
 }
+
+const unreviewedRank = (item: ItemRow) => (item.authority === IntentItemAuthority.candidate ? 1 : 0);
 
 type DocEntry = { heading: string } | { lines: string[] } | { item: ItemRow; style: ItemStyle };
 
@@ -1134,7 +1172,8 @@ function documentSections(
   // without layout): it is what is live, and its planned successor alone would misstate that.
   const unplaced = [...items, ...stillInForce]
     .filter((item) => !rendered.has(item.id))
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    // Reviewed items first, as the page was read: an unreviewed one never leads a section.
+    .sort((a, b) => unreviewedRank(a) - unreviewedRank(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   for (const { kind, heading, style } of KIND_SECTIONS) {
     for (const item of unplaced.filter((candidate) => candidate.kind === kind && !isOpenQuestion(candidate)))
       sectionFor(heading).entries.push({ item, style });

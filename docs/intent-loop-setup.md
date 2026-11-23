@@ -196,6 +196,24 @@ removed once intent is on for everyone. On Helm, set it through `server.env.INTE
   `intentRepoKey`) are admin settings outside the list's reach; responses to those
   writes report the stored flag.
 
+## Imported intent in agent reads (`INTENT_READ_IMPORTED`)
+
+A workspace import can bring in thousands of candidates that describe the product as
+it already runs. Until a product manager reviews them, a default read returns none of
+them. Set the server variable `INTENT_READ_IMPORTED=true` (Helm:
+`server.env.INTENT_READ_IMPORTED`) to let agents and developers use them meanwhile.
+
+- The MCP reads `get_intent_context` and `intent_read` (`node`, `search`) then also
+  return candidates that arrived with an import, without `includeCandidates`. A
+  candidate proposed later through `intent_propose` still needs `includeCandidates: true`.
+- Each one is marked: `imported: true` beside `authority: candidate` in a context
+  answer, and "Imported from the existing product, not reviewed" in an `intent_read`
+  document. Accepted items always rank first.
+- Nothing else changes: the items stay candidates in the review queue, the web
+  document shows what its own toggle asks for, anchoring a candidate is still refused,
+  and an item leaves the set as soon as it is accepted, rejected or superseded.
+- Any other value, or unset, is off. Turn it off once the review queue is worked through.
+
 ## Member access and recovery
 
 Any workspace member can save or repair a handoff from their human MCP session,

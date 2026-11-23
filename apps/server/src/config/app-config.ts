@@ -165,6 +165,7 @@ const RawEnvSchema = z.object({
       });
     }
   }),
+  INTENT_READ_IMPORTED: optionalString,
 });
 
 export interface R2Config {
@@ -368,6 +369,14 @@ export interface MiscConfig {
  */
 export interface IntentConfig {
   rolloutRoles?: readonly WorkspaceMemberRole[];
+  /**
+   * `INTENT_READ_IMPORTED`, exact literal `'true'`: the MCP intent reads also
+   * return candidates that arrived with a workspace import, marked as imported,
+   * while they wait for review. Not part of the rollout above: it serves a
+   * workspace whose imported knowledge base is still mostly unreviewed, and is
+   * switched off again once the review queue is worked through.
+   */
+  readImported?: true;
 }
 
 export interface AppConfig {
@@ -385,7 +394,10 @@ export interface AppConfig {
 function toIntent(raw: z.infer<typeof RawEnvSchema>): IntentConfig {
   // Already validated by the schema: every entry is a member role.
   const roles = intentRoleEntries(raw.INTENT_ROLES) as WorkspaceMemberRole[];
-  return roles.length > 0 ? { rolloutRoles: roles } : {};
+  return {
+    ...(roles.length > 0 ? { rolloutRoles: roles } : {}),
+    ...(raw.INTENT_READ_IMPORTED === 'true' ? { readImported: true as const } : {}),
+  };
 }
 
 function toMisc(raw: z.infer<typeof RawEnvSchema>): MiscConfig {
