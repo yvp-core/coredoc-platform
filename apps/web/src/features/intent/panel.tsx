@@ -399,7 +399,10 @@ export function IntentPanel({ workspaceId: id, role, selection, selectedItemId, 
               onOpenNode={onOpenNode}
               onRetry={() => void review.documentQuery.refetch()}
               waiting={review.waiting}
-              onNextProposal={() => void review.nextProposal()}
+              onNextProposal={() => {
+                closeDocumentSearch();
+                void review.nextProposal();
+              }}
               proposalCount={review.proposalCount}
               approveAll={{ canReview: canEdit, busy: review.submitting, onApprove: review.approveAll }}
               search={documentSearch.text}

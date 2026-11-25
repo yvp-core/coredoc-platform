@@ -1,10 +1,6 @@
 /**
- * Search from the document view: the items of the whole workspace that match,
- * grouped by the document (product, domain or feature) each one is written in.
- * Opening a row opens that document at the item.
- *
- * Owns its debounce and its read, like the source picker. The read is the List
- * view's own items route, so both views find the same items for the same text.
+ * The document view's search results. The read is the List view's own items
+ * route, so both views find the same items for the same text.
  */
 
 import { Button } from '@/components/ui/button';
@@ -33,8 +29,7 @@ interface DocumentHits {
   items: IntentItemSummary[];
 }
 
-/** Hits by document, in the order the read answers them. */
-export function groupHitsByDocument(items: readonly IntentItemSummary[]): DocumentHits[] {
+function groupHitsByDocument(items: readonly IntentItemSummary[]): DocumentHits[] {
   const groups = new Map<string, DocumentHits>();
   for (const item of items) {
     const key = JSON.stringify([item.domainId, item.featureId]);

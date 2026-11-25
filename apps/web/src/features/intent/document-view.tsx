@@ -79,11 +79,13 @@ export function IntentDocumentView({
   const scroller = useRef<HTMLDivElement>(null);
 
   // Bring the selected item into view — after "Next proposal" it may be far down the page.
+  // Closing the search results mounts the document again, so that runs it too.
+  const searching = Boolean(searchResults);
   useEffect(() => {
-    if (selectedItemId === null || document === null) return;
+    if (selectedItemId === null || document === null || searching) return;
     const target = scroller.current?.querySelector(`[data-item-id="${CSS.escape(selectedItemId)}"]`);
     target?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }, [selectedItemId, document]);
+  }, [selectedItemId, document, searching]);
 
   return (
     <>
