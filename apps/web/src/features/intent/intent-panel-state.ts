@@ -66,7 +66,7 @@ export function intentBrowseState(input: IntentBrowseStateInput): IntentBrowseSt
 }
 
 /** Display names for the tree nodes the review surface labels rows with. */
-interface IntentTreeNames {
+export interface IntentTreeNames {
   domains: Record<string, string>;
   features: Record<string, string>;
 }
