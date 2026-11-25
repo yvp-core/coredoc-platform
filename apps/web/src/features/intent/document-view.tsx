@@ -14,7 +14,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { plural } from '@coredoc/core/browser/format';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { IntentCountBadges, IntentOpenCommentsBadge } from './count-badges.js';
 import { Chip } from './items-list.js';
 import { IntentMarkdown } from './intent-markdown.js';
@@ -42,6 +42,11 @@ interface IntentDocumentViewProps {
   /** Proposals shown in this document, approvable as one decision. */
   proposalCount?: number;
   approveAll?: IntentApproveAll;
+  /** The search box's text; it searches every document, not only this one. */
+  search?: string;
+  onSearch?: (value: string) => void;
+  /** Shown in place of the document while a search is open. */
+  searchResults?: ReactNode;
 }
 
 interface IntentApproveAll {
@@ -65,17 +70,22 @@ export function IntentDocumentView({
   onNextProposal,
   proposalCount = 0,
   approveAll,
+  search = '',
+  onSearch,
+  searchResults,
 }: IntentDocumentViewProps) {
   const [showRefs, setShowRefs] = useState(false);
   const text = (value: string) => (showRefs ? value : stripSourceRefs(value));
   const scroller = useRef<HTMLDivElement>(null);
 
   // Bring the selected item into view — after "Next proposal" it may be far down the page.
+  // Closing the search results mounts the document again, so that runs it too.
+  const searching = Boolean(searchResults);
   useEffect(() => {
-    if (selectedItemId === null || document === null) return;
+    if (selectedItemId === null || document === null || searching) return;
     const target = scroller.current?.querySelector(`[data-item-id="${CSS.escape(selectedItemId)}"]`);
     target?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }, [selectedItemId, document]);
+  }, [selectedItemId, document, searching]);
 
   return (
     <>
@@ -84,18 +94,33 @@ export function IntentDocumentView({
         <Chip pressed={!includeCandidates} label="Approved only" onClick={() => onToggleCandidates(false)} />
         <span className="mx-1 h-4 w-px bg-border-soft" />
         <Chip pressed={showRefs} label="Source refs" onClick={() => setShowRefs((value) => !value)} />
-        <span className="flex-1" />
+        {onSearch && (
+          <Input
+            type="search"
+            aria-label="Search all documents"
+            placeholder="Search all documents by title, statement or id…"
+            maxLength={200}
+            className="h-7 min-w-[180px] flex-1"
+            value={search}
+            onChange={(event) => onSearch(event.target.value)}
+            // Opening a result closes the results and keeps the text; the box brings them back.
+            onFocus={() => onSearch(search)}
+          />
+        )}
+        {!onSearch && <span className="flex-1" />}
         {onNextProposal && waiting > 0 && (
           <Button variant="outline" size="sm" onClick={onNextProposal} title="Oldest waiting proposals first">
             <span className="num text-blue">{waiting}</span> waiting · Next proposal ›
           </Button>
         )}
       </div>
-      {approveAll && includeCandidates && proposalCount > 0 && (
+      {approveAll && includeCandidates && proposalCount > 0 && !searchResults && (
         <ApproveAllBar count={proposalCount} approveAll={approveAll} />
       )}
       <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
-        {loading ? (
+        {searchResults ? (
+          searchResults
+        ) : loading ? (
           <div className="flex justify-center py-10">
             <Spinner className="text-ink-4" />
           </div>

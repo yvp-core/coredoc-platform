@@ -35,6 +35,7 @@ import { IntentCatalogueFilters } from './catalogue-filters.js';
 import { IntentComments } from './comments.js';
 import { IntentContextPreview } from './context-preview.js';
 import { DeliverySelectionBar } from './delivery-selection-bar.js';
+import { IntentDocumentSearch } from './document-search.js';
 import { IntentDocumentView } from './document-view.js';
 import { IntentEmptyState } from './empty-state.js';
 import {
@@ -81,6 +82,9 @@ export function IntentPanel({ workspaceId: id, role, selection, selectedItemId, 
   const [centerView, setCenterView] = useState<'document' | 'list'>('document');
   const [treeCollapsed, setTreeCollapsed] = useState(false);
   const [onlyPending, setOnlyPending] = useState(false);
+  // Opening a result or a tree node closes the results and keeps the text.
+  const [documentSearch, setDocumentSearch] = useState({ text: '', open: false });
+  const closeDocumentSearch = () => setDocumentSearch((current) => ({ ...current, open: false }));
   const setSelectedItemId = (itemId: string | null) => onFocus(selection, itemId);
 
   /** Rows are the truth: after any write, everything intent-scoped is re-read. */
@@ -193,7 +197,10 @@ export function IntentPanel({ workspaceId: id, role, selection, selectedItemId, 
     if (feature) onSelect({ domainId: feature.domainId, featureId: feature.id });
   };
 
-  const onSelect = (next: IntentTreeSelection) => onFocus(next, null);
+  const onSelect = (next: IntentTreeSelection) => {
+    closeDocumentSearch();
+    onFocus(next, null);
+  };
 
   const { filter, setFilter } = catalogue;
   const toggleOpenQuestions = () => setFilter((current) => ({ ...current, openQuestions: !current.openQuestions }));
@@ -392,9 +399,29 @@ export function IntentPanel({ workspaceId: id, role, selection, selectedItemId, 
               onOpenNode={onOpenNode}
               onRetry={() => void review.documentQuery.refetch()}
               waiting={review.waiting}
-              onNextProposal={() => void review.nextProposal()}
+              onNextProposal={() => {
+                closeDocumentSearch();
+                void review.nextProposal();
+              }}
               proposalCount={review.proposalCount}
               approveAll={{ canReview: canEdit, busy: review.submitting, onApprove: review.approveAll }}
+              search={documentSearch.text}
+              onSearch={(text) => setDocumentSearch({ text, open: true })}
+              searchResults={
+                documentSearch.open && documentSearch.text.trim() !== '' ? (
+                  <IntentDocumentSearch
+                    workspaceId={id}
+                    search={documentSearch.text}
+                    includeCandidates={review.includeCandidates}
+                    names={treeNames}
+                    selectedItemId={selectedItemId}
+                    onOpen={(next, itemId) => {
+                      closeDocumentSearch();
+                      onFocus(next, itemId);
+                    }}
+                  />
+                ) : undefined
+              }
             />
           ) : (
             <>

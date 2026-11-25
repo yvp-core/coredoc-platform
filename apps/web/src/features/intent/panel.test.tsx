@@ -459,3 +459,24 @@ it('keeps the nodes with open comment threads when the structure is filtered to 
   expect(screen.queryByRole('button', { name: /billing-setup/ })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /graph/ })).not.toBeInTheDocument();
 });
+
+it('searches every document from the document view and opens a result in its document', async () => {
+  await mount();
+  fireEvent.click(screen.getByRole('button', { name: 'Document' }));
+  const box = screen.getByRole('searchbox', { name: 'Search all documents' });
+  fireEvent.change(box, { target: { value: 'Rule 22' } });
+
+  // Rule 22 and Rule 220–224, all written at the product root.
+  expect(await screen.findByText('6 items in 1 document')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Whole product · 6' })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: /^Rule 221 / }));
+  expect(await screen.findByRole('heading', { name: 'Product root' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'Rule 221' })).toBeInTheDocument();
+  expect(screen.queryByText('6 items in 1 document')).not.toBeInTheDocument();
+
+  // The text is kept, and the box brings the results back.
+  expect(box).toHaveValue('Rule 22');
+  fireEvent.focus(box);
+  expect(await screen.findByText('6 items in 1 document')).toBeInTheDocument();
+});
