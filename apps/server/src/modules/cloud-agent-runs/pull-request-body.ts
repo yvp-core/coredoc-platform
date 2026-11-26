@@ -1,3 +1,5 @@
+import { withoutIssueKey } from '@coredoc/core/agent-runner';
+
 /**
  * Issue keys other than the run's own get a non-breaking hyphen: Delivery
  * analytics reads keys from titles and bodies and must not link unrelated
@@ -41,7 +43,6 @@ export interface PullRequestBodyInput {
   repository: string;
   summary: string | null;
   mergeOrder: string[];
-  assumptions: string[];
   withheldPaths: string[];
   binaryPaths: string[];
   notBuiltOrTested: string | null;
@@ -62,6 +63,7 @@ interface Block {
 
 export function assemblePullRequest(input: PullRequestBodyInput): { title: string; body: string } {
   const clean = (text: string, cap: number) => sanitiseAgentText(text.slice(0, cap), input.issueKey);
+  const bareTitle = clean(withoutIssueKey(input.issueKey, input.specTitle), PART_CAPS.title);
   const path = (text: string) => codePath(text.slice(0, PART_CAPS.path), input.issueKey);
   const blocks: Block[] = [];
   const section = (heading: string, items: string[], itemSeparator: Block['separator'] = '\n') => {
@@ -78,12 +80,6 @@ export function assemblePullRequest(input: PullRequestBodyInput): { title: strin
       (key, index) => `${index + 1}. ${key}${key === input.repository ? ' (this pull request)' : ''}`,
     ),
   );
-  if (input.assumptions.length) {
-    section(
-      '## Assumptions',
-      input.assumptions.map((text) => `- ${clean(text, PART_CAPS.item)}`),
-    );
-  }
   if (input.withheldPaths.length || input.binaryPaths.length) section('## For review', []);
   if (input.withheldPaths.length) {
     blocks.push({ separator: '\n\n', text: 'Withheld from the push, for a person to apply:' });
@@ -117,7 +113,7 @@ export function assemblePullRequest(input: PullRequestBodyInput): { title: strin
   }
   if (truncated) main += TRUNCATION_NOTE;
   return {
-    title: `${input.issueKey}: ${clean(input.specTitle.trim(), PART_CAPS.title)}`,
+    title: bareTitle ? `${input.issueKey}: ${bareTitle}` : input.issueKey,
     body: `${main}\n\n${footer}`,
   };
 }

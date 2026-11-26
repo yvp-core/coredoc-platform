@@ -14,7 +14,6 @@ import { GithubRepositoryResolver } from '../../libs/github/github-repository-re
 import { GITHUB_CLIENT_FACTORY, type GithubClientFactory } from '../delivery/github-importer.service.js';
 import { strictPullWithHeadSchema } from '../../libs/github/github-pull.js';
 import { CloudAgentRunImplementService, type RunResult, runRepositories } from './cloud-agent-run-implement.service.js';
-import type { RunAssumption } from './cloud-agent-run-scope.service.js';
 import { assemblePullRequest } from './pull-request-body.js';
 import { CLOUD_AGENT_RUNS_RETRY_DELAY, withRetries } from './retry.js';
 import { runPageUrl } from './run-links.js';
@@ -75,9 +74,6 @@ export class CloudAgentRunDeliveryService {
       select: { title: true },
     });
     const result = run.result as unknown as RunResult | null;
-    const assumptions = ((Array.isArray(run.assumptions) ? run.assumptions : []) as unknown as RunAssumption[]).map(
-      (assumption) => assumption.text,
-    );
     const runUrl = await runPageUrl(this.prisma, run.workspaceId, run.id);
     const previousRunUrl = run.previousRunId ? await runPageUrl(this.prisma, run.workspaceId, run.previousRunId) : null;
     const mergeOrder = repositories.map((repository) => repository.key);
@@ -94,7 +90,6 @@ export class CloudAgentRunDeliveryService {
               repository: repository.key,
               summary: result?.repositories.find((entry) => entry.key === repository.key)?.summary ?? null,
               mergeOrder,
-              assumptions,
               withheldPaths: own.withheldPaths ?? [],
               binaryPaths: own.binaryPaths ?? [],
               notBuiltOrTested: own.notBuiltOrTested,
@@ -122,6 +117,7 @@ export class CloudAgentRunDeliveryService {
     );
     const recorded = new Set(recordedPullRequests(run).map((pull) => pull.repository));
     const bases = new Map(runRepositories(run).map((repository) => [repository.key, repository.baseBranch ?? null]));
+    const pushed = new Map(runRepositories(run).map((repository) => [repository.key, repository.lastPushedHead]));
     const seen = new Set<string>();
     const verified: RecordedPullRequest[] = [];
     const failures: string[] = [];
@@ -134,9 +130,16 @@ export class CloudAgentRunDeliveryService {
       try {
         if (report.pullRequest) {
           const { number } = report.pullRequest;
-          verified.push(
-            await this.verifyOne(run, report.key, number, !recorded.has(report.key), bases.get(report.key) ?? null),
+          const { recorded: pull, head } = await this.verifyOne(
+            run,
+            report.key,
+            number,
+            !recorded.has(report.key),
+            bases.get(report.key) ?? null,
           );
+          // Recorded first: a pull request that lags its branch is still this run's.
+          verified.push(pull);
+          await this.confirmHead(run, pull, head, pushed.get(report.key) ?? null);
         } else {
           await this.confirmUnchanged(run, report.key, bases.get(report.key) ?? null);
         }
@@ -199,7 +202,7 @@ export class CloudAgentRunDeliveryService {
     number: number,
     openedByThisRun: boolean,
     base: string | null,
-  ): Promise<RecordedPullRequest> {
+  ): Promise<{ recorded: RecordedPullRequest; head: string }> {
     const { owner, name, gitOrigin, pull } = await this.fetchPull(run, key, number);
     const fullName = `${owner}/${name}`.toLowerCase();
     if (
@@ -219,14 +222,43 @@ export class CloudAgentRunDeliveryService {
       throw new Unconfirmed(`Pull request #${number} in ${key} is not a draft, as one this run opens must be.`);
     }
     return {
-      repository: key,
-      number: pull.number,
-      url: `${gitOrigin}/${owner}/${name}/pull/${pull.number}`,
-      state,
-      draft: pull.draft,
-      created: openedByThisRun,
-      verifiedAt: this.now().toISOString(),
+      recorded: {
+        repository: key,
+        number: pull.number,
+        url: `${gitOrigin}/${owner}/${name}/pull/${pull.number}`,
+        state,
+        draft: pull.draft,
+        created: openedByThisRun,
+        verifiedAt: this.now().toISOString(),
+      },
+      head: pull.head.sha,
     };
+  }
+
+  /**
+   * An open pull request must show the commit this run pushed last. GitHub can
+   * leave a pull request on an older commit after a push; reviewers and CI then
+   * see old code while the run reports the round delivered. A head that is not
+   * behind the push (a person pushed on top, or rewrote the branch) is theirs.
+   */
+  private async confirmHead(
+    run: CloudAgentRun,
+    pull: RecordedPullRequest,
+    head: string,
+    pushedHead: string | null,
+  ): Promise<void> {
+    if (pull.state !== 'open' || !pushedHead || head === pushedHead) return;
+    const { owner, name, client } = await this.repository(run, pull.repository);
+    const { status } = await withRetries(
+      () => client.compareCommits(owner, name, head, pushedHead),
+      transientGithub,
+      this.retryDelay,
+    );
+    if (status === 'ahead') {
+      throw new Unconfirmed(
+        `Pull request #${pull.number} in ${pull.repository} still shows commit ${head.slice(0, 7)}, but this run pushed ${pushedHead.slice(0, 7)} to ${run.branch}. Reviewers and CI see the older commit.`,
+      );
+    }
   }
 
   /** A repository reported unchanged must show no commits on the run branch ahead of its base (or default) branch. */

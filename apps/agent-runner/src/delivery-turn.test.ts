@@ -60,7 +60,7 @@ describe('delivery turns in the runner loop', () => {
       delivery: {
         pullRequests: ['billing-api', 'orders-api'].map((key) => ({
           key,
-          title: 'PROJ-1: Order exports',
+          title: version === 1 ? 'PROJ-1: Order exports' : `PROJ-1: Order exports v${version}`,
           body: `Changes in ${key} (body v${version})`,
         })),
       },
@@ -92,7 +92,7 @@ describe('delivery turns in the runner loop', () => {
 
   const lastCompletion = () => api.completions.at(-1)!.body;
 
-  it('opens one draft pull request per repository against the default branch, and reuses them when run twice', async () => {
+  it('opens one draft pull request per repository against the default branch, and reuses them with the new title and body when run twice', async () => {
     await expect(runTurn(deliveryTurn(1))).resolves.toBe('completed');
     expect(github.pulls.map((pull) => [pull.repository, pull.head, pull.base, pull.draft, pull.title])).toEqual([
       ['example-org/billing-api', `example-org:${BRANCH}`, 'main', true, 'PROJ-1: Order exports'],
@@ -110,6 +110,7 @@ describe('delivery turns in the runner loop', () => {
 
     await expect(runTurn(deliveryTurn(2))).resolves.toBe('completed');
     expect(github.pulls).toHaveLength(2);
+    expect(github.pulls.map((pull) => pull.title)).toEqual(['PROJ-1: Order exports v2', 'PROJ-1: Order exports v2']);
     expect(github.pulls.map((pull) => pull.body)).toEqual([
       'Changes in billing-api (body v2)',
       'Changes in orders-api (body v2)',

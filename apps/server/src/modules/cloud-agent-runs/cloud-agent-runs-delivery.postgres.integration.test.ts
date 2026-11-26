@@ -329,7 +329,8 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
     expect(pulls[1]!.body).toContain(`OPS${NB}9`);
     expect(pulls[1]!.body).not.toMatch(/OPS-9/);
     expect(pulls[1]!.body).toContain('\\![shot]');
-    expect(pulls[1]!.body).toContain('- CSV only');
+    // Assumptions are the run's, not one repository's: they stay on the run page.
+    expect(pulls[1]!.body).not.toContain('CSV only');
     expect(pulls[1]!.body).toContain(`/agent-runs/${runId}`);
     expect(pulls[1]!.body).not.toContain('Export orders as CSV');
   });
@@ -543,6 +544,24 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: delivery (PostgreSQL inte
     const { runId, turn } = await delivering();
     await complete(turn, { deliveries: [opened('billing-api', 999_001), opened('orders-api', 999_002)] }).expect(200);
     expect(await detail(runId)).toMatchObject({ status: 'failed', failureCode: 'delivery_failed', pullRequests: [] });
+  });
+
+  it('a pull request still showing a commit older than the pushed one fails the run, and stays recorded', async () => {
+    const { runId, branch, turn } = await delivering();
+    const number = issueSeed * 10;
+    github.add('example-org/billing-api', { number: number + 1, headRepo: 'example-org/billing-api', headRef: branch });
+    github.add('example-org/orders-api', { number: number + 2, headRepo: 'example-org/orders-api', headRef: branch });
+    github.staleHeads.add('example-org/orders-api');
+    await complete(turn, { deliveries: [opened('billing-api', number + 1), opened('orders-api', number + 2)] }).expect(
+      200,
+    );
+    github.staleHeads.clear();
+    const run = await detail(runId);
+    expect(run).toMatchObject({ status: 'failed', failureCode: 'delivery_failed' });
+    expect(run.failureReason).toMatch(
+      new RegExp(`#${number + 2} in orders-api still shows commit ccccccc, but this run pushed aaaaaaa`),
+    );
+    expect(run.pullRequests.map((pull: { number: number }) => pull.number)).toEqual([number + 1, number + 2]);
   });
 
   it('a touched repository with no report at all fails the run', async () => {

@@ -9,6 +9,7 @@ import {
   type RepositoryReport,
   type RetryDelay,
   RunFailureCode,
+  withoutIssueKey,
 } from '@coredoc/core/agent-runner';
 import { GITHUB_ATTEMPTS, TurnFailure } from '../turn-failure.js';
 import { type Git, GitError } from './git.js';
@@ -160,9 +161,9 @@ export class TurnGit {
     const { git, scanner } = this.options;
     const message = join(this.options.tmp, 'commit-message.txt');
     const subject = title
-      ? `${this.options.issueKey}: ${title.replace(/\s+/g, ' ').trim()}`
+      ? `${this.options.issueKey}: ${withoutIssueKey(this.options.issueKey, title.replace(/\s+/g, ' '))}`
       : `wip(${this.options.issueKey}): turn ${this.options.turnNumber}`;
-    await writeFile(message, `${subject}\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n`);
+    await writeFile(message, `${subject}\n`);
     // The session could rewrite anything under .git: restore what git reads before running any.
     for (const clone of clones) await this.restoreGitDir(clone);
     const env = git.env();

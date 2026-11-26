@@ -203,6 +203,7 @@ export class FakeGithub {
     const pull = this.pullsIn(repository).find((candidate) => candidate.number === Number(number));
     if (method === 'PATCH' && pull) {
       if (typeof body.body === 'string') pull.body = body.body;
+      if (typeof body.title === 'string') pull.title = body.title;
       return reply(200, this.wire(pull));
     }
     return reply(404, { message: 'Not Found' });

@@ -206,14 +206,18 @@ export class GithubApi {
   }
 
   /** A repeated update is harmless, so it retries. */
-  async updatePullBody(repository: AssignedRepository, number: number, body: string): Promise<void> {
+  async updatePull(
+    repository: AssignedRepository,
+    number: number,
+    pull: { title: string; body: string },
+  ): Promise<void> {
     await this.ok(
       await this.send(
         'PATCH',
         `${this.repoPath(repository)}/pulls/${number}`,
         repository,
         RunFailureCode.DeliveryFailed,
-        { body },
+        pull,
       ),
       repository,
       RunFailureCode.DeliveryFailed,
