@@ -31,11 +31,12 @@ function QuestionBlock({ question, answer }: { question: AskedQuestion; answer: 
         {question.multiSelect && <span className="text-[12px] text-ink-4">Any number can be chosen</span>}
       </div>
       <ul aria-label={`Options: ${question.header}`} className="flex flex-col gap-2">
-        {question.options.map((option) => {
+        {question.options.map((option, index) => {
           const chosen = answer?.labels.includes(option.label) ?? false;
           return (
             <li
-              key={option.label}
+              // biome-ignore lint/suspicious/noArrayIndexKey: options are a fixed list and their labels can repeat.
+              key={index}
               className={`grid grid-cols-[16px_minmax(0,1fr)] gap-2 rounded-lg border px-3 py-2 text-[13.5px] ${
                 chosen ? 'border-brand bg-brand-wash' : 'border-border-soft'
               }`}
@@ -99,14 +100,15 @@ export function QuestionRecord({ record }: { record: ConsultantQuestionRecord })
             ) : record.state === 'cancelled' ? (
               <Badge variant="err">
                 <TriangleAlert className="size-3" aria-hidden="true" />
-                Left undecided
+                Closed without an answer
               </Badge>
             ) : null
           }
         />
         <CardBody className="flex flex-col gap-4">
           {record.questions.map((question, index) => (
-            <QuestionBlock key={question.question} question={question} answer={record.answers?.[index]} />
+            // biome-ignore lint/suspicious/noArrayIndexKey: questions are a fixed list and their text can repeat.
+            <QuestionBlock key={index} question={question} answer={record.answers?.[index]} />
           ))}
         </CardBody>
       </article>

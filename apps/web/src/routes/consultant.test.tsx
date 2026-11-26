@@ -89,6 +89,8 @@ let listStatus: number;
 let questionsStatus: number;
 let records: Record<string, unknown[]>;
 let requested: string[];
+let unexpected: string[];
+let otherReadsAllowed: boolean;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status });
@@ -110,6 +112,8 @@ beforeEach(() => {
   questionsStatus = 200;
   records = { [RUN_A]: [OPEN_RECORD, ANSWERED_RECORD, CANCELLED_RECORD], [RUN_B]: [CANCELLED_RECORD], [RUN_C]: [] };
   requested = [];
+  unexpected = [];
+  otherReadsAllowed = false;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
@@ -137,8 +141,9 @@ beforeEach(() => {
         const { openQuestions: _o, unansweredQuestions: _u, ...run } = listed;
         return json({ run, records: records[runId] });
       }
-      // Workspace reads the shell or other pages would issue stay pending.
-      return new Promise<Response>(() => undefined);
+      if (otherReadsAllowed) return new Promise<Response>(() => undefined);
+      unexpected.push(url);
+      throw new Error(`Unexpected request: ${url}`);
     }),
   );
 });
@@ -147,6 +152,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  expect(unexpected).toEqual([]);
 });
 
 function mount(path: string) {
@@ -172,17 +178,26 @@ describe('consultant routing', () => {
   });
 
   it('sends a plain member at the consultant page back to the workspace', async () => {
+    otherReadsAllowed = true;
     role = 'member';
     const router = mount('/consultant/acme');
     await landsOn(router, '/w/acme');
   });
 
-  it('lets an admin open the consultant page with the preview strip', async () => {
+  it('lets an admin open the consultant page with the preview strip in both narrow views', async () => {
     role = 'admin';
     const router = mount('/consultant/acme');
-    expect(await screen.findByText('Preview: this is what consultants see in this workspace.')).toBeInTheDocument();
+    const strip = await screen.findByText('Preview: this is what consultants see in this workspace.');
     expect(screen.getByRole('link', { name: 'Back to the workspace' })).toHaveAttribute('href', '/w/acme');
     expect(router.state.location.pathname).toBe('/consultant/acme');
+    // Narrow width hides whichever of the list and the run is not shown; the strip sits outside both.
+    expect(strip.closest('.hidden')).toBeNull();
+    expect(screen.getByRole('main')).toHaveClass('hidden');
+
+    fireEvent.click(await screen.findByRole('link', { name: /Export settings/ }));
+    await screen.findByRole('heading', { level: 1, name: 'Export settings' });
+    expect(screen.getByRole('navigation', { name: 'Runs' })).toHaveClass('hidden');
+    expect(screen.getByText('Preview: this is what consultants see in this workspace.').closest('.hidden')).toBeNull();
   });
 
   it('shows no preview strip to a consultant', async () => {
@@ -252,7 +267,10 @@ describe('consultant page', () => {
     );
 
     const cancelled = screen.getByRole('article', { name: 'Closed without an answer' });
-    expect(within(cancelled).getByText('Left undecided')).toBeInTheDocument();
+    const mark = within(cancelled)
+      .getAllByText('Closed without an answer')
+      .find((element) => element.classList.contains('bg-danger-wash'));
+    expect(mark?.querySelector('svg')).not.toBeNull();
     expect(within(cancelled).queryByText('Chosen')).toBeNull();
     expect(screen.queryByRole('radio')).toBeNull();
     expect(screen.queryByRole('textbox')).toBeNull();
@@ -309,23 +327,42 @@ describe('consultant page', () => {
     expect(router.state.location.search).toEqual({});
   });
 
-  it('issues no request other than me and the two consultant reads', async () => {
-    mount(`/consultant/acme?run=${RUN_A}`);
+  it('keeps the loaded list and run on screen when a background refetch fails', async () => {
+    const router = mount(`/consultant/acme?run=${RUN_A}`);
+    await screen.findByRole('heading', { level: 1, name: 'Export settings' });
+    listStatus = 502;
+    questionsStatus = 502;
+    await router.options.context.queryClient.refetchQueries({ queryKey: ['ws', 'ws1', 'consultant-runs'] });
+    await waitFor(() => expect(requested.filter((url) => url.startsWith(LIST_PATH)).length).toBeGreaterThan(2));
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Export settings' })).toBeInTheDocument();
+    expect(screen.getAllByRole('article')).toHaveLength(3);
+    expect(within(screen.getByRole('navigation', { name: 'Runs' })).getAllByRole('listitem')).toHaveLength(3);
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+
+  it.each([
+    '/w/acme',
+    '/w/acme/repos',
+  ])('issues no request other than me and the two consultant reads, entering at %s', async (entry) => {
+    const router = mount(entry);
+    await landsOn(router, '/consultant/acme');
+    fireEvent.click(await screen.findByRole('link', { name: /Export settings/ }));
     await screen.findByRole('heading', { level: 1, name: 'Export settings' });
     fireEvent.click(screen.getByRole('link', { name: /Search filters/ }));
     await screen.findByText('No questions on this run yet.');
-    const paths = new Set(requested.map((url) => new URL(url, 'http://local.test').pathname));
-    expect([...paths].sort()).toEqual([
+    expect([...new Set(requested)].sort()).toEqual([
       '/api/v1/me',
-      LIST_PATH,
       `${LIST_PATH}/${RUN_A}/questions`,
       `${LIST_PATH}/${RUN_C}/questions`,
+      `${LIST_PATH}?limit=50&offset=0`,
     ]);
   });
 });
 
 describe('consultant view entry point', () => {
   it('shows the Consultant view button to an admin on the agent runs page, not to a member', async () => {
+    otherReadsAllowed = true;
     role = 'admin';
     mount('/w/acme/agent-runs');
     expect(await screen.findByRole('link', { name: 'Consultant view' })).toHaveAttribute('href', '/consultant/acme');

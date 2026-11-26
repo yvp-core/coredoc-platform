@@ -1,7 +1,7 @@
-import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
+import { type UseQueryResult, useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { ChevronLeft, LogOut, TriangleAlert } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { type ReactNode, useEffect, useRef } from 'react';
 
 import { ApiError } from '@/api/client';
 import {
@@ -26,6 +26,12 @@ const UNTITLED = 'Untitled run';
 
 function isStatus(error: unknown, status: number): boolean {
   return error instanceof ApiError && error.status === status;
+}
+
+/** Both reads poll, so a failed background refetch keeps what is already on screen. */
+function KeepLoaded<T>({ query, children }: { query: UseQueryResult<T>; children: (data: T) => ReactNode }) {
+  if (query.data !== undefined) return <>{children(query.data)}</>;
+  return <QueryBoundary query={query}>{children}</QueryBoundary>;
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -241,6 +247,15 @@ function ConsultantLayout({ workspace, email }: { workspace: Workspace; email: s
         </button>
       </header>
 
+      {hasAdminAccess(workspace.role) && (
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 bg-blue-wash px-4 py-2 text-[13px] text-blue">
+          <span>Preview: this is what consultants see in this workspace.</span>
+          <Link to="/w/$slug" params={{ slug }} className="underline">
+            Back to the workspace
+          </Link>
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1">
         <nav
           aria-label="Runs"
@@ -248,9 +263,9 @@ function ConsultantLayout({ workspace, email }: { workspace: Workspace; email: s
         >
           <div className="px-4 pt-4 pb-2 text-[11.5px] uppercase tracking-[0.04em] text-ink-4">Runs</div>
           <div className="flex min-h-0 flex-1 flex-col">
-            <QueryBoundary query={runs}>
+            <KeepLoaded query={runs}>
               {(list) => <RunsPanel slug={slug} list={list} selected={run} offset={offset} />}
-            </QueryBoundary>
+            </KeepLoaded>
           </div>
         </nav>
 
@@ -267,14 +282,6 @@ function ConsultantLayout({ workspace, email }: { workspace: Workspace; email: s
                 All runs
               </Link>
             )}
-            {hasAdminAccess(workspace.role) && (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-blue-wash px-3 py-2 text-[13px] text-blue">
-                <span>Preview: this is what consultants see in this workspace.</span>
-                <Link to="/w/$slug" params={{ slug }} className="underline">
-                  Back to the workspace
-                </Link>
-              </div>
-            )}
             {!run ? (
               <>
                 <h1 className="text-[22px] font-medium leading-tight tracking-[-0.02em] text-ink-1">Runs</h1>
@@ -286,7 +293,7 @@ function ConsultantLayout({ workspace, email }: { workspace: Workspace; email: s
                 <EmptyNote>This run is not available. Choose another run from the list.</EmptyNote>
               </>
             ) : (
-              <QueryBoundary query={questions}>{(data) => <RunView data={data} />}</QueryBoundary>
+              <KeepLoaded query={questions}>{(data) => <RunView data={data} />}</KeepLoaded>
             )}
           </div>
         </main>
