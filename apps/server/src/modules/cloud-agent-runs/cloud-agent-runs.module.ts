@@ -4,6 +4,7 @@ import { DatabaseModule } from '../../database/database.module.js';
 import { GithubRepositoryResolver } from '../../libs/github/github-repository-resolver.service.js';
 import { CLOUD_AGENT_RUN_ARCHIVE_STORE, ObjectStorageArchiveStore } from './cloud-agent-run-archive.store.js';
 import { CloudAgentRunActivityService } from './cloud-agent-run-activity.service.js';
+import { CloudAgentRunConsultantService } from './cloud-agent-run-consultant.service.js';
 import { CloudAgentRunDeliveryService } from './cloud-agent-run-delivery.service.js';
 import { CloudAgentRunImplementService } from './cloud-agent-run-implement.service.js';
 import { CloudAgentRunJiraOutcomes } from './cloud-agent-run-jira-outcomes.service.js';
@@ -23,6 +24,7 @@ import { CloudAgentRunTrigger } from './cloud-agent-run-trigger.service.js';
 import { CloudAgentRunService } from './cloud-agent-run.service.js';
 import { CloudAgentRunnerController } from './cloud-agent-runner.controller.js';
 import { CloudAgentRunsController } from './cloud-agent-runs.controller.js';
+import { CloudAgentRunsConsultantController } from './cloud-agent-runs-consultant.controller.js';
 import { CloudAgentTurnArchiveService } from './cloud-agent-turn-archive.service.js';
 import { CloudAgentTurnService } from './cloud-agent-turn.service.js';
 
@@ -48,6 +50,7 @@ export const cloudAgentRunsCoreProviders = [
   CloudAgentRunDeliveryService,
   CloudAgentRunJiraOutcomes,
   CloudAgentRunActivityService,
+  CloudAgentRunConsultantService,
   GithubRepositoryResolver,
 ];
 
@@ -63,7 +66,7 @@ export class CloudAgentRunsCoreModule {}
 /** Not the desktop telemetry `AgentRunsModule`. */
 @Module({
   imports: [AuthModule, CloudAgentRunsCoreModule],
-  controllers: [CloudAgentRunsController, CloudAgentRunnerController],
+  controllers: [CloudAgentRunsController, CloudAgentRunsConsultantController, CloudAgentRunnerController],
 })
 export class CloudAgentRunsApiModule {}
 

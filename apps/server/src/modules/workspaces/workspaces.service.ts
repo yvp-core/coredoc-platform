@@ -1,4 +1,11 @@
-import { BadGatewayException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import {
+  BadGatewayException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { WorkOSInvitationsService } from '../../auth/workos-invitations.service.js';
 import { ControlPlaneService, type Workspace } from '../../database/control-plane.service.js';
 import type { CreateWorkspaceInput, EnableCloudInput, UpdateWorkspaceInput } from './workspaces.contract.js';
@@ -29,15 +36,20 @@ export class WorkspacesService {
   /**
    * The caller's workspaces. `intentEnabled` is per actor (the desktop gates its
    * Intent tab on it): a role outside the TEMPORARY `INTENT_ROLES` list sees it off.
+   * A consultant sees only the workspace's identity, none of its settings.
    */
   async getUserWorkspaces(user: { id: string; email: string; displayName?: string }) {
     await this.controlPlane.linkPendingMemberships(user);
     const workspaces = await this.controlPlane.listWorkspacesForUser(user.id);
-    return workspaces.map((ws: Workspace & { role: string }) => ({
-      ...sanitizeWorkspace(ws),
-      intentEnabled: intentEnabledForActor(ws.intentEnabled, ws.role, this.intent),
-      role: ws.role,
-    }));
+    return workspaces.map((ws: Workspace & { role: string }) =>
+      ws.role === WorkspaceMemberRole.Consultant
+        ? { id: ws.id, name: ws.name, slug: ws.slug, role: ws.role }
+        : {
+            ...sanitizeWorkspace(ws),
+            intentEnabled: intentEnabledForActor(ws.intentEnabled, ws.role, this.intent),
+            role: ws.role,
+          },
+    );
   }
 
   /**
@@ -63,6 +75,12 @@ export class WorkspacesService {
   }
 
   async createWorkspace(userId: string, email: string, displayName: string | undefined, dto: CreateWorkspaceInput) {
+    // Linked first, as GET /workspaces does, so a fresh consultant invitation counts.
+    await this.controlPlane.linkPendingMemberships({ id: userId, email, displayName });
+    const memberships = await this.controlPlane.listWorkspacesForUser(userId);
+    if (memberships.length > 0 && memberships.every((m) => m.role === WorkspaceMemberRole.Consultant)) {
+      throw new ForbiddenException('A consultant cannot create a workspace');
+    }
     // Authorization always starts locally. MembersService lazily creates the
     // WorkOS organization on first invite; non-WorkOS providers stay local.
     const workspace = await this.controlPlane.createWorkspace(dto.name, dto.slug);

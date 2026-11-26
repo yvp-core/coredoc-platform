@@ -6,6 +6,8 @@ export enum WorkspaceMemberRole {
   Product = 'product',
   /** Reads intent, never code: no graph and no source (auth/iam.ts). */
   Support = 'support',
+  /** An external person who reads only the question threads of runs on no repository (auth/iam.ts). */
+  Consultant = 'consultant',
 }
 
 /** Roles assignable via the API — excludes owner. */
@@ -14,6 +16,7 @@ export const ASSIGNABLE_ROLES = [
   WorkspaceMemberRole.Product,
   WorkspaceMemberRole.Member,
   WorkspaceMemberRole.Support,
+  WorkspaceMemberRole.Consultant,
 ] as const;
 
 /**

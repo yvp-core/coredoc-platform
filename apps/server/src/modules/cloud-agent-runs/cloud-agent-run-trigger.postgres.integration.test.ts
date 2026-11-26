@@ -275,6 +275,9 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
       branch: 'coredoc/ORD-1',
       currentTurn: { kind: 'scope', state: 'queued' },
     });
+    expect((await prisma.cloudAgentRun.findUniqueOrThrow({ where: { id: started.id } })).issueTitle).toBe(
+      'Summary of ORD-1',
+    );
     expect(created.find((run) => run.issueKey === 'ORD-2')).toMatchObject({
       trigger: 'jira_label',
       status: 'failed',
@@ -397,6 +400,22 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     ]);
   });
 
+  it('a run owner who became a consultant counts as removed: no Jira-triggered run, settings say why', async () => {
+    const { id, jira } = await workspace();
+    jira.issues = [{ id: '10032', key: 'ORD-32', labels: ['coredoc-agent'] }];
+    await prisma.accessBinding.updateMany({
+      where: { workspaceId: id, userId: OWNER.id, resourceType: 'workspace' },
+      data: { role: 'consultant' },
+    });
+
+    await trigger();
+    expect(jira.searches).toEqual([]);
+    expect(await runs(id)).toEqual([]);
+    const view = await settings(id);
+    expect(view.runOwner).toMatchObject({ userId: OWNER.id, valid: false });
+    expect(view.trigger.reasons).toEqual([expect.objectContaining({ code: 'run_owner_removed' })]);
+  });
+
   it('the concurrency queue starts runs oldest first under concurrent manual starts and promotion', async () => {
     const { id } = await workspace({ settings: { maxStartedRuns: 1 } });
 
@@ -490,6 +509,11 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     expect(early.body.code).toBe('RUN_NOT_TERMINAL');
 
     await finish(first.id);
+    expect((await prisma.cloudAgentRun.findUniqueOrThrow({ where: { id: first.id } })).issueTitle).toBe(
+      'Summary of ORD-61',
+    );
+    // A re-run copies the title from the run before it instead of reading Jira again.
+    await prisma.cloudAgentRun.update({ where: { id: first.id }, data: { issueTitle: 'Orders, as first started' } });
     await api()
       .put(`${runsBase(id)}/settings`)
       .set('Authorization', human(OWNER))
@@ -514,6 +538,9 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
       model: 'test-model',
       spend: { maxUsd: 40 },
     });
+    expect((await prisma.cloudAgentRun.findUniqueOrThrow({ where: { id: rerun.body.id } })).issueTitle).toBe(
+      'Orders, as first started',
+    );
 
     const again = await api()
       .post(`${runsBase(id)}/${first.id}/rerun`)

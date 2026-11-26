@@ -49,6 +49,7 @@ export interface ResolvedIssue {
   issueId: string;
   issueKey: string;
   jiraConnectorId: string;
+  title: string | null;
 }
 
 interface Connector {
@@ -88,7 +89,12 @@ export class CloudAgentRunIssueReader {
   async resolveIssue(workspaceId: string, issueKey: string): Promise<ResolvedIssue> {
     const connector = await this.connector(workspaceId);
     const issue = await this.readIssue(connector, issueKey, ['summary', 'project']);
-    return { issueId: String(issue.id), issueKey: String(issue.key), jiraConnectorId: connector.id };
+    return {
+      issueId: String(issue.id),
+      issueKey: String(issue.key),
+      jiraConnectorId: connector.id,
+      title: text(record(issue.fields).summary),
+    };
   }
 
   /** `epicKey`: the issue itself when it is an epic, else its parent epic, else null. */

@@ -450,5 +450,17 @@ describe('WebAuthController', () => {
 
       expect(result.workspaces[0]?.intentEnabled).toBe(true);
     });
+
+    it('reports intent and agent runs off for a consultant, keeping the shape', async () => {
+      controlPlane.listWorkspacesForUser.mockResolvedValue([
+        { id: 'ws_c', name: 'Acme', slug: 'acme', role: 'consultant', intentEnabled: true, agentRunsEnabled: true },
+      ]);
+
+      const result = await controller.me({ id: 'user_1', email: 'a@b.com' });
+
+      expect(result.workspaces).toEqual([
+        { id: 'ws_c', name: 'Acme', slug: 'acme', role: 'consultant', intentEnabled: false, agentRunsEnabled: false },
+      ]);
+    });
   });
 });

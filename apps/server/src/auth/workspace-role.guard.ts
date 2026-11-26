@@ -11,6 +11,7 @@ const REQUIRED_ACTION: Record<string, Action> = {
   code: 'graph.read',
   admin: 'workspace.manage',
   owner: 'workspace.own',
+  consultant: 'consultant-runs.read',
 };
 
 @Injectable()

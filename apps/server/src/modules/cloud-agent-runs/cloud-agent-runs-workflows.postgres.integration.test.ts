@@ -501,6 +501,14 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: workflows (PostgreSQL int
       return { runId: run.id as string, questions, report: await claimTurn() };
     }
 
+    it('keeps the issue title, cut to the column length', async () => {
+      const issueKey = jira.add({ key: 'PROJ-9001', summary: `A${'\u{1F600}'.repeat(300)}`, project: 'PROJ' }).key;
+      const { body: run } = await start({ workflow: 'x', issueKey }).expect(201);
+
+      const row = await prisma.cloudAgentRun.findUniqueOrThrow({ where: { id: run.id } });
+      expect(row.issueTitle).toBe(`A${'\u{1F600}'.repeat(254)}`);
+    });
+
     it('hands out no repositories and no branch scan in any phase', async () => {
       const { questions, report } = await reporting();
       for (const turn of [questions, report]) {

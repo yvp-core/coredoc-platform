@@ -43,6 +43,7 @@ import type { AuthUser } from '../auth/decorators/current-user.decorator.js';
 import { AuthService } from '../auth/auth.service.js';
 import { isExactAgentRunnerPurpose, isExactTelemetryPurpose } from '../auth/token-permissions.js';
 import { ControlPlaneService } from '../database/control-plane.service.js';
+import { roleAllows } from '../auth/iam.js';
 import { serverUrl } from '../auth/oauth/server-url.js';
 import { redactForLog, redactSensitiveQueryParams } from '../libs/redact-url.js';
 import { McpAuthKind, type AuthenticatedMcpRequest } from './mcp-auth-context.js';
@@ -57,6 +58,9 @@ function exactPurposeRefusal(permissions: readonly string[]): string | null {
   if (isExactAgentRunnerPurpose(permissions)) return 'Agent runner tokens may access only the agent runner API';
   return null;
 }
+
+/** A member whose role cannot read the workspace (a consultant) never reaches MCP. */
+const ROLE_REFUSAL = 'Your workspace role does not allow MCP access';
 
 /** Header a client sets to pick one of several accessible workspaces. */
 export const WORKSPACE_HEADER = 'x-coredoc-workspace';
@@ -170,6 +174,10 @@ export class McpRewriteMiddleware implements NestMiddleware {
       this.refuse(req, res, 403, { error: 'Workspace membership required' }, { user });
       return;
     }
+    if (!roleAllows(member.role, 'workspace.read')) {
+      this.refuse(req, res, 403, { error: ROLE_REFUSAL }, { user });
+      return;
+    }
 
     // Attach user context for downstream tools
     trusted.user = user;
@@ -236,6 +244,10 @@ export class McpRewriteMiddleware implements NestMiddleware {
         this.refuse(req, res, 403, { error: 'Workspace membership required' }, { user });
         return;
       }
+      if (!roleAllows(member.role, 'workspace.read')) {
+        this.refuse(req, res, 403, { error: ROLE_REFUSAL }, { user });
+        return;
+      }
 
       trusted.workspaceId = workspaceId;
       trusted.user = user;
@@ -256,8 +268,11 @@ export class McpRewriteMiddleware implements NestMiddleware {
     }
 
     // Membership list doubles as the membership check: only workspaces the
-    // user belongs to are selectable, so whatever gets picked is authorized.
-    const workspaces = await this.controlPlane.listWorkspacesForUser(user.id);
+    // user belongs to and whose role reads the workspace are selectable, so
+    // whatever gets picked is authorized.
+    const workspaces = (await this.controlPlane.listWorkspacesForUser(user.id)).filter((w) =>
+      roleAllows(w.role, 'workspace.read'),
+    );
 
     if (workspaces.length === 0) {
       this.refuse(req, res, 403, { error: 'No accessible workspaces for this user' }, { user });

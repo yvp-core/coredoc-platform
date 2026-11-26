@@ -8,6 +8,7 @@ import { GithubRepositoryResolver } from '../../libs/github/github-repository-re
 import { CloudAgentRunAvailability } from './cloud-agent-run-availability.service.js';
 import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js';
 import type { UpdateSettingsInput } from './cloud-agent-runs.contract.js';
+import { canActAsRunOwner } from './run-checks.js';
 import { QuestionsPolicy, RunnerRefusal, RunnerSeenAction, ScopeAcceptancePolicy } from './run-states.js';
 import { CLOUD_AGENT_RUNS_CLOCK, type Clock, systemClock } from './run-store.js';
 
@@ -140,7 +141,7 @@ export class CloudAgentRunSettingsService {
             userId: settings.runOwnerId,
             email: owner?.email ?? null,
             // Jira-triggered runs need a current, non-pending member to act as.
-            valid: Boolean(owner && !owner.pending),
+            valid: canActAsRunOwner(owner),
           }
         : null,
       triggerLabel: settings.triggerLabel,

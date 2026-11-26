@@ -1731,6 +1731,8 @@ model CloudAgentRun {
   /// The immutable Jira issue id is the identity; the key changes when an issue moves.
   jiraIssueId            String    @map("jira_issue_id") @db.VarChar(64)
   issueKey               String    @map("issue_key") @db.VarChar(64)
+  /// The issue's summary when the run was created, cut to the column; null on runs created before it was kept.
+  issueTitle             String?   @map("issue_title") @db.VarChar(255)
   /// Plain column: connectors can be deleted, runs are never-deleted human records.
   jiraConnectorId        String?   @map("jira_connector_id") @db.Uuid
   /// `jira_label`, `manual` or `rerun`.

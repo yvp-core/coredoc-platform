@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { WorkspacesService } from './workspaces.service.js';
 import type { ControlPlaneService } from '../../database/control-plane.service.js';
 import type { WorkOSInvitationsService } from '../../auth/workos-invitations.service.js';
@@ -9,7 +9,7 @@ import { WorkspaceMemberRole } from '../members/dto/workspace-role.enum.js';
 
 function createMockControlPlane() {
   return {
-    listWorkspacesForUser: vi.fn(),
+    listWorkspacesForUser: vi.fn().mockResolvedValue([]),
     linkPendingMemberships: vi.fn().mockResolvedValue(undefined),
     getWorkspaceById: vi.fn(),
     createWorkspace: vi.fn(),
@@ -66,6 +66,30 @@ describe('WorkspacesService', () => {
       ]);
       expect(controlPlane.linkPendingMemberships).toHaveBeenCalledWith({ id: 'user_1', email: 'a@b.com' });
       expect(controlPlane.listWorkspacesForUser).toHaveBeenCalledWith('user_1');
+    });
+
+    it('shows a consultant only the identity of the workspace', async () => {
+      controlPlane.listWorkspacesForUser.mockResolvedValue([
+        {
+          id: 'ws_1',
+          name: 'Acme',
+          slug: 'acme',
+          role: 'consultant',
+          isCloud: true,
+          ciCdEnabled: true,
+          deliveryEnabled: true,
+          intentEnabled: true,
+          graphBackend: 'file_snapshot',
+          activeGraphVersionId: 'v1',
+          agentRunsEnabled: true,
+          syncedAt: new Date(),
+          createdAt: new Date(),
+        },
+      ]);
+
+      const result = await service.getUserWorkspaces({ id: 'user_1', email: 'a@b.com' });
+
+      expect(result).toEqual([{ id: 'ws_1', name: 'Acme', slug: 'acme', role: 'consultant' }]);
     });
   });
 
@@ -222,6 +246,47 @@ describe('WorkspacesService', () => {
         'owner',
         'User One',
       );
+    });
+
+    it('refuses a user whose every membership is a consultant one', async () => {
+      controlPlane.listWorkspacesForUser.mockResolvedValue([
+        { id: 'ws_1', role: 'consultant' },
+        { id: 'ws_2', role: 'consultant' },
+      ]);
+
+      await expect(
+        service.createWorkspace('profile_abc', 'user@example.com', undefined, { name: 'Acme', slug: 'acme' }),
+      ).rejects.toThrow(ForbiddenException);
+      expect(controlPlane.createWorkspace).not.toHaveBeenCalled();
+    });
+
+    it('links pending invitations before deciding, so a just-invited consultant is refused', async () => {
+      const pending = [{ id: 'ws_1', role: 'consultant' }];
+      controlPlane.linkPendingMemberships.mockImplementation(async () => {
+        controlPlane.listWorkspacesForUser.mockResolvedValue(pending);
+      });
+
+      await expect(
+        service.createWorkspace('profile_abc', 'user@example.com', 'User One', { name: 'Acme', slug: 'acme' }),
+      ).rejects.toThrow(ForbiddenException);
+      expect(controlPlane.linkPendingMemberships).toHaveBeenCalledWith({
+        id: 'profile_abc',
+        email: 'user@example.com',
+        displayName: 'User One',
+      });
+      expect(controlPlane.createWorkspace).not.toHaveBeenCalled();
+    });
+
+    it('lets a consultant who holds another role elsewhere create a workspace', async () => {
+      controlPlane.listWorkspacesForUser.mockResolvedValue([
+        { id: 'ws_1', role: 'consultant' },
+        { id: 'ws_2', role: 'member' },
+      ]);
+      controlPlane.createWorkspace.mockResolvedValue({ id: 'ws_3', name: 'Acme', slug: 'acme' });
+
+      await service.createWorkspace('profile_abc', 'user@example.com', undefined, { name: 'Acme', slug: 'acme' });
+
+      expect(controlPlane.createWorkspace).toHaveBeenCalledWith('Acme', 'acme');
     });
   });
 

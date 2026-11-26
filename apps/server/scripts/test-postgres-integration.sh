@@ -90,6 +90,7 @@ CLOUD_AGENT_RUNS_TEST_DATABASE_URL="${database_url}" \
     src/modules/cloud-agent-runs/cloud-agent-runs-limits.postgres.integration.test.ts \
     src/modules/cloud-agent-runs/cloud-agent-runs-workflows.postgres.integration.test.ts \
     src/modules/cloud-agent-runs/cloud-agent-runs-google.postgres.integration.test.ts \
+    src/modules/cloud-agent-runs/cloud-agent-runs-consultant.postgres.integration.test.ts \
     src/auth/oauth/prisma-oauth.store.test.ts \
     src/database/graph-version-migration.integration.test.ts \
     src/modules/graph-snapshot/graph-snapshot-batch.e2e.integration.test.ts \
