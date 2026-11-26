@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasAdminAccess, hasIntentAccess } from './roles';
+import { canOpenConsultantView, hasAdminAccess, hasIntentAccess, isConsultant } from './roles';
 
 describe('role gates', () => {
   it('gives the product role the intent controls but not admin ones', () => {
@@ -14,5 +14,19 @@ describe('role gates', () => {
     }
     expect(hasIntentAccess('member')).toBe(false);
     expect(hasAdminAccess('member')).toBe(false);
+  });
+
+  it('opens the consultant view to consultants and to admins previewing it, never to members', () => {
+    expect(isConsultant('consultant')).toBe(true);
+    expect(canOpenConsultantView('consultant')).toBe(true);
+    expect(hasAdminAccess('consultant')).toBe(false);
+    expect(hasIntentAccess('consultant')).toBe(false);
+    for (const role of ['admin', 'owner']) {
+      expect(isConsultant(role)).toBe(false);
+      expect(canOpenConsultantView(role)).toBe(true);
+    }
+    for (const role of ['member', 'product', 'support']) {
+      expect(canOpenConsultantView(role)).toBe(false);
+    }
   });
 });
