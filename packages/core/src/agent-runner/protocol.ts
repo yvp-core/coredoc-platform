@@ -661,3 +661,13 @@ export const ReserveBranchResponseSchema = z.object({
   branch: z.string(),
 });
 export type ReserveBranchResponse = z.infer<typeof ReserveBranchResponseSchema>;
+
+/**
+ * A scope title without the run's own issue key in front. Agents tend to write
+ * `KEY: outcome`, and pull request titles and commit subjects prefix the key
+ * themselves.
+ */
+export function withoutIssueKey(issueKey: string, title: string): string {
+  const key = issueKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return title.trim().replace(new RegExp(`^${key}(?![A-Za-z0-9])\\s*[:\\-–—]?\\s*`, 'i'), '');
+}

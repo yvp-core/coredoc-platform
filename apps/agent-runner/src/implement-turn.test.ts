@@ -325,10 +325,10 @@ describe('implement turns in the runner loop', () => {
     expect(seen[0]!.toolResults.join()).toMatch(/turn is over/i);
     expect(seen[0]!.denials.join()).toMatch(/turn is over/i);
 
-    // One commit on top of the default branch, with the trailer, author and only the agent's edits.
+    // One commit on top of the default branch, with the author and only the agent's edits.
     const head = remoteHead(bare, BRANCH)!;
     expect(git(bare, 'log', '-1', '--format=%s%n%b%n%an <%ae>', BRANCH)).toBe(
-      'PROJ-1: Orders export\nCo-Authored-By: Claude <noreply@anthropic.com>\n\nCoredoc Bot <bot@users.noreply.example.com>',
+      'PROJ-1: Orders export\n\nCoredoc Bot <bot@users.noreply.example.com>',
     );
     expect(git(bare, 'rev-parse', `${BRANCH}~1`)).toBe(git(bare, 'rev-parse', 'main'));
     expect(remoteFiles(bare, BRANCH)).toEqual(['README.md', 'src/export.ts', 'src/orders.ts']);

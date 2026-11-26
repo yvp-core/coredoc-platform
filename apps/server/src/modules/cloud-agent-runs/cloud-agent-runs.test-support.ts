@@ -238,6 +238,8 @@ export class FakeGithubPulls {
   readonly compare = new Map<string, string>();
   /** Branches besides `main`, as `owner/name:branch`. */
   readonly branches = new Set<string>();
+  /** Repositories, as `owner/name`, whose pull request still shows a commit older than the pushed one. */
+  readonly staleHeads = new Set<string>();
   /** Every compare's base, as `owner/name:base`. */
   readonly compared: string[] = [];
   /** The next N reads answer 502. */
@@ -261,6 +263,10 @@ export class FakeGithubPulls {
         return { name: branch };
       },
       compareCommits: async (owner: string, name: string, base: string) => {
+        // A commit as the base: the pull request's head compared with the pushed one.
+        if (/^[0-9a-f]{40}$/.test(base)) {
+          return { status: this.staleHeads.has(`${owner}/${name}`) ? 'ahead' : 'behind' };
+        }
         this.compared.push(`${owner}/${name}:${base}`);
         if (base !== 'main' && !this.branches.has(`${owner}/${name}:${base}`)) {
           throw new GithubApiError(404, `/repos/${owner}/${name}/compare`);

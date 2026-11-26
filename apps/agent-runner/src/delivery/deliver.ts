@@ -46,8 +46,9 @@ async function deliverOne(
 ): Promise<DeliveryReport | null> {
   const existing = await github.findPullByHead(repository, branch, RunFailureCode.DeliveryFailed);
   if (existing) {
-    // Reuse an open one with a refreshed body; a closed or merged one is recorded, never reopened.
-    if (existing.open && !signal.aborted) await github.updatePullBody(repository, existing.number, planned.body);
+    // Reuse an open one with a refreshed title and body; a closed or merged one is recorded, never reopened.
+    if (existing.open && !signal.aborted)
+      await github.updatePull(repository, existing.number, { title: planned.title, body: planned.body });
     return { key: planned.key, pullRequest: { number: existing.number } };
   }
   const base = repository.baseBranch ?? (await github.defaultBranch(repository, RunFailureCode.DeliveryFailed));

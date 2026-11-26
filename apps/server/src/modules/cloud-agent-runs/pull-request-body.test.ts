@@ -71,7 +71,6 @@ const input = (overrides: Partial<PullRequestBodyInput> = {}): PullRequestBodyIn
   repository: 'orders-api',
   summary: 'Adds the CSV export endpoint.',
   mergeOrder: ['billing-api', 'orders-api'],
-  assumptions: ['CSV only'],
   withheldPaths: [],
   binaryPaths: [],
   notBuiltOrTested: null,
@@ -85,11 +84,19 @@ describe('assemblePullRequest', () => {
     expect(assemblePullRequest(input()).title).toBe('PROJ-12: Order exports');
   });
 
-  it('carries the summary, the merge order, the assumptions and the run link; no spec text', () => {
+  it.each([
+    ['PROJ-12: Order exports', 'PROJ-12: Order exports'],
+    ['proj-12 - Order exports', 'PROJ-12: Order exports'],
+    ['PROJ-12', 'PROJ-12'],
+    ['PROJ-123: another issue', `PROJ-12: PROJ${NB}123: another issue`],
+  ])('a spec title that already names the run’s key (%s) is not prefixed twice', (specTitle, title) => {
+    expect(assemblePullRequest(input({ specTitle })).title).toBe(title);
+  });
+
+  it('carries the summary, the merge order and the run link; no spec text', () => {
     const { body } = assemblePullRequest(input());
     expect(body).toContain('Adds the CSV export endpoint.');
     expect(body).toMatch(/1\. billing-api\n2\. orders-api \(this pull request\)/);
-    expect(body).toContain('- CSV only');
     expect(body).toContain('https://coredoc.example/w/acme/agent-runs/run-1');
     expect(body).not.toMatch(/previous run/i);
     expect(body).not.toMatch(/not built or tested/i);
@@ -118,7 +125,6 @@ describe('assemblePullRequest', () => {
       input({
         specTitle: 'Exports for OPS-1 <img src="https://x.example/t.png">',
         summary: 'Follows OPS-2 ![diagram](https://x.example/d.png)',
-        assumptions: ['Same as PROJ-13 <video poster="https://x.example/v.png">'],
         withheldPaths: ['docs/OPS-3.md', 'evil`\n\n<img src="https://x.example/w.png">'],
         binaryPaths: ['assets/![x](https://x.example/b.png)'],
         notBuiltOrTested: 'Blocked by INFRA-4 <img src="https://x.example/p.png">',
@@ -134,11 +140,12 @@ describe('assemblePullRequest', () => {
   });
 
   it('caps the body between whole parts with a truncation note, keeping the run link', () => {
-    const { body } = assemblePullRequest(input({ assumptions: Array.from({ length: 50 }, () => 'x'.repeat(2_000)) }));
+    const path = 'x'.repeat(1_000);
+    const { body } = assemblePullRequest(input({ withheldPaths: Array.from({ length: 80 }, () => path) }));
     expect(body.length).toBeLessThanOrEqual(MAX_PULL_REQUEST_BODY_CHARS);
     expect(body).toMatch(/truncated/i);
     expect(body).toContain('https://coredoc.example/w/acme/agent-runs/run-1');
-    expect(body.match(/^- x+$/gm)!.every((line) => line === `- ${'x'.repeat(2_000)}`)).toBe(true);
+    expect(body.match(/^- `x.*$/gm)!.every((line) => line === `- \`${path}\``)).toBe(true);
   });
 
   /** Markup and the run's own key placed exactly across a cap: a cut must never form markup or a foreign key. */
@@ -158,13 +165,13 @@ describe('assemblePullRequest', () => {
   });
 
   it('a body cut at its cap, with markup in every part, forms no markup and no foreign key', () => {
-    const assumptions = Array.from({ length: 50 }, (_, index) => acrossCap(PART_CAPS.item)[index % 8]!);
+    const withheldPaths = Array.from({ length: 80 }, (_, index) => acrossCap(PART_CAPS.path)[index % 8]!);
     const { title, body } = assemblePullRequest(
       input({
         specTitle: acrossCap(PART_CAPS.title)[7]!,
         summary: acrossCap(PART_CAPS.summary)[0]!,
-        assumptions,
-        withheldPaths: acrossCap(PART_CAPS.path),
+        notBuiltOrTested: acrossCap(PART_CAPS.item)[0]!,
+        withheldPaths,
       }),
     );
     expect(body.length).toBeLessThanOrEqual(MAX_PULL_REQUEST_BODY_CHARS);
