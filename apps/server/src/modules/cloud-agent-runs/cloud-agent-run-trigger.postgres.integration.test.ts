@@ -275,6 +275,9 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
       branch: 'coredoc/ORD-1',
       currentTurn: { kind: 'scope', state: 'queued' },
     });
+    expect((await prisma.cloudAgentRun.findUniqueOrThrow({ where: { id: started.id } })).issueTitle).toBe(
+      'Summary of ORD-1',
+    );
     expect(created.find((run) => run.issueKey === 'ORD-2')).toMatchObject({
       trigger: 'jira_label',
       status: 'failed',
@@ -490,6 +493,11 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     expect(early.body.code).toBe('RUN_NOT_TERMINAL');
 
     await finish(first.id);
+    expect((await prisma.cloudAgentRun.findUniqueOrThrow({ where: { id: first.id } })).issueTitle).toBe(
+      'Summary of ORD-61',
+    );
+    // A re-run copies the title from the run before it instead of reading Jira again.
+    await prisma.cloudAgentRun.update({ where: { id: first.id }, data: { issueTitle: 'Orders, as first started' } });
     await api()
       .put(`${runsBase(id)}/settings`)
       .set('Authorization', human(OWNER))
@@ -514,6 +522,9 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
       model: 'test-model',
       spend: { maxUsd: 40 },
     });
+    expect((await prisma.cloudAgentRun.findUniqueOrThrow({ where: { id: rerun.body.id } })).issueTitle).toBe(
+      'Orders, as first started',
+    );
 
     const again = await api()
       .post(`${runsBase(id)}/${first.id}/rerun`)

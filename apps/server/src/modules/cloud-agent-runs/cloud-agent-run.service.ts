@@ -57,6 +57,7 @@ type RunWithTurn = CloudAgentRun & { turns: CloudAgentRunTurn[] };
 export interface TriggeredIssue {
   id: string;
   key: string;
+  summary: string | null;
   labels: string[];
 }
 
@@ -96,6 +97,7 @@ export class CloudAgentRunService {
       return this.createAndPromote(tx, workspaceId, settings, {
         jiraIssueId: issue.issueId,
         issueKey: issue.issueKey,
+        issueTitle: issue.title,
         jiraConnectorId: issue.jiraConnectorId,
         trigger: RunTrigger.Manual,
         startedBy: actorId,
@@ -137,6 +139,7 @@ export class CloudAgentRunService {
       return this.createAndPromote(tx, workspaceId, settings, {
         jiraIssueId: previous.jiraIssueId,
         issueKey: previous.issueKey,
+        issueTitle: previous.issueTitle,
         jiraConnectorId: previous.jiraConnectorId,
         trigger: RunTrigger.Rerun,
         startedBy: actorId,
@@ -178,6 +181,7 @@ export class CloudAgentRunService {
         await this.createAndPromote(tx, workspaceId, settings, {
           jiraIssueId: issue.id,
           issueKey: issue.key,
+          issueTitle: issue.summary,
           jiraConnectorId,
           trigger: RunTrigger.JiraLabel,
           startedBy: null,

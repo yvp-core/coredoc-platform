@@ -20,10 +20,11 @@ export function triggerJql(projectKeys: readonly string[], label: string): strin
 }
 
 function asTriggeredIssue(item: Record<string, unknown>): TriggeredIssue | null {
-  const fields = (item.fields ?? {}) as { labels?: unknown };
+  const fields = (item.fields ?? {}) as { summary?: unknown; labels?: unknown };
   if (typeof item.id !== 'string' || typeof item.key !== 'string') return null;
   const labels = Array.isArray(fields.labels) ? fields.labels.filter((l): l is string => typeof l === 'string') : [];
-  return { id: item.id, key: item.key, labels };
+  const summary = typeof fields.summary === 'string' && fields.summary !== '' ? fields.summary : null;
+  return { id: item.id, key: item.key, summary, labels };
 }
 
 @Injectable()

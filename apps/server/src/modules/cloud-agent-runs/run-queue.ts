@@ -22,6 +22,7 @@ import { firstPhase, newSessionIds } from './run-workflow.js';
 export interface NewRun {
   jiraIssueId: string;
   issueKey: string;
+  issueTitle: string | null;
   jiraConnectorId: string | null;
   trigger: RunTrigger;
   startedBy: string | null;
@@ -36,6 +37,8 @@ export interface NewRun {
   /** A Jira-triggered run that fails validation is created `failed`. */
   failure?: { code: RunFailureCode; reason: string };
 }
+
+const ISSUE_TITLE_MAX_CHARS = 255;
 
 function runBranch(issueKey: string, ordinal: number): string {
   return ordinal === 1 ? `coredoc/${issueKey}` : `coredoc/${issueKey}-${ordinal}`;
@@ -56,6 +59,7 @@ export async function createRun(
       workspaceId,
       jiraIssueId: input.jiraIssueId,
       issueKey: input.issueKey,
+      issueTitle: input.issueTitle ? [...input.issueTitle].slice(0, ISSUE_TITLE_MAX_CHARS).join('') : null,
       jiraConnectorId: input.jiraConnectorId,
       trigger: input.trigger,
       startedBy: input.startedBy,

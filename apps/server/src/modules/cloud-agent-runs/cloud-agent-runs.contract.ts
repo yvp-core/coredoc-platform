@@ -101,6 +101,12 @@ export const ListRunsQuerySchema = z.object({
   offset: nonNegativeInt('offset', 0, 1_000_000),
 });
 
+export const ConsultantRunsQuerySchema = z.object({
+  limit: nonNegativeInt('limit', 50, 100).pipe(z.number().min(1, { error: 'limit must be at least 1' })),
+  offset: nonNegativeInt('offset', 0, 1_000_000),
+});
+export type ConsultantRunsQuery = z.infer<typeof ConsultantRunsQuerySchema>;
+
 export const RequestScopeChangesSchema = z.object({
   text: z
     .string({ error: 'text must be a string' })
