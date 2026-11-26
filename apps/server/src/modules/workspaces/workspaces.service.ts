@@ -75,6 +75,8 @@ export class WorkspacesService {
   }
 
   async createWorkspace(userId: string, email: string, displayName: string | undefined, dto: CreateWorkspaceInput) {
+    // Linked first, as GET /workspaces does, so a fresh consultant invitation counts.
+    await this.controlPlane.linkPendingMemberships({ id: userId, email, displayName });
     const memberships = await this.controlPlane.listWorkspacesForUser(userId);
     if (memberships.length > 0 && memberships.every((m) => m.role === WorkspaceMemberRole.Consultant)) {
       throw new ForbiddenException('A consultant cannot create a workspace');

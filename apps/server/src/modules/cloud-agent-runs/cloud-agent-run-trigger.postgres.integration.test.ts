@@ -400,6 +400,22 @@ describe.skipIf(!TEST_DATABASE_URL)('starting cloud agent runs: Jira trigger and
     ]);
   });
 
+  it('a run owner who became a consultant counts as removed: no Jira-triggered run, settings say why', async () => {
+    const { id, jira } = await workspace();
+    jira.issues = [{ id: '10032', key: 'ORD-32', labels: ['coredoc-agent'] }];
+    await prisma.accessBinding.updateMany({
+      where: { workspaceId: id, userId: OWNER.id, resourceType: 'workspace' },
+      data: { role: 'consultant' },
+    });
+
+    await trigger();
+    expect(jira.searches).toEqual([]);
+    expect(await runs(id)).toEqual([]);
+    const view = await settings(id);
+    expect(view.runOwner).toMatchObject({ userId: OWNER.id, valid: false });
+    expect(view.trigger.reasons).toEqual([expect.objectContaining({ code: 'run_owner_removed' })]);
+  });
+
   it('the concurrency queue starts runs oldest first under concurrent manual starts and promotion', async () => {
     const { id } = await workspace({ settings: { maxStartedRuns: 1 } });
 

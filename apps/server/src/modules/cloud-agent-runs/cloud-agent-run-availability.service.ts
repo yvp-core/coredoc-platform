@@ -5,6 +5,7 @@ import { PrismaService } from '../../database/prisma.service.js';
 import type { AgentRunSettings } from '../../generated/prisma/client.js';
 import { LicenseService } from '../license/license.service.js';
 import { CloudAgentRunJiraConnector } from './cloud-agent-run-jira-connector.js';
+import { canActAsRunOwner, RUN_OWNER_FIELDS, runOwnerOf } from './run-checks.js';
 
 export interface AvailabilityReason {
   code: string;
@@ -41,7 +42,7 @@ export class CloudAgentRunAvailability {
       settings.runOwnerId
         ? this.prisma.workspaceMember.findUnique({
             where: { workspaceId_userId: { workspaceId, userId: settings.runOwnerId } },
-            select: { pending: true },
+            select: RUN_OWNER_FIELDS,
           })
         : null,
     ]);
@@ -75,11 +76,11 @@ export class CloudAgentRunAvailability {
       triggerReasons.push(
         reason('run_owner_missing', 'No run owner is recorded; an admin takes over ownership in agent run settings.'),
       );
-    } else if (!owner || owner.pending) {
+    } else if (!canActAsRunOwner(runOwnerOf(owner))) {
       triggerReasons.push(
         reason(
           'run_owner_removed',
-          'The run owner is no longer a workspace member; an admin must take over ownership.',
+          'The run owner is no longer a workspace member who can read it; an admin must take over ownership.',
         ),
       );
     }

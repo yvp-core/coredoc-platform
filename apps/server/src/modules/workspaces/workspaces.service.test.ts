@@ -260,6 +260,23 @@ describe('WorkspacesService', () => {
       expect(controlPlane.createWorkspace).not.toHaveBeenCalled();
     });
 
+    it('links pending invitations before deciding, so a just-invited consultant is refused', async () => {
+      const pending = [{ id: 'ws_1', role: 'consultant' }];
+      controlPlane.linkPendingMemberships.mockImplementation(async () => {
+        controlPlane.listWorkspacesForUser.mockResolvedValue(pending);
+      });
+
+      await expect(
+        service.createWorkspace('profile_abc', 'user@example.com', 'User One', { name: 'Acme', slug: 'acme' }),
+      ).rejects.toThrow(ForbiddenException);
+      expect(controlPlane.linkPendingMemberships).toHaveBeenCalledWith({
+        id: 'profile_abc',
+        email: 'user@example.com',
+        displayName: 'User One',
+      });
+      expect(controlPlane.createWorkspace).not.toHaveBeenCalled();
+    });
+
     it('lets a consultant who holds another role elsewhere create a workspace', async () => {
       controlPlane.listWorkspacesForUser.mockResolvedValue([
         { id: 'ws_1', role: 'consultant' },

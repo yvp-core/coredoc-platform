@@ -26,6 +26,7 @@ import { CurrentUser, type AuthUser } from '../decorators/current-user.decorator
 import { ControlPlaneService } from '../../database/control-plane.service.js';
 import { INTENT_CONFIG, configFromEnv, type IntentConfig } from '../../config/app-config.js';
 import { intentEnabledForActor } from '../../modules/intent/intent-rollout.js';
+import { WorkspaceMemberRole } from '../../modules/members/dto/workspace-role.enum.js';
 import {
   CSRF_HEADER,
   CSRF_HEADER_VALUE,
@@ -272,17 +273,21 @@ export class WebAuthController {
     const workspaces = await this.controlPlane.listWorkspacesForUser(user.id);
     return {
       user,
-      workspaces: workspaces.map((w) => ({
-        id: w.id,
-        name: w.name,
-        slug: w.slug,
-        role: w.role,
-        // Per actor: the web gates the Intent nav and route on this, so a role
-        // outside the TEMPORARY `INTENT_ROLES` list sees intent as off.
-        intentEnabled: intentEnabledForActor(w.intentEnabled, w.role, this.intent),
-        // Gates the Agent runs nav: enabled, or the workspace already has runs.
-        agentRunsEnabled: w.agentRunsEnabled,
-      })),
+      workspaces: workspaces.map((w) => {
+        // A consultant reads neither intent nor agent runs; its own page needs neither flag.
+        const consultant = w.role === WorkspaceMemberRole.Consultant;
+        return {
+          id: w.id,
+          name: w.name,
+          slug: w.slug,
+          role: w.role,
+          // Per actor: the web gates the Intent nav and route on this, so a role
+          // outside the TEMPORARY `INTENT_ROLES` list sees intent as off.
+          intentEnabled: !consultant && intentEnabledForActor(w.intentEnabled, w.role, this.intent),
+          // Gates the Agent runs nav: enabled, or the workspace already has runs.
+          agentRunsEnabled: !consultant && w.agentRunsEnabled,
+        };
+      }),
     };
   }
 }

@@ -484,6 +484,19 @@ describe.skipIf(!TEST_DATABASE_URL)('cloud agent runs: limits, cancel and failur
       }
     });
 
+    it('a run whose owner became a consultant fails with run_owner_removed instead of getting its turn', async () => {
+      const run = await startRun();
+      const binding = { workspaceId, userId: MEMBER.id, resourceType: 'workspace' };
+      await prisma.accessBinding.updateMany({ where: binding, data: { role: 'consultant' } });
+      try {
+        await claim().expect(204);
+        const failed = await prisma.cloudAgentRun.findUniqueOrThrow({ where: { id: run.id } });
+        expect(failed).toMatchObject({ status: 'failed', failureCode: 'run_owner_removed' });
+      } finally {
+        await prisma.accessBinding.updateMany({ where: binding, data: { role: 'member' } });
+      }
+    });
+
     it('a paused GitHub connector fails the run with connector_inactive', async () => {
       const run = await startRun();
       await prisma.deliveryConnector.updateMany({

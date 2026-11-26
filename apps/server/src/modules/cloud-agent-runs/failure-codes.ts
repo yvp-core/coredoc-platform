@@ -5,7 +5,7 @@ export const FAILURE_MESSAGES: Record<RunFailureCode, string> = {
   invalid_repository_label: 'A repository label names no eligible workspace repository.',
   too_many_repositories: 'More repositories were named than the run’s cap allows.',
   issue_not_readable: 'The Jira issue could not be read through the workspace’s Jira connector.',
-  run_owner_removed: 'The member this run acts as is no longer in the workspace.',
+  run_owner_removed: 'The member this run acts as is no longer in the workspace or can no longer read it.',
   connector_inactive: 'The workspace’s Jira or GitHub connector is missing or paused.',
   plugin_missing: 'The workflow plugin or its skills did not load in the runner.',
   agent_error: 'The model or Claude Code failed: authentication, unavailable after retries, or crashed.',
