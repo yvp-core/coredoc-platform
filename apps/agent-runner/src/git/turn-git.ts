@@ -161,7 +161,7 @@ export class TurnGit {
     const { git, scanner } = this.options;
     const message = join(this.options.tmp, 'commit-message.txt');
     const subject = title
-      ? `${this.options.issueKey}: ${withoutIssueKey(this.options.issueKey, title.replace(/\s+/g, ' '))}`
+      ? commitSubject(this.options.issueKey, title)
       : `wip(${this.options.issueKey}): turn ${this.options.turnNumber}`;
     await writeFile(message, `${subject}\n`);
     // The session could rewrite anything under .git: restore what git reads before running any.
@@ -336,6 +336,11 @@ export class TurnGit {
     }
     throw new TurnFailure(RunFailureCode.GithubError, `git ${what} kept failing: ${last}`);
   }
+}
+
+export function commitSubject(issueKey: string, title: string): string {
+  const rest = withoutIssueKey(issueKey, title.replace(/\s+/g, ' '));
+  return rest ? `${issueKey}: ${rest}` : issueKey;
 }
 
 /** Why GitHub refused the push for good; null for none, and for a GitHub 500, which is retried like a network failure. */
