@@ -839,3 +839,64 @@ describe('McpRewriteMiddleware — agent runner tokens work only on the runner A
     expect(res.body).toEqual({ error: 'Agent runner tokens may access only the agent runner API' });
   });
 });
+
+describe('McpRewriteMiddleware — a role that cannot read the workspace never reaches MCP', () => {
+  it.each([
+    ['a user JWT on the workspace-scoped path', `/api/v1/workspaces/${WS_A}/mcp`, 'jwt-token'],
+    ['a service token on the workspace-scoped path', `/api/v1/workspaces/${WS_A}/mcp`, CDT_TOKEN],
+    ['a service token on the direct root path', '/mcp', CDT_TOKEN],
+  ])('refuses a consultant with %s with 403', async (_name, url, token) => {
+    const controlPlane = makeControlPlane({
+      getServiceTokenByHash: vi.fn().mockResolvedValue(serviceTokenRow()),
+      getMember: vi.fn().mockResolvedValue({ role: 'consultant' }),
+    });
+    const middleware = new McpRewriteMiddleware(makeAuthService(), controlPlane);
+    const req = makeReq(url, bearer(token));
+    const res = makeRes();
+    const next = vi.fn();
+
+    await middleware.use(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toEqual({ error: 'Your workspace role does not allow MCP access' });
+    expect(req.userWorkspaceRole).toBeUndefined();
+  });
+
+  it('refuses a user JWT on the direct root path whose only workspace has the consultant role', async () => {
+    const controlPlane = makeControlPlane({
+      listWorkspacesForUser: vi.fn().mockResolvedValue([{ id: WS_A, slug: 'acme', name: 'Acme', role: 'consultant' }]),
+    });
+    const middleware = new McpRewriteMiddleware(makeAuthService(), controlPlane);
+    const res = makeRes();
+    const next = vi.fn();
+
+    await middleware.use(makeReq('/mcp', bearer('jwt-token')), res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('on the direct root path, selects only among workspaces the role can read', async () => {
+    const controlPlane = makeControlPlane({
+      listWorkspacesForUser: vi.fn().mockResolvedValue([
+        { id: WS_A, slug: 'acme', name: 'Acme', role: 'consultant' },
+        { id: WS_B, slug: 'globex', name: 'Globex', role: 'member' },
+      ]),
+    });
+    const middleware = new McpRewriteMiddleware(makeAuthService(), controlPlane);
+
+    const auto = makeReq('/mcp', bearer('jwt-token'));
+    const autoNext = vi.fn();
+    await middleware.use(auto, makeRes(), autoNext);
+    expect(autoNext).toHaveBeenCalledOnce();
+    expect(auto.workspaceId).toBe(WS_B);
+
+    const picked = makeReq('/mcp', { ...bearer('jwt-token'), [WORKSPACE_HEADER]: 'acme' });
+    const pickedRes = makeRes();
+    const pickedNext = vi.fn();
+    await middleware.use(picked, pickedRes, pickedNext);
+    expect(pickedNext).not.toHaveBeenCalled();
+    expect(pickedRes.statusCode).toBe(403);
+  });
+});

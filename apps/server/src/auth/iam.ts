@@ -6,7 +6,13 @@
  * Allow-only: there are no deny rules. A repo or intent domain is closed by
  * marking it `restricted`, which stops workspace bindings from reaching it.
  */
-export type Action = 'workspace.read' | 'workspace.manage' | 'workspace.own' | 'graph.read' | 'intent.read';
+export type Action =
+  | 'workspace.read'
+  | 'workspace.manage'
+  | 'workspace.own'
+  | 'graph.read'
+  | 'intent.read'
+  | 'consultant-runs.read';
 
 /** Roles that may be bound on a single repo. Managing roles exist on the workspace only. */
 export const REPO_ROLES = ['member'] as const;
@@ -15,14 +21,16 @@ export const REPO_ROLES = ['member'] as const;
 const READ: readonly Action[] = ['workspace.read', 'graph.read', 'intent.read'];
 
 export const ROLE_ACTIONS: Record<string, readonly Action[]> = {
-  owner: [...READ, 'workspace.manage', 'workspace.own'],
-  admin: [...READ, 'workspace.manage'],
+  owner: [...READ, 'workspace.manage', 'workspace.own', 'consultant-runs.read'],
+  admin: [...READ, 'workspace.manage', 'consultant-runs.read'],
   member: READ,
   // Same actions as member: the role differs only in what the intent UI offers it.
   product: READ,
   // Reads product knowledge (intent) but no code: neither the graph nor source.
   // A binding with another role on a repo still opens that repo to the person.
   support: ['workspace.read', 'intent.read'],
+  // An external person: the question threads of runs that work on no repository, nothing else.
+  consultant: ['consultant-runs.read'],
 };
 
 /** An unknown role allows nothing, so a role added to the data but not here fails closed. */

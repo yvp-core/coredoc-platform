@@ -62,6 +62,27 @@ describe('WorkspaceRoleGuard', () => {
     await expect(member.canActivate(createMockContext())).resolves.toBe(true);
   });
 
+  it.each(['member', 'code', 'admin', 'owner'])('refuses a consultant on %s routes', async (level) => {
+    vi.spyOn(reflector, 'getAllAndOverride').mockReturnValue(level);
+    const guard = new WorkspaceRoleGuard(reflector, createMockControlPlane('consultant'));
+
+    await expect(guard.canActivate(createMockContext())).rejects.toThrow(ForbiddenException);
+  });
+
+  it('admits consultant routes to consultant, admin and owner only', async () => {
+    vi.spyOn(reflector, 'getAllAndOverride').mockReturnValue('consultant');
+    for (const role of ['consultant', 'admin', 'owner']) {
+      await expect(
+        new WorkspaceRoleGuard(reflector, createMockControlPlane(role)).canActivate(createMockContext()),
+      ).resolves.toBe(true);
+    }
+    for (const role of ['member', 'product', 'support']) {
+      await expect(
+        new WorkspaceRoleGuard(reflector, createMockControlPlane(role)).canActivate(createMockContext()),
+      ).rejects.toThrow(ForbiddenException);
+    }
+  });
+
   it('allows member when member role required', async () => {
     vi.spyOn(reflector, 'getAllAndOverride').mockReturnValue('member');
     const guard = new WorkspaceRoleGuard(reflector, createMockControlPlane('member'));
