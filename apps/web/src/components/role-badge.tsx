@@ -4,6 +4,7 @@ const LABELS: Record<string, string> = {
   product: 'Product · can review',
   member: 'Member',
   support: 'Support · no code',
+  consultant: 'Consultant',
 };
 
 export function RoleBadge({ role }: { role: string }) {

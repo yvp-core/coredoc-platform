@@ -15,7 +15,7 @@ import { EmptyNote } from '@/components/empty-note';
 import { PageHead } from '@/components/page-head';
 import { QueryBoundary } from '@/components/query-boundary';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -28,6 +28,7 @@ import {
   waitingForRunnerSince,
 } from '@/features/agent-runs/agent-run-presentation';
 import { Table, Td, Th, Tr } from '@/features/teams/table';
+import { hasAdminAccess } from '@/lib/roles';
 import { formatRelativeTime } from '@/lib/time';
 
 import { findWorkspace } from './workspace';
@@ -200,7 +201,21 @@ export function WorkspaceAgentRuns() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHead title="Agent runs" sub="Jira issues taken to draft pull requests by your agent runner" />
+      <PageHead
+        title="Agent runs"
+        sub="Jira issues taken to draft pull requests by your agent runner"
+        right={
+          hasAdminAccess(workspace.role) && (
+            <Link
+              to="/consultant/$slug"
+              params={{ slug }}
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            >
+              Consultant view
+            </Link>
+          )
+        }
+      />
       <AvailabilityBanner wsId={workspace.id} />
       <RunnerStatus wsId={workspace.id} />
       <StartRunCard wsId={workspace.id} slug={slug} />

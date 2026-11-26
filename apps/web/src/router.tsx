@@ -8,6 +8,7 @@ import {
 } from '@tanstack/react-router';
 import { lazy } from 'react';
 import { meQueryOptions } from './api/queries/me.js';
+import { canOpenConsultantView, isConsultant } from './lib/roles.js';
 import { IndexPage, soleWorkspaceSlug } from './routes/index.js';
 import { LoginPage } from './routes/login.js';
 import { WorkspaceOverview } from './routes/overview.js';
@@ -28,6 +29,7 @@ const WorkspaceAgentRuns = lazy(() =>
   import('./routes/agent-runs.js').then((m) => ({ default: m.WorkspaceAgentRuns })),
 );
 const WorkspaceAgentRun = lazy(() => import('./routes/agent-run.js').then((m) => ({ default: m.WorkspaceAgentRun })));
+const ConsultantPage = lazy(() => import('./routes/consultant.js').then((m) => ({ default: m.ConsultantPage })));
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -73,11 +75,40 @@ const workspaceRoute = createRoute({
   path: '/w/$slug',
   beforeLoad: async ({ context, params }) => {
     const me = await context.queryClient.ensureQueryData(meQueryOptions);
-    if (!findWorkspace(me, params.slug)) {
+    const workspace = findWorkspace(me, params.slug);
+    if (!workspace) {
       throw redirect({ to: '/' });
+    }
+    // Every other workspace read is refused to a consultant, so no page under /w/$slug can render for one.
+    if (isConsultant(workspace.role)) {
+      throw redirect({ to: '/consultant/$slug', params: { slug: params.slug } });
     }
   },
   component: WorkspaceShell,
+});
+
+// A sibling of the workspace route, so WorkspaceShell and its workspace reads never mount for a consultant.
+const consultantRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/consultant/$slug',
+  validateSearch: (search: Record<string, unknown>): { run?: string; offset?: number } => {
+    const offset = Number(search.offset);
+    return {
+      run: typeof search.run === 'string' && search.run !== '' ? search.run : undefined,
+      offset: Number.isInteger(offset) && offset > 0 ? offset : undefined,
+    };
+  },
+  beforeLoad: async ({ context, params }) => {
+    const me = await context.queryClient.ensureQueryData(meQueryOptions);
+    const workspace = findWorkspace(me, params.slug);
+    if (!workspace) {
+      throw redirect({ to: '/' });
+    }
+    if (!canOpenConsultantView(workspace.role)) {
+      throw redirect({ to: '/w/$slug', params: { slug: params.slug } });
+    }
+  },
+  component: ConsultantPage,
 });
 
 const workspaceIndexRoute = createRoute({
@@ -149,6 +180,7 @@ const routeTree = rootRoute.addChildren([
     workspaceAgentRunRoute,
     workspaceSettingsRoute,
   ]),
+  consultantRoute,
 ]);
 
 export function createAppRouter(options: { history?: RouterHistory } = {}) {
