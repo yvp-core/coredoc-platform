@@ -17,6 +17,18 @@ describe('buildGoogleProvider', () => {
     expect(() => buildGoogleProvider(auth({ ALLOWED_EMAIL_DOMAINS: '' }))).toThrow(/Login gate is empty/);
   });
 
+  it('asks Google for the account picker on every login', () => {
+    const provider = buildGoogleProvider(auth());
+    const options = provider.strategyOptions({
+      serverUrl: 'https://coredoc.example.com',
+      clientId: 'id',
+      clientSecret: 'secret',
+      callbackPath: 'callback',
+    });
+    const strategy = new provider.strategy(options, () => undefined);
+    expect(strategy.authorizationParams({})).toEqual({ prompt: 'select_account' });
+  });
+
   it('maps a verified in-domain user, keyed on the Google id with the full email as username', () => {
     const mapped = buildGoogleProvider(auth()).profileMapper(profile('Alice@Example.com', true));
     expect(mapped).toMatchObject({ id: 'g-123', username: 'Alice@Example.com', email: 'Alice@Example.com' });

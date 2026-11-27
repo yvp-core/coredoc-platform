@@ -71,6 +71,12 @@ export function chooseVerifiedEmail(emails: GitHubEmail[] | null | undefined): s
  */
 function makePolicyStrategy(fetchOrgs: boolean): typeof GitHubStrategy {
   return class extends GitHubStrategy {
+    // Without `prompt` GitHub signs a returning browser straight back into the
+    // account it used last, so a user who picked the wrong one can never switch.
+    authorizationParams(): object {
+      return { prompt: 'select_account' };
+    }
+
     override userProfile(accessToken: string, done: (err: unknown, profile?: unknown) => void): void {
       super.userProfile(accessToken, (err: unknown, profile: Record<string, unknown> | undefined) => {
         if (err || !profile) {
