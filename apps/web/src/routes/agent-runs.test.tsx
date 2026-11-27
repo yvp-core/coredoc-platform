@@ -1121,6 +1121,10 @@ describe('agent runs routes', () => {
       expect(within(drawer).getByRole('list', { name: 'Proposed' }).textContent).toBe(
         'JSON status output is opt-inCLI · StatusWaiting for Intent review',
       );
+      const candidate = within(drawer).getByRole('link', { name: 'JSON status output is opt-in' });
+      expect(candidate).toHaveAttribute('href', '/w/acme/intent?item=br-json-opt-in');
+      expect(candidate).toHaveAttribute('target', '_blank');
+      expect(within(drawer).queryByRole('link', { name: 'br-gone' })).toBeNull();
       expect(within(drawer).getByRole('link', { name: 'Open Intent review' })).toHaveAttribute(
         'href',
         '/w/acme/intent',

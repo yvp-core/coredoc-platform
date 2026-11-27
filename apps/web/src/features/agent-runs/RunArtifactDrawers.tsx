@@ -57,10 +57,12 @@ const AUTHORITY = {
 } as const;
 
 function IntentRows({
+  slug,
   label,
   refs,
   showAuthority,
 }: {
+  slug: string;
   label: string;
   refs: AgentRunIntentRef[];
   showAuthority: boolean;
@@ -80,7 +82,20 @@ function IntentRows({
                 className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border-soft px-2.5 py-2"
               >
                 <span className="min-w-0">
-                  <span className="block text-[13.5px] font-medium text-ink-1">{ref.title ?? ref.id}</span>
+                  {ref.title === null ? (
+                    <span className="block text-[13.5px] font-medium text-ink-1">{ref.id}</span>
+                  ) : (
+                    <Link
+                      to="/w/$slug/intent"
+                      params={{ slug }}
+                      search={{ item: ref.id }}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block text-[13.5px] font-medium text-ink-1 hover:text-blue hover:underline"
+                    >
+                      {ref.title}
+                    </Link>
+                  )}
                   <span className="block truncate text-[12px] text-ink-4">
                     {ref.title === null ? 'No longer in the product intent' : (ref.location ?? 'Product')}
                   </span>
@@ -110,8 +125,8 @@ export function IntentDrawer({
   const intent = activity.data?.intent ?? { read: [], proposed: [] };
   return (
     <RunDrawer title="Product intent" onClose={onClose}>
-      <IntentRows label="Read by the agent" refs={intent.read} showAuthority={false} />
-      <IntentRows label="Proposed" refs={intent.proposed} showAuthority />
+      <IntentRows slug={slug} label="Read by the agent" refs={intent.read} showAuthority={false} />
+      <IntentRows slug={slug} label="Proposed" refs={intent.proposed} showAuthority />
       {intent.proposed.length > 0 && (
         <Link to="/w/$slug/intent" params={{ slug }} className="mt-1 text-[13px] text-blue hover:underline">
           Open Intent review
