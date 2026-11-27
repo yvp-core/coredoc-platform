@@ -28,6 +28,13 @@ export function buildGoogleProvider(auth: AuthConfig = configFromEnv().auth): OA
   return {
     ...GoogleOAuthProvider,
     displayName: 'Google',
+    // Without `prompt` Google signs a returning browser straight back into the
+    // account it used last, so a user who picked the wrong one can never switch.
+    strategy: class extends GoogleOAuthProvider.strategy {
+      authorizationParams(options: object): object {
+        return { ...super.authorizationParams(options), prompt: 'select_account' };
+      }
+    },
     profileMapper: (profile: GoogleProfile): OAuthUserProfile => {
       const { value: email = '', verified } = profile.emails?.[0] ?? {};
       const id = String(profile.id ?? 'unknown');
