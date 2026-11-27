@@ -17,6 +17,7 @@ function mockPrisma() {
   return {
     oAuthClient: {
       upsert: vi.fn().mockResolvedValue({}),
+      findUnique: vi.fn().mockResolvedValue(null),
     },
     workspace: {
       findUnique: vi.fn().mockResolvedValue({ id: 'ws-1' }),
@@ -544,6 +545,19 @@ describe('WebAuthService', () => {
       expect(prisma.oAuthClient.upsert.mock.calls[0][0].create.redirect_uris).toEqual([
         'https://coredoc.example.com/api/v1/auth/web/callback',
         'https://ai-dashboard.example.com/api/v1/auth/web/callback',
+      ]);
+    });
+
+    it('keeps the callbacks another server registered on the same database', async () => {
+      prisma.oAuthClient.findUnique.mockResolvedValueOnce({
+        redirect_uris: ['https://coredoc.example.com/api/v1/auth/web/callback'],
+      });
+      process.env.SERVER_URL = 'http://localhost:3000';
+      await service.seedClient();
+
+      expect(prisma.oAuthClient.upsert.mock.calls[0][0].update.redirect_uris).toEqual([
+        'http://localhost:3000/api/v1/auth/web/callback',
+        'https://coredoc.example.com/api/v1/auth/web/callback',
       ]);
     });
 
