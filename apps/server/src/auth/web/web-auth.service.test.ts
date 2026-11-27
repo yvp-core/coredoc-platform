@@ -14,7 +14,10 @@ import type { PrismaService } from '../../database/prisma.service.js';
 const JWT_SECRET = 'a'.repeat(32);
 
 function mockPrisma() {
-  return {
+  const prisma = {
+    // The transaction client is the same mock: the seed's lock, read and write land on it.
+    $transaction: vi.fn((run: (tx: unknown) => unknown) => run(prisma)),
+    $executeRaw: vi.fn().mockResolvedValue(0),
     oAuthClient: {
       upsert: vi.fn().mockResolvedValue({}),
       findUnique: vi.fn().mockResolvedValue(null),
@@ -41,6 +44,7 @@ function mockPrisma() {
       findUnique: vi.fn().mockResolvedValue({ pending: false }),
     },
   };
+  return prisma;
 }
 
 function mockRes() {

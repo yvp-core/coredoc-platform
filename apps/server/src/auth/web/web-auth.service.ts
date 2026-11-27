@@ -475,20 +475,22 @@ export class WebAuthService {
    */
   async seedClient(): Promise<void> {
     const own = webOrigins().map((origin) => this.redirectUri(origin));
-    const existing = await this.prisma.oAuthClient.findUnique({ where: { client_id: WEB_CLIENT_ID } });
-    const redirectUris = [...new Set([...own, ...(existing?.redirect_uris ?? [])])];
-    const data = {
-      client_id: WEB_CLIENT_ID,
-      client_name: 'Coredoc Web',
-      redirect_uris: redirectUris,
-      grant_types: ['authorization_code', 'refresh_token'],
-      response_types: ['code'],
-      token_endpoint_auth_method: 'none',
-    };
-    await this.prisma.oAuthClient.upsert({
-      where: { client_id: WEB_CLIENT_ID },
-      create: data,
-      update: data,
+    const redirectUris = await this.prisma.$transaction(async (tx) => {
+      // Two servers booting at once would both read the old set, and the later
+      // write would drop the other's callback; the lock makes read+write one step.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`oauth-client-seed:${WEB_CLIENT_ID}`}, 0))`;
+      const existing = await tx.oAuthClient.findUnique({ where: { client_id: WEB_CLIENT_ID } });
+      const merged = [...new Set([...own, ...(existing?.redirect_uris ?? [])])];
+      const data = {
+        client_id: WEB_CLIENT_ID,
+        client_name: 'Coredoc Web',
+        redirect_uris: merged,
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+      };
+      await tx.oAuthClient.upsert({ where: { client_id: WEB_CLIENT_ID }, create: data, update: data });
+      return merged;
     });
     this.logger.log(`Seeded OAuth client ${WEB_CLIENT_ID} (redirect_uris=${redirectUris.join(', ')})`);
   }
