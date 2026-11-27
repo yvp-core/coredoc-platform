@@ -463,26 +463,34 @@ export class WebAuthService {
 
   /**
    * Idempotently upsert the `coredoc-web` public client on every boot, so a
-   * changed SERVER_URL / WEB_ORIGINS self-heals the registered redirect_uris
-   * instead of leaving a stale set that fails `validateRedirectUri` in the
-   * SDK's /authorize handler (an exact-match membership test against this
-   * array). This overwrite is also why hand-editing oauth_clients does not
-   * survive a restart — add the origin to WEB_ORIGINS instead.
+   * changed SERVER_URL / WEB_ORIGINS registers its redirect_uris instead of
+   * failing `validateRedirectUri` in the SDK's /authorize handler (an
+   * exact-match membership test against this array).
+   *
+   * Callbacks are added, never removed: more than one server may share a
+   * database (a local server started against a deployed one), and replacing
+   * the set with this server's own locked the deployment's users out of
+   * login. A retired host stays registered until it is deleted from
+   * oauth_clients by hand.
    */
   async seedClient(): Promise<void> {
-    const redirectUris = webOrigins().map((origin) => this.redirectUri(origin));
-    const data = {
-      client_id: WEB_CLIENT_ID,
-      client_name: 'Coredoc Web',
-      redirect_uris: redirectUris,
-      grant_types: ['authorization_code', 'refresh_token'],
-      response_types: ['code'],
-      token_endpoint_auth_method: 'none',
-    };
-    await this.prisma.oAuthClient.upsert({
-      where: { client_id: WEB_CLIENT_ID },
-      create: data,
-      update: data,
+    const own = webOrigins().map((origin) => this.redirectUri(origin));
+    const redirectUris = await this.prisma.$transaction(async (tx) => {
+      // Two servers booting at once would both read the old set, and the later
+      // write would drop the other's callback; the lock makes read+write one step.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`oauth-client-seed:${WEB_CLIENT_ID}`}, 0))`;
+      const existing = await tx.oAuthClient.findUnique({ where: { client_id: WEB_CLIENT_ID } });
+      const merged = [...new Set([...own, ...(existing?.redirect_uris ?? [])])];
+      const data = {
+        client_id: WEB_CLIENT_ID,
+        client_name: 'Coredoc Web',
+        redirect_uris: merged,
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+      };
+      await tx.oAuthClient.upsert({ where: { client_id: WEB_CLIENT_ID }, create: data, update: data });
+      return merged;
     });
     this.logger.log(`Seeded OAuth client ${WEB_CLIENT_ID} (redirect_uris=${redirectUris.join(', ')})`);
   }
